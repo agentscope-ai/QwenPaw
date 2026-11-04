@@ -8,6 +8,7 @@ import re
 import shutil
 
 import create_plan
+import native_cli
 import validate_skill
 
 DIGEST_PATTERN = re.compile(r"[a-f0-9]{64}")
@@ -125,12 +126,14 @@ def main() -> int:
         return 3
 
     try:
-        from qwenpaw.agents.skill_system.workspace_service import SkillService
-
-        result = SkillService(workspace).install_skill_directory(
-            skill_dir,
-            enable=True,
-            source="agent",
+        result = native_cli.skills(
+            "install",
+            str(skill_dir),
+            "--workspace",
+            str(workspace),
+            "--enable",
+            "--source",
+            "agent",
         )
     except Exception as exc:
         _emit_error(
@@ -141,7 +144,7 @@ def main() -> int:
         )
         return 5
 
-    if not result["success"]:
+    if not result["ok"]:
         if result.get("reason") == "conflict":
             create_plan.emit(
                 {
@@ -162,7 +165,11 @@ def main() -> int:
         _emit_error(
             "publish-failed",
             plan["name"],
-            f"SkillService rejected the install: {result.get('reason', 'unknown')}",
+            str(
+                result.get("errors")
+                or result.get("message")
+                or result.get("reason", "unknown")
+            ),
             warnings=validation["warnings"],
         )
         return 5

@@ -233,6 +233,8 @@ class ModelService:
                         f"{type(exc).__name__}: {exc}",
                     ) from exc
                 finally:
+                    from ..utils.io_utils import run_async_to_completion
+
                     owned.closing = True
                     _stream_observer.reset(observer_token)
                     _stream_tasks.reset(owner_token)
@@ -249,8 +251,10 @@ class ModelService:
                             pass
                     while owned.streams or owned.scopes:
                         for close in owned.closers():
+                            closing = asyncio.create_task(close())
+                            plugin._instance.activity.retain_cleanup(closing)
                             try:
-                                await close()
+                                await run_async_to_completion(closing)
                             except (Exception, asyncio.CancelledError):
                                 pass
                         if owned.streams or owned.scopes:

@@ -10,7 +10,7 @@ use tauri::Manager;
 
 /// Builds the command used to start the Python backend sidecar.
 #[cfg(debug_assertions)]
-pub(super) fn create(_app: &tauri::AppHandle) -> Result<Command, String> {
+pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source_path = repo_root.join("src");
     let mut command = if command_exists("uv") {
@@ -46,6 +46,7 @@ pub(super) fn create(_app: &tauri::AppHandle) -> Result<Command, String> {
         "QWENPAW_CORS_ORIGINS",
         format!("{origins},http://localhost:5173,http://127.0.0.1:5173"),
     );
+    command.envs(crate::runtime_env::collect(app));
     Ok(command)
 }
 
@@ -103,6 +104,7 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     } else {
         log::warn!("[backend] bundled node runtime not found");
     }
+    command.envs(crate::runtime_env::collect(app));
     Ok(command)
 }
 

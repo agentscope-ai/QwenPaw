@@ -32,7 +32,7 @@ from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
-    decision_settings,
+    decision_model_configured,
     session_model,
     session_preference,
     thinking_view,
@@ -144,18 +144,6 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
 
 async def _persist_pending_model_settings(workspace, chat, request_context):
     """Bind first-turn model and reasoning before building the runtime."""
-    pending_decision = request_context.pop("session_decision_enabled", None)
-    if pending_decision is not None:
-        if not isinstance(pending_decision, bool):
-            raise HTTPException(422, "Invalid decision preference")
-        chat = await workspace.chat_manager.set_session_decision(
-            chat.id,
-            pending_decision,
-            only_if_unset=True,
-        )
-        if chat is None:
-            raise HTTPException(409, "Session disappeared before saving")
-
     pending_model = request_context.pop(f"session_model", None)
     if pending_model is not None and session_model(chat.meta) is None:
         try:
@@ -233,16 +221,14 @@ async def _persist_pending_project_dirs(
         request_context,
     )
     if str(request_context.get("approval_level", "")).upper() == "JEV":
-        runtime = (chat.meta or {}).get("runtime_context") or {}
         config = await run_sync_io(load_agent_config, workspace.agent_id)
-        enabled = await run_sync_io(
-            decision_settings,
+        configured = await run_sync_io(
+            decision_model_configured,
             config,
-            runtime.get("decision_enabled"),
         )
-        if not enabled["enabled"]:
+        if not configured:
             # A requested decision review must not become automatic execution
-            # when the model is unavailable or disabled.
+            # when the model is unavailable.
             request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
@@ -551,6 +537,7 @@ async def post_console_chat(
                     chat_id=chat.id,
                     user_message=first_text,
                     placeholder_name=name,
+                    request=native_payload,
                 ),
             )
 

@@ -42,6 +42,9 @@ src/qwenpaw/console/
 # Docs bundled at build time (copied from website/public/docs/)
 src/qwenpaw/docs/
 
+# Official channel bundles generated for editable installs
+src/qwenpaw/official_channels/
+
 # frontend (website)
 website/node_modules/
 website/.vite/
@@ -153,5 +156,6 @@ local-docs/
 docs-site/
 
 # Local review notes
+.local-review/
 docs/reviews/
 tmp/

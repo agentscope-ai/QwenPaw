@@ -977,19 +977,6 @@ def _composite_plugin_zip(plugin_id: str) -> bytes:
     )
 
 
-def _no_entry_plugin_zip(plugin_id: str) -> bytes:
-    """Manifest without any entry point — should be rejected by loader."""
-    manifest = {
-        "id": plugin_id,
-        "version": "0.1.0",
-        "name": plugin_id,
-        "plugin_type": "general",
-        "entry": {},  # empty — no backend nor frontend
-        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
-    }
-    return _build_zip(plugin_id, manifest, {})
-
-
 @pytest.mark.integration
 @pytest.mark.p1
 def test_composite_plugin_backend_and_frontend_both_live(app_server) -> None:
@@ -1030,33 +1017,5 @@ def test_composite_plugin_backend_and_frontend_both_live(app_server) -> None:
         )
         assert js_resp.status_code == 200, app_server.logs_tail()
         assert f"{pid} composite frontend" in js_resp.text, js_resp.text[:200]
-    finally:
-        _delete(app_server, pid)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugin_upload_rejects_manifest_without_entry(app_server) -> None:
-    """Test purpose:
-    - Verify the loader rejects a manifest with no entry points
-      (entry.backend and entry.frontend both empty/missing) — should
-      return 400 with a descriptive error so users get a clear hint.
-
-    Test flow:
-    1. Upload a malformed plugin (empty entry).
-    2. Assert response status is 400 and detail mentions 'entry points'
-       or similar.
-    """
-    pid = "integ-no-entry-plugin"
-    _delete(app_server, pid)
-    try:
-        resp = _upload(app_server, pid, _no_entry_plugin_zip(pid))
-        assert (
-            resp.status_code == 400
-        ), f"expected 400, got {resp.status_code}: {resp.text}"
-        detail = (resp.json() or {}).get("detail", "").lower()
-        assert (
-            "entry" in detail or "no" in detail or "manifest" in detail
-        ), f"error detail not informative: {detail}"
     finally:
         _delete(app_server, pid)

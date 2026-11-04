@@ -868,7 +868,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "Nenhum",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Adicionar Skills",
     "model": "Modelo",
     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
     "modelPlaceholder": "Use global Padrao",
@@ -1631,6 +1630,10 @@
     "selectAtLeastOneDay": "Selecione pelo menos um dia."
   },
   "channels": {
+    "qrcodeInstallRequired": "Instale o plugin para escanear um código QR",
+    "runtime": {
+      "missing_code": "Plugin não instalado"
+    },
     "title": "Canais",
     "description": "Manage and configure message channels",
     "loading": "Carregando channels...",
@@ -2049,6 +2052,9 @@
     "emptyValue": "String vazia"
   },
   "modelSelector": {
+    "subagentModel": "Modelo do subagente",
+    "chooseFallback": "Modelo de reserva",
+    "enableFallback": "Usar modelo de reserva em caso de falha",
     "noFallback": "Não usar",
     "selectModel": "Selecionar Modelo",
     "noConfiguredModels": "Nenhum modelo configurado",
@@ -2146,6 +2152,7 @@
     "retry": "Tentar novamente"
   },
   "models": {
+    "primaryModel": "Modelo principal",
     "disableBtn": "Desativar",
     "discoveryOriginApi": "Detectado via API",
     "discoveryOriginCatalog": "Catálogo oficial",
@@ -2931,6 +2938,8 @@
     "rubricPrompt": "Critérios de Conclusão em Linguagem Natural",
     "rubricPromptTooltip": "O prompt injetado para pedir ao agente que avalie a conclusão da tarefa",
     "rubricDesc": "Aplica critérios de conclusão em linguagem natural a respostas de texto sem chamadas de ferramentas e pede ao agente para continuar se ainda houver trabalho.",
+    "rubricUseDecisionModel": "Usar o modelo de decisão para auxiliar na autoverificação",
+    "rubricUseDecisionModelHelp": "A conversa e os resultados das ferramentas são enviados ao modelo de decisão selecionado. Ele pode indicar algo que o agente deixou de fazer. Se não houver sugestão ou o modelo estiver indisponível, o agente faz a autoverificação habitual.",
     "rubricPromptPlaceholder": "Você não chamou nenhuma ferramenta. Se a tarefa está completa, confirme. Caso contrário, continue com chamadas de ferramentas.",
     "rubricMaxInterventions": "Máximo de Rodadas de Avaliação",
     "rubricMaxInterventionsTooltip": "Máximo de verificações de conclusão para respostas de texto sem chamadas de ferramentas em um turno.",
@@ -3508,6 +3517,24 @@
     "backToApp": "Voltar ao aplicativo",
     "searchPlaceholder": "Pesquisar configurações",
     "noResults": "Nenhuma configuração correspondente",
+    "searchSelectTask": "Selecione uma tarefa para editar ou crie uma nova para localizar esta configuração.",
+    "searchSelectChannel": "Selecione um canal para localizar esta configuração.",
+    "searchSelectObject": "Selecione um item e abra suas configurações. Alguns campos dependem do modo selecionado.",
+    "searchChooseLoop": "Selecione o modo Loop correspondente. Alguns parâmetros aparecem após a ativação da opção relacionada.",
+    "searchConditionalSetting": "Selecione o modo aplicável ou ative a opção relacionada para definir esta configuração.",
+    "mcpJsonConfig": "Configuração JSON avançada",
+    "searchToolAvailability": "A disponibilidade das ferramentas depende do agente, dos plugins instalados e do modo atual.",
+    "searchNativeContextOnly": "Disponível apenas para perfis que usam a estratégia de contexto Native legada.",
+    "searchScrollContextOnly": "Disponível para a estratégia de contexto Scroll.",
+    "searchReMeOnly": "Disponível quando o backend de memória ReMe Light está selecionado.",
+    "searchBuiltinSkillLanguage": "Selecione uma skill integrada com versões em vários idiomas e abra seus detalhes.",
+    "searchBuiltinSkillUpdate": "Selecione uma skill integrada para configurar suas atualizações automáticas.",
+    "searchBackupSecrets": "Abra o formulário de criação ou restauração de backup e selecione o escopo correspondente para configurar os segredos.",
+    "searchWhisperProvider": "Selecione Whisper API como provedor de transcrição para configurar seu provedor de API.",
+    "searchAgentTaskOnly": "Esta configuração está disponível apenas para tarefas de agente.",
+    "searchEnableFallback": "Ative os modelos de fallback para configurar a lista de fallback.",
+    "searchUnsupportedChannel": "Este canal não oferece suporte a estas configurações de controle de acesso.",
+    "searchUnsupportedBackend": "O roteamento de modelos está disponível para agentes QwenPaw.",
     "groups": {
       "application": "Configurações do aplicativo",
       "agentConfiguration": "Configuração do agente",
@@ -4786,6 +4813,8 @@
     "from": "De:",
     "requestedBy": "Por",
     "markRead": "Marcar como lida",
+    "unreadOnly": "Somente não lidas",
+    "emptyUnread": "Nenhuma mensagem não lida corresponde aos filtros atuais",
     "markAllRead": "Marcar todas como lidas",
     "markAllReadNoUnread": "Nenhuma mensagem não lida",
     "markAllReadSuccess": "{{count}} mensagens marcadas como lidas",
@@ -4988,6 +5017,9 @@
     "retry": "Tentar novamente"
   },
   "preview": {
+    "unavailable": "Visualização indisponível",
+    "showDetails": "Ver motivo",
+    "hideDetails": "Ocultar detalhes",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "Este arquivo está bloqueado pelo File Guard (proteção de arquivos sensíveis).",
       "OUTSIDE_WORKSPACE": "Este arquivo está fora do escopo do workspace. Ative \"Permitir Preview Fora do Workspace no Console\" em Configurações → Segurança → File Guard.",

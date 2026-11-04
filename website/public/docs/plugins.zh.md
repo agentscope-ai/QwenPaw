@@ -402,17 +402,16 @@ App 的聊天/任务流、TestHost 的聊天/工具流和 TestModel 流均返回
 FunctionTool 流也会关闭内部 SDK handler。工具 `timeout` 使用真实单调时钟
 deadline，`call.cancelled/check_cancelled()` 可供同步线程协作退出。
 
-显式 SDK 插件只能在当前进程中新增 Python 分发包；需要变更任何已安装分发的版本时，
-必须重启并先准备对应依赖环境，不先卸载旧插件或修改当前依赖。此规则同样覆盖传递依赖，
-以及版本相同但来源不同的重新安装。SDK 用全部已安装分发的精确版本约束执行只读解析，
-检查 pip JSON 报告或 uv dry-run 计划，再使用相同约束安装。无法识别的计划、不可审计的
-安装元数据会明确拒绝热安装。uv 计划格式当前验证于 0.8.15；未知格式不会猜测放行。
-`test` extra 固定该 uv 版本，作者验证使用目标虚拟环境的工具路径，不依赖本机全局 uv。
-满足版本约束或当前平台 marker 不适用的依赖不受此限制；旧插件门禁不变。
-安装锁内复核当前分发快照；固定全部已安装包也避免解析期间首次 import 的窗口，
-但不承诺能阻止管理员或其他进程同时修改共享环境。解析与安装也不是共享环境的原子事务。
-桌面冻结环境的 `--target` 解析可能计划重新复制已有依赖，此时同样拒绝热安装，
-需在停止进程后准备依赖；不能把这项保守保护理解为已验证所有桌面安装组合。
+SDK 插件与旧插件共用框架的依赖检查、安装和复核流程，不按 `sdk` 字段分流。
+框架合并 `plugin.json` 的 `dependencies` 与 `requirements.txt`；本地已满足或
+不适用于当前平台的依赖直接放行，不联网。开机只检查，用户显式安装、更新或修复
+才允许安装依赖。
+
+直接声明与框架保护的宿主包冲突时，框架拒绝安装，提示重启后端并准备依赖环境。
+取得安装锁后再次检查依赖是否满足，仍缺少依赖时调用公共 pip / uv 安装流程。
+桌面端使用随附 Python 安装到共享插件依赖目录，安装后复核依赖，通过后才加载插件。
+框架不做全环境多版本审计、版本锁定或完整安装计划预演；
+不保证拦截间接依赖造成的替换，也不提供共享依赖环境的原子回滚。
 
 公开异常为 `SDKError`、`SDKAccessError`、`SDKCompatibilityError`、`SDKRestartRequiredError`、`StaleContextError`、
 `ResourceError`、`ToolInputError` 和兼容导出的 `PluginBusyError`。
@@ -599,7 +598,7 @@ TestHost 使用隔离根目录并恢复宿主路径/单例；同时只允许一�
 `inject_failure` 支持 `before_commit/post_commit_cleanup` 两个有限故障点，
 `hits` 可确认是否命中。
 提交前失败走原回滚，提交后清理失败保留新版本并在结果 `errors` 记录。
-依赖变化需要重启时抛公开 `SDKRestartRequiredError`，不热替换依赖。
+SDK 插件被公共依赖关口判定需要重启时，抛公开 `SDKRestartRequiredError`。
 
 ```sh
 python -m qwenpaw.plugins.check ./my-plugin

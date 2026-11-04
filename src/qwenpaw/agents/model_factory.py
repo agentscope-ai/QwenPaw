@@ -54,6 +54,7 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
+from ..providers.model_selection import resolve_model_slot_override
 from ..providers.capping_formatter import (
     CappingFormatterMixin,
     MAX_INLINE_MEDIA_BYTES,
@@ -2074,45 +2075,6 @@ def _strip_top_level_message_name(
     return messages
 
 
-def _resolve_model_slot_override(model_slot_override: Any):
-    """Parse an optional per-request model override into a model slot."""
-    from ..config.config import ModelSlotConfig
-
-    slot = None
-    if isinstance(model_slot_override, ModelSlotConfig):
-        slot = model_slot_override
-    if isinstance(model_slot_override, dict):
-        try:
-            slot = ModelSlotConfig.model_validate(model_slot_override)
-        except Exception:
-            logger.warning(
-                "Ignoring invalid model_slot_override dict: %r",
-                model_slot_override,
-            )
-    if isinstance(model_slot_override, str):
-        # Use partition so version-tagged model names can contain ':'.
-        provider_id, sep, model_name = model_slot_override.partition(":")
-        if sep and provider_id.strip() and model_name.strip():
-            slot = ModelSlotConfig(
-                provider_id=provider_id.strip(),
-                model=model_name.strip(),
-            )
-        else:
-            logger.warning(
-                "Ignoring invalid model_slot_override string: %r",
-                model_slot_override,
-            )
-    if model_slot_override is not None and not isinstance(
-        model_slot_override,
-        (ModelSlotConfig, dict, str),
-    ):
-        logger.warning(
-            "Unsupported model_slot_override type: %s",
-            type(model_slot_override).__name__,
-        )
-    return slot
-
-
 def _bind_provider_id_to_model(
     model: ChatModelBase,
     provider_id: str,
@@ -2414,7 +2376,7 @@ def create_model_and_formatter(
 
     settings = _load_agent_model_settings(agent_id, agent_config)
     model_slot = settings.model_slot
-    slot = _resolve_model_slot_override(model_slot_override)
+    slot = resolve_model_slot_override(model_slot_override)
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 

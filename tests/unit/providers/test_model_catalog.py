@@ -44,7 +44,7 @@ def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
     assert len(catalog) == 31
-    assert sum(len(models) for models in catalog.values()) == 205
+    assert sum(len(models) for models in catalog.values()) == 228
     assert catalog["dashscope"][0].id == "qwen3.8-max"
     assert catalog["dashscope"][0].supports_image is True
     assert catalog["dashscope"][0].thinking_enabled is True
@@ -52,8 +52,9 @@ def test_packaged_catalog_snapshot() -> None:
         "deepseek-v4-pro",
         "deepseek-flash",
     ]
-    assert catalog["gemini"][0].id == "gemini-3.1-pro-preview"
+    assert catalog["gemini"][0].id == "gemini-4-argon"
     assert [model.id for model in catalog["minimax-cn"]] == [
+        "MiniMax-M3.1-Flash",
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -75,11 +76,11 @@ def test_packaged_catalog_snapshot() -> None:
         ("dashscope", "qwen3.7-max"),
         ("openai", "gpt-5.6-sol"),
         ("openai-response", "gpt-6.1-sol"),
-        ("minimax", "MiniMax-M3"),
-        ("kimi-intl", "kimi-k3"),
-        ("minimax-cn", "MiniMax-M3"),
-        ("kimi-cn", "kimi-k3"),
-        ("gemini", "gemini-3.1-pro-preview"),
+        ("minimax", "MiniMax-M3.1-Flash"),
+        ("kimi-intl", "kimi-k3.1-pro"),
+        ("minimax-cn", "MiniMax-M3.1-Flash"),
+        ("kimi-cn", "kimi-k3.1-pro"),
+        ("gemini", "gemini-4-argon"),
     }
     chat = {model.id: model for model in catalog[f"openai"]}
     responses = {model.id: model for model in catalog[f"openai-response"]}
@@ -154,6 +155,8 @@ def test_packaged_catalog_snapshot() -> None:
         "ark-code-latest": 262_144,
     }
     assert {model.id: model.max_input_length for model in catalog["mimo"]} == {
+        "mimo-v2.6-pro": 1_048_576,
+        "mimo-v2.6-flash": 1_048_576,
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,
     }
@@ -259,6 +262,42 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
         for model in models
         if model.max_output_length is not None
     )
+
+
+@pytest.mark.parametrize(
+    "version,published_at",
+    [
+        ("2026.10.26.1", "2026-10-26T00:00:00Z"),
+        ("2026.10.27.1", "2026-10-27T00:00:00Z"),
+    ],
+)
+def test_packaged_refresh_ignores_previous_release_ota(
+    tmp_path: Path,
+    version: str,
+    published_at: str,
+) -> None:
+    """The refreshed catalog must supersede previous release caches."""
+    ota = tmp_path / "ota.json"
+    missing = tmp_path / "missing.json"
+    _write_catalog(
+        ota,
+        {
+            "mimo-tokenplan": [
+                {"id": "mimo-v2.5-pro", "name": "Previous default"},
+            ],
+        },
+        catalog_version=version,
+        published_at=published_at,
+    )
+    expected = model_catalog.load_model_catalog(
+        ota_path=missing,
+        local_path=missing,
+    )
+    actual = model_catalog.load_model_catalog(
+        ota_path=ota,
+        local_path=missing,
+    )
+    assert actual == expected
 
 
 def test_stale_ota_is_ignored_but_local_override_still_applies(

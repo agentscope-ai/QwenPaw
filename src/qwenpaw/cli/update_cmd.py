@@ -583,7 +583,10 @@ def run_update_worker(plan_path: str | Path) -> int:
     """Run the update worker and stream installer output."""
     path = Path(plan_path)
     plan = _load_worker_plan(path)
-    command = [str(part) for part in plan["command"]]
+    commands = [plan["command"]]
+    if plan.get("prepare_channels_command"):
+        commands.append(plan["prepare_channels_command"])
+    commands = [[str(part) for part in command] for command in commands]
 
     _wait_for_process_exit(plan.get("launcher_pid"))
 
@@ -595,24 +598,28 @@ def run_update_worker(plan_path: str | Path) -> int:
     click.echo(f"[qwenpaw] Using installer: {plan['installer_label']}")
 
     try:
-        if command[1:3] == ["-m", "pip"]:
-            if not require_pip(command[0]):
-                raise RuntimeError(
-                    "pip is missing from the update environment",
-                )
-        elif command[1:3] == ["pip", "install"]:
-            require_uv(command[0])
-        with subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            **_subprocess_text_kwargs(),
-            bufsize=1,
-        ) as proc:
-            if proc.stdout is not None:
-                for line in proc.stdout:
-                    click.echo(line.rstrip())
-            return_code = proc.wait()
+        for command in commands:
+            if command[1:3] == ["-m", "pip"]:
+                if not require_pip(command[0]):
+                    raise RuntimeError(
+                        "pip is missing from the update environment",
+                    )
+            elif command[1:3] == ["pip", "install"]:
+                require_uv(command[0])
+        for command in commands:
+            with subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                **_subprocess_text_kwargs(),
+                bufsize=1,
+            ) as proc:
+                if proc.stdout is not None:
+                    for line in proc.stdout:
+                        click.echo(line.rstrip())
+                return_code = proc.wait()
+            if return_code:
+                break
     except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
         click.echo(f"[qwenpaw] Update failed: {exc}")
         return_code = 1
@@ -766,6 +773,15 @@ def update_cmd(ctx: click.Context, yes: bool, prerelease: bool) -> None:
         "latest_version": latest_version,
         "installer_label": installer_label,
         "command": command,
+        "prepare_channels_command": [
+            info.python_executable,
+            "-E",
+            "-P",
+            "-m",
+            "qwenpaw",
+            "plugins",
+            "prepare-upgrade",
+        ],
         "install": asdict(info),
         "launcher_pid": os.getpid() if sys.platform == "win32" else None,
     }

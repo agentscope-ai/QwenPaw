@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "catalog_version": "2026.10.26.1",
-  "published_at": "2026-10-26T00:00:00Z",
+  "catalog_version": "2026.10.28.1",
+  "published_at": "2026-10-28T00:00:00Z",
   "source_url": "https://models.dev/api.json",
   "providers": {
     "openrouter": {
@@ -2133,7 +2133,7 @@
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "19177b566d5992723ff3cd3389715c6cdca09dda53fc8efee082fa2ebf33d6f1",
+      "sha256": "17a286baf2c63dea09a3fb387727a4964ab660ab077f7eda95e40d8487907ed0",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -2430,7 +2430,10 @@
         "openrouter/free",
         "cohere/north-mini-code:free",
         "liquid/lfm-2.5-2.6b:free",
-        "z-ai/glm-5.2:free"
+        "z-ai/glm-5.2:free",
+        "nvidia/nemotron-3.5-super-vl:free",
+        "recursive/flint-v1.0:free",
+        "xingchen-agi/xing4.0-29b-a4b:free"
       ]
     },
     "openai": {
@@ -5344,7 +5347,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "630339f5b869ac5d9a2febce3f5cb03b037ff1a7612e127b9f9f16c2cbe52c6f",
+      "sha256": "ed266ee8b8c7a96ae6d3f79f0b4d5265227f60881d1986d0651f73f2afc38f07",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -5362,7 +5365,10 @@
         "claude-sonnet-4-5",
         "claude-opus-4-8",
         "claude-sonnet-5",
-        "claude-opus-4-5-20251101"
+        "claude-opus-4-5-20251101",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5"
       ],
       "defaults": {
         "api_urls": [
@@ -5377,12 +5383,15 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "2b2f1e05dc1fd0c6761c2335796e5d41afabdd87a34c7acb7b0a6b4e8526a720",
+      "sha256": "88dc87d0d81081793526122d8222622135ef6d99847e80b4ebaf9065e8409bb3",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
       ],
       "templates": [
+        "gemini-4-argon",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-pro-preview",
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
@@ -5409,14 +5418,12 @@
         "gemini-2.5-flash-preview-tts",
         "gemini-embedding-001",
         "gemini-3.1-flash-image",
-        "gemini-3.5-flash-lite",
         "gemini-3-pro-image-preview",
         "gemini-3.1-flash-tts-preview",
         "veo-3.1-lite-generate-preview",
         "gemini-flash-lite-latest",
         "gemma-4-31b-it",
         "gemini-embedding-2",
-        "gemini-3.8-flash",
         "gemini-3.5-live-translate-preview",
         "lyria-3-pro-preview",
         "gemini-3.7-flash",
@@ -5432,6 +5439,9 @@
         "remote_id": "google",
         "template_owner": true,
         "default_model_ids": [
+          "gemini-4-argon",
+          "gemini-3.8-flash",
+          "gemini-3.5-flash-lite",
           "gemini-3.1-pro-preview",
           "gemini-3-flash-preview",
           "gemini-3.1-flash-lite-preview",
@@ -5442,13 +5452,82 @@
         ],
         "models": [
           {
+            "id": "gemini-4-argon",
+            "name": "Gemini 4 Argon",
+            "max_input_length": 1048576,
+            "max_output_length": 1048576,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://ai.google.dev/gemini-api/docs/latest-model",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://ai.google.dev/gemini-api/docs/latest-model",
+                "updated_at": "2026-10-26"
+              },
+              "max_output_length": {
+                "source": "documentation",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/long-decode",
+                "updated_at": "2026-10-26",
+                "note": "Unified context shared by input, thinking and output. SDK automatic continuation is required above 65536 output tokens."
+              }
+            },
+            "released_at": "2026-10-13",
+            "is_recommended": true,
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "supports_off": false,
+              "wire": "gemini_level"
+            }
+          },
+          {
+            "id": "gemini-3.8-flash",
+            "name": "gemini-3.8-flash",
+            "max_input_length": 1048576,
+            "max_output_length": 65536,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "released_at": "2026-09-02"
+          },
+          {
+            "id": "gemini-3.5-flash-lite",
+            "name": "gemini-3.5-flash-lite",
+            "max_input_length": 1048576,
+            "max_output_length": 65536,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "released_at": "2026-07-21"
+          },
+          {
             "id": "gemini-3.1-pro-preview",
             "name": "Gemini 3.1 Pro Preview",
             "supports_image": true,
             "supports_video": true,
             "probe_source": "documentation",
             "is_free": false,
-            "is_recommended": true,
+            "is_recommended": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -5710,7 +5789,7 @@
     },
     "deepseek": {
       "path": "providers/deepseek.json",
-      "sha256": "90439cf16559962f1252fe3b756d8f4052fb4a0a2b5efad4f859fbf8f9864c3f",
+      "sha256": "05b6ec7123b981ce5287db27ddd767cc45e33fb42febc110e0fcc2a59b6d8f9a",
       "api_urls": [
         "https://api.deepseek.com"
       ],
@@ -5796,7 +5875,7 @@
           },
           {
             "id": "deepseek-flash",
-            "name": "deepseek-flash",
+            "name": "DeepSeek V4.1 Flash 1017",
             "max_input_length": 1000000,
             "max_output_length": 384000,
             "max_output_length_source": "catalog",
@@ -5833,6 +5912,12 @@
               },
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              },
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-10-26",
+                "note": "This API ID is served by DeepSeek-V4.1-Flash-1017."
               }
             },
             "released_at": "2026-09-10",
@@ -5853,11 +5938,13 @@
     },
     "kimi-cn": {
       "path": "providers/kimi-cn.json",
-      "sha256": "63eeca08754e97d02461b3d7873e9708e5b03ff7f8b438129499e6d6e4f837c8",
+      "sha256": "3cc4acd679be9e2f0e379ddf73f818669c807fabfc5d8d668bdcd102eb13d105",
       "api_urls": [
         "https://api.moonshot.cn/v1"
       ],
       "templates": [
+        "kimi-k3.1-pro",
+        "kimi-k3.1-pro-highspeed",
         "kimi-k3",
         "kimi-k2.7-code",
         "kimi-k2.7-code-highspeed",
@@ -5871,6 +5958,8 @@
         "remote_id": "moonshotai-cn",
         "template_owner": true,
         "default_model_ids": [
+          "kimi-k3.1-pro",
+          "kimi-k3.1-pro-highspeed",
           "kimi-k3",
           "kimi-k2.7-code",
           "kimi-k2.7-code-highspeed",
@@ -5879,13 +5968,90 @@
         ],
         "models": [
           {
+            "id": "kimi-k3.1-pro",
+            "name": "Kimi K3.1 Pro",
+            "max_input_length": 1048576,
+            "max_output_length": 1048576,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-23",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            },
+            "is_recommended": true
+          },
+          {
+            "id": "kimi-k3.1-pro-highspeed",
+            "name": "Kimi K3.1 Pro Highspeed",
+            "max_input_length": 1048576,
+            "max_output_length": 1048576,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-23",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            }
+          },
+          {
             "id": "kimi-k3",
             "name": "Kimi K3",
             "supports_image": true,
             "supports_video": true,
             "probe_source": "documentation",
             "is_free": false,
-            "is_recommended": true,
+            "is_recommended": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -6021,7 +6187,7 @@
     },
     "kimi-intl": {
       "path": "providers/kimi-intl.json",
-      "sha256": "79a86196c0b8e6a4f36a128549dd2f0280a6fe262ac5c95af976064ae736ab27",
+      "sha256": "3455810cb689167c85cf7af77ad936593d5fb2fee3576b30f332c488a6b6101b",
       "api_urls": [
         "https://api.moonshot.ai/v1"
       ],
@@ -6033,6 +6199,8 @@
         "remote_id": "moonshotai",
         "template_owner": false,
         "default_model_ids": [
+          "kimi-k3.1-pro",
+          "kimi-k3.1-pro-highspeed",
           "kimi-k3",
           "kimi-k2.7-code",
           "kimi-k2.7-code-highspeed",
@@ -6041,13 +6209,90 @@
         ],
         "models": [
           {
+            "id": "kimi-k3.1-pro",
+            "name": "Kimi K3.1 Pro",
+            "max_input_length": 1048576,
+            "max_output_length": 1048576,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-23",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            },
+            "is_recommended": true
+          },
+          {
+            "id": "kimi-k3.1-pro-highspeed",
+            "name": "Kimi K3.1 Pro Highspeed",
+            "max_input_length": 1048576,
+            "max_output_length": 1048576,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-23",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            }
+          },
+          {
             "id": "kimi-k3",
             "name": "Kimi K3",
             "supports_image": true,
             "supports_video": true,
             "probe_source": "documentation",
             "is_free": false,
-            "is_recommended": true,
+            "is_recommended": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -6183,7 +6428,7 @@
     },
     "kimi-codingplan": {
       "path": "providers/kimi-codingplan.json",
-      "sha256": "c5ae6ad261fb5d26c8efc16579ef5a70909b1de997081bdf83c593765d2f83b5",
+      "sha256": "5a59b0ab3c6251e9ce141a1d053bf2ec704e40bb9c4abf91268b83fa8b6f14ac",
       "api_urls": [
         "https://api.kimi.com/coding/v1"
       ],
@@ -6195,9 +6440,75 @@
         "remote_id": null,
         "template_owner": false,
         "default_model_ids": [
+          "k3.1-pro",
+          "k3.1-pro-highspeed",
           "kimi-for-coding"
         ],
         "models": [
+          {
+            "id": "k3.1-pro",
+            "name": "Kimi K3.1 Pro",
+            "max_input_length": 1048576,
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            },
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
+                "updated_at": "2026-10-26",
+                "note": "Maximum context is plan-dependent. K3.1 Pro defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
+              }
+            },
+            "released_at": "2026-10-23"
+          },
+          {
+            "id": "k3.1-pro-highspeed",
+            "name": "Kimi K3.1 Pro Highspeed",
+            "max_input_length": 1048576,
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "native"
+            },
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://www.kimi.com/code/docs/kimi-code/models.html",
+                "updated_at": "2026-10-26",
+                "note": "Maximum context is plan-dependent. K3.1 Pro Highspeed defaults to high effort on Coding Plan; the standard API defaults to max. Coding Plan documentation does not specify a separate maximum output length; it is intentionally left unknown rather than copied from the standard API."
+              }
+            },
+            "released_at": "2026-10-23"
+          },
           {
             "id": "kimi-for-coding",
             "name": "Kimi for Coding",
@@ -6226,20 +6537,23 @@
     },
     "minimax-cn": {
       "path": "providers/minimax-cn.json",
-      "sha256": "48788e394570d249201d5da1ce1cba80670814166952347081e316c17c3e78d0",
+      "sha256": "9c11b0aafdd167d361d9d7b03001f6eb982ed619361ca1dae84cbc1f3f94f2fb",
       "api_urls": [
+        "https://api.minimax.cn/anthropic",
         "https://api.minimaxi.com/anthropic",
         "https://api.minimaxi.com/anthropic/v1"
       ],
       "templates": [],
       "defaults": {
         "api_urls": [
+          "https://api.minimax.cn/anthropic",
           "https://api.minimaxi.com/anthropic",
           "https://api.minimaxi.com/anthropic/v1"
         ],
         "remote_id": "minimax-cn",
         "template_owner": false,
         "default_model_ids": [
+          "MiniMax-M3.1-Flash",
           "MiniMax-M3",
           "MiniMax-M2.7",
           "MiniMax-M2.7-highspeed",
@@ -6251,13 +6565,59 @@
         ],
         "models": [
           {
+            "id": "MiniMax-M3.1-Flash",
+            "name": "MiniMax M3.1 Flash",
+            "max_input_length": 1000000,
+            "max_output_length": 524288,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.cn/docs/api-reference/text-anthropic-api",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.cn/docs/api-reference/text-anthropic-api",
+                "updated_at": "2026-10-26"
+              },
+              "max_output_length": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.cn/docs/api-reference/text-chat-openai",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-19",
+            "is_recommended": true,
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "anthropic_adaptive"
+            }
+          },
+          {
             "id": "MiniMax-M3",
             "name": "MiniMax M3",
             "supports_image": true,
             "supports_video": true,
             "probe_source": "documentation",
             "is_free": false,
-            "is_recommended": true,
+            "is_recommended": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -6468,12 +6828,13 @@
     },
     "minimax": {
       "path": "providers/minimax.json",
-      "sha256": "199a5007c526fec4345ab6d548c752508d2bbb3ee0c47e4c4e32d5df52f4e62a",
+      "sha256": "d766473bb9c1681c199604c8b19e7ddb2e63a9fccdf8d3839b1c507e8d0406f5",
       "api_urls": [
         "https://api.minimax.io/anthropic",
         "https://api.minimax.io/anthropic/v1"
       ],
       "templates": [
+        "MiniMax-M3.1-Flash",
         "MiniMax-M3",
         "MiniMax-M2.7",
         "MiniMax-M2.7-highspeed",
@@ -6491,6 +6852,7 @@
         "remote_id": "minimax",
         "template_owner": true,
         "default_model_ids": [
+          "MiniMax-M3.1-Flash",
           "MiniMax-M3",
           "MiniMax-M2.7",
           "MiniMax-M2.7-highspeed",
@@ -6502,13 +6864,59 @@
         ],
         "models": [
           {
+            "id": "MiniMax-M3.1-Flash",
+            "name": "MiniMax M3.1 Flash",
+            "max_input_length": 1000000,
+            "max_output_length": 524288,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
+                "updated_at": "2026-10-26"
+              },
+              "max_output_length": {
+                "source": "documentation",
+                "reference": "https://platform.minimax.io/docs/api-reference/text-chat-openai",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-10-19",
+            "is_recommended": true,
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "anthropic_adaptive"
+            }
+          },
+          {
             "id": "MiniMax-M3",
             "name": "MiniMax M3",
             "supports_image": true,
             "supports_video": true,
             "probe_source": "documentation",
             "is_free": false,
-            "is_recommended": true,
+            "is_recommended": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -6719,19 +7127,20 @@
     },
     "zhipu-cn": {
       "path": "providers/zhipu-cn.json",
-      "sha256": "37507bf93fe81ec741186b4de0465dd92906d538aebeeb141a39f1d43afa7bb1",
+      "sha256": "2a16e2ab8b778a98f482a907e739ebecdd4c0b56d31b5e72947b95872f3bb781",
       "api_urls": [
         "https://open.bigmodel.cn/api/paas/v4"
       ],
       "templates": [
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.3-flashx",
         "glm-4.7-flash",
         "glm-5",
         "glm-5.2",
         "glm-5.1",
         "glm-5-turbo",
         "glm-5v-turbo",
-        "glm-5.3-flash",
-        "glm-5.3",
         "glm-4.7-flashx",
         "glm-4.5v",
         "glm-4.5",
@@ -6739,7 +7148,8 @@
         "glm-4.6v",
         "glm-4.6",
         "glm-4.5-air",
-        "glm-4.7"
+        "glm-4.7",
+        "glm-5.3-flashx-legal"
       ],
       "defaults": {
         "api_urls": [
@@ -6748,6 +7158,9 @@
         "remote_id": "zhipuai",
         "template_owner": true,
         "default_model_ids": [
+          "glm-5.3",
+          "glm-5.3-flash",
+          "glm-5.3-flashx",
           "glm-4.7-flash",
           "glm-5",
           "glm-5.2",
@@ -6756,6 +7169,108 @@
           "glm-5v-turbo"
         ],
         "models": [
+          {
+            "id": "glm-5.3",
+            "name": "glm-5.3",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": false,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-08-14",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            },
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            }
+          },
+          {
+            "id": "glm-5.3-flash",
+            "name": "glm-5.3-flash",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "ranking_id": "z-ai/glm-5.3-flash",
+            "released_at": "2026-08-26",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            },
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            }
+          },
+          {
+            "id": "glm-5.3-flashx",
+            "name": "GLM-5.3-FlashX",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
           {
             "id": "glm-4.7-flash",
             "name": "GLM-4.7-Flash",
@@ -6921,7 +7436,7 @@
     },
     "zhipu-cn-codingplan": {
       "path": "providers/zhipu-cn-codingplan.json",
-      "sha256": "e95b71f73e4e470ccc6d7681f0f7032cb87c7fdf732fc96bfcb9f871cd2d9c4d",
+      "sha256": "9fac282ce171f36842fd0ed6eeb9afec3144be1e7791aa30a0b32bd89e3f612a",
       "api_urls": [
         "https://open.bigmodel.cn/api/coding/paas/v4"
       ],
@@ -6933,6 +7448,8 @@
         "remote_id": "zhipuai-coding-plan",
         "template_owner": false,
         "default_model_ids": [
+          "glm-5.3",
+          "glm-5.3-flash",
           "glm-4.7-flash",
           "glm-5",
           "glm-5.2",
@@ -6941,6 +7458,83 @@
           "glm-5v-turbo"
         ],
         "models": [
+          {
+            "id": "glm-5.3",
+            "name": "glm-5.3",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": false,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-08-14",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
+          {
+            "id": "glm-5.3-flash",
+            "name": "glm-5.3-flash",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "ranking_id": "z-ai/glm-5.3-flash",
+            "released_at": "2026-08-26",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
           {
             "id": "glm-4.7-flash",
             "name": "GLM-4.7-Flash",
@@ -7103,7 +7697,7 @@
     },
     "zhipu-intl": {
       "path": "providers/zhipu-intl.json",
-      "sha256": "a5135312894c40523c13719347260ee4891ff4e6d24fa923ca46f2733d0c7dd6",
+      "sha256": "fd113cdc4f0e1bd15709e2077efdcfc51cac97471bdb11fb3bf8f9747ac2d9bd",
       "api_urls": [
         "https://api.z.ai/api/paas/v4"
       ],
@@ -7115,6 +7709,9 @@
         "remote_id": "zai",
         "template_owner": false,
         "default_model_ids": [
+          "glm-5.3",
+          "glm-5.3-flash",
+          "glm-5.3-flashx",
           "glm-4.7-flash",
           "glm-5",
           "glm-5.2",
@@ -7123,6 +7720,108 @@
           "glm-5v-turbo"
         ],
         "models": [
+          {
+            "id": "glm-5.3",
+            "name": "glm-5.3",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": false,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-08-14",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            },
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            }
+          },
+          {
+            "id": "glm-5.3-flash",
+            "name": "glm-5.3-flash",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "ranking_id": "z-ai/glm-5.3-flash",
+            "released_at": "2026-08-26",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            },
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            }
+          },
+          {
+            "id": "glm-5.3-flashx",
+            "name": "GLM-5.3-FlashX",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
           {
             "id": "glm-4.7-flash",
             "name": "GLM-4.7-Flash",
@@ -7293,7 +7992,7 @@
     },
     "zhipu-intl-codingplan": {
       "path": "providers/zhipu-intl-codingplan.json",
-      "sha256": "4f906b8cab2010da1724ac0a35d1c7bed0c2133eebbaa2e74baff924c15b32af",
+      "sha256": "6f064feac35c694feac9cda5a8af5dbf929b407fc97f822511c0c32a559996e5",
       "api_urls": [
         "https://api.z.ai/api/coding/paas/v4"
       ],
@@ -7305,6 +8004,8 @@
         "remote_id": "zai-coding-plan",
         "template_owner": false,
         "default_model_ids": [
+          "glm-5.3",
+          "glm-5.3-flash",
           "glm-4.7-flash",
           "glm-5",
           "glm-5.2",
@@ -7313,6 +8014,83 @@
           "glm-5v-turbo"
         ],
         "models": [
+          {
+            "id": "glm-5.3",
+            "name": "glm-5.3",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": false,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-08-14",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
+          {
+            "id": "glm-5.3-flash",
+            "name": "glm-5.3-flash",
+            "max_input_length": 1000000,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": true,
+            "ranking_id": "z-ai/glm-5.3-flash",
+            "released_at": "2026-08-26",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              },
+              "thinking_control": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/guides/vlm/glm-5.3-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": false,
+              "wire": "compat_effort"
+            }
+          },
           {
             "id": "glm-4.7-flash",
             "name": "GLM-4.7-Flash",
@@ -8532,7 +9310,7 @@
     },
     "mimo-tokenplan": {
       "path": "providers/mimo-tokenplan.json",
-      "sha256": "36f6a945c2f0e6fd0ae791c838d5aa71480572cedff4759815a0b5a6426cb5e0",
+      "sha256": "149b358a5e817cd4c912e3a8a6df216d7025167d57e9caa0992e04053cc74c94",
       "api_urls": [
         "https://token-plan-cn.xiaomimimo.com/v1"
       ],
@@ -8544,55 +9322,55 @@
         "remote_id": null,
         "template_owner": false,
         "default_model_ids": [
-          "mimo-v2.5-pro",
-          "mimo-v2.5"
+          "mimo-v2.6-pro",
+          "mimo-v2.6-flash"
         ],
         "models": [
           {
-            "id": "mimo-v2.5-pro",
-            "name": "MiMo V2.5 Pro",
-            "supports_image": false,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": false,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_output_length": 131072,
+            "id": "mimo-v2.6-pro",
+            "name": "MiMo V2.6 Pro",
             "max_input_length": 1048576,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "billing": "paid",
-            "capability_provenance": {
-              "billing": {
-                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
-              }
-            }
-          },
-          {
-            "id": "mimo-v2.5",
-            "name": "MiMo V2.5",
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
             "supports_image": true,
+            "supports_audio": true,
             "supports_video": true,
             "probe_source": "documentation",
-            "is_free": false,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_output_length": 131072,
-            "max_input_length": 1048576,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
             "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
             "capability_provenance": {
-              "billing": {
-                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
+                "updated_at": "2026-10-26"
               }
-            }
+            },
+            "released_at": "2026-09-22"
+          },
+          {
+            "id": "mimo-v2.6-flash",
+            "name": "MiMo V2.6 Flash",
+            "max_input_length": 1048576,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-09-22"
           }
         ]
       },
@@ -8600,13 +9378,16 @@
     },
     "mimo": {
       "path": "providers/mimo.json",
-      "sha256": "dac666c0e9f014bd8b6c3fb90124afa6e41690ed44f00bc6954c2e1c052a09a1",
+      "sha256": "dc0f886e7b1cffd764979c52b68d7f26e5b13a12e3e6ddcec9aabb3de99ba568",
       "api_urls": [
         "https://api.xiaomimimo.com/v1"
       ],
       "templates": [
+        "mimo-v2.6-pro",
+        "mimo-v2.6-flash",
         "mimo-v2.5-pro",
-        "mimo-v2.5"
+        "mimo-v2.5",
+        "mimo-v2.6-pro-ultraspeed"
       ],
       "defaults": {
         "api_urls": [
@@ -8615,10 +9396,58 @@
         "remote_id": null,
         "template_owner": true,
         "default_model_ids": [
+          "mimo-v2.6-pro",
+          "mimo-v2.6-flash",
           "mimo-v2.5-pro",
           "mimo-v2.5"
         ],
         "models": [
+          {
+            "id": "mimo-v2.6-pro",
+            "name": "MiMo V2.6 Pro",
+            "max_input_length": 1048576,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-09-22"
+          },
+          {
+            "id": "mimo-v2.6-flash",
+            "name": "MiMo V2.6 Flash",
+            "max_input_length": 1048576,
+            "max_output_length": 131072,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": true,
+            "supports_video": true,
+            "probe_source": "documentation",
+            "billing": "paid",
+            "is_free": false,
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "model_card": {
+                "source": "documentation",
+                "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-flash",
+                "updated_at": "2026-10-26"
+              }
+            },
+            "released_at": "2026-09-22"
+          },
           {
             "id": "mimo-v2.5-pro",
             "name": "MiMo V2.5 Pro",

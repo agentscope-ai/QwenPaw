@@ -5,10 +5,58 @@
   "remote_id": null,
   "template_owner": true,
   "default_model_ids": [
+    "mimo-v2.6-pro",
+    "mimo-v2.6-flash",
     "mimo-v2.5-pro",
     "mimo-v2.5"
   ],
   "models": [
+    {
+      "id": "mimo-v2.6-pro",
+      "name": "MiMo V2.6 Pro",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-09-22"
+    },
+    {
+      "id": "mimo-v2.6-flash",
+      "name": "MiMo V2.6 Flash",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-flash",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-09-22"
+    },
     {
       "id": "mimo-v2.5-pro",
       "name": "MiMo V2.5 Pro",
@@ -54,6 +102,29 @@
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
+    },
+    {
+      "id": "mimo-v2.6-pro-ultraspeed",
+      "name": "MiMo V2.6 Pro UltraSpeed",
+      "max_input_length": 1048576,
+      "max_output_length": 131072,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "supports_audio": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "model_card": {
+          "source": "documentation",
+          "reference": "https://mimo.mi.com/models/en-US/mimo-v2.6-pro-ultraspeed",
+          "updated_at": "2026-10-26"
+        }
+      },
+      "released_at": "2026-09-22"
     }
   ]
 }

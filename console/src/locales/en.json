@@ -448,6 +448,24 @@
     "backToApp": "Back to app",
     "searchPlaceholder": "Search settings",
     "noResults": "No matching settings",
+    "searchSelectTask": "Choose a task to edit, or create one, to locate this setting.",
+    "searchSelectChannel": "Choose a channel to locate this setting.",
+    "searchSelectObject": "Choose an item and open its settings. Some fields depend on the selected mode.",
+    "searchChooseLoop": "Choose the relevant Loop mode. Some parameters appear after their option is enabled.",
+    "searchConditionalSetting": "Choose the applicable mode or enable the related option to configure this setting.",
+    "mcpJsonConfig": "Advanced JSON configuration",
+    "searchToolAvailability": "Tool availability depends on the agent, installed plugins and current mode.",
+    "searchNativeContextOnly": "Available only for profiles using the legacy Native context strategy.",
+    "searchScrollContextOnly": "Available for the Scroll context strategy.",
+    "searchReMeOnly": "Available when the ReMe Light memory backend is selected.",
+    "searchBuiltinSkillLanguage": "Choose a built-in skill with multiple language versions, then open its details.",
+    "searchBuiltinSkillUpdate": "Choose a built-in skill to configure its automatic updates.",
+    "searchBackupSecrets": "Open a backup creation or restoration form and select the relevant scope to configure secrets.",
+    "searchWhisperProvider": "Select Whisper API as the transcription provider to configure its API provider.",
+    "searchAgentTaskOnly": "This setting is available for agent tasks only.",
+    "searchEnableFallback": "Enable fallback models to configure the fallback list.",
+    "searchUnsupportedChannel": "This channel does not support these access control settings.",
+    "searchUnsupportedBackend": "Model routing is available for QwenPaw agents.",
     "groups": {
       "application": "Application",
       "agentConfiguration": "Agent configuration",
@@ -589,6 +607,8 @@
     "skillBuiltinSyncFailed": "\"{{skill}}\" could not sync to: {{agents}}",
     "requestedBy": "By",
     "markRead": "Mark Read",
+    "unreadOnly": "Unread only",
+    "emptyUnread": "No unread messages match the current filters",
     "markAllRead": "Mark All Read",
     "markAllReadNoUnread": "No unread messages",
     "markAllReadSuccess": "Marked {{count}} messages as read",
@@ -1135,7 +1155,6 @@
     "selectBuiltin": "Builtin",
     "selectNone": "None",
     "noPoolSkills": "No skills available in pool",
-    "addSkillsToAgent": "Add Skills",
     "backend": {
       "column": "Backend",
       "eyebrow": "Agent architecture",
@@ -1548,6 +1567,9 @@
     "updateFailed": "Update failed",
     "broadcastSuccess": "Broadcast completed",
     "broadcastFailed": "Broadcast failed",
+    "downloading": "Downloading…",
+    "cancelling": "Cancelling…",
+    "cancelFailed": "Failed to cancel the download",
     "overwriteConfirm": "Overwrite existing skills?",
     "overwriteTargetsContent": "The following existing targets will be overwritten:",
     "builtinOverwriteTargetsContent": "The following built-in targets have different versions and will be overwritten:",
@@ -1983,6 +2005,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "runtime": {
+      "missing_code": "Plugin not installed"
+    },
+    "qrcodeInstallRequired": "Install the plugin to scan a QR code",
     "manualCredentials": "Manual credentials",
     "deliverySettings": "Delivery options",
     "presentationSettings": "Message presentation",
@@ -2887,6 +2913,8 @@
     "localServerSwitchConfirm": "The current server is running {{current}}. Switch to {{next}}?",
     "localSwitchModel": "Switch",
     "localModelPathMissing": "This downloaded model is missing a local path.",
+    "localChatModelsTitle": "Chat models",
+    "localDecisionModelsTitle": "Decision models",
     "localModelsSectionTitle": "Local Models",
     "localModelsSectionDescription": "Downloaded models can be started immediately. Only one model download and one local server instance can run at a time.",
     "localModelsLockedHint": "Please install llama.cpp first",
@@ -3078,6 +3106,22 @@
     "memory": "Long-term Memory",
     "daily": "Daily",
     "digest": "Knowledge Base",
+    "memoryTags": "Memory tags",
+    "memoryTagsLabel": "Tags",
+    "memoryTagBrowse": "Search indexed memories tagged {{tag}}",
+    "memoryTagsAll": "All tags",
+    "memoryTagsScope": "Searches indexed memories. The current file may not be indexed.",
+    "memoryTagsRefresh": "Refresh memory tags",
+    "memoryTagsCount_one": "{{count}} tag",
+    "memoryTagsCount_other": "{{count}} tags",
+    "memoryTagFilesCount_one": "{{count}} file",
+    "memoryTagFilesCount_other": "{{count}} files",
+    "memoryTagsLoadFailed": "Memory tags are unavailable. Please try again.",
+    "memoryTagsEmpty": "No memory tags yet.",
+    "memoryTagFilesEmpty": "No indexed memories carry this tag.",
+    "memoryTagsPrevious": "Previous page",
+    "memoryTagsNext": "Next page",
+    "memoryTagsPage": "{{page}} / {{total}}",
     "memoryGraph": "Memory Graph",
     "memoryGraphShort": "Graph",
     "memoryGraphLoading": "Loading memory graph…",
@@ -3468,6 +3512,8 @@
     "rubricPrompt": "Natural-Language Completion Criteria",
     "rubricPromptTooltip": "The prompt injected to ask the agent to evaluate task completion",
     "rubricDesc": "When the agent produces a text response without tool calls, apply natural-language completion criteria and ask it to continue when work remains.",
+    "rubricUseDecisionModel": "Use the decision model to assist self-checks",
+    "rubricUseDecisionModelHelp": "The conversation and tool results are sent to the selected decision model. It can flag a possible omission for the agent to verify. If it has no suggestion or is unavailable, the agent runs its usual self-check.",
     "rubricPromptPlaceholder": "You did not call any tool. If the task is complete, confirm. Otherwise, continue with tool calls.",
     "rubricMaxInterventions": "Maximum Evaluation Rounds",
     "rubricMaxInterventionsTooltip": "Maximum completion checks for text responses without tool calls during one turn.",
@@ -3828,10 +3874,10 @@
       "smartDesc": "Low-risk tool calls and external file access run automatically; medium- and high-risk operations require approval",
       "jev": "Decision Model Mode",
       "jevDesc": "Apply local safety rules first; the decision model assesses operations outside those rules",
-      "jevRequiresDecision": "Turn on Use decision model first",
+      "jevRequiresDecision": "Configure a decision model in Model settings first",
       "decisionModelPrivacy": "Tool name, operation, target and parameter names may be sent to the Decision Model Provider. No conversation or file contents are sent.",
-      "decisionModelConnected": "Decision Model Provider API Key configured",
-      "decisionModelNotConnected": "Decision Model Provider has no API Key. A previously saved decision model key may still work; configure the provider to manage it here.",
+      "decisionModelConnected": "Decision model provider configured",
+      "decisionModelNotConnected": "No decision model configured. Configure a local Piccolo or TypeSafe decision model in Model settings.",
       "decisionModelConfigure": "Configure Decision Model Provider",
       "auto": "Auto Mode",
       "autoDesc": "Only operations matching tool and file approval rules require approval (default)",
@@ -3934,7 +3980,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "Decision model compaction",
     "decisionCompactEnabled": "Enable decision model compaction",
-    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat decision toggle. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
+    "decisionCompactDescription": "Off by default. Reuses the agent decision model, or the global default decision model. Configure it in Model settings. Under automatic context pressure, ReMe shortens low-relevance tool results with recovery references before normal compaction. Works with Scroll and native, independently of long-term memory and the chat's tool approval mode. Requires automatic context compaction. Decision requests send bounded conversation evidence to the configured provider.",
     "decisionCompactAdvanced": "Request limits",
     "decisionCompact_drop_threshold": "Low-relevance threshold",
     "decisionCompact_drop_thresholdHelp": "Only results at or below this probability may be shortened. Lower values preserve more originals.",
@@ -4178,10 +4224,6 @@
     "system": "System"
   },
   "chat": {
-    "sessionSettings": {
-      "advanced": "Advanced options",
-      "decisionEnabled": "Use decision model"
-    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",
@@ -4585,6 +4627,7 @@
       "modeTooltip": "Controls how the scanner handles unsafe skills: block, warn only, or disabled",
       "modeBlock": "Block",
       "modeWarn": "Warn Only",
+      "modeOff": "Off",
       "timeout": "Scan Timeout (seconds)",
       "timeoutTooltip": "Maximum time to wait for a scan to complete (5-300 seconds)",
       "saveSuccess": "Skill scanner settings saved",
@@ -5371,17 +5414,28 @@
     "details": "Details"
   },
   "pluginManager": {
-    "busyTitle": "Plugin tasks are running",
-    "busy": {
-      "update": {
-        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force update",
-        "cancel": "Not now"
-      },
-      "uninstall": {
-        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
-        "confirm": "Force uninstall",
-        "cancel": "Not now"
+    "dependencyUpgrade": {
+      "title": "Confirm shared dependency upgrade",
+      "confirm": "Upgrade and install",
+      "progress": "Updating shared dependencies",
+      "changes": "Shared package changes",
+      "affected": "Affected plugin instances",
+      "noInstances": "No plugin instances are affected.",
+      "restart": "The backend must restart to complete this upgrade. Installation will continue after it reconnects.",
+      "background": "Track in background",
+      "resume": "Tracking was interrupted. Reopen Plugin Manager after the backend reconnects to check the installation.",
+      "invalid": "The dependency upgrade response does not match this installation. Reopen Plugin Manager to check its status.",
+      "notStarted": "The dependency upgrade has not started. Reopen Plugin Manager to review and confirm it again.",
+      "cancelFailed": "The upgrade could not be cancelled. Reopen Plugin Manager to check its status.",
+      "failed": "The shared dependency upgrade failed.",
+      "status": {
+        "needs_confirmation": "Waiting for confirmation",
+        "preparing": "Preparing the upgrade",
+        "applying": "Applying the upgrade",
+        "waiting_restart": "Waiting for the backend to restart",
+        "succeeded": "Installation completed",
+        "failed": "Upgrade failed",
+        "cancelled": "Upgrade cancelled"
       }
     },
     "title": "Plugin Manager",
@@ -5462,7 +5516,20 @@
     "marketSortFavorites": "Most favorited",
     "compatWarningTitle": "Compatibility Warning",
     "compatWarningContent": "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
-    "compatWarningConfirm": "Install anyway"
+    "compatWarningConfirm": "Install anyway",
+    "busyTitle": "Plugin tasks are running",
+    "busy": {
+      "update": {
+        "warning": "Forcing this update will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force update",
+        "cancel": "Not now"
+      },
+      "uninstall": {
+        "warning": "Forcing this uninstall will interrupt running tasks. Unfinished tasks may fail.",
+        "confirm": "Force uninstall",
+        "cancel": "Not now"
+      }
+    }
   },
   "codingMode": {
     "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",
@@ -5762,6 +5829,9 @@
     }
   },
   "preview": {
+    "unavailable": "Preview unavailable",
+    "showDetails": "View details",
+    "hideDetails": "Hide details",
     "error": {
       "SENSITIVE_FILE_BLOCKED": "This file is blocked by File Guard (sensitive file protection).",
       "OUTSIDE_WORKSPACE": "This file is outside the workspace scope. Enable \"Allow Console Preview Outside Workspace\" in Settings → Security → File Guard.",

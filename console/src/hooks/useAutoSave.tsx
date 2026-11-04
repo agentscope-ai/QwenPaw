@@ -15,6 +15,7 @@ export function useAutoSave(save: Save, delay = 1000, enabled = true) {
   const latest = useRef(save);
   const feedback = useRef({ message, modal, t });
   const pending = useRef(false);
+  const pendingJob = useRef<Save>();
   const running = useRef<Promise<boolean> | null>(null);
   const closing = useRef<Promise<void> | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -27,7 +28,8 @@ export function useAutoSave(save: Save, delay = 1000, enabled = true) {
     if (running.current) return running.current;
     if (!pending.current) return true;
     pending.current = false;
-    const task = latest.current;
+    const task = pendingJob.current ?? latest.current;
+    pendingJob.current = undefined;
     const taskRevision = revision.current;
     const run = async (): Promise<boolean> => {
       try {
@@ -47,6 +49,7 @@ export function useAutoSave(save: Save, delay = 1000, enabled = true) {
                 onClick={() => {
                   message.destroy(errorKey);
                   if (taskRevision === revision.current) {
+                    pendingJob.current = task;
                     pending.current = true;
                     void flush();
                   }
@@ -63,25 +66,36 @@ export function useAutoSave(save: Save, delay = 1000, enabled = true) {
     };
     running.current = run().then((saved) => {
       running.current = null;
-      if (!saved && taskRevision === revision.current) pending.current = true;
+      if (!saved && taskRevision === revision.current) {
+        pending.current = true;
+        pendingJob.current = task;
+      }
       if (pending.current && taskRevision !== revision.current) return flush();
       return saved;
     });
     return running.current;
   }, [errorKey]);
-  const schedule = useCallback(() => {
-    if (!enabled) return;
-    revision.current += 1;
-    feedback.current.message.destroy(errorKey);
-    pending.current = true;
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      void flush();
-    }, delay);
-  }, [delay, enabled, flush, errorKey]);
+  const schedule = useCallback(
+    (job?: unknown) => {
+      if (!enabled) return;
+      revision.current += 1;
+      feedback.current.message.destroy(errorKey);
+      pending.current = true;
+      // Existing Form/onChange callers pass event values; only a function
+      // opts into the fixed-job path.
+      pendingJob.current =
+        typeof job === "function" ? (job as Save) : undefined;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => {
+        void flush();
+      }, delay);
+    },
+    [delay, enabled, flush, errorKey],
+  );
   const discard = useCallback(() => {
     revision.current += 1;
     pending.current = false;
+    pendingJob.current = undefined;
     clearTimeout(timer.current);
     feedback.current.message.destroy(errorKey);
   }, [errorKey]);

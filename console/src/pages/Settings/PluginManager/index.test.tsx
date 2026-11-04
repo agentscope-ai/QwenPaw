@@ -75,7 +75,8 @@ const i18nStub = vi.hoisted(() => {
   return { t, i18n };
 });
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: i18nStub.t, i18n: i18nStub.i18n }),
 }));
 

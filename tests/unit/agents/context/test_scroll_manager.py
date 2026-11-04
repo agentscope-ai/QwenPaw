@@ -1142,6 +1142,46 @@ async def test_summary_fitting_loads_folded_results_only_once(
     assert "ORIGINAL-OUTCOME-7731" in prompt
 
 
+async def test_summary_retry_shares_configured_budget(
+    store: HistoryStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    old = [user("fix discovery"), assistant("DashScope passes")]
+    mgr = make_manager(store, summary_timeout_seconds=180)
+    agent = FakeAgent(old)
+    agent.model = PlainSummaryModel([900, 300], [_VALID_CONTINUATION_SUMMARY])
+    mgr._persist_new(agent)
+    now = 100.0
+    timeouts = []
+    original = mgr._validated_summary_attempt
+
+    async def slow_first_attempt(*args, **kwargs):
+        nonlocal now
+        timeouts.append(kwargs["timeout"])
+        if len(timeouts) == 1:
+            # A slow reasoning model exceeds the former 60s budget before
+            # producing a candidate that needs a quality repair.
+            now += 75
+            raise scroll_manager_module._SummaryCandidateError(
+                "missing headings",
+            )
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        scroll_manager_module,
+        "time",
+        SimpleNamespace(monotonic=lambda: now),
+    )
+    monkeypatch.setattr(mgr, "_validated_summary_attempt", slow_first_attempt)
+
+    await mgr._update_continuation_summary(agent, old)
+
+    assert timeouts == pytest.approx([180, 105])
+    assert mgr._summary_update_failed is False
+    assert mgr._continuation_summary is not None
+    assert mgr.last_compress["summary_retries"] == 1
+
+
 async def test_summary_timeout_covers_prompt_fitting(
     store: HistoryStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -1161,8 +1201,8 @@ async def test_summary_timeout_covers_prompt_fitting(
 
     monkeypatch.setattr(mgr, "_fit_summary_prompt", hanging_fit)
     monkeypatch.setattr(
-        scroll_manager_module,
-        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        mgr,
+        "_summary_timeout_seconds",
         0.01,
     )
 
@@ -1315,8 +1355,8 @@ async def test_summary_timeout_preserves_valid_previous_without_retry(
     # Leave enough headroom for those stages on slower Windows CI runners so
     # this test deterministically reaches the intentionally hanging model.
     monkeypatch.setattr(
-        scroll_manager_module,
-        "_SUMMARY_UPDATE_TIMEOUT_SECONDS",
+        mgr,
+        "_summary_timeout_seconds",
         1.0,
     )
 

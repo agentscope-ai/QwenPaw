@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from ...providers.oauth.chatgpt import chatgpt_accounts
 from ...providers.provider_manager import ProviderManager
 from ...tauri.env import DESKTOP_CORS_ORIGINS
+from ..auth import is_loopback_ip, resolve_client_ip
 from .providers import get_provider_manager
 
 
@@ -28,6 +29,7 @@ def require_local(request: Request, response: Response) -> None:
         or not local_origin
         or not request.client
         or request.client.host not in hosts
+        or not is_loopback_ip(resolve_client_ip(request))
     ):
         raise HTTPException(403, f"ChatGPT sign-in is only available locally.")
     response.headers[f"Cache-Control"] = f"no-store"

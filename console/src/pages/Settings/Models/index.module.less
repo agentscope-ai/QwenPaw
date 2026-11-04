@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/contentStates.less";
+
 @import (reference) "../../../styles/modelSurfaces.less";
 @import (reference) "../../../styles/scaledTypography.less";
 
@@ -551,8 +553,7 @@
 }
 
 .loading {
-  text-align: center;
-  padding: 60px;
+  .loading-state();
 }
 
 .loadingText {
@@ -3081,6 +3082,33 @@
   border-radius: 14px;
   overflow: hidden;
   background: var(--app-surface);
+}
+
+.localModelGroups {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.localModelGroupTitle {
+  margin: 0;
+  color: var(--models-text);
+  font-size: var(--app-font-body);
+  font-weight: 600;
+}
+
+.modelManageModal .localModelGroupList {
+  max-height: clamp(128px, 19vh, 160px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
 }
 
 .modelManageModal .modelListItem {

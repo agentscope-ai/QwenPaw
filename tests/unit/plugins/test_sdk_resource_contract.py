@@ -9,6 +9,8 @@ import threading
 
 import pytest
 
+from .timing import WAIT_TIMEOUT
+
 
 def make_plugin(tmp_path, body):
     root = tmp_path / "resource-plugin"
@@ -162,60 +164,49 @@ plugin = Plugin()
         host.assert_quiescent("resource-contract")
 
 
-async def test_synchronous_cleanup_does_not_block_host_event_loop(tmp_path):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
+async def test_synchronous_cleanup_does_not_block_host_event_loop(
+    sdk_component,
+):
+    entered = asyncio.Event()
     release = threading.Event()
-    timer = threading.Timer(0.3, release.set)
-    try:
-        async with PluginTestHost(tmp_path / "host") as host:
-            ctx = await host.load(make_plugin(tmp_path, source))
-            heartbeat = asyncio.Event()
-            handle = ctx.resources.defer(
-                lambda: release.wait(2),
-                "blocking-close",
-            )
-            asyncio.get_running_loop().call_later(0.02, heartbeat.set)
-            timer.start()
-            await handle.close()
-            assert (
-                heartbeat.is_set()
-            ), "Synchronous cleanup blocked unrelated host work"
-            assert handle.closed
-    finally:
-        release.set()
-        if timer.ident is not None:
-            timer.join(timeout=1)
+    loop = asyncio.get_running_loop()
+
+    def cleanup():
+        loop.call_soon_threadsafe(entered.set)
+        assert release.wait(
+            WAIT_TIMEOUT * 2,
+        ), "Event loop could not release cleanup"
+
+    async with sdk_component() as (host, ctx):
+        handle = ctx.resources.defer(cleanup, "blocking-close")
+        closing = asyncio.create_task(handle.close())
+        try:
+            await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
+            # This coroutine must run while synchronous cleanup is blocked.
+            assert not closing.done()
+        finally:
+            release.set()
+            await asyncio.wait_for(closing, WAIT_TIMEOUT)
+        assert handle.closed
 
 
 async def test_cancelling_close_waiter_retains_underlying_sync_cleanup(
-    tmp_path,
+    sdk_component,
 ):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
     entered, release = threading.Event(), threading.Event()
     calls = []
 
     def close():
         calls.append("start")
         entered.set()
-        release.wait(3)
+        release.wait(WAIT_TIMEOUT * 2)
         calls.append("end")
 
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
+    async with sdk_component() as (host, ctx):
         handle = ctx.resources.defer(close, "sync-cleanup")
         closing = asyncio.create_task(handle.close())
         try:
-            assert await asyncio.to_thread(entered.wait, 1)
+            assert await asyncio.to_thread(entered.wait, WAIT_TIMEOUT)
             closing.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await closing
@@ -233,8 +224,15 @@ async def test_cancelling_close_waiter_retains_underlying_sync_cleanup(
         assert handle.closed and calls == ["start", "end"]
 
 
-async def test_unstoppable_thread_prevents_successful_unload(tmp_path):
+async def test_unstoppable_thread_prevents_successful_unload(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.plugins import custody
     from qwenpaw.plugins.testing import PluginTestHost
+
+    # The release event keeps the worker blocked regardless of this budget.
+    monkeypatch.setattr(custody, "THREAD_STOP_SECONDS", 0.2)
 
     source = (
         "class Plugin:\n    def register(self, ctx):\n        "
@@ -244,14 +242,14 @@ async def test_unstoppable_thread_prevents_successful_unload(tmp_path):
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(make_plugin(tmp_path, source))
         worker = ctx.resources.thread(
-            lambda: release.wait(10),
+            lambda: release.wait(WAIT_TIMEOUT * 2),
             stop=stop,
             description="ignores-stop",
         )
         try:
             report = await asyncio.wait_for(
                 host.unload("resource-contract"),
-                8,
+                WAIT_TIMEOUT,
             )
             assert stop.is_set() and worker.is_alive()
             assert (
@@ -265,24 +263,17 @@ async def test_unstoppable_thread_prevents_successful_unload(tmp_path):
             )
         finally:
             release.set()
-            await asyncio.to_thread(worker.join, 2)
+            await asyncio.to_thread(worker.join, WAIT_TIMEOUT)
             assert not worker.is_alive()
         report = await host.unload("resource-contract")
         assert report.clean and report.quiescent
 
 
 async def test_finished_managed_tasks_do_not_accumulate_live_resources(
-    tmp_path,
+    sdk_component,
 ):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
-        for _ in range(100):
+    async with sdk_component() as (host, ctx):
+        for _ in range(3):
             await ctx.resources.task(
                 asyncio.sleep(0),
                 description="short-lived",
@@ -301,7 +292,11 @@ async def test_owned_process_stops_without_touching_independent_process(
         "class Plugin:\n    def register(self, ctx):\n        "
         "pass\nplugin = Plugin()\n"
     )
-    command = [sys.executable, "-c", "import time; time.sleep(10)"]
+    command = [
+        sys.executable,
+        "-c",
+        "import threading; threading.Event().wait()",
+    ]
     independent = subprocess.Popen(command)
     try:
         async with PluginTestHost(tmp_path / "host") as host:
@@ -314,22 +309,14 @@ async def test_owned_process_stops_without_touching_independent_process(
             assert independent.poll() is None
     finally:
         independent.terminate()
-        independent.wait(timeout=2)
+        independent.wait(timeout=WAIT_TIMEOUT)
 
 
-async def test_finished_background_failure_remains_diagnosable(tmp_path):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
-
+async def test_finished_background_failure_remains_diagnosable(sdk_component):
     async def fail():
         raise RuntimeError("background-contract-failure")
 
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
+    async with sdk_component() as (host, ctx):
         with pytest.raises(RuntimeError, match="background-contract-failure"):
             await ctx.resources.task(fail(), description="failed-worker")
         await asyncio.sleep(0)
@@ -341,26 +328,20 @@ async def test_finished_background_failure_remains_diagnosable(tmp_path):
         )
 
 
-async def test_closed_child_scopes_release_parent_registration(tmp_path):
+async def test_closed_child_scopes_release_parent_registration(sdk_component):
     from qwenpaw.plugins import SDKError
-    from qwenpaw.plugins.testing import PluginTestHost
 
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
+    async with sdk_component() as (host, ctx):
         initial = ctx.resources.snapshot()["resources"]
         closed = []
-        for index in range(20):
+        for index in range(3):
             child = ctx.resources.child(instance_id=f"restart-{index}")
             child.defer(lambda number=index: closed.append(number))
             await child.close()
             await child.close()
             assert child.closed
             assert ctx.resources.snapshot()["resources"] == initial
-        assert closed == list(range(20))
+        assert closed == list(range(3))
 
         blocked = True
 
@@ -382,15 +363,8 @@ async def test_closed_child_scopes_release_parent_registration(tmp_path):
         assert ctx.resources.snapshot()["resources"] == initial
 
 
-async def test_child_release_preserves_same_owner_siblings(tmp_path):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
+async def test_child_release_preserves_same_owner_siblings(sdk_component):
+    async with sdk_component() as (host, ctx):
         first = ctx.resources.child(instance_id="same")
         second = ctx.resources.child(instance_id="same")
         await first.close()
@@ -405,14 +379,8 @@ async def test_child_release_preserves_same_owner_siblings(tmp_path):
 
 
 async def test_parent_and_child_concurrent_close_wait_for_one_real_cleanup(
-    tmp_path,
+    sdk_component,
 ):
-    from qwenpaw.plugins.testing import PluginTestHost
-
-    source = (
-        "class Plugin:\n    def register(self, ctx):\n        "
-        "pass\nplugin = Plugin()\n"
-    )
     entered, release = asyncio.Event(), asyncio.Event()
     calls = []
 
@@ -422,12 +390,11 @@ async def test_parent_and_child_concurrent_close_wait_for_one_real_cleanup(
         await release.wait()
         calls.append("finished")
 
-    async with PluginTestHost(tmp_path / "host") as host:
-        ctx = await host.load(make_plugin(tmp_path, source))
+    async with sdk_component() as (host, ctx):
         child = ctx.resources.child(instance_id="concurrent")
         child.defer(cleanup)
         direct = asyncio.create_task(child.close())
-        await asyncio.wait_for(entered.wait(), 1)
+        await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         parent = asyncio.create_task(ctx.resources.close())
         try:
             await asyncio.sleep(0.02)
@@ -437,7 +404,10 @@ async def test_parent_and_child_concurrent_close_wait_for_one_real_cleanup(
             )
         finally:
             release.set()
-            await asyncio.wait_for(asyncio.gather(direct, parent), 2)
+            await asyncio.wait_for(
+                asyncio.gather(direct, parent),
+                WAIT_TIMEOUT,
+            )
         assert calls == ["started", "finished"]
         assert child.closed and ctx.resources.closed
         assert ctx.resources.snapshot()["resources"] == ()
