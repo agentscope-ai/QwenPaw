@@ -83,7 +83,7 @@ async def test_adbpg_search_finds_nested_imported_memory(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
+async def test_adbpg_auto_memory_search_injects_recall_hint(tmp_path):
     manager = _manager(
         tmp_path,
         config=ADBPGMemoryConfig(

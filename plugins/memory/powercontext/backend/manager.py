@@ -524,7 +524,5 @@ class PowerContextMemoryManager(BaseMemoryManager):
             text="",
             estimate_divisor=estimate_divisor,
         )
-        overhead = 0
-        for block in message.content:
-            overhead += len(str(getattr(block, "hint", "")).encode("utf-8"))
+        overhead = len(message.content[0].hint.encode("utf-8"))
         return max(0, max_context_bytes - overhead)
