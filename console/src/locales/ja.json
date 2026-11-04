@@ -1679,7 +1679,7 @@
     "fieldWebSocketHost": "WebSocketホスト",
     "fieldWebSocketPort": "WebSocketポート",
     "matrixUserHelp": "完全なMXID（例：@bot:matrix.org）またはローカル名（例：bot）を入力できます。",
-    "matrixEncryptionHelp": "有効化後、Matrixクライアント（Elementなど）でデバイスを検証し、pip install matrix-nio[e2e] を実行してください。",
+    "matrixEncryptionHelp": "有効化後、Matrixクライアント（Elementなど）でデバイスを検証してください。",
     "matrixDeviceHelp": "Matrixクライアントの固定デバイス名。空欄の場合は qwenpaw-worker。",
     "messageTypeHelp": "markdown：通常のメッセージ、card：AI対話カード。",
     "scheduledMessageTypeHelp": "定期タスクの送信形式。チャットの形式とは独立しています。",

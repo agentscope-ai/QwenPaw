@@ -3583,7 +3583,7 @@
     "fieldWebSocketHost": "Máy chủ WebSocket",
     "fieldWebSocketPort": "Cổng WebSocket",
     "matrixUserHelp": "Nhập MXID đầy đủ (như @bot:matrix.org) hoặc tên cục bộ (bot).",
-    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element) và cài: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element).",
     "matrixDeviceHelp": "Tên thiết bị Matrix cố định. Mặc định: qwenpaw-worker.",
     "messageTypeHelp": "markdown: tin nhắn thường; card: thẻ AI tương tác.",
     "scheduledMessageTypeHelp": "Loại tin nhắn theo lịch, độc lập với định dạng trò chuyện.",

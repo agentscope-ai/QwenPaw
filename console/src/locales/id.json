@@ -2088,7 +2088,7 @@
     "fieldWebSocketHost": "Host WebSocket",
     "fieldWebSocketPort": "Port WebSocket",
     "matrixUserHelp": "Gunakan MXID lengkap (mis. @bot:matrix.org) atau nama lokal (bot).",
-    "matrixEncryptionHelp": "Setelah aktif, verifikasi perangkat di Matrix (mis. Element) dan instal: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Setelah aktif, verifikasi perangkat di Matrix (mis. Element).",
     "matrixDeviceHelp": "Nama perangkat Matrix tetap. Bawaan: qwenpaw-worker.",
     "messageTypeHelp": "markdown: pesan biasa; card: kartu AI interaktif.",
     "scheduledMessageTypeHelp": "Jenis pesan tugas terjadwal, terpisah dari format obrolan.",

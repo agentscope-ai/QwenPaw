@@ -2346,7 +2346,7 @@
     "fieldWebSocketHost": "WebSocket Host",
     "fieldWebSocketPort": "WebSocket Port",
     "matrixUserHelp": "Accepts a full MXID (e.g. @bot:matrix.org) or just the localpart (e.g. bot).",
-    "matrixEncryptionHelp": "After enabling, you must verify the device in a Matrix client (e.g. Element). E2EE requires manually installing matrix-nio[e2e] (pip install matrix-nio[e2e]).",
+    "matrixEncryptionHelp": "After enabling, you must verify the device in a Matrix client (e.g. Element).",
     "matrixDeviceHelp": "A stable device identity for the Matrix client. Defaults to 'qwenpaw-worker' if left empty.",
     "messageTypeHelp": "markdown: regular messages; card: AI interactive card",
     "scheduledMessageTypeHelp": "Message type for cron/scheduled task sends. Independent from the chat message type above.",
