@@ -16,6 +16,7 @@ from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
+from qwenpaw.utils.io_utils import run_sync_io
 
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
@@ -35,9 +36,13 @@ _NUM_CTX_RE = re.compile(
 )
 
 
-def parse_ollama_num_ctx(parameters: str | None) -> int | None:
-    """Return Modelfile ``num_ctx`` from an ``/api/show`` parameters block."""
-    if not parameters:
+def parse_ollama_num_ctx(parameters: Any) -> int | None:
+    """Return Modelfile ``num_ctx`` from an ``/api/show`` parameters block.
+
+    Non-string values (a dict, list, or number) are ignored. Searching
+    them used to raise ``TypeError`` and abort every model in the batch.
+    """
+    if not isinstance(parameters, str) or not parameters:
         return None
     match = _NUM_CTX_RE.search(parameters)
     if match is None:
@@ -113,6 +118,10 @@ def resolve_ollama_context_window(
     an invalid body). That is not an empty successful show: this returns
     ``None`` so the caller leaves the model unchanged.
 
+    A non-string ``parameters`` value is malformed, not an omitted
+    ``num_ctx``. This also returns ``None`` and does not apply the
+    conservative estimate.
+
     GGUF ``*.context_length`` is the model's maximum supported context, not
     the window Ollama is serving. It is not used.
     """
@@ -124,7 +133,10 @@ def resolve_ollama_context_window(
     # Do not coerce None to {} — a failed probe must not invent 4096.
     if not isinstance(show_payload, dict):
         return None
-    explicit = parse_ollama_num_ctx(show_payload.get("parameters"))
+    parameters = show_payload.get("parameters")
+    if parameters is not None and not isinstance(parameters, str):
+        return None
+    explicit = parse_ollama_num_ctx(parameters)
     if explicit is not None:
         return explicit
     if use_conservative_fallback and not _is_ollama_cloud_model(
@@ -150,6 +162,25 @@ def _ollama_model_aliases(model_id: str) -> set[str]:
             aliases.add(base)
             aliases.add(base.lower())
     return aliases
+
+
+def _with_served_context(
+    model: ModelInfo,
+    served: dict[str, int],
+) -> ModelInfo | None:
+    """Return a copy that uses a loaded ``/api/ps`` window, if present."""
+    served_context: int | None = None
+    for alias in _ollama_model_aliases(model.id):
+        if alias not in served:
+            continue
+        raw = served[alias]
+        served_context = raw if isinstance(raw, int) else None
+        break
+    if served_context is None or served_context < _MIN_CONTEXT_TOKENS:
+        return None
+    return model.model_copy(
+        update={"max_input_length_auto_detected": served_context},
+    )
 
 
 class OllamaProvider(OpenAIProvider):
@@ -261,52 +292,121 @@ class OllamaProvider(OpenAIProvider):
         ``num_ctx`` on a local model. Cloud models stay unchanged when
         ``num_ctx`` is absent: Ollama serves them at their maximum.
 
-        ``timeout`` bounds each native HTTP call and the whole native
-        probing stage. Past that deadline the original list is returned
-        so a large unloaded catalog cannot stall discovery.
+        ``timeout`` bounds each native HTTP call and the ``/api/show``
+        fan-out. Loaded ``/api/ps`` windows are applied before that
+        deadline. When it expires, completed ``/api/ps`` and ``/api/show``
+        results are kept; only unfinished probes stay unset.
         """
         models = await super().fetch_models(timeout=timeout)
         if not models:
             return models
+
+        client: httpx.AsyncClient | None = None
+        enriched: List[ModelInfo] | None = None
         try:
-            async with httpx.AsyncClient(
+            # AsyncClient loads the default SSL context in __init__.
+            # Build it off the event loop, same as dashscope discovery.
+            client = await run_sync_io(
+                httpx.AsyncClient,
                 timeout=timeout,
                 headers=self._native_probe_headers(),
-            ) as client:
-                # Per-request timeout is the client timeout above. This
-                # wait_for is the overall deadline for /api/ps plus every
-                # /api/show. On expiry the inner probes are cancelled.
-                enriched = await asyncio.wait_for(
-                    self._enrich_listed_models(client, models),
-                    timeout=timeout,
-                )
-            return list(enriched)
-        except TimeoutError:
-            return models
+            )
+            enriched = await self._enrich_listed_models(
+                client,
+                models,
+                timeout,
+            )
+            return enriched
         except Exception:
-            # Discovery must still return the model list if native probes fail.
+            # Setup failed before probing, or enrichment raised. Keep a
+            # partial list once any probe has been recorded.
+            if enriched is not None:
+                return enriched
             return models
+        finally:
+            if client is not None:
+                await client.aclose()
 
     async def _enrich_listed_models(
         self,
         client: httpx.AsyncClient,
         models: List[ModelInfo],
+        timeout: float,
     ) -> List[ModelInfo]:
-        """Attach context from ``/api/ps`` and bounded ``/api/show`` probes."""
-        served = await self._fetch_served_contexts(client)
+        """Attach ``/api/ps`` windows, then bounded ``/api/show`` probes.
+
+        Served contexts are applied before the show deadline. A show that
+        finishes in time is kept; a cancelled show leaves its model unset.
+        """
+        result = [model.model_copy() for model in models]
+        try:
+            served = await self._fetch_served_contexts(client)
+            need_show: list[int] = []
+            for index, model in enumerate(result):
+                loaded = _with_served_context(model, served)
+                if loaded is not None:
+                    result[index] = loaded
+                else:
+                    need_show.append(index)
+            if need_show:
+                await self._probe_unloaded_models(
+                    client,
+                    result,
+                    served,
+                    need_show,
+                    timeout,
+                )
+        except Exception:
+            return result
+        return result
+
+    async def _probe_unloaded_models(
+        self,
+        client: httpx.AsyncClient,
+        result: List[ModelInfo],
+        served: dict[str, int],
+        need_show: list[int],
+        timeout: float,
+    ) -> None:
+        """Run ``/api/show`` until *timeout* and keep finished probes."""
         semaphore = asyncio.Semaphore(_SHOW_PROBE_CONCURRENCY)
-        enriched = await asyncio.gather(
-            *[
+        task_to_index: dict[asyncio.Task[ModelInfo], int] = {}
+        for index in need_show:
+            task = asyncio.create_task(
                 self._enrich_model_context(
                     client,
-                    model,
+                    result[index],
                     served,
                     semaphore,
+                ),
+            )
+            task_to_index[task] = index
+
+        done: set[asyncio.Task[ModelInfo]] = set()
+        pending: set[asyncio.Task[ModelInfo]] = set(task_to_index)
+        try:
+            done, pending = await asyncio.wait(
+                set(task_to_index),
+                timeout=timeout,
+            )
+        finally:
+            for task in pending:
+                if not task.done():
+                    task.cancel()
+            if pending:
+                # Drain cancelled shows even if discovery itself is
+                # cancelled, so those probes do not keep running.
+                await asyncio.shield(
+                    asyncio.gather(*pending, return_exceptions=True),
                 )
-                for model in models
-            ],
-        )
-        return list(enriched)
+            for task in done | pending:
+                if not task.done() or task.cancelled():
+                    continue
+                index = task_to_index[task]
+                try:
+                    result[index] = task.result()
+                except Exception:
+                    continue
 
     async def _fetch_served_contexts(
         self,
@@ -346,19 +446,28 @@ class OllamaProvider(OpenAIProvider):
         served: dict[str, int],
         semaphore: asyncio.Semaphore | None = None,
     ) -> ModelInfo:
-        served_context = None
-        for alias in _ollama_model_aliases(model.id):
-            if alias in served:
-                served_context = served[alias]
-                break
-        # /api/ps already has the final window; skip /api/show.
-        if (
-            isinstance(served_context, int)
-            and served_context >= _MIN_CONTEXT_TOKENS
-        ):
-            return model.model_copy(
-                update={"max_input_length_auto_detected": served_context},
+        """Attach one model's window. Failures leave that model unchanged."""
+        try:
+            return await self._read_model_context(
+                client,
+                model,
+                served,
+                semaphore,
             )
+        except Exception:
+            return model
+
+    async def _read_model_context(
+        self,
+        client: httpx.AsyncClient,
+        model: ModelInfo,
+        served: dict[str, int],
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> ModelInfo:
+        # /api/ps already has the final window; skip /api/show.
+        loaded = _with_served_context(model, served)
+        if loaded is not None:
+            return loaded
 
         show_payload: dict[str, Any] | None = None
 

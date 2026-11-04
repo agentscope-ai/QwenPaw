@@ -16,6 +16,7 @@ from qwenpaw.providers.ollama_provider import (
 )
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.thinking import ThinkingControl
+from qwenpaw.utils.io_utils import run_sync_io
 
 
 def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
@@ -190,6 +191,11 @@ def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx("temperature 0.7\nnum_ctx 8192\n") == 8192
     assert parse_ollama_num_ctx("temperature 0.7") is None
     assert parse_ollama_num_ctx("num_ctx 512") == 512
+    # Non-strings must not raise; one bad model cannot abort the batch.
+    assert parse_ollama_num_ctx({"num_ctx": 1}) is None
+    assert parse_ollama_num_ctx(["num_ctx 8192"]) is None
+    assert parse_ollama_num_ctx(8192) is None
+    assert parse_ollama_num_ctx(None) is None
 
 
 def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
@@ -215,6 +221,13 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
     assert resolve_ollama_context_window(show_payload={}) == 4096
     # Failed probe is not an empty successful show.
     assert resolve_ollama_context_window(show_payload=None) is None
+    # Malformed parameters are not an omitted num_ctx, so no 4096.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"parameters": {"num_ctx": 8192}},
+        )
+        is None
+    )
     assert (
         resolve_ollama_context_window(
             show_payload=None,
@@ -365,6 +378,9 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
         async def __aexit__(self, *args):
             return False
 
+        async def aclose(self) -> None:
+            return None
+
         async def get(self, url: str):
             assert url.endswith("/api/ps")
             return _FakeResponse(
@@ -415,6 +431,9 @@ async def test_fetch_models_uses_show_when_not_loaded(monkeypatch) -> None:
         async def __aexit__(self, *args):
             return False
 
+        async def aclose(self) -> None:
+            return None
+
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
 
@@ -456,6 +475,9 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
 
         async def __aexit__(self, *args):
             return False
+
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
@@ -499,6 +521,9 @@ async def test_fetch_models_first_use_conservative_fallback(
 
         async def __aexit__(self, *args):
             return False
+
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
@@ -557,6 +582,9 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
         async def __aexit__(self, *args):
             return False
 
+        async def aclose(self) -> None:
+            return None
+
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
 
@@ -594,6 +622,9 @@ async def test_fetch_models_accepts_small_num_ctx(monkeypatch) -> None:
 
         async def __aexit__(self, *args):
             return False
+
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
@@ -641,6 +672,9 @@ async def test_fetch_models_native_probes_send_configured_headers(
 
         async def __aexit__(self, *args):
             return False
+
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             captured["get_url"] = url
@@ -697,6 +731,9 @@ class _ShowStatusClient:
     async def __aexit__(self, *args):
         return False
 
+    async def aclose(self) -> None:
+        return None
+
     async def get(self, url: str):
         return _FakeResponse(200, {"models": []})
 
@@ -741,6 +778,9 @@ async def test_fetch_models_show_timeout_leaves_context_unset(
         async def __aexit__(self, *args):
             return False
 
+        async def aclose(self) -> None:
+            return None
+
         async def get(self, url: str):
             return _FakeResponse(200, {"models": []})
 
@@ -754,19 +794,26 @@ async def test_fetch_models_show_timeout_leaves_context_unset(
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_native_probe_deadline_returns_originals(
+async def test_fetch_models_deadline_keeps_completed_probes(
     monkeypatch,
 ) -> None:
-    """Slow /api/show probes stop at the overall deadline.
+    """A slow ``/api/show`` must not discard probes that already finished.
 
-    Per-request timeout stays on the client. The batch must not wait out
-    every unloaded model.
+    ``/api/ps`` hits are applied even when another model's show exceeds
+    the deadline. A show that returns in time is kept. Unfinished models
+    stay unset, and the pre-enrichment list is not returned.
     """
     provider = _make_provider()
-    ids = [f"model-{index}:latest" for index in range(16)]
-    listed = [ModelInfo(id=model_id, name=model_id) for model_id in ids]
-    started = 0
-    finished = 0
+    loaded_id = "loaded:latest"
+    fast_id = "fast:latest"
+    slow_ids = [f"slow-{index}:latest" for index in range(6)]
+    listed = [
+        ModelInfo(id=model_id, name=model_id)
+        for model_id in (loaded_id, fast_id, *slow_ids)
+    ]
+    started_slow = 0
+    finished_slow = 0
+    show_ids: list[str] = []
     captured: dict = {}
     probe_timeout = 0.5
 
@@ -775,22 +822,37 @@ async def test_fetch_models_native_probe_deadline_returns_originals(
             del args
             captured["timeout"] = kwargs.get("timeout")
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             assert url.endswith("/api/ps")
-            return _FakeResponse(200, {"models": []})
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": loaded_id,
+                            "model": loaded_id,
+                            "context_length": 8192,
+                        },
+                    ],
+                },
+            )
 
         async def post(self, url: str, json: dict):
-            nonlocal started, finished
-            del url, json
-            started += 1
+            nonlocal started_slow, finished_slow
+            assert url.endswith("/api/show")
+            model_id = json["model"]
+            show_ids.append(model_id)
+            if model_id == fast_id:
+                return _FakeResponse(
+                    200,
+                    {"parameters": "num_ctx 16384\n"},
+                )
+            started_slow += 1
             await asyncio.sleep(5)
-            finished += 1
+            finished_slow += 1
             return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
 
     _patch_list_and_native(monkeypatch, FakeClient, listed)
@@ -799,15 +861,103 @@ async def test_fetch_models_native_probe_deadline_returns_originals(
     models = await provider.fetch_models(timeout=probe_timeout)
     elapsed = time.monotonic() - started_at
 
-    assert models is listed
+    assert models is not listed
     assert elapsed < 2.5
     # In-flight /api/show calls are cancelled; none of the slow probes finish.
-    assert finished == 0
-    assert started > 0
+    assert finished_slow == 0
+    assert started_slow > 0
+    assert loaded_id not in show_ids
     assert captured["timeout"] == probe_timeout
-    assert all(
-        model.max_input_length_auto_detected is None for model in models
+    by_id = {model.id: model for model in models}
+    assert by_id[loaded_id].max_input_length_auto_detected == 8192
+    assert by_id[fast_id].max_input_length_auto_detected == 16384
+    for model_id in slow_ids:
+        assert by_id[model_id].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_malformed_parameters_does_not_abort_batch(
+    monkeypatch,
+) -> None:
+    """A non-string ``parameters`` value leaves only that model unset."""
+    provider = _make_provider()
+    listed = [
+        ModelInfo(id="bad:latest", name="bad:latest"),
+        ModelInfo(id="good:latest", name="good:latest"),
+    ]
+    payloads: dict[str, dict[str, Any]] = {
+        "bad:latest": {"parameters": {"num_ctx": 8192}},
+        "good:latest": {"parameters": "num_ctx 8192\n"},
+    }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, payloads[json["model"]])
+
+    _patch_list_and_native(monkeypatch, FakeClient, listed)
+
+    models = await provider.fetch_models()
+    by_id = {model.id: model for model in models}
+    assert by_id["bad:latest"].max_input_length_auto_detected is None
+    assert by_id["good:latest"].max_input_length_auto_detected == 8192
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_constructs_async_client_off_loop(
+    monkeypatch,
+) -> None:
+    """``AsyncClient`` is built via ``run_sync_io`` and closed with aclose."""
+    provider = _make_provider()
+    calls = {"init": 0, "enter": 0, "aclose": 0, "sync": 0}
+    captured: dict[str, Any] = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+            calls["init"] += 1
+
+        async def __aenter__(self):
+            calls["enter"] += 1
+            return self
+
+        async def aclose(self) -> None:
+            calls["aclose"] += 1
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            del url, json
+            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+
+    async def spy_run_sync_io(operation, /, *args, **kwargs):
+        calls["sync"] += 1
+        captured["operation"] = operation
+        return await run_sync_io(operation, *args, **kwargs)
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+    monkeypatch.setattr(
+        "qwenpaw.providers.ollama_provider.run_sync_io",
+        spy_run_sync_io,
     )
+
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 8192
+    assert calls["init"] == 1
+    assert calls["sync"] == 1
+    assert captured["operation"] is FakeClient
+    assert calls["aclose"] == 1
+    assert calls["enter"] == 0
 
 
 @pytest.mark.asyncio
@@ -836,6 +986,9 @@ async def test_check_model_connection_does_not_probe_show(
 
         async def __aexit__(self, *args):
             return False
+
+        async def aclose(self) -> None:
+            return None
 
         async def get(self, url: str):
             calls["native"] += 1
