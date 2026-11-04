@@ -51,7 +51,11 @@ class _StateModule:
 
 
 @pytest.mark.asyncio
-async def test_json_migration_imports_recall_once(tmp_path: Path) -> None:
+@pytest.mark.parametrize("repeat_user", ["", "session"])
+async def test_json_migration_imports_recall_once(
+    tmp_path: Path,
+    repeat_user: str,
+) -> None:
     """Legacy recall follows the JSON import and stable message identity."""
     legacy_dir = tmp_path / "sessions"
     legacy_dir.mkdir()
@@ -106,9 +110,10 @@ async def test_json_migration_imports_recall_once(tmp_path: Path) -> None:
         )
         await session.ensure_legacy_migrated(
             session_id="session",
-            user_id="",
+            user_id=repeat_user,
             channel="",
         )
+        assert len(list((tmp_path / "transcripts").glob("*.db"))) == 1
         db_path = (
             tmp_path
             / "transcripts"

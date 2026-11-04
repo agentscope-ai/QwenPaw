@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from ..._session_request import is_ephemeral_request
 from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
-from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
 from ...runtime.console_turn_state import (
     prepare_console_regeneration,
@@ -33,15 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_ephemeral_request(ctx: HookContext) -> bool:
-    request = ctx.request
-    request_context = getattr(request, "request_context", None)
-    if isinstance(request_context, dict):
-        value = request_context.get(ACP_EPHEMERAL_META_KEY)
-        if value is True:
-            return True
-        if isinstance(value, str) and value.lower() in {"1", "true", "yes"}:
-            return True
-    return False
+    return is_ephemeral_request(ctx.request)
 
 
 class SessionLoadHook(LifecycleHook):
@@ -62,7 +54,7 @@ class SessionLoadHook(LifecycleHook):
         try:
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or "console"
+            channel = getattr(request, "channel", "") or ""
 
             proxy = StateProxy()
             await session.load_session_state(
@@ -110,7 +102,7 @@ class SessionSaveHook(LifecycleHook):
         try:
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or "console"
+            channel = getattr(request, "channel", "") or ""
 
             restore_cron_context(ctx)
             proxy = StateProxy()

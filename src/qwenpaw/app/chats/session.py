@@ -22,7 +22,6 @@ from agentscope.message import Msg
 
 from qwenpaw.exceptions import ConfigurationException, LegacyMigrationError
 from ...schemas import Message
-from ...constant import WORKING_DIR
 from ...exceptions import AgentStateError
 from ...config.history_path import resolve_history_db_path
 from ...utils.io_utils import (
@@ -31,6 +30,7 @@ from ...utils.io_utils import (
     write_json_atomic_async,
 )
 from ...utils.json_utils import safe_json_loads as _safe_json_loads
+from .models import session_storage_identity
 from .legacy_reconstruction import read_legacy_timeline
 from .provider_migration import (
     recover_codex_boundaries,
@@ -576,9 +576,6 @@ class DatabaseSession:
         user_id: str,
         channel: str,
     ) -> Path:
-        if session_id.startswith("pawapp-storage:"):
-            app_id = session_id.removeprefix("pawapp-storage:")
-            return Path(WORKING_DIR) / session_filename(f"pawapp:{app_id}")
         filename = session_filename(session_id, user_id)
         if channel:
             safe_channel = sanitize_filename(channel)
@@ -621,7 +618,7 @@ class DatabaseSession:
         channel: str,
     ) -> LegacyConversationSnapshot | None:
         """Read legacy JSON without creating or changing database data."""
-        key = (session_id, user_id, channel)
+        key = session_storage_identity(session_id, user_id, channel)
         async with self._migration_lock:
             if key in self._deleted_sessions:
                 return None
@@ -898,7 +895,7 @@ class DatabaseSession:
         channel: str,
         snapshot: LegacyConversationSnapshot,
     ) -> asyncio.Task[bool] | None:
-        key = (session_id, user_id, channel)
+        key = session_storage_identity(session_id, user_id, channel)
         async with self._migration_lock:
             if key in self._deleted_sessions:
                 return None
@@ -1328,7 +1325,7 @@ class DatabaseSession:
         deleting_channels: tuple[str, ...] = (),
     ) -> bool:
         """Delete the session database and any unimported JSON snapshot."""
-        key = (session_id, user_id, channel)
+        key = session_storage_identity(session_id, user_id, channel)
         async with self._migration_lock:
             self._deleted_sessions.add(key)
             self._legacy_snapshot_tasks.pop(key, None)
@@ -1384,7 +1381,7 @@ class DatabaseSession:
         return any(
             isinstance(chat, dict)
             and chat.get("session_id") == session_id
-            and chat.get("user_id") == user_id
+            and (chat.get("user_id") or session_id) == (user_id or session_id)
             and chat.get("channel") != channel
             and chat.get("channel") not in deleting_channels
             for chat in chats

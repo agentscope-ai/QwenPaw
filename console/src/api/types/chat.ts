@@ -63,6 +63,7 @@ export interface ChatContextState {
 }
 
 export interface ChatHistoryMetadata {
+  migration_pending?: boolean;
   has_more: boolean;
   next_before?: string | null;
   snapshot?: string | null;

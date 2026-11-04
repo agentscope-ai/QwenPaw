@@ -3102,10 +3102,36 @@ export default function ChatPage() {
     [message, t],
   );
 
+  const preparingForkRef = useRef<string | null>(null);
   const forkResponse = useCallback(
     async (response: CopyableResponse) => {
       const owner = sessionApi.getActiveOwner();
-      const turnId = extractTranscriptTurnId(response);
+      const originChatId = chatIdRef.current;
+      const preparationKey = `${owner.agentId}:${owner.generation}:${originChatId}`;
+      if (preparingForkRef.current === preparationKey) return;
+      let turnId = extractTranscriptTurnId(response);
+      if (backendChatId && !turnId) {
+        const prepared = sessionApi.getPreparedForkTurnId(
+          backendChatId,
+          (response.output || []).flatMap((item) => (item.id ? [item.id] : [])),
+        );
+        if (prepared) {
+          preparingForkRef.current = preparationKey;
+          const hide = message.loading(t("chat.forkPreparing"), 0);
+          try {
+            turnId = await prepared;
+          } finally {
+            hide();
+            if (preparingForkRef.current === preparationKey)
+              preparingForkRef.current = null;
+          }
+          if (
+            !sessionApi.isActiveOwner(owner) ||
+            chatIdRef.current !== originChatId
+          )
+            return;
+        }
+      }
       if (!backendChatId || !turnId) {
         message.error(t("chat.forkUnavailable"));
         return;

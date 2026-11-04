@@ -36,7 +36,7 @@ def _history_workspace(tmp_path, filename="history.db", strategy="scroll"):
             catalog.write_runtime_state(
                 session_id=session_id,
                 user_id=session_id,
-                channel="console",
+                channel="",
                 state={"agent": {}},
             )
     finally:

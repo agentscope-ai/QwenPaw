@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """JSON-based chat repository."""
+
 from __future__ import annotations
 
 import json
@@ -12,7 +13,7 @@ from contextlib import closing
 from pathlib import Path
 
 from .base import BaseChatRepository
-from ..models import ChatsFile
+from ..models import ChatsFile, session_storage_identity
 from ....utils.io_utils import read_json, run_sync_io, write_json_atomic
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,16 @@ class JsonChatRepository(BaseChatRepository):
                     chat.pop("storage_id", None)
                     changed = True
         result = ChatsFile.model_validate(raw)
-        storage_ids = [chat.storage_id for chat in result.chats]
-        if len(storage_ids) != len(set(storage_ids)):
-            raise ValueError("duplicate chat storage_id")
+        identities = {}
+        for chat in result.chats:
+            identity = session_storage_identity(
+                chat.session_id,
+                chat.user_id,
+                chat.channel,
+            )
+            previous = identities.setdefault(chat.storage_id, identity)
+            if previous != identity:
+                raise ValueError("duplicate chat storage_id")
         if changed:
             if recovered:
                 backup = self._path.with_name(
@@ -96,7 +104,7 @@ class JsonChatRepository(BaseChatRepository):
             ),
         ) as connection:
             bindings = {
-                (row[0], row[1], row[2]): row[3]
+                session_storage_identity(row[0], row[1], row[2]): row[3]
                 for row in connection.execute(
                     "SELECT session_id, user_id, channel, storage_id "
                     "FROM transcript_files",
@@ -106,10 +114,10 @@ class JsonChatRepository(BaseChatRepository):
         for chat in chats:
             if not isinstance(chat, dict):
                 continue
-            identity = (
-                chat.get("session_id"),
-                chat.get("user_id"),
-                chat.get("channel"),
+            identity = session_storage_identity(
+                chat.get("session_id", ""),
+                chat.get("user_id", ""),
+                chat.get("channel", ""),
             )
             storage_id = bindings.get(identity)
             current = chat.get("storage_id")
@@ -131,7 +139,11 @@ class JsonChatRepository(BaseChatRepository):
                     "SELECT session_id, user_id, channel, storage_id "
                     "FROM transcript_sessions",
                 ).fetchall()
-                if rows != [(*identity, storage_id)]:
+                if (
+                    len(rows) != 1
+                    or session_storage_identity(*rows[0][:3]) != identity
+                    or rows[0][3] != storage_id
+                ):
                     raise ValueError("chat database identity mismatch")
                 fork = connection.execute(
                     "SELECT payload_json FROM event_log "

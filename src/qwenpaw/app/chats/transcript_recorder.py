@@ -54,7 +54,7 @@ class TranscriptRecorder:
             getattr(request, "user_id", "") or self._session_id,
         )
         self._channel = str(
-            getattr(request, "channel", "") or "console",
+            getattr(request, "channel", "") or "",
         )
         self._turn_id = self._resolve_turn_id(request)
         self._legacy_messages = legacy_messages or []

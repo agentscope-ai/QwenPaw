@@ -22,6 +22,15 @@ from qwenpaw.schemas import Message
 from ..channels.schema import DEFAULT_CHANNEL
 
 
+def session_storage_identity(
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> tuple[str, str, str]:
+    """Match the empty/self user equivalence of legacy session filenames."""
+    return session_id, user_id or session_id, channel
+
+
 class SessionSource(str, Enum):
     """Identifies how a session was initiated.
 
@@ -299,6 +308,7 @@ class ChatHistoryMetadata(BaseModel):
     has_more: bool = False
     next_before: Optional[str] = None
     snapshot: Optional[str] = None
+    migration_pending: bool = False
 
 
 class ChatMessagePage(ChatHistoryMetadata):

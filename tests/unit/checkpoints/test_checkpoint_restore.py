@@ -80,11 +80,11 @@ def _write_session(
     return workspace
 
 
-def _session_text(path: Path) -> str:
+def _session_text(path: Path, user_id: str = USER_ID) -> str:
     catalog = TranscriptCatalog(path)
     snapshot = catalog.read_runtime_state(
         session_id=SESSION_ID,
-        user_id=USER_ID,
+        user_id=user_id,
         channel=CHANNEL,
     )
     catalog.close()
@@ -143,10 +143,11 @@ async def _checkpoint(
     text: str,
     *,
     session_id: str = SESSION_ID,
+    user_id: str = USER_ID,
 ) -> str:
     ref = await engine.make_auto_checkpoint(
         session_id=session_id,
-        user_id=USER_ID,
+        user_id=user_id,
         channel=CHANNEL,
         query=text,
     )
@@ -277,32 +278,41 @@ async def test_snapshot_keeps_checkpoint_state_and_excludes_runtime_state(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("anonymous", [False, True])
 async def test_conversation_restore_dry_run_then_confirm(
     tmp_path: Path,
+    anonymous: bool,
 ) -> None:
+    read_user = SESSION_ID if anonymous else USER_ID
+    stored_user = "" if anonymous else USER_ID
+    conversation_path = session_snapshot_path(
+        session_id=SESSION_ID,
+        user_id=read_user,
+        channel=CHANNEL,
+    )
     engine = CheckpointService(tmp_path)
-    session_path = _write_session(tmp_path, "first")
-    first_commit = await _checkpoint(engine, "first")
+    session_path = _write_session(tmp_path, "first", user_id=stored_user)
+    first_commit = await _checkpoint(engine, "first", user_id=read_user)
 
-    _write_session(tmp_path, "second")
-    second_commit = await _checkpoint(engine, "second")
+    _write_session(tmp_path, "second", user_id=stored_user)
+    second_commit = await _checkpoint(engine, "second", user_id=read_user)
 
     preview = await engine.restore(
         target=first_commit[:12],
         session_id=SESSION_ID,
-        user_id=USER_ID,
+        user_id=read_user,
         channel=CHANNEL,
         dry_run=True,
     )
     assert preview.dry_run is True
     assert preview.pre_restore_ref is None
-    assert preview.restored_paths == (CONVERSATION_PATH,)
-    assert _session_text(session_path) == "second"
+    assert preview.restored_paths == (conversation_path,)
+    assert _session_text(session_path, user_id=read_user) == "second"
     assert (
         engine.session_head(
             session_key(
                 channel=CHANNEL,
-                user_id=USER_ID,
+                user_id=read_user,
                 session_id=SESSION_ID,
             ),
         )
@@ -312,17 +322,17 @@ async def test_conversation_restore_dry_run_then_confirm(
     restored = await engine.restore(
         target=first_commit[:12],
         session_id=SESSION_ID,
-        user_id=USER_ID,
+        user_id=read_user,
         channel=CHANNEL,
     )
     assert restored.dry_run is False
     assert restored.pre_restore_ref is not None
-    assert _session_text(session_path) == "first"
+    assert _session_text(session_path, user_id=read_user) == "first"
     assert (
         engine.session_head(
             session_key(
                 channel=CHANNEL,
-                user_id=USER_ID,
+                user_id=read_user,
                 session_id=SESSION_ID,
             ),
         )

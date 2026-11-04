@@ -4217,6 +4217,7 @@
     "forkDescription": "A new independent conversation will contain this turn and all earlier turns.",
     "forkCreated": "Fork created",
     "forkFailed": "Failed to fork conversation",
+    "forkPreparing": "Preparing fork",
     "forkUnavailable": "This turn cannot be forked",
     "forkUnsupported": "This agent backend does not support forking",
     "forkBoundaryMissing": "This turn has no completed native fork boundary and cannot be forked yet",

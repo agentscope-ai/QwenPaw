@@ -3621,6 +3621,7 @@
     "forkDescription": "Uma nova conversa independente incluirá este turno e todos os anteriores.",
     "forkCreated": "Ramificação criada",
     "forkFailed": "Falha ao criar ramificação da conversa",
+    "forkPreparing": "Preparando ramificação",
     "forkUnavailable": "Não é possível criar uma ramificação deste turno",
     "forkUnsupported": "O backend deste agente não oferece suporte a ramificações",
     "forkBoundaryMissing": "Este turno ainda não tem um limite de ramificação nativo concluído e não pode ser ramificado",

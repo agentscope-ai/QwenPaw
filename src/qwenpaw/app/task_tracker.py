@@ -23,6 +23,7 @@ from typing import (
     Callable,
     Optional,
 )
+from .chats.models import session_storage_identity
 
 from .replay_store import (
     RECONNECT_REQUIRED_SSE,
@@ -245,6 +246,7 @@ class TaskTracker:
     @asynccontextmanager
     async def session_execution(self, identity, can_start, *, owner=None):
         """Track all workspace writers, including callers outside channels."""
+        identity = session_storage_identity(*identity)
         task = asyncio.current_task()
         async with self._lock:
             if identity in self._blocked_sessions or not await can_start():
@@ -263,7 +265,7 @@ class TaskTracker:
     @asynccontextmanager
     async def stop_session_writers(self, identities):
         """Keep writers excluded until persisted cleanup has finished."""
-        identities = set(identities)
+        identities = {session_storage_identity(*key) for key in identities}
         async with self._lock:
             if identities & self._blocked_sessions:
                 raise RunUnavailableError("conversation deletion is pending")

@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-import qwenpaw.runtime as runtime_module
+import qwenpaw.app.workspace.workspace as workspace_module
+from qwenpaw.runtime import Runtime as BaseRuntime
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.chats.session import DatabaseSession
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
@@ -66,9 +67,9 @@ async def test_selected_backend_routes_directly_to_harness(
         "settings": {
             "_request_context": {
                 "agent_id": "agent-1",
-                "session_id": None,
-                "user_id": None,
-                "channel": "console",
+                "session_id": request.session_id,
+                "user_id": request.session_id,
+                "channel": "",
             },
         },
     }
@@ -110,13 +111,15 @@ async def test_closing_qwenpaw_stream_finishes_cancelled(
     )
 
     class FakeRuntime:
+        normalize_request = staticmethod(BaseRuntime.normalize_request)
+
         def __init__(self, **_kwargs: object) -> None:
             pass
 
         async def run(self, _request: object) -> AsyncIterator[str]:
             yield "runtime-output"
 
-    monkeypatch.setattr(runtime_module, "Runtime", FakeRuntime)
+    monkeypatch.setattr(workspace_module, "Runtime", FakeRuntime)
     recorder = Mock()
     recorder.start = AsyncMock()
     recorder.observe = AsyncMock()
@@ -126,7 +129,7 @@ async def test_closing_qwenpaw_stream_finishes_cancelled(
         Mock(return_value=recorder),
     )
     workspace = Workspace("agent-1", str(tmp_path / "workspace"))
-    stream = workspace.stream_query(object())
+    stream = workspace.stream_query(AgentRequest())
 
     assert await anext(stream) == "runtime-output"
     await stream.aclose()
@@ -162,7 +165,7 @@ async def test_harness_turn_commits_forkable_runtime(tmp_path, monkeypatch):
                         role=Role.ASSISTANT,
                         status=RunStatus.Completed,
                         content=[TextContent(text="answer")],
-                    )
+                    ),
                 ],
             )
             await bridge.append_turn(
@@ -181,7 +184,7 @@ async def test_harness_turn_commits_forkable_runtime(tmp_path, monkeypatch):
             Message(
                 role=Role.USER,
                 content=[TextContent(text="question")],
-            )
+            ),
         ],
     )
     output = [item async for item in workspace.stream_query(request)]

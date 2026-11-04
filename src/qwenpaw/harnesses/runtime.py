@@ -136,7 +136,7 @@ class HarnessRuntime:
         identity = {
             "session_id": session_id,
             "user_id": str(getattr(request, "user_id", "") or session_id),
-            "channel": str(getattr(request, "channel", "") or "console"),
+            "channel": str(getattr(request, "channel", "") or ""),
         }
         context = getattr(request, "request_context", None) or {}
         turn_id = context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)

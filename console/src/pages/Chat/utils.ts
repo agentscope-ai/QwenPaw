@@ -9,6 +9,7 @@ export type CopyableContent = {
 };
 
 export type CopyableMessage = {
+  id?: string;
   role?: string;
   type?: string;
   content?: string | CopyableContent[];

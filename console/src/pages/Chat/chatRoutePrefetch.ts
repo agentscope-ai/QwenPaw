@@ -19,6 +19,7 @@ export function prefetchChatHistory(
 
   const promise = chatApi.getChat(chatId, {
     signal,
+    agentId,
     include_app_owned: false,
   });
   const entry = { agentId, promise };

@@ -23,6 +23,7 @@ from typing import (
     Optional,
 )
 
+from ..._session_request import is_ephemeral_request
 from ...config.timezone import normalize_tz
 from ..._session_signals import TURN_COMMIT_KEY
 from ...schemas import AgentResponse, RunStatus
@@ -456,12 +457,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
     @_sdk_observe_stream
     async def stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
         """Lease the session for the entire request, including final writes."""
+        available = getattr(self._manager, "assert_agent_available", None)
+        if available is not None:
+            available(self.agent_id)
         request = Runtime.normalize_request(request)
         session_id = str(getattr(request, "session_id", "") or "")
         identity = (
             session_id,
             str(getattr(request, "user_id", "") or session_id),
-            str(getattr(request, "channel", "") or "console"),
+            str(getattr(request, "channel", "") or ""),
         )
 
         async def can_start():
@@ -488,9 +492,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        available = getattr(self._manager, "assert_agent_available", None)
-        if available is not None:
-            available(self.agent_id)
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -514,7 +515,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 "agent_id": self.agent_id,
                 "session_id": getattr(request, "session_id", None),
                 "user_id": getattr(request, "user_id", None),
-                "channel": getattr(request, "channel", None) or "console",
+                "channel": getattr(request, "channel", None) or "",
             }
             stream = self.harness_runtime.stream(
                 backend=backend,
@@ -525,7 +526,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
         else:
             rt = Runtime(workspace=self, app_services=self._app_services)
             stream = rt.run(request)
-        transcript_store = self.transcript_store
+        transcript_store = (
+            None if is_ephemeral_request(request) else self.transcript_store
+        )
         legacy_messages = []
         if (
             transcript_store is not None
@@ -538,7 +541,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     getattr(request, "user_id", "") or request.session_id,
                 ),
                 "channel": str(
-                    getattr(request, "channel", "") or "console",
+                    getattr(request, "channel", "") or "",
                 ),
             }
             try:
@@ -630,6 +633,8 @@ class Workspace:  # pylint: disable=too-many-public-methods
         request: Any,
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
         """Resolve and persist one turn's usage across durable stores."""
+        if is_ephemeral_request(request):
+            return None, None
         request_context = getattr(request, "request_context", None)
         if not isinstance(request_context, dict):
             request_context = {}
@@ -641,7 +646,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         session_id = str(getattr(request, "session_id", "") or "")
         user_id = str(getattr(request, "user_id", "") or session_id)
-        channel = str(getattr(request, "channel", "") or "console")
+        channel = str(getattr(request, "channel", "") or "")
         is_command = bool(request_context.get(f"conversation_command"))
         pending = request_context.get(TURN_COMMIT_KEY)
         runtime_state = (

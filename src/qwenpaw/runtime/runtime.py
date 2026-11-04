@@ -20,12 +20,12 @@ import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
+from .._session_request import is_ephemeral_request
 from .._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
     TURN_COMMIT_KEY,
 )
-from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
 from ..utils.io_utils import run_async_to_completion
@@ -308,13 +308,8 @@ class Runtime:
         """
         request = getattr(ctx, "request", None)
         request_context = getattr(request, "request_context", None)
-        if isinstance(request_context, dict):
-            ephemeral = request_context.get(ACP_EPHEMERAL_META_KEY)
-            if ephemeral is True or (
-                isinstance(ephemeral, str)
-                and ephemeral.lower() in {"1", "true", "yes"}
-            ):
-                return
+        if is_ephemeral_request(request):
+            return
 
         agent = getattr(ctx, "agent", None)
         if agent is None:
@@ -361,7 +356,7 @@ class Runtime:
                 ctx.error,
             )
             user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or "console"
+            channel = getattr(request, "channel", "") or ""
             save = session.save_session_state
             save_kwargs = {}
             turn_id = (request_context or {}).get(

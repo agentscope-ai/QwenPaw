@@ -16,6 +16,8 @@ from fastapi import BackgroundTasks, HTTPException
 
 from qwenpaw.app.chats.api import (
     _delete_chat_data,
+    ChatForkRequest,
+    fork_chat_at_turn,
     batch_delete_chats,
     delete_chat,
     get_chat,
@@ -625,6 +627,8 @@ async def test_legacy_reads_return_before_shared_migration_finishes(
     )
     migration_started = asyncio.Event()
     allow_migration = asyncio.Event()
+    projection_ready = asyncio.Event()
+    allow_runtime = asyncio.Event()
     migrate = getattr(session, "_migrate_legacy_snapshot")
     migration_count = 0
 
@@ -639,6 +643,14 @@ async def test_legacy_reads_return_before_shared_migration_finishes(
         migration_count += 1
         migration_started.set()
         await allow_migration.wait()
+        store.import_legacy_messages(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            messages=snapshot.messages,
+        )
+        projection_ready.set()
+        await allow_runtime.wait()
         return await migrate(
             session_id=session_id,
             user_id=user_id,
@@ -665,6 +677,7 @@ async def test_legacy_reads_return_before_shared_migration_finishes(
     await migration_started.wait()
 
     assert history.messages[0].content[0].text == "fallback"
+    assert history.history.migration_pending
     assert (
         store.get_page(
             session_id="session-1",
@@ -702,12 +715,63 @@ async def test_legacy_reads_return_before_shared_migration_finishes(
     assert full == {"text": "fallback"}
     assert migration_count == 1
 
+    prepared_page = asyncio.create_task(
+        get_chat_messages(
+            chat_id="chat-1",
+            before=None,
+            limit=100,
+            max_bytes=2 * 1024 * 1024,
+            include_app_owned=False,
+            wait_for_migration=True,
+            mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+            workspace=workspace,
+        ),
+    )
     allow_migration.set()
-    await session.ensure_legacy_migrated(
+    await projection_ready.wait()
+    identity = dict(
         session_id="session-1",
         user_id="user-1",
         channel="console",
     )
+    assert store.get_page(**identity) is not None
+    assert store.read_turn_context(**identity, turn_id="legacy:1") is None
+    manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=_chat()),
+        create_chat=AsyncMock(side_effect=lambda chat: chat),
+    )
+    fork = asyncio.create_task(
+        fork_chat_at_turn(
+            chat_id="chat-1",
+            payload=ChatForkRequest(turn_id="legacy:1"),
+            mgr=manager,
+            workspace=workspace,
+        ),
+    )
+    try:
+        await asyncio.wait({fork}, timeout=0.05)
+        assert not fork.done()
+        assert not prepared_page.done()
+        manager.create_chat.assert_not_awaited()
+    finally:
+        allow_runtime.set()
+    child = await asyncio.wait_for(fork, timeout=10)
+    projected = await asyncio.wait_for(prepared_page, timeout=10)
+    assert not projected.migration_pending
+    assert (
+        projected.messages[0].metadata["qwenpaw_transcript_position"][
+            "turn_id"
+        ]
+        == "legacy:1"
+    )
+    assert child.fork_turn_seq == 1
+    assert migration_count == 1
+    inherited = store.get_page(
+        session_id=child.session_id,
+        user_id=child.user_id,
+        channel=child.channel,
+    )
+    assert inherited.messages[0].content[0].text == "fallback"
 
     page = store.get_page(
         session_id="session-1",
@@ -770,9 +834,17 @@ async def test_delete_chat_data_removes_all_persistence(
 
 
 @pytest.mark.asyncio
-async def test_delete_keeps_shared_session_data() -> None:
+@pytest.mark.parametrize("anonymous", [False, True])
+async def test_delete_keeps_shared_session_data(anonymous: bool) -> None:
     first = _chat()
-    second = first.model_copy(update={"id": "chat-2"})
+    if anonymous:
+        first = first.model_copy(update={"user_id": ""})
+    second = first.model_copy(
+        update={
+            "id": "chat-2",
+            "user_id": first.session_id if anonymous else first.user_id,
+        },
+    )
     store = Mock(spec=TranscriptCatalog)
     manager = SimpleNamespace(
         get_chat=AsyncMock(return_value=first),

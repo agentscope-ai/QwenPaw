@@ -133,9 +133,13 @@ async def test_write_failure_does_not_authorize_fifo(tmp_path):
     store, recorder, replay = setup(tmp_path)
     try:
         await recorder.start()
+        for index in range(8):
+            await record(recorder, replay, message(index, completed=False))
         with patch.object(store, "upsert_message", side_effect=OSError):
-            for index in range(8):
-                await record(recorder, replay, message(index))
+            with pytest.raises(OSError):
+                await record(recorder, replay, message(0))
+        receipt = replay_receipt.get()
+        assert receipt is not None and not receipt.committed
         assert not replay.has_evicted
         assert len(json.loads(list(replay.replay())[0][6:])["output"]) == 8
     finally:
@@ -160,7 +164,7 @@ async def test_pre_message_flush_cannot_acknowledge_completion(tmp_path):
                     "type": "text",
                     "delta": True,
                     "text": "partial",
-                }
+                },
             ),
             replay_receipt.get(),
         )

@@ -217,7 +217,7 @@ async def test_runtime_exposes_model_to_tools_and_cleans_up(
         ),
     )
     runtime = runtime_module.Runtime(workspace=workspace, app_services=None)
-    monkeypatch.setattr(runtime, "_normalize", lambda request: request)
+    monkeypatch.setattr(runtime, "normalize_request", lambda request: request)
     monkeypatch.setattr(runtime, "_build_context", lambda _: ctx)
     monkeypatch.setattr(runtime, "_start_modes", AsyncMock())
     monkeypatch.setattr(runtime, "_apply_context_injections", lambda _: None)

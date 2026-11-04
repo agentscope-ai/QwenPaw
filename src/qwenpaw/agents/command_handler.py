@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from agentscope.message import HintBlock, Msg, TextBlock
 from reme.config import parse_action, parse_kwargs
 
+from .._session_request import is_ephemeral_request
 from ..config.config import get_model_max_input_length, load_agent_config
 from ..app.chats.transcript_catalog import resolve_session_database_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
@@ -690,13 +691,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 or "local"
             )
             request = getattr(self._prompt_context, "request", None)
-            db_path = await run_sync_io(
-                resolve_session_database_path,
-                self._workspace_dir,
-                session_id=session_id,
-                user_id=getattr(request, "user_id", "") or session_id,
-                channel=getattr(request, "channel", "") or "",
-            )
+            if is_ephemeral_request(request):
+                db_path = (
+                    Path(self._workspace_dir) / lcc.scroll_config.db_filename
+                )
+            else:
+                db_path = await run_sync_io(
+                    resolve_session_database_path,
+                    self._workspace_dir,
+                    session_id=session_id,
+                    user_id=getattr(request, "user_id", "") or session_id,
+                    channel=getattr(request, "channel", "") or "",
+                )
             if db_path is None:
                 raise FileNotFoundError("conversation database is missing")
             history = await run_sync_io(HistoryStore, db_path)

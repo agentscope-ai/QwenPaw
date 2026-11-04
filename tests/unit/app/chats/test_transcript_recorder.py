@@ -48,9 +48,25 @@ def _request() -> AgentRequest:
 
 
 @pytest.mark.asyncio
-async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "user_id,channel,unknown",
+    [
+        ("user-1", "console", False),
+        ("user-1", None, False),
+        ("", "group", True),
+    ],
+)
+async def test_records_request_and_terminal_response(
+    tmp_path: Path,
+    user_id: str,
+    channel: str | None,
+    unknown: bool,
+) -> None:
     store = TranscriptStore(tmp_path / "session.db")
     request = _request()
+    request.user_id = user_id
+    request.channel = channel
+    request._channel_actor_unknown = unknown
     recorder = TranscriptRecorder(
         store=store,
         request=request,
@@ -75,8 +91,8 @@ async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
 
     page = store.get_page(
         session_id="session-1",
-        user_id="user-1",
-        channel="console",
+        user_id=user_id,
+        channel=channel or "",
     )
     assert page is not None
     assert [message.id for message in page.messages] == [

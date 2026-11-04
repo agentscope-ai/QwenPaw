@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Optional
 
 from .models import (
+    session_storage_identity,
     BatchArchiveResult,
     BatchFailure,
     ChatGroup,
@@ -110,12 +111,17 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         """Reject direct workspace requests while cleanup remains pending."""
         session_id, user_id, channel = identity
         chats = await self.list_chats(
-            user_id=user_id,
             channel=channel,
             archived=None,
         )
         return not any(
-            chat.session_id == session_id and chat.meta.get("deletion_pending")
+            session_storage_identity(
+                chat.session_id,
+                chat.user_id,
+                chat.channel,
+            )
+            == session_storage_identity(session_id, user_id, channel)
+            and chat.meta.get("deletion_pending")
             for chat in chats
         )
 

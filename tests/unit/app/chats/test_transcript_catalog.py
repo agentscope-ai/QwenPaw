@@ -241,9 +241,9 @@ def test_idle_handles_close_without_losing_history(
     storage_id = str(row["storage_id"])
     handle = catalog._handles[storage_id]  # pylint: disable=protected-access
     _upsert(catalog, "session-a")
-    assert (  # pylint: disable=protected-access
+    assert (
         catalog._handles[storage_id] is handle
-    )
+    )  # pylint: disable=protected-access
     _finish(catalog, "session-a")
     assert not catalog._handles  # pylint: disable=protected-access
     monkeypatch.setattr(
@@ -653,11 +653,15 @@ def test_clone_session_copies_completed_history_and_agent_runtime(
     catalog.close()
 
 
+@pytest.mark.parametrize("anonymous", [False, True])
 @pytest.mark.parametrize("final_usage", [False, True])
 def test_fork_at_completed_turn_rebuilds_boundary_state(
     tmp_path: Path,
     final_usage: bool,
+    anonymous: bool,
 ) -> None:
+    user_id = "" if anonymous else "user-1"
+    stored_user = "parent" if anonymous else user_id
     catalog = TranscriptCatalog(tmp_path)
     source_storage_id = ""
     source_path = Path()
@@ -666,14 +670,14 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
         turn_id = f"turn-{turn_seq}"
         catalog.start_turn(
             session_id="parent",
-            user_id="user-1",
+            user_id=stored_user,
             channel="console",
             turn_id=turn_id,
         )
         if not source_storage_id:
             source_storage_id = catalog.storage_id_for(
                 session_id="parent",
-                user_id="user-1",
+                user_id=user_id,
                 channel="console",
             )
             source_path = tmp_path / "transcripts" / f"{source_storage_id}.db"
@@ -700,7 +704,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
         history.close()
         catalog.write_runtime_state(
             session_id="parent",
-            user_id="user-1",
+            user_id=user_id,
             channel="console",
             state={
                 "agent": {
@@ -732,7 +736,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
 
     boundary_runtime = catalog.read_turn_context(
         session_id="parent",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
         turn_id="turn-2",
     )
@@ -745,12 +749,12 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     child_storage_id = "22222222-2222-4222-8222-222222222222"
     fork_seq = catalog.fork_at_turn(
         source_session_id="parent",
-        source_user_id="user-1",
+        source_user_id=user_id,
         source_channel="console",
         source_chat_id="parent-chat",
         turn_id="turn-2",
         target_session_id="child",
-        target_user_id="user-1",
+        target_user_id=user_id,
         target_channel="console",
         target_storage_id=child_storage_id,
     )
@@ -758,7 +762,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     assert fork_seq == 2
     page = catalog.get_page(
         session_id="child",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
     )
     assert page is not None
@@ -768,7 +772,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     ]
     runtime = catalog.read_runtime_state(
         session_id="child",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
     )
     assert runtime is not None
@@ -810,7 +814,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
 
     catalog.start_turn(
         session_id="child",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
         turn_id="child-turn",
     )
@@ -821,7 +825,7 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     )
     parent = catalog.get_page(
         session_id="parent",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
     )
     assert parent is not None
@@ -836,12 +840,17 @@ def test_fork_at_completed_turn_rebuilds_boundary_state(
     damaged_chat = ChatSpec(
         id="child-chat",
         session_id="child",
-        user_id="user-1",
+        user_id=user_id,
         channel="console",
     ).model_dump(mode="json")
     chats_path = tmp_path / "chats.json"
+    damaged_chats = [damaged_chat]
+    if anonymous:
+        alias = dict(damaged_chat, id="child-alias", user_id="child")
+        alias.pop("storage_id")
+        damaged_chats.append(alias)
     chats_path.write_text(
-        json.dumps({"version": 1, "chats": [damaged_chat]}),
+        json.dumps({"version": 1, "chats": damaged_chats}),
         encoding="utf-8",
     )
     reopened = TranscriptCatalog(tmp_path)

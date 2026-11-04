@@ -28,6 +28,7 @@ from .provider_migration import (
 )
 from .manager import ChatManager, MAX_BATCH_SIZE
 from .models import (
+    session_storage_identity,
     BatchArchiveResult,
     ChatGroup,
     ChatGroupCreate,
@@ -368,14 +369,22 @@ def _unshared_chat_data_targets(
     """Return sessions whose every chat mapping is being deleted."""
     target_ids = {chat.id for chat in targets}
     retained_sessions = {
-        (chat.session_id, chat.user_id, chat.channel)
+        session_storage_identity(
+            chat.session_id,
+            chat.user_id,
+            chat.channel,
+        )
         for chat in catalog
         if chat.id not in target_ids
     }
     result: list[ChatSpec] = []
     seen: set[tuple[str, str, str]] = set()
     for chat in targets:
-        identity = (chat.session_id, chat.user_id, chat.channel)
+        identity = session_storage_identity(
+            chat.session_id,
+            chat.user_id,
+            chat.channel,
+        )
         if identity in retained_sessions or identity in seen:
             continue
         seen.add(identity)
@@ -802,6 +811,12 @@ async def fork_chat_at_turn(
             status_code=503,
             detail="Conversation storage is not available",
         )
+
+    await workspace.session.ensure_legacy_migrated(
+        session_id=parent.session_id,
+        user_id=parent.user_id,
+        channel=parent.channel,
+    )
 
     backend = workspace.config.backend
     boundary = None
@@ -1368,6 +1383,7 @@ async def get_chat_messages(
     before: Optional[str] = Query(None),
     after_message_id: str | None = None,
     before_message_id: str | None = None,
+    wait_for_migration: bool = False,
     limit: int = Query(5, ge=1, le=100),
     max_bytes: Annotated[
         int,
@@ -1397,6 +1413,12 @@ async def get_chat_messages(
             status_code=404,
             detail=f"Chat not found: {chat_id}",
         )
+    if wait_for_migration:
+        await workspace.session.ensure_legacy_migrated(
+            session_id=chat.session_id,
+            user_id=chat.user_id,
+            channel=chat.channel,
+        )
     try:
         page = await _read_history_page(
             workspace,
@@ -1421,7 +1443,10 @@ async def get_chat_messages(
         snapshot = await _read_workspace_legacy_snapshot(workspace, chat)
         if snapshot is None:
             return ChatMessagePage()
-        return ChatMessagePage(messages=snapshot.messages)
+        return ChatMessagePage(
+            messages=snapshot.messages,
+            migration_pending=True,
+        )
     metadata = _history_metadata(page)
     return ChatMessagePage(
         messages=page.messages,
@@ -1617,7 +1642,7 @@ async def get_chat(
                 return ChatHistory(
                     messages=snapshot.messages,
                     status=status,
-                    history=ChatHistoryMetadata(),
+                    history=ChatHistoryMetadata(migration_pending=True),
                     context_state=None,
                 )
             context_state = await _read_context_state(session, chat_spec)

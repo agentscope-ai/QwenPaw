@@ -138,6 +138,61 @@ describe("createSession owner-epoch singleflight", () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    "prepares migrated fork IDs without blocking or replacing history (switch=%s)",
+    async (switchAgent) => {
+      const pending =
+        deferred<Awaited<ReturnType<typeof api.getChatMessages>>>();
+      const legacy = msg({
+        id: "stable-assistant",
+        role: "assistant",
+        content: "tool result",
+      });
+      vi.spyOn(api, "getChat").mockResolvedValue({
+        messages: [legacy],
+        status: "idle",
+        history: { has_more: false, migration_pending: true },
+      });
+      const pages = vi
+        .spyOn(api, "getChatMessages")
+        .mockReturnValue(pending.promise);
+      const session = await sessionApi.getSession("legacy-chat");
+      const visible = JSON.stringify(session?.messages);
+      const prepared = sessionApi.getPreparedForkTurnId("legacy-chat", [
+        "stable-assistant",
+      ]);
+      await sessionApi.getSession("legacy-chat");
+      expect(pages).toHaveBeenCalledOnce();
+      expect(pages).toHaveBeenCalledWith(
+        "legacy-chat",
+        expect.objectContaining({ wait_for_migration: true, agentId: "A" }),
+      );
+      if (switchAgent) sessionApi.setActiveAgent("B");
+      pending.resolve({
+        messages: [
+          {
+            ...legacy,
+            metadata: {
+              qwenpaw_transcript_position: {
+                turn_id: "legacy:1",
+                turn_seq: 1,
+                ordinal: 0,
+              },
+            },
+          },
+        ],
+        has_more: false,
+      });
+      expect(await prepared).toBe(switchAgent ? undefined : "legacy:1");
+      expect(JSON.stringify(session?.messages)).toBe(visible);
+      expect(
+        await sessionApi.getPreparedForkTurnId("legacy-chat", [
+          "unrelated-message",
+        ]),
+      ).toBeUndefined();
+    },
+  );
+
   it("shares concurrent first sends and publishes the created Chat once", async () => {
     const pending = deferred<ChatSpec>();
     const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);

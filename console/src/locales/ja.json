@@ -3367,6 +3367,7 @@
     "forkDescription": "このターンとそれ以前のすべての会話を含む、独立した会話を作成します。",
     "forkCreated": "分岐を作成しました",
     "forkFailed": "会話の分岐に失敗しました",
+    "forkPreparing": "分岐を準備しています",
     "forkUnavailable": "このターンからは分岐できません",
     "forkUnsupported": "このエージェントのバックエンドは分岐に対応していません",
     "forkBoundaryMissing": "このターンには完了済みのネイティブ分岐境界がないため、まだ分岐できません",

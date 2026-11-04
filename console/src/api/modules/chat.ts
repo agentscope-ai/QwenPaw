@@ -124,7 +124,11 @@ export const chatApi = {
 
   getChat: (
     chatId: string,
-    options?: { signal?: AbortSignal; include_app_owned?: boolean },
+    options?: {
+      signal?: AbortSignal;
+      include_app_owned?: boolean;
+      agentId?: string;
+    },
   ) => {
     const searchParams = new URLSearchParams({ full_history: "false" });
     if (options?.include_app_owned !== undefined)
@@ -137,6 +141,9 @@ export const chatApi = {
       `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
       {
         signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
       },
     );
   },
@@ -160,6 +167,8 @@ export const chatApi = {
     chatId: string,
     options?: {
       before?: string;
+      wait_for_migration?: boolean;
+      agentId?: string;
       after_message_id?: string;
       before_message_id?: string;
       limit?: number;
@@ -180,12 +189,19 @@ export const chatApi = {
         "include_app_owned",
         String(options.include_app_owned),
       );
+    if (options?.wait_for_migration)
+      searchParams.append("wait_for_migration", "true");
     const query = searchParams.toString();
     return request<ChatMessagePage>(
       `/chats/${encodeURIComponent(chatId)}/messages${
         query ? `?${query}` : ""
       }`,
-      { signal: options?.signal },
+      {
+        signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
+      },
     );
   },
 

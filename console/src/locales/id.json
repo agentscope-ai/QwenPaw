@@ -1165,6 +1165,7 @@
     "forkDescription": "Percakapan mandiri yang baru akan mencakup giliran ini dan semua giliran sebelumnya.",
     "forkCreated": "Cabang dibuat",
     "forkFailed": "Gagal membuat cabang percakapan",
+    "forkPreparing": "Menyiapkan cabang",
     "forkUnavailable": "Giliran ini tidak dapat dicabangkan",
     "forkUnsupported": "Backend agen ini tidak mendukung percabangan",
     "forkBoundaryMissing": "Giliran ini belum memiliki batas percabangan native yang selesai dan belum dapat dicabangkan",

@@ -1181,6 +1181,7 @@
     "forkDescription": "Cuộc trò chuyện độc lập mới sẽ bao gồm lượt này và tất cả các lượt trước đó.",
     "forkCreated": "Đã tạo nhánh",
     "forkFailed": "Không thể tạo nhánh cuộc trò chuyện",
+    "forkPreparing": "Đang chuẩn bị nhánh",
     "forkUnavailable": "Không thể tạo nhánh từ lượt này",
     "forkUnsupported": "Backend của tác nhân này không hỗ trợ tạo nhánh",
     "forkBoundaryMissing": "Lượt này chưa có ranh giới tạo nhánh gốc đã hoàn tất nên chưa thể tạo nhánh",

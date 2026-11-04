@@ -13,7 +13,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .repo.json_repo import JsonChatRepository
-from .models import ChatSpec
+from .models import ChatSpec, session_storage_identity
 from .transcript import (
     RuntimeSnapshot,
     TranscriptCursor,
@@ -25,6 +25,20 @@ from .transcript import (
 logger = logging.getLogger(__name__)
 
 _BUSY_TIMEOUT_MS = 5_000
+
+
+def _find_session_row(connection, session_id, user_id, channel):
+    """Resolve empty and self user IDs to the same stored conversation."""
+    _, user_id, _ = session_storage_identity(session_id, user_id, channel)
+    rows = connection.execute(
+        "SELECT * FROM transcript_files WHERE session_id = ? "
+        "AND channel = ? AND (user_id = ? OR "
+        "(user_id = '' AND session_id = ?))",
+        (session_id, channel, user_id, user_id),
+    ).fetchall()
+    if len(rows) > 1:
+        raise ValueError("conflicting transcript storage identities")
+    return rows[0] if rows else None
 
 
 def resolve_session_database_path(
@@ -41,17 +55,19 @@ def resolve_session_database_path(
         return None
     uri = f"{catalog_path.resolve().as_uri()}?mode=ro"
     connection = sqlite3.connect(uri, uri=True)
+    connection.row_factory = sqlite3.Row
     try:
-        row = connection.execute(
-            "SELECT storage_id FROM transcript_files "
-            "WHERE session_id = ? AND user_id = ? AND channel = ?",
-            (session_id, user_id, channel),
-        ).fetchone()
+        row = _find_session_row(
+            connection,
+            session_id,
+            user_id,
+            channel,
+        )
     finally:
         connection.close()
     if row is None:
         return None
-    path = workspace / "transcripts" / f"{row[0]}.db"
+    path = workspace / "transcripts" / f"{row['storage_id']}.db"
     return path if path.is_file() else None
 
 
@@ -155,9 +171,7 @@ class TranscriptCatalog:
                 and isinstance(session_id, str)
                 and session_id
                 and isinstance(user_id, str)
-                and user_id
                 and isinstance(channel, str)
-                and channel
             ):
                 continue
             db_path = self._store_path(storage_id)
@@ -204,11 +218,12 @@ class TranscriptCatalog:
         user_id: str,
         channel: str,
     ) -> sqlite3.Row | None:
-        return self._conn.execute(
-            "SELECT * FROM transcript_files WHERE session_id = ? "
-            "AND user_id = ? AND channel = ?",
-            (session_id, user_id, channel),
-        ).fetchone()
+        return _find_session_row(
+            self._conn,
+            session_id,
+            user_id,
+            channel,
+        )
 
     def _chat_storage_id(
         self,
@@ -225,11 +240,11 @@ class TranscriptCatalog:
         for chat in raw.get("chats", []):
             if not isinstance(chat, dict):
                 continue
-            if (
-                chat.get("session_id") == session_id
-                and chat.get("user_id") == user_id
-                and chat.get("channel") == channel
-            ):
+            if session_storage_identity(
+                chat.get("session_id", ""),
+                chat.get("user_id", ""),
+                chat.get("channel", ""),
+            ) == session_storage_identity(session_id, user_id, channel):
                 return ChatSpec.model_validate(chat).storage_id
         return None
 

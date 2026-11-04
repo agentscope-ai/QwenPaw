@@ -120,6 +120,7 @@ def build_scroll_components(
     user_id: str = "",
     channel: str = "",
     context_generation: int = 0,
+    ephemeral: bool = False,
     agent_id: str | None = None,
     offloader: Any = None,
     history_store: HistoryStore | None = None,
@@ -173,12 +174,16 @@ def build_scroll_components(
             resolve_session_database_path,
         )
 
-        db_path = resolve_session_database_path(
-            workspace_dir,
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-        )
+        if ephemeral:
+            # Temporary runs retain legacy Recall without a session DB.
+            db_path = Path(workspace_dir) / sc.db_filename
+        else:
+            db_path = resolve_session_database_path(
+                workspace_dir,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
         if db_path is None:
             raise FileNotFoundError(
                 "conversation database is not ready for recall",

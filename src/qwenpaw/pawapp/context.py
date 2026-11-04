@@ -4,7 +4,7 @@
 
 Provides access to QwenPaw capabilities via thin delegation:
 - ctx.chat() / ctx.chat_stream() → Workspace.stream_query()
-- ctx.storage.get/set/search → conversation DatabaseSession (namespaced)
+- ctx.storage.get/set → global app KV storage (namespaced)
 - ctx.tools.invoke() → ToolCoordinator
 - ctx.notify() → ChannelManager
 - ctx.ui.push/confirm → UIBridge (SSE + ApprovalService)
@@ -28,41 +28,15 @@ logger = logging.getLogger(__name__)
 class AppStorage:
     """Namespaced KV storage for a PawApp."""
 
-    def __init__(
-        self,
-        session: Any,
-        namespace: str,
-        *,
-        workspace_provider: Any = None,
-        user_id: str = "",
-        channel: str = "",
-    ):
+    def __init__(self, session: Any, namespace: str):
         self._session = session
         self._namespace = namespace
-        self._workspace_provider = workspace_provider
-        self._user_id = user_id
-        self._channel = channel
-
-    async def _get_session(self) -> Any:
-        if self._session is not None:
-            return self._session
-        if self._workspace_provider is None:
-            raise RuntimeError("PawApp session storage is unavailable")
-        workspace = await self._workspace_provider()
-        session = getattr(workspace, "session", None)
-        if session is None:
-            raise RuntimeError("PawApp session storage is unavailable")
-        self._session = session
-        return session
 
     async def get(self, key: str, *, default: Any = None) -> Any:
         """Get a value from app-namespaced storage."""
         try:
-            session = await self._get_session()
-            state = await session.get_session_state_dict(
+            state = await self._session.get_session_state_dict(
                 session_id=self._namespace,
-                user_id=self._user_id,
-                channel=self._channel,
                 allow_not_exist=True,
             )
             return state.get(key, default)
@@ -71,51 +45,38 @@ class AppStorage:
 
     async def set(self, key: str, value: Any) -> None:
         """Set a value in app-namespaced storage."""
-        session = await self._get_session()
-        await session.update_session_state(
+        await self._session.update_session_state(
             session_id=self._namespace,
             key=key,
             value=value,
-            user_id=self._user_id,
-            channel=self._channel,
             create_if_not_exist=True,
         )
 
     async def delete(self, key: str) -> None:
         """Delete a key from storage."""
-        session = await self._get_session()
-        await session.update_session_state(
+        await self._session.update_session_state(
             session_id=self._namespace,
             key=key,
             value=None,
-            user_id=self._user_id,
-            channel=self._channel,
             create_if_not_exist=False,
-            delete=True,
         )
 
     async def keys(self) -> List[str]:
         """List all keys in this app's namespace."""
         try:
-            session = await self._get_session()
-            state = await session.get_session_state_dict(
+            state = await self._session.get_session_state_dict(
                 session_id=self._namespace,
-                user_id=self._user_id,
-                channel=self._channel,
                 allow_not_exist=True,
             )
-            return [key for key in state if key != "_context_generation"]
+            return list(state)
         except Exception:
             return []
 
     async def clear_namespace(self) -> None:
         """Delete all data in this app's namespace."""
         try:
-            session = await self._get_session()
-            await session.delete_session_state(
+            await self._session.delete_session_state(
                 session_id=self._namespace,
-                user_id=self._user_id,
-                channel=self._channel,
             )
         except Exception:
             pass
@@ -669,10 +630,7 @@ class PawAppContext:
 
         self._storage = AppStorage(
             session=self._session,
-            namespace=f"pawapp-storage:{self.app_id}",
-            workspace_provider=self._get_workspace,
-            user_id="",
-            channel="",
+            namespace=f"pawapp:{self.app_id}",
         )
         self._tools = ToolProxy(
             tool_coordinator=coordinator,

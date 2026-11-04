@@ -15,6 +15,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .._session_request import is_ephemeral_request
 from .._session_signals import (
     TRANSCRIPT_RECORDING_READY_KEY,
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
@@ -479,8 +480,10 @@ async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
         return None, {}
 
     request = getattr(ctx, "request", None)
+    if is_ephemeral_request(request):
+        return AgentState(), {}
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or "console"
+    channel = getattr(request, "channel", "") or ""
 
     proxy = StateProxy()
     await session.load_session_state(
@@ -533,8 +536,10 @@ async def _save_agent_state(
         return
 
     request = getattr(ctx, "request", None)
+    if is_ephemeral_request(request):
+        return
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or "console"
+    channel = getattr(request, "channel", "") or ""
 
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}

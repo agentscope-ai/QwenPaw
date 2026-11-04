@@ -23,6 +23,11 @@ describe("cold-route history prefetch", () => {
       takeChatHistoryPrefetch("chat-share", "agent-a"),
     ).resolves.toBe(history);
     expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith("chat-share", {
+      signal: controller.signal,
+      agentId: "agent-a",
+      include_app_owned: false,
+    });
     expect(takeChatHistoryPrefetch("chat-share", "agent-a")).toBeNull();
   });
 

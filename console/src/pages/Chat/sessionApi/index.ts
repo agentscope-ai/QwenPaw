@@ -983,6 +983,54 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   >();
 
   /** Durable transcript cursor state, keyed by canonical backend chat ID. */
+  private forkTurnRequests = new Map<string, Promise<Map<string, string>>>();
+
+  /** Resolve only stable message IDs; never infer a turn from its position. */
+  getPreparedForkTurnId(backendId: string, messageIds: string[]) {
+    return this.forkTurnRequests.get(backendId)?.then((turns) => {
+      const matches = new Set(
+        messageIds.map((id) => turns.get(id)).filter(Boolean),
+      );
+      return matches.size === 1 ? [...matches][0] : undefined;
+    });
+  }
+
+  private prepareForkTurns(
+    backendId: string,
+    messages: Message[],
+    owner: SessionOwnerToken,
+  ) {
+    if (this.forkTurnRequests.has(backendId)) return;
+    const pending = new Set(messages.map((item) => item.id));
+    const request = (async () => {
+      const turns = new Map<string, string>();
+      let before: string | undefined;
+      do {
+        const page = await api.getChatMessages(backendId, {
+          before,
+          limit: 100,
+          wait_for_migration: true,
+          include_app_owned: false,
+          agentId: owner.agentId,
+        });
+        if (!this.isActiveOwner(owner)) return new Map<string, string>();
+        for (const item of page.messages) {
+          const position = getTranscriptPosition(item);
+          if (position && pending.delete(item.id))
+            turns.set(item.id, position.turn_id);
+        }
+        before = page.has_more ? page.next_before ?? undefined : undefined;
+      } while (pending.size && before);
+      return turns;
+    })().catch((error) => {
+      console.warn("Failed to prepare migrated fork boundaries", error);
+      if (this.forkTurnRequests.get(backendId) === request)
+        this.forkTurnRequests.delete(backendId);
+      return new Map<string, string>();
+    });
+    this.forkTurnRequests.set(backendId, request);
+  }
+
   private historyPages = new Map<string, ChatHistoryMetadata>();
 
   /** Coalesce repeated top-scroll events while one page is in flight. */
@@ -1129,6 +1177,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       const oldestKey = this.convertedSessionCache.keys().next().value;
       if (oldestKey) {
         this.convertedSessionCache.delete(oldestKey);
+        this.forkTurnRequests.delete(oldestKey);
         this.historyPages.delete(oldestKey);
         this.historyWindows.delete(oldestKey);
       }
@@ -1580,6 +1629,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.forkTurnRequests.clear();
     this.historyPages.clear();
     this.historyPageRequests.clear();
     this.historyWindows.clear();
@@ -1699,6 +1749,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionRequests.clear();
     this.sessionResultCache.clear();
     this.convertedSessionCache.clear();
+    this.forkTurnRequests.clear();
     this.historyPages.clear();
     this.historyPageRequests.clear();
     this.historyWindows.clear();
@@ -2260,6 +2311,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     }
     if (this.isActiveOwner(owner)) {
       this.setHistoryPage(backendId, historyPage);
+      if (historyPage.migration_pending) {
+        this.prepareForkTurns(backendId, chatHistory.messages || [], owner);
+      }
       for (const id of new Set([displayId, backendId])) {
         useMessageQueueStore
           .getState()

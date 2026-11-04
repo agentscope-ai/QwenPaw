@@ -550,7 +550,7 @@ class TestLoadAgentState:
         ctx.request = None
         await bc._load_agent_state(ctx)
         assert saved["load"]["user_id"] == "session-1"
-        assert saved["load"]["channel"] == "console"
+        assert saved["load"]["channel"] == ""
 
     async def test_blank_request_fields_fall_back_to_session_id(self):
         ctx, saved = _session_ctx({})
@@ -649,7 +649,7 @@ class TestSaveAgentState:
         ctx.request = None
         await bc._save_agent_state(ctx, AgentState())
         assert saved["save"]["user_id"] == "session-1"
-        assert saved["save"]["channel"] == "console"
+        assert saved["save"]["channel"] == ""
 
 
 # ---------------------------------------------------------------------------

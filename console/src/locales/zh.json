@@ -4074,6 +4074,7 @@
     "forkDescription": "新建的独立会话将包含此轮及之前的全部对话。",
     "forkCreated": "已创建分支",
     "forkFailed": "创建分支失败",
+    "forkPreparing": "正在准备分叉",
     "forkUnavailable": "此轮对话无法分叉",
     "forkUnsupported": "当前智能体后端不支持分叉",
     "forkBoundaryMissing": "此轮缺少已完成的原生分叉边界，暂时无法分叉",

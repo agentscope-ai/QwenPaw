@@ -16,6 +16,7 @@ from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
+from .._session_request import is_ephemeral_request
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
@@ -1102,7 +1103,7 @@ class AgentBuilder:
         ) or session_id
         channel = (
             getattr(request, "channel", None) if request is not None else None
-        ) or "console"
+        ) or ""
         raw_generation = (getattr(ctx, "session_state", None) or {}).get(
             "_context_generation",
             0,
@@ -1133,6 +1134,7 @@ class AgentBuilder:
                 user_id=user_id,
                 channel=channel,
                 context_generation=context_generation,
+                ephemeral=is_ephemeral_request(request),
                 agent_id=agent_id,
                 offloader=offloader,
             )

@@ -17,6 +17,7 @@ from uuid import uuid4
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ...schemas import Message, TextContent
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
+from .models import session_storage_identity
 from .context_revisions import (
     commit_turn_revision,
     read_revision_state,
@@ -332,6 +333,11 @@ class TranscriptStore:
         channel: str,
         recorded_at: str,
     ) -> None:
+        session = self._session_row(session_id)
+        if session is not None:
+            self._assert_identity(session, user_id=user_id, channel=channel)
+            # Aliases must not change the immutable session-created fact.
+            user_id = session["user_id"]
         self._append_fact(
             event_type="session.created",
             payload={
@@ -363,10 +369,12 @@ class TranscriptStore:
         channel: str,
         storage_id: str | None = None,
     ) -> None:
-        if (
-            row["user_id"] != user_id
-            or row["channel"] != channel
-            or (storage_id is not None and row["storage_id"] != storage_id)
+        if session_storage_identity(
+            row["session_id"],
+            row["user_id"],
+            row["channel"],
+        ) != session_storage_identity(row["session_id"], user_id, channel) or (
+            storage_id is not None and row["storage_id"] != storage_id
         ):
             raise ValueError("transcript session identity mismatch")
 

@@ -31,21 +31,36 @@ async def test_load_returns_empty_when_missing(repo: JsonChatRepository):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("alias_user", [None, "", "console:u1", "other"])
 async def test_save_and_load_round_trip(
     repo: JsonChatRepository,
     monkeypatch: pytest.MonkeyPatch,
+    alias_user: str | None,
 ):
-    spec = ChatSpec(session_id="console:u1", user_id="u1")
-    cf = ChatsFile(version=1, chats=[spec])
+    spec = ChatSpec(session_id="console:u1", user_id="console:u1")
+    specs = [spec]
+    if alias_user is not None:
+        specs.append(
+            ChatSpec(
+                session_id=spec.session_id,
+                user_id=alias_user,
+                storage_id=spec.storage_id,
+            ),
+        )
+    cf = ChatsFile(version=1, chats=specs)
     await repo.save(cf)
 
     def reject_recovery(_chats):
         pytest.fail("Complete storage IDs must not query recovery bindings")
 
     monkeypatch.setattr(repo, "_recover_catalog_bindings", reject_recovery)
+    if alias_user == "other":
+        with pytest.raises(ValueError, match="duplicate chat storage_id"):
+            await repo.load()
+        return
     loaded = await repo.load()
-    assert len(loaded.chats) == 1
-    assert loaded.chats[0].user_id == "u1"
+    assert len(loaded.chats) == len(specs)
+    assert loaded.chats[0].user_id == "console:u1"
 
 
 @pytest.mark.asyncio
