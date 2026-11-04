@@ -604,12 +604,59 @@ class CappingFormatterMixin:  # pylint: disable=too-few-public-methods
             return None
         return self._placeholder_unprepared(kind)
 
+    def _unprepared_file_placeholder(
+        self,
+        source: Any,
+        kind: str,
+    ) -> dict[str, Any] | None:
+        """Reject a file source that bypassed asynchronous preparation.
+
+        The OpenAI chat and Responses base formatters inline a file
+        attachment (a PDF) as a base64 data URI: they read a local
+        ``file://`` URL from disk and download every other URL with a
+        synchronous ``requests.get``.  Both happen inside the async
+        ``format()`` call, so they block the event loop — and the bytes
+        they fetch escape both inline-media budgets, which only measure
+        the sources the formatter can size itself.
+
+        A prepared file reaches the formatter as a ``Base64Source``: the
+        asynchronous preparation stage reads local files and downloads
+        remote ones off the event loop and replaces the source in place.
+        A ``URLSource`` therefore means the preparation stage did not run
+        for this block, and the base formatter must not be allowed to
+        read or download it synchronously.  Substitute a placeholder.
+        """
+        if not isinstance(source, URLSource):
+            # A ``Base64Source`` carries its payload in memory: it was
+            # prepared asynchronously and needs no I/O here.
+            return None
+        if local_media_path(str(source.url or "")) is not None:
+            return self._placeholder_unprepared(kind)
+        # A remote URL would be downloaded synchronously by the base
+        # formatter, so it is reported as unavailable instead.
+        return self._placeholder_unprepared_remote(kind)
+
     def _placeholder_unprepared(self, kind: str) -> dict[str, Any]:
         """Return a provider-shaped placeholder for unprepared media."""
         return {
             "type": "text",
             "text": (
                 f"[{kind} unavailable to model: local media preparation "
+                "was bypassed]"
+            ),
+        }
+
+    def _placeholder_unprepared_remote(self, kind: str) -> dict[str, Any]:
+        """Return a provider-shaped placeholder for unprepared remote media.
+
+        The remote twin of :meth:`_placeholder_unprepared`: the base
+        formatter would download the URL synchronously, so the media is
+        reported as unavailable instead of blocking the event loop.
+        """
+        return {
+            "type": "text",
+            "text": (
+                f"[{kind} unavailable to model: remote media preparation "
                 "was bypassed]"
             ),
         }
@@ -635,7 +682,16 @@ class _CappingOpenAIFormatter(OpenAIChatFormatter, CappingFormatterMixin):
         source: URLSource | Base64Source,
         name: str | None,
     ) -> dict[str, Any]:
-        """Cap PDF attachments through the same budget as other media."""
+        """Cap PDF attachments through the same budget as other media.
+
+        A PDF that bypassed the asynchronous preparation is *not* handed
+        to the base formatter: the base formatter would read it from
+        disk or download it synchronously inside ``format()``, blocking
+        the event loop and escaping the inline-media budgets.
+        """
+        unprepared = self._unprepared_file_placeholder(source, "file")
+        if unprepared is not None:
+            return unprepared
         capped = self._cap_media(source, "file")
         if capped is not None:
             return capped
@@ -857,6 +913,15 @@ class _CappingOpenAIResponseFormatter(
             ),
         }
 
+    def _placeholder_unprepared_remote(self, kind: str) -> dict[str, Any]:
+        return {
+            "type": "input_text",
+            "text": (
+                f"[{kind} unavailable to model: remote media preparation "
+                "was bypassed]"
+            ),
+        }
+
     def _format_image_source(self, source: Any) -> dict[str, Any]:
         capped = self._cap_media(source, "image")
         if capped is not None:
@@ -871,7 +936,16 @@ class _CappingOpenAIResponseFormatter(
         source: URLSource | Base64Source,
         name: str | None,
     ) -> dict[str, Any]:
-        """Cap PDF attachments through the same budget as other media."""
+        """Cap PDF attachments through the same budget as other media.
+
+        A PDF that bypassed the asynchronous preparation is *not* handed
+        to the base formatter: the base formatter would read it from
+        disk or download it synchronously inside ``format()``, blocking
+        the event loop and escaping the inline-media budgets.
+        """
+        unprepared = self._unprepared_file_placeholder(source, "file")
+        if unprepared is not None:
+            return unprepared
         capped = self._cap_media(source, "file")
         if capped is not None:
             return capped

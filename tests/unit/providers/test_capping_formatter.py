@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import builtins
 import random
 
 import pytest
@@ -1811,3 +1812,205 @@ class TestLocalPdfAttachmentsSpendTheBudget:
             "exceeds inline limit" in (part.get("text") or "")
             for part in parts
         )
+
+
+# ---------------------------------------------------------------------------
+# Unprepared file sources must not reach the base formatter's sync I/O
+# ---------------------------------------------------------------------------
+
+
+def _forbid_pdf_read(monkeypatch, path: str) -> None:
+    """Make a synchronous read of *path* fail loudly.
+
+    Only the PDF itself is blocked: everything else keeps working, so a
+    regression fails with a readable error instead of breaking the test
+    session.
+    """
+    real_open = builtins.open
+
+    def _guarded_open(file, *args, **kwargs):
+        if str(path) in str(file):
+            raise AssertionError(
+                "the formatter must not read the PDF synchronously",
+            )
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", _guarded_open)
+
+
+def _forbid_sync_download(monkeypatch) -> None:
+    """Make a synchronous HTTP download fail loudly."""
+
+    def _boom(*args, **kwargs):
+        raise AssertionError(
+            "the formatter must not download the PDF synchronously",
+        )
+
+    monkeypatch.setattr("requests.get", _boom)
+
+
+@pytest.mark.parametrize(
+    "formatter_cls,text_type",
+    [
+        (_CappingOpenAIFormatter, "text"),
+        (_CappingOpenAIResponseFormatter, "input_text"),
+    ],
+)
+def test_unprepared_local_pdf_is_not_read(
+    monkeypatch,
+    tmp_path,
+    formatter_cls,
+    text_type,
+) -> None:
+    """A local PDF that skipped the async preparation is not read.
+
+    The base OpenAI formatters read a local ``file://`` PDF from disk
+    inside ``format()``: that blocks the event loop and bypasses both
+    inline-media budgets.
+    """
+    path = tmp_path / "doc.pdf"
+    path.write_bytes(b"%PDF-1.4\n" + b"0" * 4096)
+    _forbid_pdf_read(monkeypatch, str(path))
+    _forbid_sync_download(monkeypatch)
+
+    out = formatter_cls()._format_file_source(
+        URLSource(url=path.as_uri(), media_type="application/pdf"),
+        "doc.pdf",
+    )
+
+    assert out["type"] == text_type
+    assert "local media preparation was bypassed" in out["text"]
+    assert "file" not in out
+    assert "base64" not in out["text"]
+
+
+@pytest.mark.parametrize(
+    "formatter_cls,text_type",
+    [
+        (_CappingOpenAIFormatter, "text"),
+        (_CappingOpenAIResponseFormatter, "input_text"),
+    ],
+)
+def test_unprepared_remote_pdf_is_not_downloaded(
+    monkeypatch,
+    formatter_cls,
+    text_type,
+) -> None:
+    """A remote PDF that skipped the async preparation is not downloaded.
+
+    The base OpenAI formatters download a remote PDF with a synchronous
+    ``requests.get`` inside ``format()``: that blocks the event loop and
+    bypasses both inline-media budgets.
+    """
+    _forbid_sync_download(monkeypatch)
+
+    out = formatter_cls()._format_file_source(
+        URLSource(
+            url="https://cdn.example.com/doc.pdf",
+            media_type="application/pdf",
+        ),
+        "doc.pdf",
+    )
+
+    assert out["type"] == text_type
+    assert "remote media preparation was bypassed" in out["text"]
+    assert "file" not in out
+    assert "base64" not in out["text"]
+
+
+@pytest.mark.parametrize(
+    "formatter_cls",
+    [
+        _CappingOpenAIFormatter,
+        _CappingOpenAIResponseFormatter,
+    ],
+)
+def test_prepared_pdf_is_still_inlined(formatter_cls) -> None:
+    """The guard only rejects unprepared sources: a prepared PDF inlines.
+
+    A prepared PDF is a ``Base64Source``: the asynchronous preparation
+    stage already read it off the event loop, so it carries its payload
+    in memory and must still reach the wire.
+    """
+    out = formatter_cls()._format_file_source(
+        _base64_source(_EACH_IMAGE_BYTES, "application/pdf"),
+        "doc.pdf",
+    )
+
+    assert out["type"] == "file"
+    assert out["file"]["filename"] == "doc.pdf"
+    assert out["file"]["file_data"].startswith(
+        "data:application/pdf;base64,",
+    )
+
+
+@pytest.mark.asyncio
+async def test_unprepared_local_pdf_is_not_read_during_format(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Formatting a request with an unprepared PDF performs no file I/O."""
+    path = tmp_path / "doc.pdf"
+    path.write_bytes(b"%PDF-1.4\n" + b"0" * 4096)
+    _forbid_pdf_read(monkeypatch, str(path))
+    _forbid_sync_download(monkeypatch)
+
+    parts = _wire_parts(
+        await _CappingOpenAIFormatter().format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        DataBlock(
+                            source=URLSource(
+                                url=path.as_uri(),
+                                media_type="application/pdf",
+                            ),
+                            name="doc.pdf",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+
+    assert not _media_parts(parts)
+    assert any(
+        "local media preparation was bypassed" in (part.get("text") or "")
+        for part in parts
+    )
+
+
+@pytest.mark.asyncio
+async def test_unprepared_remote_pdf_is_not_downloaded_during_format(
+    monkeypatch,
+) -> None:
+    """Formatting a request with an unprepared PDF performs no download."""
+    _forbid_sync_download(monkeypatch)
+
+    parts = _wire_parts(
+        await _CappingOpenAIFormatter().format(
+            [
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        DataBlock(
+                            source=URLSource(
+                                url="https://cdn.example.com/doc.pdf",
+                                media_type="application/pdf",
+                            ),
+                            name="doc.pdf",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+    )
+
+    assert not _media_parts(parts)
+    assert any(
+        "remote media preparation was bypassed" in (part.get("text") or "")
+        for part in parts
+    )
