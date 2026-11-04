@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider_model_state import migrate_provider_snapshot
 
 
 def make_provider(**model_kwargs) -> OpenAIProvider:
@@ -97,3 +98,54 @@ def test_thinking_budget_range_zero_min_keeps_supports_off():
     assert control.budget_min == 1
     assert control.budget_max == 9000
     assert control.supports_off is True
+
+
+def make_persisted_snapshot(**model_kwargs):
+    """A current-version snapshot dict, as load_provider reads from disk."""
+    provider = make_provider(**model_kwargs)
+    data = provider.model_dump()
+    data["snapshot_schema_version"] = 2
+    return data
+
+
+def test_persisted_single_bound_range_is_migrated_on_load():
+    # A snapshot persisted before write-path validation could carry a
+    # single-bound range. Loading validates every model, so without a
+    # load-time migration the provider would disappear after a restart.
+    data = make_persisted_snapshot(
+        thinking_budget_range=[100, 9000],
+        thinking_param_style="budget",
+    )
+    data["models"][0]["thinking_budget_range"] = [8000]
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    # The single bound is read as the cap: [8000] -> [0, 8000].
+    assert loaded.models[0].thinking_budget_range == [0, 8000]
+    control = loaded.thinking_control("m1")
+    assert control.budget_max == 8000
+    assert control.supports_off is True
+
+
+@pytest.mark.parametrize("bad_range", [[0, 0], [-5, -1], [9000, 100]])
+def test_persisted_unusable_range_is_dropped_on_load(bad_range):
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget_range"] = bad_range
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range is None
+
+
+def test_persisted_valid_range_is_left_untouched():
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range == [100, 9000]
+
+
+def test_persisted_provider_level_range_is_migrated_on_load():
+    data = make_persisted_snapshot()
+    data["thinking_budget_range"] = [8000]
+    assert migrate_provider_snapshot(data) is True
+    assert data["thinking_budget_range"] == [0, 8000]

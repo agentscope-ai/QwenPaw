@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Helpers for persisted runtime state of built-in provider models."""
 
+import logging
 from typing import Any
 
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 from .thinking import ThinkingControl
+
+logger = logging.getLogger(__name__)
 
 PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
 
@@ -64,14 +67,88 @@ def _migrate_legacy_model_output_limit(
     model["generate_kwargs"] = generate_kwargs
 
 
+def _coerce_range_ints(value: Any) -> list[int] | None:
+    """Return *value* as a list of ints, or None when it is not numeric."""
+    if not isinstance(value, list):
+        return None
+    result: list[int] = []
+    for item in value:
+        if isinstance(item, bool):
+            return None
+        if isinstance(item, int):
+            result.append(item)
+        elif isinstance(item, float) and item.is_integer():
+            result.append(int(item))
+        else:
+            return None
+    return result
+
+
+def _migrate_legacy_thinking_budget_range(owner: dict[str, Any]) -> bool:
+    """Normalize a persisted ``thinking_budget_range`` in place.
+
+    Snapshots written before write-path validation could persist ranges
+    that ``ModelInfo`` now rejects (a single bound, an unordered pair, or
+    a max below 1); validating such a snapshot on load would fail and
+    make the provider disappear. A single bound ``[v]`` is read as the
+    cap it most plausibly meant and becomes ``[0, v]``; any other invalid
+    shape is dropped to ``None`` (unset) rather than guessed at. Returns
+    True when the value changed.
+    """
+    if "thinking_budget_range" not in owner:
+        return False
+    value = owner["thinking_budget_range"]
+    if value is None:
+        return False
+    numbers = _coerce_range_ints(value)
+    if (
+        numbers is not None
+        and len(numbers) == 2
+        and numbers[0] <= numbers[1]
+        and numbers[1] >= 1
+    ):
+        return False
+    migrated: list[int] | None = None
+    if numbers is not None and len(numbers) == 1 and numbers[0] >= 1:
+        migrated = [0, numbers[0]]
+    logger.warning(
+        "Migrating legacy thinking_budget_range %r to %r in a persisted "
+        "provider config.",
+        value,
+        migrated,
+    )
+    owner["thinking_budget_range"] = migrated
+    return True
+
+
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
-    """Upgrade a provider snapshot to the current output-limit schema."""
+    """Upgrade a provider snapshot to the current schemas.
+
+    The ``thinking_budget_range`` normalization runs on every load,
+    independent of the snapshot schema version: a snapshot already at
+    the current version can still carry a range persisted before
+    write-path validation existed.
+    """
+    changed = _migrate_legacy_thinking_budget_range(data)
+    for collection_name in (
+        "models",
+        "extra_models",
+        "discovered_models",
+    ):
+        models = data.get(collection_name)
+        if not isinstance(models, list):
+            continue
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            changed = _migrate_legacy_thinking_budget_range(model) or changed
+
     version = data.get("snapshot_schema_version", 1)
     if (
         isinstance(version, int)
         and version >= PROVIDER_SNAPSHOT_SCHEMA_VERSION
     ):
-        return False
+        return changed
 
     for collection_name in (
         "models",
