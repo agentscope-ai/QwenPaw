@@ -675,7 +675,9 @@ describe("ChatPage coverage", () => {
     const location = useLocation();
     return (
       <>
-        <output data-testid="chat-path">{location.pathname}</output>
+        <output data-testid="chat-path">
+          {location.pathname + location.search}
+        </output>
         <ChatPage />
       </>
     );
@@ -1667,6 +1669,42 @@ describe("ChatPage coverage", () => {
       "default",
     );
     expect(clear).not.toHaveBeenCalled();
+  });
+
+  it("preserves the latest approval target when normalizing a runtime alias", async () => {
+    const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
+    function NotificationRouteHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button
+            onClick={() =>
+              navigate(`/chat/${runtimeId}?approval=second&agent=default`)
+            }
+          >
+            Open notification
+          </button>
+          <RouteHarness />
+        </>
+      );
+    }
+    renderWithProviders(<NotificationRouteHarness />, {
+      initialEntries: [`/chat/${runtimeId}?approval=first&agent=default`],
+    });
+    await screen.findByTestId("chat-ui");
+    fireEvent.click(screen.getByRole("button", { name: "Open notification" }));
+    const session = (await import("./sessionApi")).default;
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) =>
+      id === runtimeId ? chatId : id,
+    );
+
+    await act(async () => session.onSessionSelected?.(runtimeId, chatId));
+
+    expect(screen.getByTestId("chat-path")).toHaveTextContent(
+      `/chat/${chatId}?approval=second&agent=default`,
+    );
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) => id);
   });
 
   it("migrates a queued runtime alias before selecting its Chat UUID", async () => {

@@ -45,6 +45,8 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { copyText } from "../../utils/clipboard";
 import { setTextareaValue } from "../Chat/utils";
+import { fileTabTarget } from "../../features/files-workspace/fileIdentity";
+import type { FileTarget } from "../../features/files-workspace/types";
 import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
 import {
   useCodingTabsStore,
@@ -76,6 +78,7 @@ interface TabbedEditorProps {
   onTabContentChange: (path: string, content: string) => void;
   onFileSaved?: (path: string) => void;
   onMemoryTagClick?: (tag: string) => void;
+  onOpenFile?: (target: FileTarget) => void;
   onLoadFile?: (path: string) => Promise<string>;
   onSaveFile?: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
@@ -190,6 +193,7 @@ export default function TabbedEditor({
   onTabContentChange,
   onFileSaved,
   onMemoryTagClick,
+  onOpenFile,
   onLoadFile,
   onSaveFile,
   onDownloadFile,
@@ -349,6 +353,7 @@ export default function TabbedEditor({
   const [hunkOverlays, setHunkOverlays] = useState<HunkOverlay[]>([]);
 
   const activeTab = tabs.find((t) => t.path === activeTabPath) ?? null;
+  const activeTarget = activeTab ? fileTabTarget(activeTab) : null;
   const activeDisplayPath = activeTab
     ? activeTab.displayPath ?? visibleEditorPath(activeTab.path)
     : "";
@@ -1384,9 +1389,21 @@ export default function TabbedEditor({
               content={activeRenderedContent}
               chatId={chatId}
               binaryUrl={activeTab.artifactUrl}
-              root={activeTab.workspaceRoot}
+              root={activeTarget?.root}
               projectDirOverride={projectDirOverride}
-              workspaceBacked={activeTab.source === "workspace"}
+              workspaceBacked={activeTarget?.source === "workspace"}
+              onOpenFile={
+                onOpenFile &&
+                activeTarget?.source === "workspace" &&
+                !activeTab.artifactUrl
+                  ? (path) =>
+                      onOpenFile({
+                        source: "workspace",
+                        path,
+                        root: activeTarget.root,
+                      })
+                  : undefined
+              }
               onMemoryTagClick={
                 !activeTab.artifactUrl &&
                 (activeTab.source === "memory" ||

@@ -1461,6 +1461,13 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
     if withdrawn:
         (source / f"{names[1]}.py").write_text("VALUE = 1\n")
     monkeypatch.setattr(sys, "path", [str(source), str(site)])
+    state = backend._host_dependency_state
+
+    def owned_state():
+        paths, loaded = state()
+        return paths, tuple(row for row in loaded if row[0] in names)
+
+    monkeypatch.setattr(backend, "_host_dependency_state", owned_state)
     view, relevant = read_dependency_inventory(source, (site,), (packages[0],))
     assert relevant == {packages[0]}
     assert "unrelated-sdk" not in view.distributions

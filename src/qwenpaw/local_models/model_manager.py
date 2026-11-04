@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import fnmatch
 import importlib
 import logging
 import multiprocessing as mp
@@ -34,6 +35,17 @@ from ..providers.provider import ModelInfo
 from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
 
 logger = logging.getLogger(__name__)
+PICCOLO_REPO_IDS = {
+    f"agentscope-ai/Piccolo-{size}B{suffix}"
+    for size in (4, 9, 27)
+    for suffix in ("", "-BF16", "-Q8_0", "-Q4_K_M")
+}
+PICCOLO_DOWNLOAD_PATTERNS = [
+    "*.gguf",
+    "LICENSE",
+    "README.md",
+    "decision-inference.json",
+]
 
 
 class DownloadSource(str, Enum):
@@ -85,46 +97,46 @@ class ModelManager:
         if memory_gb <= 8:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-2B-Q4_K_M",
+                    id="agentscope-ai/QwenPaw-Flash-2B-Q4_K_M",
                     name="QwenPaw-Flash-2B-Q4_K_M",
                     size_bytes=1560460768,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-2B-Q8_0",
+                    id="agentscope-ai/QwenPaw-Flash-2B-Q8_0",
                     name="QwenPaw-Flash-2B-Q8_0",
                     size_bytes=2552356320,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
             ]
         elif memory_gb <= 16:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-4B-Q4_K_M",
+                    id="agentscope-ai/QwenPaw-Flash-4B-Q4_K_M",
                     name="QwenPaw-Flash-4B-Q4_K_M",
                     size_bytes=3066384736,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-4B-Q8_0",
+                    id="agentscope-ai/QwenPaw-Flash-4B-Q8_0",
                     name="QwenPaw-Flash-4B-Q8_0",
                     size_bytes=5157833056,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
             ]
         else:
             models = [
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-9B-Q4_K_M",
+                    id="agentscope-ai/QwenPaw-Flash-9B-Q4_K_M",
                     name="QwenPaw-Flash-9B-Q4_K_M",
                     size_bytes=5476080128,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
                 LocalModelInfo(
-                    id="AgentScope/QwenPaw-Flash-9B-Q8_0",
+                    id="agentscope-ai/QwenPaw-Flash-9B-Q8_0",
                     name="QwenPaw-Flash-9B-Q8_0",
                     size_bytes=10590617600,
-                    source=DownloadSource.MODELSCOPE,
+                    source=DownloadSource.HUGGINGFACE,
                 ),
             ]
 
@@ -164,6 +176,39 @@ class ModelManager:
                 ],
             )
 
+        for size, minimum_memory, weight_bytes in (
+            (4, 16, 4482403872),
+            (9, 24, 9527502656),
+            (27, 48, 28595764992),
+        ):
+            if memory_gb >= minimum_memory:
+                models.append(
+                    LocalModelInfo(
+                        id=f"agentscope-ai/Piccolo-{size}B-Q8_0",
+                        name=f"Piccolo-{size}B-Q8_0",
+                        model_type="decision",
+                        size_bytes=weight_bytes,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                )
+
+        # Leave room for full-prompt attention and runtime buffers.
+        for size, minimum_memory, weight_bytes in (
+            (4, 24, 8424394496),
+            (9, 32, 17920698400),
+            (27, 80, 53808284096),
+        ):
+            if memory_gb >= minimum_memory:
+                models.append(
+                    LocalModelInfo(
+                        id=f"agentscope-ai/Piccolo-{size}B-BF16",
+                        name=f"Piccolo-{size}B-BF16",
+                        model_type="decision",
+                        size_bytes=weight_bytes,
+                        source=DownloadSource.HUGGINGFACE,
+                    ),
+                )
+
         # check local download status for each recommended model
         for model in models:
             model.downloaded = self.is_downloaded(model.id)
@@ -193,10 +238,19 @@ class ModelManager:
         for entry in self._iter_downloaded_model_dirs():
             repo_id = self._infer_repo_id_from_path(entry)
             size_bytes = self._calculate_downloaded_size(entry)
+            is_piccolo = repo_id in PICCOLO_REPO_IDS
             models.append(
                 LocalModelInfo(
                     id=repo_id,
-                    name=repo_id,
+                    name=repo_id.rsplit("/", maxsplit=1)[-1]
+                    if is_piccolo
+                    else repo_id,
+                    model_type="decision" if is_piccolo else "chat",
+                    source=(
+                        DownloadSource.HUGGINGFACE
+                        if is_piccolo
+                        else DownloadSource.AUTO
+                    ),
                     size_bytes=size_bytes,
                     downloaded=True,
                 ),
@@ -420,9 +474,14 @@ class ModelManager:
                 "huggingface_hub is required for Hugging Face downloads.",
             ) from exc
 
+        kwargs = {}
+        if repo_id in PICCOLO_REPO_IDS:
+            # Fetch only GGUF/runtime metadata, including for legacy base IDs.
+            kwargs["allow_patterns"] = PICCOLO_DOWNLOAD_PATTERNS
         return snapshot_download(
             repo_id=repo_id,
             local_dir=str(local_dir),
+            **kwargs,
         )
 
     @staticmethod
@@ -474,6 +533,11 @@ class ModelManager:
             if not isinstance(name, str) or not isinstance(size, int):
                 continue
             if name.startswith("."):
+                continue
+            if repo_id in PICCOLO_REPO_IDS and not any(
+                fnmatch.fnmatch(name, pattern)
+                for pattern in PICCOLO_DOWNLOAD_PATTERNS
+            ):
                 continue
             total += size
             found = True

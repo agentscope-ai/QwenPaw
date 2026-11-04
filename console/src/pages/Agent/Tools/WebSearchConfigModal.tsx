@@ -172,6 +172,7 @@ export function WebSearchConfigModal({
           <Form.Item
             name="provider"
             label={t("tools.webSearchProviderLabel")}
+            data-settings-target="tools.webSearchProviderLabel"
             initialValue="anysearch"
           >
             <Select

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useContext, useRef } from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
@@ -8,6 +8,7 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import { CONTEXT_MANAGER_BACKEND_MAPPINGS } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+import { SettingsRuntimeConfigContext } from "../../SettingsCenter/SettingsSearchRequest";
 
 export function useAgentConfig(
   onConfigLoaded?: (config: AgentsRunningConfig) => void,
@@ -15,6 +16,7 @@ export function useAgentConfig(
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
+  const updateSearchConfig = useContext(SettingsRuntimeConfigContext);
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,6 +96,7 @@ export function useAgentConfig(
 
       // Store original config for complete save
       originalConfigRef.current = config;
+      updateSearchConfig(selectedAgent, config);
       onConfigLoaded?.(config);
       setConfigLoadRevision((revision) => revision + 1);
 
@@ -108,7 +111,7 @@ export function useAgentConfig(
     } finally {
       if (isCurrentRequest()) setLoading(false);
     }
-  }, [form, t, selectedAgent, onConfigLoaded]);
+  }, [form, t, selectedAgent, onConfigLoaded, updateSearchConfig]);
 
   useEffect(() => {
     fetchConfig();
@@ -196,6 +199,7 @@ export function useAgentConfig(
 
         // Update original config after successful save
         originalConfigRef.current = savedConfig;
+        updateSearchConfig(selectedAgent, savedConfig);
         onConfigLoaded?.(savedConfig);
         if (!automatic) message.success(t("agentConfig.saveSuccess"));
       } catch (err) {
@@ -209,7 +213,15 @@ export function useAgentConfig(
         setSaving(false);
       }
     },
-    [form, approvalLevel, selectedAgent, onConfigLoaded, message, t],
+    [
+      form,
+      approvalLevel,
+      selectedAgent,
+      onConfigLoaded,
+      updateSearchConfig,
+      message,
+      t,
+    ],
   );
 
   const handleLanguageChange = useCallback(

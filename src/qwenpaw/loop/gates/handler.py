@@ -5,8 +5,7 @@ Architecture:
     StopHandler holds an ordered list of StopGate.
     Gates are checked in priority order (lower first).
     TERMINATE -> agent stops immediately.
-    INTERRUPT_AND_CONTINUE -> call gate.build_continuation()
-        to get the message, then inject it.
+    INTERRUPT_AND_CONTINUE -> prepare the selected gate's prompt.
     BYPASS / None -> skip.
     No gates or all BYPASS -> TERMINATE.
 """
@@ -29,8 +28,7 @@ class StopHandler:
     """Universal stop handler with composable gates.
 
     TERMINATE -> agent stops immediately.
-    INTERRUPT_AND_CONTINUE -> inject prompt via
-        gate.build_continuation(), keep going.
+    INTERRUPT_AND_CONTINUE -> inject the selected prompt, keep going.
     BYPASS / None -> skip.
     No gates or all BYPASS -> TERMINATE.
     """
@@ -95,7 +93,6 @@ class StopHandler:
                 action=StopAction.TERMINATE,
             )
 
-        has_continue = False
         continue_result: StopHandlerResult | None = None
         continue_gate: StopGate | None = None
 
@@ -120,47 +117,38 @@ class StopHandler:
             )
             if result.action == StopAction.TERMINATE:
                 return result
-            has_continue = True
             if continue_result is None:
                 continue_result = result
                 continue_gate = gate
 
-        if not has_continue:
+        if continue_result is None or continue_gate is None:
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
             )
 
+        # Finish any I/O before resetting peer budgets for the next sub-turn.
+        prepare = continue_result.prepare_continuation
+        msg = await prepare(ctx) if prepare is not None else None
         self._maybe_reset_peers(
             continue_result,
             continue_gate,
         )
 
-        msg = continue_gate.build_continuation() if continue_gate else ""
+        if msg is None:
+            msg = continue_gate.build_continuation()
         return StopHandlerResult(
             action=StopAction.INTERRUPT_AND_CONTINUE,
             continuation_message=msg,
-            inject_on_tool_call=bool(
-                continue_result and continue_result.inject_on_tool_call,
-            ),
-            reason=(
-                continue_result.reason
-                if continue_result
-                else "Active gate continues"
-            ),
-            continuation_metadata=(
-                continue_result.continuation_metadata
-                if continue_result
-                else None
-            ),
-            final_message=(
-                continue_result.final_message if continue_result else None
-            ),
+            inject_on_tool_call=continue_result.inject_on_tool_call,
+            reason=continue_result.reason,
+            continuation_metadata=continue_result.continuation_metadata,
+            final_message=continue_result.final_message,
         )
 
     def _maybe_reset_peers(
         self,
-        continue_result: StopHandlerResult | None,
-        continue_gate: StopGate | None,
+        continue_result: StopHandlerResult,
+        continue_gate: StopGate,
     ) -> None:
         """Reset peer gates on sub-turn continuation.
 
@@ -173,7 +161,7 @@ class StopHandler:
         loop modify_prompt) keep reset_peers=False and
         do NOT trigger peer resets.
         """
-        if continue_result is None or not continue_result.reset_peers:
+        if not continue_result.reset_peers:
             return
         for gate in self._gates:
             if gate is not continue_gate:
