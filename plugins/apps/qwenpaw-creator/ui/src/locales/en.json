@@ -1599,7 +1599,7 @@
     "modelGuideVoiceDesc": "Synthesizes narration and lines; audio drives talking-head segments",
     "modelGuideGroundingProtocols": "Serper (Google) / Tavily search; the verifier can reuse LLM/VLM or a custom model",
     "modelGuideTtsTitle": "TTS Speech Synthesis",
-    "modelGuideTtsProtocols": "DashScope: Qwen-TTS family (qwen3-tts-flash / qwen3-tts-instruct-flash, system voices plus cloning/design), CosyVoice family (cosyvoice-v3.5-plus / qwen-audio-3.0-tts-flash, voice required first)",
+    "modelGuideTtsProtocols": "DashScope: Qwen-TTS family (qwen3-tts-flash, system voices plus cloning/design), CosyVoice family (cosyvoice-v3.5-plus needs a voice created first; qwen-audio-3.0-tts-flash / -plus and the qwen-audio-3.1 pair ship system voices)",
     "modelGuideS2vTitle": "Digital Human",
     "modelGuideS2vProtocols": "DashScope: wan2.2-s2v with the free face-detect gate (wan2.2-s2v-detect)",
     "modelGuideEmbeddingTitle": "Embedding",

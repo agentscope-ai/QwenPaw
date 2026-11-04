@@ -1599,7 +1599,7 @@
     "modelGuideVoiceDesc": "合成旁白与台词；音频驱动数字人口播视频段",
     "modelGuideGroundingProtocols": "Serper（Google）/ Tavily 搜索，验证模型可复用 LLM/VLM 或自定义",
     "modelGuideTtsTitle": "TTS 语音合成",
-    "modelGuideTtsProtocols": "DashScope（百炼）：Qwen-TTS 家族（qwen3-tts-flash / qwen3-tts-instruct-flash，含系统音色与复刻/设计）、CosyVoice 家族（cosyvoice-v3.5-plus / qwen-audio-3.0-tts-flash，需先建音色）",
+    "modelGuideTtsProtocols": "DashScope（百炼）：Qwen-TTS 家族（qwen3-tts-flash，含系统音色与复刻/设计）、CosyVoice 家族（cosyvoice-v3.5-plus 需先建音色；qwen-audio-3.0-tts-flash / -plus 与 qwen-audio-3.1-tts-flash / -plus 自带系统音色）",
     "modelGuideS2vTitle": "数字人",
     "modelGuideS2vProtocols": "DashScope（百炼）：wan2.2-s2v，提交前免费人像检测（wan2.2-s2v-detect）",
     "modelGuideEmbeddingTitle": "Embedding",

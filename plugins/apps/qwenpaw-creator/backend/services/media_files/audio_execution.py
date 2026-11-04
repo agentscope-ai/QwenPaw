@@ -27,7 +27,7 @@ from uuid import NAMESPACE_URL, uuid5
 from domain.errors import ConflictError, ValidationError
 from models import config as model_config
 from models import tts_model
-from models.tts_capabilities import require_capability
+from models.tts_capabilities import require_capability, resolve_system_voice
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
 from services.project_files.commit import ProjectCommitError
 from services.project_files.facade import CreatorFileServices
@@ -324,12 +324,27 @@ def _requested_tts_identity(
     voice_id: str | None,
     voice_model: str,
 ) -> tuple[str, str]:
-    """Resolve the provider-visible model and voice without making a call."""
+    """Resolve the provider-visible model and voice without making a call.
+
+    The voice has to be resolved by the same rule the runner speaks with, or
+    the reuse check below misses its own cache: one deployment default is
+    shared by every model, so a model switch leaves a name this model cannot
+    speak and the runner substitutes one of its own. Keying by the name that
+    was *configured* would store the substituted voice and look up the stale
+    one, turning every agent retry into a fresh paid synthesis.
+    """
 
     capability = require_capability(model_config.get_tts_model_name())
     if voice_id:
         return (voice_model or capability.clone_model(), voice_id)
-    return (capability.model, voice or model_config.get_tts_voice())
+    active = resolve_system_voice(
+        capability,
+        (voice or "").strip(),
+        model_config.get_tts_voice(),
+    )
+    # ``None`` is a name the runner rejects before any call, so no asset can
+    # have been stored under it; keep the request as typed.
+    return (capability.model, voice if active is None else active)
 
 
 def _find_reusable_tts_asset(
