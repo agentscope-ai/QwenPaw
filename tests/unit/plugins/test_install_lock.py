@@ -621,7 +621,7 @@ class TestEnvironmentIdentity:
         site.mkdir()
         root.mkdir(parents=True)
         identity = hashlib.sha256(
-            os.fsencode(str(fresh.canonical(site)))
+            os.fsencode(str(fresh.canonical(site))),
         ).hexdigest()
         environment = root / identity
         environment.mkdir()
