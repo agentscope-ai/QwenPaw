@@ -1561,6 +1561,7 @@ class RubricGateConfig(BaseModel):
             "early stop on text-only responses"
         ),
     )
+    use_decision_model: bool = False
     prompt: str = Field(
         default=(
             "You did not call any tool in the "

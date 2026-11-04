@@ -2695,6 +2695,8 @@
     "rubricPrompt": "自然言語の完了基準",
     "rubricPromptTooltip": "タスク完了評価を求めるために注入されるプロンプト",
     "rubricDesc": "ツール呼び出しのないテキスト応答に自然言語の完了基準を適用し、作業が残る場合は続行させます。",
+    "rubricUseDecisionModel": "判断モデルで自己確認を補助",
+    "rubricUseDecisionModelHelp": "会話とツールの結果を選択した判断モデルに送り、見落としの可能性があればエージェントに伝えます。指摘がない場合やモデルが使えない場合も、通常どおり自己確認を行います。",
     "rubricPromptPlaceholder": "前のターンでツールを呼び出しませんでした。タスクが完了している場合は確認してください。そうでなければツールを使って続行してください。",
     "rubricMaxInterventions": "最大判定回数",
     "rubricMaxInterventionsTooltip": "1ターン内で、ツール呼び出しのないテキスト応答に対して行う完了チェックの最大回数です。",

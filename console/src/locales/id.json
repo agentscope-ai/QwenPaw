@@ -4522,6 +4522,8 @@
     "rubricPrompt": "Kriteria Penyelesaian Bahasa Alami",
     "rubricPromptTooltip": "Prompt yang disuntikkan untuk meminta agen mengevaluasi penyelesaian tugas",
     "rubricDesc": "Terapkan kriteria penyelesaian bahasa alami pada respons teks tanpa panggilan alat dan minta agen melanjutkan jika masih ada pekerjaan.",
+    "rubricUseDecisionModel": "Gunakan model keputusan untuk membantu pemeriksaan mandiri",
+    "rubricUseDecisionModelHelp": "Percakapan dan hasil alat dikirim ke model keputusan yang dipilih. Model dapat menandai hal yang terlewat untuk diperiksa agen. Jika tidak ada saran atau model tidak tersedia, agen melakukan pemeriksaan mandiri seperti biasa.",
     "rubricPromptPlaceholder": "Anda tidak memanggil alat apa pun. Jika tugas selesai, konfirmasi. Jika tidak, lanjutkan dengan panggilan alat.",
     "rubricMaxInterventions": "Maksimum Putaran Evaluasi",
     "rubricMaxInterventionsTooltip": "Jumlah maksimum pemeriksaan penyelesaian untuk respons teks tanpa panggilan alat dalam satu giliran.",
