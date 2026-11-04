@@ -583,6 +583,61 @@
       "copyBackend": "复制后端日志"
     }
   },
+  "systemNotifications": {
+    "heading": "通知",
+    "enabled": "桌面通知",
+    "help": "通知帮助",
+    "categories": "通知类型",
+    "background": "后台消息",
+    "backgroundDescription": "定时任务、心跳和邮件，仅在后台提醒",
+    "allEnabled": "全部开启",
+    "selectedCount": "已开启 {{count}} 项",
+    "systemBlocked": "通知被系统关闭",
+    "browserBlocked": "通知被浏览器阻止",
+    "allowInSettings": "前往开启",
+    "showBrowserHelp": "查看开启方法",
+    "permissionRequired": "需要授权后才能接收通知",
+    "authorize": "授权通知",
+    "conversation": "回复完成",
+    "conversationDescription": "Agent 完成回复时提醒",
+    "conversationComplete": "Agent 已完成一轮回复",
+    "approval": "审批提醒",
+    "approvalDescription": "需要你授权时提醒",
+    "cron": "定时任务",
+    "heartbeat": "心跳检查",
+    "mail": "邮件通知",
+    "systemSettings": "系统通知设置",
+    "systemSettingsDescription": "在系统设置中管理 QwenPaw 的通知权限、横幅和声音。",
+    "browserHelp": "在浏览器地址栏的站点设置中管理通知权限。浏览器需要保持运行。",
+    "openSettings": "打开系统设置",
+    "openFailed": "无法打开系统通知设置，请手动进入系统设置 → 通知。",
+    "mode": {
+      "off": "关闭",
+      "background": "仅在后台",
+      "always": "始终提醒"
+    }
+  },
+  "approvalNotifications": {
+    "settingTitle": "审批桌面通知",
+    "openApprovals": "查看待审批",
+    "description": "QwenPaw 在后台运行时，通过系统通知提醒你处理新审批。",
+    "title": "QwenPaw · 需要审批",
+    "body": "{{tool}} 正在等待你的审批，请打开 QwenPaw 及时处理。",
+    "failed": "通知发送失败，请检查通知设置。",
+    "permission": {
+      "default": "开启时申请通知权限",
+      "granted": "浏览器已授权",
+      "denied": "通知已被阻止，请在浏览器的网站设置中允许通知",
+      "native": "由系统通知设置管理",
+      "checking": "正在检查通知授权",
+      "unavailable": "暂时无法读取系统通知权限，请重新打开桌面端",
+      "nativeDefault": "开启时申请系统通知授权",
+      "nativeGranted": "系统通知已授权",
+      "nativeDenied": "通知已被系统阻止，请在系统通知设置中允许 QwenPaw",
+      "unsupported": "当前浏览器不支持桌面通知",
+      "insecure": "请通过 HTTPS 或 localhost 访问以开启通知"
+    }
+  },
   "inbox": {
     "title": "收件箱",
     "tabApprovals": "审批",

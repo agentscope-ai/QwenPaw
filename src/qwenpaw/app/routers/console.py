@@ -44,6 +44,7 @@ from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
+from ..notification_store import snapshot as notification_snapshot
 from ..utils import check_upload_size
 
 logger = logging.getLogger(__name__)
@@ -802,7 +803,11 @@ async def get_push_messages(
         for p in all_pending
     ]
 
-    return {"messages": messages, "pending_approvals": approvals_data}
+    return {
+        f"messages": messages,
+        f"pending_approvals": approvals_data,
+        f"notification_events": notification_snapshot(),
+    }
 
 
 @router.get("/inbox/events")
@@ -814,6 +819,7 @@ async def get_inbox_events(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
+    event_id: str | None = Query(None),
 ):
     from ..inbox_store import query_events
 
@@ -827,6 +833,7 @@ async def get_inbox_events(
         status=status,
         agent_id=agent_id,
         unread_only=unread_only,
+        event_id=event_id,
     )
     return {
         "events": events,
