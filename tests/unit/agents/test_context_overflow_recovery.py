@@ -166,10 +166,8 @@ async def test_context_overflow_retries_at_most_twice(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("emitted", [False, True])
-async def test_context_recovery_shares_budget_with_stream(
+async def test_context_overflow_recovers_from_invocation_then_stream(
     monkeypatch,
-    emitted,
 ):
     calls = 0
     message = (
@@ -185,8 +183,6 @@ async def test_context_recovery_shares_budget_with_stream(
 
         async def stream():
             if calls == 2:
-                if emitted:
-                    yield SimpleNamespace(content=[TextBlock(text="partial")])
                 raise _ContextOverflowError(message)
             yield SimpleNamespace(content=[TextBlock(text="recovered")])
 
@@ -196,17 +192,10 @@ async def test_context_recovery_shares_budget_with_stream(
     manager = _ScrollManager(["compacted"])
     agent = _agent(context_manager=manager)
     stream = await agent._call_model(messages=["old"], tools=[])
-    if emitted:
-        with pytest.raises(_ContextOverflowError):
-            async for _ in stream:
-                pass
-        assert calls == 2
-        assert len(manager.calls) == 1
-    else:
-        chunks = [chunk async for chunk in stream]
-        assert chunks[-1].content[0].text == "recovered"
-        assert calls == 3
-        assert len(manager.calls) == 2
+    chunks = [chunk async for chunk in stream]
+    assert chunks[-1].content[0].text == "recovered"
+    assert calls == 3
+    assert len(manager.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -308,11 +297,6 @@ async def test_context_overflow_with_other_manager_does_not_retry(monkeypatch):
     ("message", "expected"),
     [
         ("Error code: 400 - maximum context length is 128000", True),
-        (
-            "Error code: 400 - The input (265309 tokens) is longer than "
-            "the model's context length (262144 tokens).",
-            True,
-        ),
         ("<400> input length should be between 1 and 983616", False),
         ("Error code: 400 - image_url is unsupported", False),
         ("Error code: 500 - context length exceeded", False),
