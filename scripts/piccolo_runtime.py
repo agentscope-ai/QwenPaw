@@ -152,7 +152,7 @@ def build(target, work, output, jobs):
         "-DCMAKE_BUILD_TYPE=Release",
         "-DGGML_NATIVE=OFF",
         "-DLLAMA_BUILD_UI=OFF",
-        "-DLLAMA_CURL=OFF",
+        "-DLLAMA_OPENSSL=OFF",
         "-DGGML_BACKEND_DL=ON",
         "-DBUILD_SHARED_LIBS=ON",
     ]
@@ -207,6 +207,32 @@ def build(target, work, output, jobs):
         "test-piccolo-layout",
     )
     return package(target, build_dir, source, output, cuda)
+
+
+def check_macos_libraries(bundle):
+    """Keep macOS packages independent of the build machine's libraries."""
+    for path in bundle.iterdir():
+        if not path.is_file():
+            continue
+        with path.open("rb") as stream:
+            if stream.read(4) != b"\xcf\xfa\xed\xfe":
+                continue
+        libraries = subprocess.check_output(
+            ["otool", "-L", str(path)],
+            text=True,
+        ).splitlines()[1:]
+        for line in libraries:
+            library = line.strip().split(" (", 1)[0]
+            if library.startswith(("/usr/lib/", "/System/Library/")):
+                continue
+            for prefix in ("@rpath/", "@loader_path/", "@executable_path/"):
+                if library.startswith(prefix):
+                    if (bundle / library[len(prefix) :]).is_file():
+                        break
+            else:
+                raise ValueError(
+                    f"Unbundled macOS dependency: {path.name} -> {library}",
+                )
 
 
 def package(target, build_dir, source, output, cuda=None):
@@ -271,6 +297,7 @@ def package(target, build_dir, source, output, cuda=None):
             bundle / "LICENSE-FlexDM",
         )
         if config["os"] == "macos":
+            check_macos_libraries(bundle)
             run(
                 "bash",
                 ROOT / "scripts/pack-tauri/sign_macos_bundle.sh",

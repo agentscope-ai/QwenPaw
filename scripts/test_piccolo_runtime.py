@@ -5,6 +5,7 @@
 import argparse
 import json
 import math
+import os
 import socket
 import subprocess
 import tempfile
@@ -60,10 +61,18 @@ def server(executable, model, decision, gpu_layers, log):
             "--no-context-shift",
         ]
     with log.open("w") as output:
+        environment = os.environ.copy()
+        if os.name == "nt":
+            # Test bundled DLLs without tools installed on the build runner.
+            windows = Path(environment["SystemRoot"])
+            environment["PATH"] = os.pathsep.join(
+                (str(windows / "System32"), str(windows)),
+            )
         process = subprocess.Popen(
             args,
             stdout=output,
             stderr=subprocess.STDOUT,
+            env=environment,
         )
         try:
             deadline = time.monotonic() + 240
