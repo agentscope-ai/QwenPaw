@@ -324,14 +324,14 @@ def test_native_probe_headers_add_bearer_without_overriding() -> None:
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, payload: dict):
+    def __init__(self, status_code: int, payload: Any):
         self.status_code = status_code
         self._payload = payload
 
     def raise_for_status(self) -> None:
         return None
 
-    def json(self) -> dict:
+    def json(self) -> Any:
         return self._payload
 
 
@@ -996,3 +996,51 @@ async def test_check_model_connection_does_not_probe_show(
     assert missing.error_kind == "model_not_found"
     assert calls["list"] == 2
     assert calls["native"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ps_payload",
+    [
+        [],  # top-level list (wangfei repro)
+        {"models": 123},  # models not iterable
+        "not-a-dict",  # unexpected scalar
+    ],
+)
+async def test_fetch_models_invalid_ps_still_probes_show(
+    monkeypatch,
+    ps_payload: Any,
+) -> None:
+    """Invalid ``/api/ps`` JSON must not skip ``/api/show`` probes.
+
+    A top-level list or non-iterable ``models`` previously raised inside
+    ``_fetch_served_contexts`` and was swallowed by
+    ``_enrich_listed_models``, which returned before any show call.
+    """
+    provider = _make_provider()
+    show_calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(200, ps_payload)
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            show_calls.append(json["model"])
+            return _FakeResponse(
+                200,
+                {"parameters": "num_ctx 8192\n"},
+            )
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+
+    models = await provider.fetch_models()
+    assert show_calls == ["qwen3:8b"]
+    assert models[0].max_input_length_auto_detected == 8192
