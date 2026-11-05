@@ -4141,6 +4141,10 @@
         "name": "View videos",
         "description": "Load videos for the model to analyze."
       },
+      "view_audio": {
+        "name": "Listen to audio",
+        "description": "Load audio for the model to transcribe or analyze."
+      },
       "enhance_and_generate_image": {
         "name": "Enhance and generate images",
         "description": "Refine an image prompt and generate the result."
