@@ -23,13 +23,45 @@ from qwenpaw.providers.retry_chat_model import RetryChatModel
 
 
 @pytest.mark.parametrize("output", ["response", "stream", "structured"])
-@pytest.mark.parametrize("main_status", [200, 401, 503])
-async def test_combined_memory_fallback_preserves_policy_and_metadata(
+@pytest.mark.parametrize("provider_id", ["ollama", "OLLAMA", ""])
+@pytest.mark.parametrize(
+    ("memory_name", "fallback_names", "main_status", "expected_calls"),
+    [
+        ("global", ["global", "vision-fallback"], 200, ["global", "agent"]),
+        ("global", ["global", "vision-fallback"], 401, ["global", "agent"]),
+        (
+            "global",
+            ["global", "vision-fallback"],
+            503,
+            ["global", "agent", "vision-fallback"],
+        ),
+        ("global", ["global"], 200, ["global", "agent"]),
+        ("global", ["global"], 401, ["global", "agent"]),
+        ("agent", [], 401, ["agent"]),
+        ("agent", ["vision-fallback"], 401, ["agent"]),
+        ("agent", ["vision-fallback"], 503, ["agent", "vision-fallback"]),
+    ],
+    ids=[
+        "dedicated-main-success",
+        "dedicated-main-auth-error",
+        "dedicated-chat-fallback",
+        "single-main-success",
+        "single-main-error",
+        "same-primary",
+        "same-primary-auth-policy",
+        "same-primary-transient",
+    ],
+)
+async def test_memory_routing_preserves_policy_and_metadata(
     monkeypatch,
     local_models,
     make_memory_model_manager,
     output,
+    provider_id,
+    memory_name,
+    fallback_names,
     main_status,
+    expected_calls,
 ):
     """Use the real factory; replace only SDK calls and ReMe injection."""
     from qwenpaw.providers.openai_chat_model_compat import (
@@ -44,6 +76,7 @@ async def test_combined_memory_fallback_preserves_policy_and_metadata(
     calls = []
 
     async def call(model, *args, **kwargs):
+        assert model.formatter.resize_images_to_max_bytes is True
         calls.append(model.model)
         status = 401 if model.model == "global" else main_status
         if model.model == "vision-fallback":
@@ -80,104 +113,13 @@ async def test_combined_memory_fallback_preserves_policy_and_metadata(
             "name": "Combined chain",
             "active_model": slot("agent"),
             "fallback_policy": {"enabled": True, "target_scope": "configured"},
-            "fallback_models": [slot("global"), slot("vision-fallback")],
-            "running": {
-                "llm_retry_enabled": False,
-                "reme_light_memory_config": {"memory_model": slot("global")},
-            },
-        },
-    )
-    monkeypatch.setattr(
-        memory_module,
-        "load_agent_config_async",
-        AsyncMock(return_value=profile),
-    )
-    manager = make_memory_model_manager(profile.id)
-    model = await manager._update_qwenpaw_model()
-    # Keep the inner policy boundary rather than flattening all candidates
-    # into the dedicated memory model's fallback-on-any-error policy.
-    assert model._fallback_on_any_error is True
-    assert model._models[1]._fallback_on_any_error is False
-    assert [m.model for m in model._models[1]._models] == [
-        "agent",
-        "vision-fallback",
-    ]
-    invoke = (
-        model.generate_structured_output if output == "structured" else model
-    )
-    if main_status == 401:
-        with pytest.raises(HttpError):
-            await invoke(messages=[], tools=[])
-        assert calls == ["global", "agent"]
-        return
-    response = await invoke(messages=[], tools=[])
-    if output == "stream":
-        response = [chunk async for chunk in response][0]
-    serving = "vision-fallback" if main_status == 503 else "agent"
-    assert calls == (
-        ["global", "agent", "vision-fallback"]
-        if main_status == 503
-        else ["global", "agent"]
-    )
-    assert response.metadata["qwenpaw_actual_model"]["model_id"] == serving
-    assert response.metadata["qwenpaw_actual_model"]["provider_id"] == "ollama"
-    events = response.metadata["qwenpaw_model_fallbacks"]
-    assert [(e["from_model_id"], e["to_model_id"]) for e in events] == (
-        [("global", "agent"), ("agent", "vision-fallback")]
-        if main_status == 503
-        else [("global", "agent")]
-    )
-
-
-@pytest.mark.parametrize("provider_id", ["ollama", "OLLAMA"])
-@pytest.mark.parametrize("with_fallback", [False, True])
-@pytest.mark.parametrize("output", ["response", "stream", "structured"])
-async def test_equivalent_memory_primary_preserves_auth_failure_policy(
-    monkeypatch,
-    local_models,
-    make_memory_model_manager,
-    provider_id,
-    with_fallback,
-    output,
-):
-    from qwenpaw.providers.openai_chat_model_compat import (
-        OpenAIChatModelCompat,
-    )
-
-    class AuthError(Exception):
-        status_code = 401
-
-    calls = []
-
-    async def call(model, *args, **kwargs):
-        calls.append(model.model)
-        if model.model == "agent":
-            raise AuthError("Invalid API key")
-        return StructuredResponse(content={"answer": "unexpected fallback"})
-
-    monkeypatch.setattr(OpenAIChatModelCompat, "__call__", call)
-    monkeypatch.setattr(
-        OpenAIChatModelCompat,
-        "generate_structured_output",
-        call,
-    )
-    profile = AgentProfileConfig.model_validate(
-        {
-            "id": "equivalent-primary",
-            "name": "Equivalent primary",
-            "active_model": {"provider_id": "ollama", "model": "agent"},
-            "fallback_policy": {"enabled": True, "target_scope": "configured"},
-            "fallback_models": (
-                [{"provider_id": "ollama", "model": "vision-fallback"}]
-                if with_fallback
-                else []
-            ),
+            "fallback_models": [slot(name) for name in fallback_names],
             "running": {
                 "llm_retry_enabled": False,
                 "reme_light_memory_config": {
                     "memory_model": {
                         "provider_id": provider_id,
-                        "model": "agent",
+                        "model": memory_name,
                     },
                 },
             },
@@ -190,14 +132,30 @@ async def test_equivalent_memory_primary_preserves_auth_failure_policy(
     )
     manager = make_memory_model_manager(profile.id)
     model = await manager._update_qwenpaw_model()
+    manager._reme.update_component.assert_awaited_once_with(
+        "as_llm",
+        "default",
+        model=model,
+    )
     invoke = (
         model.generate_structured_output if output == "structured" else model
     )
-    with pytest.raises(AuthError):
-        response = await invoke(messages=[], tools=[])
-        if output == "stream":
-            _ = [chunk async for chunk in response]
-    assert calls == ["agent"]
+    if main_status == 401:
+        with pytest.raises(HttpError):
+            await invoke(messages=[], tools=[])
+        assert calls == expected_calls
+        return
+    response = await invoke(messages=[], tools=[])
+    if output == "stream":
+        response = [chunk async for chunk in response][0]
+    serving = expected_calls[-1]
+    assert calls == expected_calls
+    assert response.metadata["qwenpaw_actual_model"]["model_id"] == serving
+    assert response.metadata["qwenpaw_actual_model"]["provider_id"] == "ollama"
+    events = response.metadata["qwenpaw_model_fallbacks"]
+    assert [(e["from_model_id"], e["to_model_id"]) for e in events] == list(
+        zip(expected_calls, expected_calls[1:]),
+    )
 
 
 @pytest.fixture(name="local_models")

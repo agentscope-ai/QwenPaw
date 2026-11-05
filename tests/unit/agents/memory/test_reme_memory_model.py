@@ -5,7 +5,7 @@
 import asyncio
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, call
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -179,32 +179,6 @@ async def test_main_construction_cancellation_does_not_try_memory(model_setup):
     manager._reme.update_component.assert_not_awaited()
 
 
-@pytest.mark.parametrize("inherited", [False, True])
-async def test_identical_memory_and_main_slots_are_not_duplicated(
-    inherited,
-    model_setup,
-):
-    slot = ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b")
-    main_model = SimpleNamespace(model_key="ollama:qwen2.5:7b")
-    factory = AsyncMock(return_value=(main_model, None))
-    manager = model_setup(
-        memory_model=(
-            ModelSlotConfig(provider_id="", model=slot.model)
-            if inherited
-            else slot
-        ),
-        active_model=slot,
-        factory=factory,
-    )
-
-    assert await manager._update_qwenpaw_model() is main_model
-
-    factory.assert_awaited_once()
-    assert (
-        manager._reme.update_component.await_args.kwargs["model"] is main_model
-    )
-
-
 @pytest.mark.parametrize(
     ("provider", "model", "agent_provider", "global_provider", "expected"),
     [
@@ -260,36 +234,6 @@ def test_memory_slot_resolution(
         ModelSlotConfig(provider_id=expected, model=model)
         if expected
         else None
-    )
-
-
-async def test_dedicated_model_receives_shared_factory_settings(model_setup):
-    """Verify factory wiring once, separately from slot normalization."""
-    slot = ModelSlotConfig(provider_id="dashscope", model="memory")
-    config = _agent_config(memory_model=slot)
-    main_model, memory_model = SimpleNamespace(model="main"), SimpleNamespace(
-        model="memory",
-    )
-    factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
-    manager = model_setup(agent_config=config, factory=factory)
-
-    actual = await manager._update_qwenpaw_model()
-
-    kwargs = {
-        "agent_config": config,
-        "require_image_support": False,
-        "resize_images_to_max_bytes": True,
-    }
-    assert factory.await_args_list == [
-        call("default", **kwargs),
-        call("default", model_slot_override=slot, **kwargs),
-    ]
-    assert actual._models == [memory_model, main_model]
-    assert actual._fallback_on_any_error is True
-    manager._reme.update_component.assert_awaited_once_with(
-        "as_llm",
-        "default",
-        model=actual,
     )
 
 
