@@ -703,14 +703,15 @@ class QwenPawACPAgent(Agent):
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         session_meta = await run_sync_io(self._session_meta)
-        await self._cancel_active_prompt(session_id)
         previous_session = self._sessions.get(session_id)
-        self._sessions[session_id] = self._resolve_session(
+        candidate_session = self._resolve_session(
             cwd=cwd,
             meta=kwargs,
             previous=previous_session,
             restored=True,
         )
+        await self._cancel_active_prompt(session_id)
+        self._sessions[session_id] = candidate_session
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -974,7 +975,6 @@ class QwenPawACPAgent(Agent):
             session_id,
             cwd,
         )
-        await self._cancel_active_prompt(session_id)
         previous_session = self._sessions.get(session_id)
         candidate_session = self._resolve_session(
             cwd=cwd,
@@ -982,6 +982,7 @@ class QwenPawACPAgent(Agent):
             previous=previous_session,
             resume=True,
         )
+        await self._cancel_active_prompt(session_id)
         self._sessions[session_id] = candidate_session
         try:
             await self._sync_session_mcp(session_id, mcp_servers)

@@ -348,7 +348,11 @@ async def test_acp_ephemeral_metadata_is_normalized_into_configuration(
 
 
 @pytest.mark.parametrize("method", ["load_session", "resume_session"])
-async def test_acp_loop_survives_restore_and_can_be_replaced(tmp_path, method):
+async def test_acp_loop_survives_restore_and_can_be_replaced(
+    tmp_path,
+    method,
+    monkeypatch,
+):
     workspace = _FakeWorkspace()
     agent = _TestACPAgent(workspace)
     agent.on_connect(_FakeConn())
@@ -359,22 +363,49 @@ async def test_acp_loop_survives_restore_and_can_be_replaced(tmp_path, method):
     )
     restore = getattr(agent, method)
     await restore(cwd=str(tmp_path), session_id=session.session_id)
-    with pytest.raises(RequestError):
+    started, release = asyncio.Event(), asyncio.Event()
+    stream_query = workspace.stream_query
+
+    async def blocked_stream(request):
+        async for event in stream_query(request):
+            yield event
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(workspace, "stream_query", blocked_stream)
+    prompt = asyncio.create_task(
+        agent.prompt([text_block("continue")], session.session_id),
+    )
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        previous = agent._sessions[session.session_id]
+        with pytest.raises(RequestError):
+            await restore(
+                cwd=str(tmp_path),
+                session_id=session.session_id,
+                **{
+                    ACP_CONFIG_META_KEY: {
+                        "running": {
+                            "loop": {
+                                "iteration": {"max_iterations": 0},
+                            },
+                        },
+                    },
+                },
+            )
+        assert agent._sessions[session.session_id] is previous
+        assert not prompt.done()
+        assert not agent._cancel_events[session.session_id].is_set()
+        assert resolve_max_iterations(workspace.configs[-1].running) == 10000
         await restore(
             cwd=str(tmp_path),
             session_id=session.session_id,
-            **{ACP_CONFIG_META_KEY: {"running": {"max_iters": 0}}},
+            **{ACP_CONFIG_META_KEY: {}},
         )
-    await agent.prompt(
-        prompt=[text_block("continue")],
-        session_id=session.session_id,
-    )
-    assert resolve_max_iterations(workspace.configs[-1].running) == 10000
-    await restore(
-        cwd=str(tmp_path),
-        session_id=session.session_id,
-        **{ACP_CONFIG_META_KEY: {}},
-    )
+        assert (await prompt).stop_reason == "cancelled"
+    finally:
+        release.set()
+        await asyncio.gather(prompt, return_exceptions=True)
     await agent.prompt(
         prompt=[text_block("continue")],
         session_id=session.session_id,
