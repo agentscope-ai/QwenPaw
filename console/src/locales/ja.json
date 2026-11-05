@@ -3365,6 +3365,10 @@
     "sidebarPreview": "表示中の項目"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "会話の幅を調整",
+      "hint": "ドラッグで会話の幅を調整、ダブルクリックで既定に戻す"
+    },
     "longTextPaste": {
       "title": "長いテキストを貼り付け",
       "asText": "テキストとして貼り付け",

@@ -4271,6 +4271,10 @@
     "system": "System"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "Resize conversation width",
+      "hint": "Drag to resize the conversation; double-click to reset"
+    },
     "longTextPaste": {
       "title": "Paste long text",
       "asText": "Paste as text",

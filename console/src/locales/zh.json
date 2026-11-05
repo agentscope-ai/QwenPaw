@@ -4127,6 +4127,10 @@
     "system": "跟随系统"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "调整会话宽度",
+      "hint": "拖动调整会话宽度，双击恢复默认"
+    },
     "longTextPaste": {
       "title": "粘贴长文本",
       "asText": "粘贴为文本",

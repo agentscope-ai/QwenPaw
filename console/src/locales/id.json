@@ -1160,6 +1160,10 @@
     "acceptInvitation": "Bergabung melalui undangan"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "Ubah lebar percakapan",
+      "hint": "Seret untuk mengubah lebar; klik dua kali untuk mengatur ulang"
+    },
     "longTextPaste": {
       "title": "Tempel teks panjang",
       "asText": "Tempel sebagai teks",
