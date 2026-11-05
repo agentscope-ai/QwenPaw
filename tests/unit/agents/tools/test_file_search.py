@@ -1054,6 +1054,38 @@ def test_walk_and_grep_longer_gbk_finds_character(temp_dir):
     assert any("锘" in line for line in matches)
 
 
+def test_walk_and_grep_gbk_yi_nuo_finds_characters(temp_dir):
+    """Pattern 一锘 matches GBK bytes that also look like short UTF-8."""
+    target = temp_dir / "yi.txt"
+    target.write_bytes("name=一锘".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("一锘"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("一锘" in line for line in matches)
+
+
+def test_walk_and_grep_gbk_dang_finds_character(temp_dir):
+    """Pattern 檔 matches GBK ``name=檔`` (not CP1252 mojibake)."""
+    target = temp_dir / "dang.txt"
+    target.write_bytes("name=檔".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("檔"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("檔" in line for line in matches)
+
+
 def test_walk_and_grep_longer_cp1252_finds_accent(temp_dir):
     """Pattern Cafés matches a longer CP1252 file."""
     target = temp_dir / "cafes.txt"

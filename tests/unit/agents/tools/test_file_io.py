@@ -32,6 +32,7 @@ from qwenpaw.agents.tools.file_io import (
 )
 from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
+    _decode_capped_text_snapshot,
     _read_file_safe_sync,
     read_file_safe,
 )
@@ -229,6 +230,24 @@ class TestReadFile:
 
         assert "张三" in result
         assert "\N{REPLACEMENT CHARACTER}" in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("partial", [0, 1, 2])
+    async def test_safe_read_capped_dirty_utf8_keeps_prefix(
+        self,
+        tmp_path,
+        partial,
+    ):
+        """Cap after dirty byte + partial 行 must keep 张三, not Latin-1."""
+        base = "姓名: 张三\n".encode("utf-8") + b"\xff"
+        content = base + "行".encode("utf-8")[:partial]
+        path = tmp_path / "capped-dirty.txt"
+        path.write_bytes(content + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(content))
+
+        assert "张三" in result
         assert not result.startswith("å")
 
     @pytest.mark.asyncio
@@ -432,6 +451,32 @@ def test_lossy_utf8_keeps_dirty_chinese_and_ascii_lead():
     assert dirty_lead == "hello\ufffdworld"
 
 
+def test_decode_gbk_ascii_prefix_not_cp1252():
+    """GBK ``name=檔`` must not become CP1252 ``name=™n``."""
+    raw = "name=檔".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=檔"
+
+
+def test_decode_gbk_not_overridden_by_accidental_utf8():
+    """GBK ``name=一锘`` must not keep a lossy UTF-8 decode of ``一``."""
+    raw = "name=一锘".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=一锘"
+
+
+def test_decode_capped_utf8_partial_char_keeps_prefix():
+    """A max_bytes cut mid-character must not inflate invalids into Latin-1."""
+    base = "姓名: 张三\n".encode("utf-8") + b"\xff"
+    for n in (0, 1, 2):
+        content = base + "行".encode("utf-8")[:n]
+        text = _decode_capped_text_snapshot(
+            content,
+            file_name="note.txt",
+            truncated=True,
+        )
+        assert "张三" in text
+        assert not text.startswith("å")
+
+
 # ---------------------------------------------------------------------------
 # write_file
 # ---------------------------------------------------------------------------
@@ -563,6 +608,32 @@ class TestEditFile:
         written = f.read_text(encoding="utf-8")
         assert written == "A\u5b52"
         assert "\u2122" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_name_dang_not_cp1252(self, tmp_path):
+        """Editing GBK ``name=檔`` must not persist ``title=™n``."""
+        f = tmp_path / "dang.txt"
+        f.write_bytes("name=檔".encode("gbk"))
+
+        result = await edit_file(str(f), "name=", "title=")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="utf-8")
+        assert written == "title=檔"
+        assert "\u2122" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_yi_nuo_keeps_characters(self, tmp_path):
+        """Editing GBK ``name=一锘`` must find the real characters."""
+        f = tmp_path / "yi.txt"
+        f.write_bytes("name=一锘".encode("gbk"))
+
+        result = await edit_file(str(f), "一锘", "锁")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="utf-8")
+        assert written == "name=锁"
+        assert "\ufffd" not in written
 
     @pytest.mark.asyncio
     async def test_edit_bom_and_dirty_byte_does_not_double_bom(self, tmp_path):

@@ -17,6 +17,7 @@ from ...utils.io_utils import run_sync_io
 from ..utils.file_handling import (
     _choose_fallback_decoding,
     _lossy_utf8_text,
+    _normalize_newlines,
     _signals_for_bytes,
     _strict_decodes,
     decode_text_bytes_with_encoding_fallback,
@@ -619,6 +620,7 @@ def _decode_capped_text_snapshot(
             content,
             gbk_ok=gbk_text is not None,
             cp1252_ok=cp_text is not None,
+            truncated=True,
         ),
     )
     if choice is None:
@@ -641,7 +643,12 @@ def _decode_capped_text_snapshot(
             "File %s read with lossy UTF-8 (mostly valid)",
             single_line_log_value(file_name),
         )
-        return _lossy_utf8_text(content)
+        # final=False drops a trailing partial character cut by max_bytes
+        # instead of counting it as U+FFFD (which skewed the old signals).
+        decoder = codecs.getincrementaldecoder("utf-8-sig")(
+            errors="replace",
+        )
+        return _normalize_newlines(decoder.decode(content, final=False))
 
     chosen = gbk_text if encoding == "gbk" else cp_text
     if chosen is None:

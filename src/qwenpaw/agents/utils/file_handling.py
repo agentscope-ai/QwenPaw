@@ -7,6 +7,7 @@ This module provides utilities for:
 - Managing download directories
 - Reading text files with encoding fallback for cross-platform compatibility
 """
+import codecs
 import os
 import mimetypes
 import base64
@@ -138,11 +139,11 @@ def _feed_gbk_pair_trails(
     """Count GBK pairs and unpaired ASCII letters across chunks.
 
     A pair is a lead in 0x81-0xFE and a trail in 0x40-0x7E or 0x80-0xFE.
-    Letter trails (A-Z / a-z) are separate: CP1252 ``Cafés`` is valid GBK
-    only because ``é`` consumes the next ASCII letter. ASCII letters that
-    are not consumed as a trail stay unpaired. Pure GBK whose trails
-    happen to be letters (``\\x99\\x74\\x8c\\x48``) has zero unpaired
-    letters, so GBK wins. ``Cafés`` still has unpaired ``C``, ``a``, ``f``.
+    Letter trails count only when the lead is a CP1252 accented letter
+    (0xC0-0xFF): ``Cafés`` pairs ``é`` with ``s``. Leads in 0x81-0xBF
+    with an ASCII-letter trail (``name=檔``,
+    ``\\x99\\x74\\x8c\\x48``) count as *other* so GBK keeps priority.
+    Unpaired ASCII letters are those not consumed as a trail.
     """
     if pending_lead is not None:
         data = bytes((pending_lead,)) + data
@@ -162,9 +163,11 @@ def _feed_gbk_pair_trails(
         if not (0x40 <= trail <= 0x7E or 0x80 <= trail <= 0xFE):
             index += 1
             continue
-        if _is_ascii_letter_byte(trail):
+        if _is_ascii_letter_byte(trail) and lead >= 0xC0:
+            # Western CP1252 letter lead (é, ö, …) + ASCII trail.
             letters += 1
         else:
+            # GBK/symbol lead (0x81-0xBF) even when the trail is a letter.
             other += 1
         index += 2
     return other, letters, unpaired_ascii, None
@@ -204,12 +207,12 @@ def _choose_fallback_decoding(
     ``None`` means Latin-1. Lossy UTF-8 wins when a real non-ASCII
     character or a BOM survived a sparse replacement. Otherwise a strict
     legacy decode wins. CP1252 beats GBK only when every GBK pair ate an
-    ASCII letter and at least one ASCII letter was left unpaired
-    (``Cafés``). Pure GBK whose trails happen to be letters
-    (``\\x99\\x74\\x8c\\x48``) has no unpaired letter, so GBK wins.
-    That letter-only GBK decode is ignored when CP1252 rejected the bytes
-    and the lossy ratio still looks like UTF-8, so one dirty lead
-    (``hello\\x81world``) does not become a CJK character.
+    ASCII letter *from a CP1252 accented lead* (0xC0+) and at least one
+    ASCII letter was left unpaired (``Cafés``). GBK leads below 0xC0
+    with a letter trail (``name=檔``, ``\x99\x74\x8c\x48``) count as
+    *other*, so GBK keeps priority over CP1252. A dirty lead that CP1252
+    rejects (``hello\x81world``) still yields lossy UTF-8 when the ratio
+    looks mostly UTF-8, instead of inventing a CJK character.
     """
     ratio_ok = _lossy_ratio_ok(
         signals.bad,
@@ -221,10 +224,20 @@ def _choose_fallback_decoding(
         and signals.other_trails == 0
         and signals.unpaired_ascii_letters > 0
     )
+    dirty_gbk_pair = (
+        signals.gbk_ok
+        and not signals.cp1252_ok
+        and signals.unpaired_ascii_letters > 0
+        and (signals.letter_trails > 0 or signals.other_trails > 0)
+    )
     if ratio_ok and (signals.bom or signals.saw_non_ascii):
         return ("utf-8-sig", True)
     if signals.cp1252_ok and suspicious:
         return ("cp1252", False)
+    # Dirty lead: GBK paired an ASCII letter into CJK but CP1252 rejected
+    # the bytes — keep sparse lossy UTF-8 (``hello\x81world``).
+    if ratio_ok and dirty_gbk_pair:
+        return ("utf-8-sig", True)
     if signals.gbk_ok and not (suspicious and ratio_ok):
         return ("gbk", False)
     if signals.cp1252_ok:
@@ -234,18 +247,44 @@ def _choose_fallback_decoding(
     return None
 
 
+def _lossy_saw_three_byte_char(text: str) -> bool:
+    """True when lossy UTF-8 produced a character from a 3-byte sequence.
+
+    U+0800 and above need three UTF-8 bytes. A lone 2-byte decode such as
+    GBK ``一`` (``d2 bb`` → U+047B) must not count as UTF-8 evidence when
+    GBK also succeeds.
+    """
+    return any(ord(ch) >= 0x800 and ch != "�" for ch in text)
+
+
 def _signals_for_bytes(
     data: bytes,
     *,
     gbk_ok: bool,
     cp1252_ok: bool,
+    truncated: bool = False,
 ) -> _FallbackSignals:
-    """Build fallback signals from one complete byte string."""
-    raw = data.decode("utf-8-sig", errors="replace")
+    """Build fallback signals from one byte string.
+
+    When *truncated* is true, lossy UTF-8 stats use ``final=False`` so a
+    multibyte character cut by ``max_bytes`` is not counted as invalid.
+    """
+    if truncated:
+        decoder = codecs.getincrementaldecoder("utf-8-sig")(
+            errors="replace",
+        )
+        raw = decoder.decode(data, final=False)
+    else:
+        raw = data.decode("utf-8-sig", errors="replace")
     bad, good, saw_non_ascii = _lossy_text_stats(raw)
+    bom = data.startswith(_UTF8_BOM)
+    # Valid GBK whose bytes accidentally form a short UTF-8 sequence
+    # (``name=一锘``) must fall through to GBK, not lossy UTF-8.
+    if gbk_ok and not bom and not _lossy_saw_three_byte_char(raw):
+        saw_non_ascii = False
     other, letters, unpaired = _gbk_pair_trail_kinds(data)
     return _FallbackSignals(
-        bom=data.startswith(_UTF8_BOM),
+        bom=bom,
         bad=bad,
         good=good,
         saw_non_ascii=saw_non_ascii,

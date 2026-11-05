@@ -28,6 +28,7 @@ from ..utils.file_handling import (
     _UTF8_BOM,
     _choose_fallback_decoding,
     _feed_gbk_pair_trails,
+    _lossy_saw_three_byte_char,
     _lossy_text_stats,
     single_line_log_value,
 )
@@ -611,6 +612,7 @@ def _select_grep_fallback_decoding(
     bad = 0
     good = 0
     saw_non_ascii = False
+    saw_three_byte = False
     other = 0
     letters = 0
     unpaired = 0
@@ -633,6 +635,9 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
+            saw_three_byte = saw_three_byte or _lossy_saw_three_byte_char(
+                text,
+            )
         if reader.hit_eof:
             for probe in probes.values():
                 probe.feed(b"", final=True)
@@ -641,6 +646,14 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
+            saw_three_byte = saw_three_byte or _lossy_saw_three_byte_char(
+                text,
+            )
+
+    # Mirror _signals_for_bytes: accidental 2-byte UTF-8 inside valid GBK
+    # (``name=一锘``) must not beat a clean GBK decode.
+    if probes["gbk"].ok and not bom and not saw_three_byte:
+        saw_non_ascii = False
 
     choice = _choose_fallback_decoding(
         _FallbackSignals(
