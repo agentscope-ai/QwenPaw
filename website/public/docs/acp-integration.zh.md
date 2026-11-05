@@ -148,17 +148,15 @@ qwenpaw acp --agent-mode goal
 
 进程通过 stdin/stdout 使用 ACP JSON-RPC 协议通信，stderr 用于日志输出。
 
-`--agent-mode code` 为每个请求启用 Python 工具编排，包括加载和恢复的会话。它暴露 `run_code`，不添加斜杠命令前缀，也不修改已保存的 agent 配置。worker 遵循全局 `security.sandbox_enabled` 设置，默认为 `false`；启用 Code Mode 不会自动开启沙箱。
+`--agent-mode code` 让 QwenPaw 使用 `run_code` 通过 Python 编排工具调用，对新建、加载和恢复的会话均生效。沙箱由 `security.sandbox_enabled` 单独控制，默认关闭。
 
-`--agent-mode MODE_ID` 使用与 Console 相同的工作区 loop 目录（`GET /api/loops`）。内置 ID 包括 `default`、`goal`、`mission`；已配置的自定义模式使用 `custom:<id>`，插件模式使用 `plugin:<name>`。
+`--agent-mode MODE_ID` 可选择与 Console 相同的运行模式。内置模式包括 `default`、`goal`、`mission`；已配置的自定义模式使用 `custom:<id>`，插件模式使用 `plugin:<name>`。
 
-例如，`--agent-mode goal` 会为新会话的第一条消息加上 `/goal`。若自定义模式 `quality` 注册的是 `/verify`，则 `--agent-mode custom:quality` 添加 `/verify`，而不是 `/custom:quality`。激活仍通过已有 Runtime slash-command registry 执行。未知、禁用或未成功注册的模式会返回请求错误，不会静默回退。
+例如，`--agent-mode goal` 会在新会话的第一条消息前添加 `/goal`。如果自定义模式 `quality` 的启动命令是 `/verify`，则 `--agent-mode custom:quality` 添加 `/verify`。选择不存在或不可用的模式会返回错误。
 
-首条消息若以斜杠命令开头，则保持原文并消耗首次消息机会。加载或恢复的会话不会重复添加前缀；此选项不额外提供模式状态持久化。`--agent-mode default` 保持消息原文。loop 选择与 ACP 权限设置相互独立。
+首条消息若以斜杠命令开头，则执行用户输入的命令，后续消息也不会自动添加模式命令。加载或恢复会话时不会自动重新启动模式。`--agent-mode default` 使用默认运行模式。运行模式和工具权限分别设置。
 
-Goal token 预算继承智能体配置，默认无上限。使用 `--goal-token-budget 300000` 为每个目标设置上限；`-1` 和 `0` 均表示无上限。此参数只覆盖当前 ACP 进程的默认预算，不写回 agent 配置；迭代次数限制仍然有效。显式调用 `create_goal(token_budget=...)` 可覆盖该目标的预算，省略则沿用默认值。
-
-模式开发者在已有 `AgentMode` 上声明 `loop_entry`，明确指定入口命令；需要自定义 ID 或可用性规则时，实现 `describe_loop(workspace)`。HTTP 与 ACP 从已注册模式收集描述，不再根据命令排列顺序猜测入口。ACP 启动覆盖与持久化智能体配置使用同一份 schema，不修改配置文件。
+目标的 token 预算沿用智能体配置，默认无上限。使用 `--goal-token-budget 300000` 为每个目标设置上限；`-1` 和 `0` 均表示无上限。此参数只影响当前 ACP 进程，不修改已保存的配置；已启用的迭代次数限制仍然有效。创建目标时显式提供 `token_budget` 可覆盖该目标的预算，省略则沿用默认值。
 
 ### 支持的 ACP 方法
 
@@ -211,7 +209,7 @@ Goal token 预算继承智能体配置，默认无上限。使用 `--goal-token-
 
 ### 会话配置覆盖
 
-ACP 使用与 `agent.json` 相同结构的统一覆盖层，优先级为 **持久化配置 → ACP 启动覆盖 → 会话覆盖**。对象递归合并，数组和标量整体替换；省略字段表示继承，`false`、`0` 和 `null` 都是显式值，按原生 schema 校验。未知字段或无效值会被拒绝。
+会话配置使用与 `agent.json` 相同的字段。优先级从低到高为 **已保存的智能体配置 → ACP 启动设置 → 会话设置**。对象按字段合并，数组和其他值整体替换。未提供的字段沿用原值；`false`、`0` 和 `null` 表示明确设置，仍须符合对应字段的类型和取值要求。未知字段或无效值会返回错误。
 
 通过可重复的 `--config PATH=VALUE` 设置当前 ACP 实例的初始值，值支持 JSON 或普通字符串：
 
@@ -245,13 +243,15 @@ qwenpaw acp \
 }
 ```
 
-每个会话拥有独立配置快照，覆盖不会写入 `agent.json`，也不会影响使用同一智能体的其他 ACP 进程。每次提供 `qwenpaw.config` 都替换先前的会话覆盖，`{}` 恢复启动默认值；同一进程内加载或恢复会话时省略它，则保留已有覆盖。进程重启后需重新提供。通过 `session/set_model` 切换模型也只影响当前会话。
+会话设置只影响当前会话，不修改 `agent.json`，也不影响使用同一智能体的其他 ACP 进程。每次提供 `qwenpaw.config` 都替换先前的会话设置，`{}` 恢复启动默认值；同一进程内加载或恢复会话时省略它，则保留已有设置。进程重启后需重新提供。通过 `session/set_model` 切换模型也只影响当前会话。
 
-用于初始化共享服务的配置（如内部存储目录、渠道、MCP、记忆后端、限流器和 goal/mission/自定义模式定义），需在 ACP 启动时通过 `--config` 设置。会话尝试修改这些字段时会收到明确指出字段的错误。智能体 ID 仍通过 `--agent` 选择。
+内部存储目录、渠道、MCP、记忆后端、请求频率限制和 goal/mission/自定义模式配置，需在 ACP 启动时通过 `--config` 设置。会话中修改这些字段会返回错误。使用 `--agent` 选择智能体。
 
-旧客户端可以继续使用 `qwenpaw.project_dir` 和 `qwenpaw.ephemeral`。ACP 边界将它们分别归一为 `project_dirs` 和 `session_persistence=false`；权限选择器归一为 `approval_level`，运行时 provider 归一为 `active_model`。这些入口共用同一配置覆盖层，不再通过 request_context 单独注入。也可以直接设置 `session_persistence=false`，跳过会话运行状态的加载、保存和取消时保存。显式的旧项目目录优先于配置覆盖；没有项目目录覆盖时，new/load 使用 `cwd`，resume 保留原项目目录，除非显式提供新值。`--workspace` 仍表示智能体内部存储目录，不是项目目录。原有 `--agent-mode`、`--goal-token-budget` 和运行时 provider 参数继续可用。
+旧客户端可以继续使用 `qwenpaw.project_dir` 指定项目目录，其优先级高于 `qwenpaw.config` 中的项目目录设置。未指定项目目录时，新建或加载会话使用 `cwd`，恢复会话保留原目录。`--workspace` 指定智能体内部存储目录，与项目目录分别设置。
 
-Iteration gate 和 AgentScope ReAct 共用同一个有效上限，正整数 `max_iterations` 可以超过 500。设置 `running.loop.iteration.enabled=false` 会关闭迭代限制，包含 AgentScope 原生兜底；取消操作和其他已启用的 gate 仍然生效。不设置覆盖时沿用持久化策略，默认启用 iteration gate，兜底上限为 100。
+设置 `qwenpaw.ephemeral=true` 或 `session_persistence=false` 后，QwenPaw 不加载或保存会话运行状态，取消任务时也不保存。原有 `--agent-mode`、`--goal-token-budget` 和 `--runtime-provider` 参数继续可用。
+
+QwenPaw 默认将每次请求的迭代次数限制为 100。可通过 `running.loop.iteration.max_iterations` 设置任意正整数上限。设置 `running.loop.iteration.enabled=false` 可关闭迭代次数限制；仍可手动取消任务，其他已启用的停止条件继续生效。未提供覆盖时，沿用智能体已保存的设置。
 
 ### 配置
 
