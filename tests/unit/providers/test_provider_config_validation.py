@@ -19,6 +19,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -191,3 +192,103 @@ def test_load_provider_migrates_single_bound_provider_level_range():
     loaded = load_snapshot_with_provider_range([8000])
     assert loaded is not None
     assert loaded.thinking_budget_range == [0, 8000]
+
+
+def test_persisted_string_range_is_preserved_on_load():
+    # Pydantic itself accepts numeric strings for List[int] fields and
+    # coerces them; the migration must not mistake a coercible range for
+    # an invalid one and discard a perfectly usable persisted override.
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget_range"] = ["100", "9000"]
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range == [100, 9000]
+
+
+def test_persisted_provider_level_string_range_is_preserved_on_load():
+    data = make_persisted_snapshot()
+    data["thinking_budget_range"] = ["100", "9000"]
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.thinking_budget_range == [100, 9000]
+
+
+def test_persisted_single_bound_string_range_is_migrated_on_load():
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget_range"] = ["8000"]
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range == [0, 8000]
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("thinking_budget", 0),
+        ("thinking_budget", -5),
+        ("max_output_length", 0),
+        ("max_input_length_auto_detected", 500),
+        ("input_token_limit", 0),
+    ],
+)
+def test_persisted_invalid_optional_scalar_is_reset_on_load(
+    field,
+    bad_value,
+):
+    # ModelInfo bounds these optional scalars from below (ge=1 or
+    # ge=1000). A snapshot persisted before write-path validation could
+    # carry a value below the bound; without a load-time migration the
+    # whole provider fails validation and disappears after a restart.
+    data = make_persisted_snapshot()
+    data["models"][0][field] = bad_value
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert getattr(loaded.models[0], field) is None
+
+
+def test_persisted_invalid_max_input_length_restores_default_on_load():
+    # max_input_length is non-optional (ge=1000), so an unusable
+    # persisted value cannot fall back to None; the key is removed and
+    # the field default applies instead.
+    data = make_persisted_snapshot()
+    data["models"][0]["max_input_length"] = 500
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    assert "max_input_length" not in data["models"][0]
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW
+
+
+def test_persisted_coercible_string_scalars_are_left_untouched():
+    # Pydantic coerces numeric strings for int fields on load, so a
+    # persisted "1024" is a valid value, not a legacy violation.
+    data = make_persisted_snapshot()
+    data["models"][0]["thinking_budget"] = "1024"
+    data["models"][0]["max_input_length"] = "131072"
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget == 1024
+    assert loaded.models[0].max_input_length == 131072
+
+
+def load_snapshot_data(data):
+    """Write *data* as a custom provider snapshot and load it for real."""
+    data["is_custom"] = True
+    manager = ProviderManager()
+    path = manager.custom_path / "test-provider.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return manager.load_provider("test-provider")
+
+
+def test_load_provider_survives_invalid_persisted_scalars():
+    data = make_persisted_snapshot()
+    data["models"][0]["thinking_budget"] = 0
+    data["models"][0]["max_input_length"] = 500
+    loaded = load_snapshot_data(data)
+    assert loaded is not None
+    assert loaded.models[0].thinking_budget is None
+    assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW

@@ -67,20 +67,46 @@ def _migrate_legacy_model_output_limit(
     model["generate_kwargs"] = generate_kwargs
 
 
+def _coerce_loose_int(value: Any) -> int | None:
+    """Return *value* as an int the way Pydantic would, else None.
+
+    Mirrors Pydantic's lax int parsing: real ints, integral floats and
+    numeric strings (``"100"``, ``"100.0"``) convert; bools, fractional
+    floats and non-numeric values do not.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        if "." in text:
+            try:
+                number = float(text)
+            except ValueError:
+                return None
+            return int(number) if number.is_integer() else None
+    return None
+
+
 def _coerce_range_ints(value: Any) -> list[int] | None:
     """Return *value* as a list of ints, or None when it is not numeric."""
     if not isinstance(value, list):
         return None
     result: list[int] = []
     for item in value:
-        if isinstance(item, bool):
+        number = _coerce_loose_int(item)
+        if number is None:
             return None
-        if isinstance(item, int):
-            result.append(item)
-        elif isinstance(item, float) and item.is_integer():
-            result.append(int(item))
-        else:
-            return None
+        result.append(number)
     return result
 
 
@@ -133,13 +159,62 @@ def _migrate_legacy_thinking_budget_range(
     return True
 
 
+# Per-model scalar fields bounded below by ``ModelInfo`` field
+# constraints (``ge=``), as (field, minimum, optional). A snapshot
+# written before write-path validation could persist a value below the
+# bound; validating such a snapshot on load would fail and make the
+# provider disappear. Optional fields fall back to ``None`` (unset);
+# the non-optional ``max_input_length`` key is removed instead, so its
+# field default applies.
+_MODEL_SCALAR_MINIMUMS = (
+    ("max_output_length", 1, True),
+    ("max_input_length", 1000, False),
+    ("max_input_length_auto_detected", 1000, True),
+    ("input_token_limit", 1, True),
+    ("thinking_budget", 1, True),
+)
+
+
+def _migrate_legacy_model_scalars(model: dict[str, Any]) -> bool:
+    """Reset persisted model scalars that violate their field bounds.
+
+    Values Pydantic would coerce and accept (ints in range, numeric
+    strings) are left untouched; only values that would fail validation
+    on load are reset. Returns True when any value changed.
+    """
+    changed = False
+    for field, minimum, optional in _MODEL_SCALAR_MINIMUMS:
+        if field not in model:
+            continue
+        value = model[field]
+        if value is None and optional:
+            continue
+        number = _coerce_loose_int(value)
+        if number is not None and number >= minimum:
+            continue
+        if optional:
+            model[field] = None
+            outcome = "dropping the value"
+        else:
+            model.pop(field)
+            outcome = "restoring the field default"
+        logger.warning(
+            "Migrating legacy %s %r in a persisted provider config: %s.",
+            field,
+            value,
+            outcome,
+        )
+        changed = True
+    return changed
+
+
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     """Upgrade a provider snapshot to the current schemas.
 
-    The ``thinking_budget_range`` normalization runs on every load,
-    independent of the snapshot schema version: a snapshot already at
-    the current version can still carry a range persisted before
-    write-path validation existed.
+    The ``thinking_budget_range`` normalization and the bounded-scalar
+    reset run on every load, independent of the snapshot schema
+    version: a snapshot already at the current version can still carry
+    values persisted before write-path validation existed.
     """
     changed = _migrate_legacy_thinking_budget_range(
         data,
@@ -156,6 +231,7 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
         for model in models:
             if not isinstance(model, dict):
                 continue
+            changed = _migrate_legacy_model_scalars(model) or changed
             changed = _migrate_legacy_thinking_budget_range(model) or changed
 
     version = data.get("snapshot_schema_version", 1)
