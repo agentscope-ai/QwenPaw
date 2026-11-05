@@ -55,6 +55,12 @@ class _FaultWorkspace:
             )
             await asyncio.sleep(60)
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 async def _ensure_workspace(self):
     return _FaultWorkspace()

@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from acp import RequestError, text_block
-from agentscope.agent import ReActConfig
 
 from qwenpaw.agents.acp.meta import (
     ACP_EPHEMERAL_META_KEY,
@@ -21,12 +19,10 @@ from qwenpaw.agents.acp.server import QwenPawACPAgent
 from qwenpaw.app.agent_context import scoped_session_id
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.config.config import (
-    AgentProfileConfig,
     ModelSlotConfig,
     load_agent_config,
 )
 from qwenpaw.modes.default import DefaultMode, resolve_max_iterations
-from qwenpaw.runtime.builder import _resolve_react_iterations
 from qwenpaw.runtime.tool_guard import _guarded_tool_resolve_execution_level
 from qwenpaw.security.tool_guard.execution_level import ToolExecutionLevel
 from qwenpaw.services.project_directory import (
@@ -62,6 +58,12 @@ class _FakeWorkspace:
         assert config == thread_config
         for event in ():
             yield event
+
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
 
 
 class _TestACPAgent(QwenPawACPAgent):
@@ -127,7 +129,7 @@ async def test_acp_config_precedence_and_instance_isolation(
         await agent.resume_session(
             cwd=str(tmp_path),
             session_id=first.session_id,
-            **{ACP_CONFIG_META_KEY: {"workspace_dir": str(tmp_path)}},
+            **{ACP_CONFIG_META_KEY: {"channels": {}}},
         )
     assert agent._sessions[first.session_id].config == first_config
     selected = ModelSlotConfig(provider_id="test", model="session-model")
@@ -214,7 +216,9 @@ async def test_acp_close_releases_only_its_session_gate_state(tmp_path):
     workspace.agent_id = "default"
     workspace.workspace_dir = tmp_path
     workspace._app_services = None
-    workspace.plugins = SimpleNamespace(modes=[mode])
+    workspace.plugins = SimpleNamespace(modes=[mode], session_modes={})
+    workspace._session_workspaces = {}
+    workspace._session_workspace_lock = asyncio.Lock()
     agent._workspace = workspace
     await agent.close_session(sessions[0].session_id)
     assert set(mode._handlers) == {sessions[1].session_id}
@@ -311,40 +315,6 @@ async def test_acp_ephemeral_metadata_is_normalized_into_configuration(
     assert workspace.requests
     assert workspace.configs[0].session_persistence is False
     assert "ephemeral" not in workspace.requests[0].request_context
-
-
-@pytest.mark.parametrize("enabled", [True, False])
-async def test_acp_loop_budget_is_private_and_reaches_react(tmp_path, enabled):
-    workspace = _FakeWorkspace()
-    agent = _TestACPAgent(workspace)
-    agent.on_connect(_FakeConn())
-    loop = {"iteration": {"enabled": enabled, "max_iterations": 10000}}
-    first = await agent.new_session(
-        cwd=str(tmp_path),
-        **{ACP_CONFIG_META_KEY: {"running": {"loop": loop}}},
-    )
-    second = await agent.new_session(cwd=str(tmp_path))
-    await asyncio.gather(
-        *(
-            agent.prompt(
-                prompt=[text_block("hello")],
-                session_id=session.session_id,
-            )
-            for session in (first, second)
-        ),
-    )
-    assert resolve_max_iterations(workspace.configs[1].running) == 100
-    original = AgentProfileConfig(id="default", name="Default")
-    before = original.model_dump()
-    assert original.running.loop.iteration.enabled is True
-    assert resolve_max_iterations(original.running) == 100
-    configured = workspace.configs[0]
-    assert original.model_dump() == before
-    assert configured.running.loop.doom_loop == original.running.loop.doom_loop
-    limit = resolve_max_iterations(configured.running)
-    assert limit == (10000 if enabled else None)
-    react = ReActConfig(max_iters=_resolve_react_iterations(limit, {}))
-    assert react.max_iters == (10000 if enabled else sys.maxsize)
 
 
 @pytest.mark.parametrize("method", ["load_session", "resume_session"])

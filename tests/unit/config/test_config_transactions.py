@@ -28,7 +28,7 @@ from qwenpaw.config.config import (
     save_agent_config,
 )
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
-from qwenpaw.config.overrides import agent_config_scope, apply_config_overrides
+from qwenpaw.config.runtime import RuntimeParameters
 
 
 @pytest.fixture
@@ -134,14 +134,33 @@ def test_runtime_overrides_never_enter_persistence(
     isolated_agent,
     isolated_config,
 ):
+    raw = json.loads(isolated_agent.read_text(encoding="utf-8"))
+    raw["running"] = {
+        "loop": {
+            "iteration": {
+                "enabled": False,
+                "max_iterations": None,
+            },
+        },
+    }
+    isolated_agent.write_text(json.dumps(raw), encoding="utf-8")
     base = load_agent_config("agent")
-    scoped = apply_config_overrides(
+    global_config = config_utils.load_config()
+    global_config.agents.running.loop.iteration.max_iterations = 321
+    global_config.agents.running.loop.goal.max_tokens = 555
+    startup = RuntimeParameters.from_profile(
         base,
-        {"running": {"shell_command_timeout": 17}, "description": "session"},
+        global_config=global_config,
+        defaults={"running": {"shell_command_timeout": 41}},
     )
+    scoped = startup.with_overrides({"running": {"shell_command_timeout": 17}})
+    assert startup.config.running.shell_command_timeout == 41
+    assert scoped.config.running.loop.goal.max_tokens == 555
+    assert scoped.config.running.loop.iteration.enabled is False
+    assert scoped.config.running.loop.iteration.max_iterations is None
     before = isolated_agent.read_bytes()
-    with agent_config_scope(scoped):
-        assert load_agent_config("agent").description == "session"
+    with scoped.scope():
+        assert load_agent_config("agent").running.shell_command_timeout == 17
         with pytest.raises(ValueError, match="cannot be persisted"):
             save_agent_config("agent", load_agent_config("agent"))
         assert isolated_agent.read_bytes() == before
@@ -151,7 +170,8 @@ def test_runtime_overrides_never_enter_persistence(
                 sys.executable,
                 "-c",
                 "from qwenpaw.config.config import load_agent_config; "
-                "print(load_agent_config('agent').description)",
+                "print(load_agent_config('agent').running."
+                "shell_command_timeout)",
             ],
             env={
                 **os.environ,
@@ -161,7 +181,9 @@ def test_runtime_overrides_never_enter_persistence(
             text=True,
             check=True,
         )
-        assert result.stdout.strip() == "original"
+        assert (
+            float(result.stdout.strip()) == base.running.shell_command_timeout
+        )
         mutate_agent_config("agent", lambda cfg: setattr(cfg, "name", "New"))
         assert load_agent_config("agent").name == base.name
 

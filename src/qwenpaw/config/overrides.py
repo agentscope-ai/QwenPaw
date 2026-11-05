@@ -1,16 +1,12 @@
 # -*- coding: utf-8 -*-
 """Validated, non-persistent configuration for one execution scope."""
 
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from copy import deepcopy
 import json
 from typing import Any
 
 from pydantic import BaseModel
-
-from .config import AgentProfileConfig
-from .context import current_agent_config
 
 
 def merge_overrides(
@@ -51,24 +47,6 @@ def _check_fields(value: Any, parsed: Any, path: str = "config") -> None:
             _check_fields(item, result, f"{path}[{index}]")
 
 
-def apply_config_overrides(
-    config: AgentProfileConfig,
-    overrides: Any,
-) -> AgentProfileConfig:
-    """Validate a complete candidate without mutating the source profile."""
-    if not isinstance(overrides, dict):
-        raise ValueError("Configuration overrides must be an object")
-    candidate = AgentProfileConfig.model_validate(
-        merge_overrides(config.model_dump(), overrides),
-        strict=True,
-    )
-    _check_fields(overrides, candidate)
-    if candidate.id != config.id:
-        raise ValueError("Configuration overrides cannot change the agent ID")
-    candidate._runtime_scoped = True  # pylint: disable=protected-access
-    return candidate
-
-
 def parse_config_overrides(values: tuple[str, ...]) -> dict[str, Any]:
     """Parse repeated dotted-path assignments with JSON or string values."""
     overrides: dict[str, Any] = {}
@@ -85,15 +63,3 @@ def parse_config_overrides(values: tuple[str, ...]) -> dict[str, Any]:
             patch = {key: patch}
         overrides = merge_overrides(overrides, patch)
     return overrides
-
-
-@contextmanager
-def agent_config_scope(config: AgentProfileConfig) -> Iterator[None]:
-    """Bind a detached snapshot to this task and its child IO operations."""
-    snapshot = config.model_copy(deep=True)
-    snapshot._runtime_scoped = True  # pylint: disable=protected-access
-    token = current_agent_config.set(snapshot)
-    try:
-        yield
-    finally:
-        current_agent_config.reset(token)

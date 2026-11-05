@@ -37,7 +37,7 @@ from qwenpaw.exceptions import (
 )
 
 from .history_path import normalize_history_db_filename
-from .context import current_agent_config
+from .context import current_runtime_parameters
 from .timezone import detect_system_timezone
 from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
@@ -1367,7 +1367,24 @@ class DecisionCompactConfig(BaseModel):
     max_concurrency: int = Field(default=4, ge=1, le=32)
 
 
-class LightContextConfig(BaseModel):
+class SessionContextConfig(BaseModel):
+    """Context controls that may vary between sessions."""
+
+    context_compact_config: ContextCompactConfig = Field(
+        default_factory=ContextCompactConfig,
+    )
+    tool_result_pruning_config: ToolResultPruningConfig = Field(
+        default_factory=ToolResultPruningConfig,
+    )
+    decision_compact_config: DecisionCompactConfig = Field(
+        default_factory=DecisionCompactConfig,
+    )
+    visual_compact_config: VisualCompactConfig = Field(
+        default_factory=VisualCompactConfig,
+    )
+
+
+class LightContextConfig(SessionContextConfig):
     """Light context manager configuration."""
 
     model_config = ConfigDict(extra="ignore")
@@ -1395,21 +1412,8 @@ class LightContextConfig(BaseModel):
             "Divisor for byte-based token estimation (byte_len / divisor)"
         ),
     )
-
-    context_compact_config: ContextCompactConfig = Field(
-        default_factory=ContextCompactConfig,
-    )
-    tool_result_pruning_config: ToolResultPruningConfig = Field(
-        default_factory=ToolResultPruningConfig,
-    )
     scroll_config: ScrollContextConfig = Field(
         default_factory=ScrollContextConfig,
-    )
-    decision_compact_config: DecisionCompactConfig = Field(
-        default_factory=DecisionCompactConfig,
-    )
-    visual_compact_config: VisualCompactConfig = Field(
-        default_factory=VisualCompactConfig,
     )
 
     @model_validator(mode="after")
@@ -1679,8 +1683,8 @@ class MissionLoopModeConfig(BaseModel):
     default_verify_command: str = Field(default="", max_length=2000)
 
 
-class LoopConfig(BaseModel):
-    """Loop engineering configuration."""
+class SessionLoopConfig(BaseModel):
+    """Execution limits and stopping rules for one session."""
 
     iteration: IterationGateConfig = Field(
         default_factory=IterationGateConfig,
@@ -1702,6 +1706,7 @@ class LoopConfig(BaseModel):
         default_factory=MissionLoopModeConfig,
         description="Fixed Mission mode gate values",
     )
+
     custom_modes: List[CustomLoopModeConfig] = Field(
         default_factory=list,
         max_length=20,
@@ -1731,6 +1736,10 @@ class LoopConfig(BaseModel):
             for gate in mode.gates:
                 catalog.validate_params(gate.type, gate.params)
         return self
+
+
+class LoopConfig(SessionLoopConfig):
+    """Agent defaults for session loop configuration."""
 
 
 def _sanitize_custom_loop_modes(
@@ -1835,13 +1844,11 @@ def _sanitize_loop_config(
         )
         running["loop"] = LoopConfig().model_dump(exclude_none=True)
         return
-    running["loop"] = validated.model_dump(exclude_none=True)
+    running["loop"] = validated.model_dump(exclude_unset=True)
 
 
-class AgentsRunningConfig(BaseModel):
-    """Agent runtime behavior configuration."""
-
-    model_config = ConfigDict(extra="ignore")
+class SessionRunningConfig(BaseModel):
+    """Runtime behavior that may be overridden for one session."""
 
     max_iters: int = Field(
         default=100,
@@ -1851,8 +1858,8 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    loop: LoopConfig = Field(
-        default_factory=LoopConfig,
+    loop: SessionLoopConfig = Field(
+        default_factory=SessionLoopConfig,
         description="Loop engineering configuration",
     )
 
@@ -1898,6 +1905,71 @@ class AgentsRunningConfig(BaseModel):
             "must be greater than or equal to the base delay"
         ),
     )
+
+    shell_command_timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        description=(
+            "Default timeout in seconds for execute_shell_command. "
+            "The LLM may still override this per-call via the timeout "
+            "parameter."
+        ),
+    )
+
+    shell_command_executable: str = Field(
+        default="",
+        description=(
+            "Path to the shell used by execute_shell_command. "
+            "Linux/macOS: e.g. /bin/bash, /bin/zsh. "
+            "Windows: supports powershell.exe, pwsh.exe, or POSIX-like "
+            "shells such as Git Bash. "
+            "When empty, falls back to the $SHELL environment variable, "
+            "then to the platform default (/bin/sh on Unix, cmd.exe on "
+            "Windows)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_llm_retry_backoff(self) -> "SessionRunningConfig":
+        """Validate LLM retry backoff relationships."""
+        if self.llm_backoff_cap < self.llm_backoff_base:
+            raise ConfigurationException(
+                config_key="llm_backoff",
+                message=(
+                    "llm_backoff_cap must be greater than or equal to "
+                    "llm_backoff_base"
+                ),
+            )
+        return self
+
+    max_input_length: int = Field(
+        default=128 * 1024,  # 128K = 131072 tokens
+        ge=1000,
+        description=(
+            "Maximum input length (tokens) for the model context window"
+        ),
+    )
+
+    history_max_length: int = Field(
+        default=10000,
+        ge=1000,
+        description="Maximum length for /history command output",
+    )
+
+    light_context_config: SessionContextConfig = Field(
+        default_factory=SessionContextConfig,
+    )
+
+
+class AgentsRunningConfig(SessionRunningConfig):
+    """Agent runtime behavior configuration."""
+
+    loop: LoopConfig = Field(default_factory=LoopConfig)
+    light_context_config: LightContextConfig = Field(
+        default_factory=LightContextConfig,
+    )
+
+    model_config = ConfigDict(extra="ignore")
 
     llm_max_concurrent: int = Field(
         default_factory=lambda: EnvVarLoader.get_int(
@@ -1965,61 +2037,7 @@ class AgentsRunningConfig(BaseModel):
         ),
     )
 
-    shell_command_timeout: float = Field(
-        default=60.0,
-        ge=1.0,
-        description=(
-            "Default timeout in seconds for execute_shell_command. "
-            "The LLM may still override this per-call via the timeout "
-            "parameter."
-        ),
-    )
-
-    shell_command_executable: str = Field(
-        default="",
-        description=(
-            "Path to the shell used by execute_shell_command. "
-            "Linux/macOS: e.g. /bin/bash, /bin/zsh. "
-            "Windows: supports powershell.exe, pwsh.exe, or POSIX-like "
-            "shells such as Git Bash. "
-            "When empty, falls back to the $SHELL environment variable, "
-            "then to the platform default (/bin/sh on Unix, cmd.exe on "
-            "Windows)."
-        ),
-    )
-
-    @model_validator(mode="after")
-    def validate_llm_retry_backoff(self) -> "AgentsRunningConfig":
-        """Validate LLM retry backoff relationships."""
-        if self.llm_backoff_cap < self.llm_backoff_base:
-            raise ConfigurationException(
-                config_key="llm_backoff",
-                message=(
-                    "llm_backoff_cap must be greater than or equal to "
-                    "llm_backoff_base"
-                ),
-            )
-        return self
-
-    max_input_length: int = Field(
-        default=128 * 1024,  # 128K = 131072 tokens
-        ge=1000,
-        description=(
-            "Maximum input length (tokens) for the model context window"
-        ),
-    )
-
-    history_max_length: int = Field(
-        default=10000,
-        ge=1000,
-        description="Maximum length for /history command output",
-    )
-
     context_manager_backend: str = Field(default="light")
-
-    light_context_config: LightContextConfig = Field(
-        default_factory=LightContextConfig,
-    )
 
     auto_title_config: AutoTitleConfig = Field(
         default_factory=AutoTitleConfig,
@@ -2471,34 +2489,14 @@ def hydrate_agent_mail_credentials(
     return mail
 
 
-class AgentProfileConfig(BaseModel):
-    """Complete Agent Profile configuration (stored in workspace/agent.json).
+class SessionConfig(BaseModel):
+    """Session-owned settings, also used as agent defaults."""
 
-    Each agent has its own configuration file with all settings.
-    """
+    agent_mode: str | None = Field(
+        default=None,
+        description="Initial runtime mode ID from the registered modes",
+    )
 
-    _source_digest: bytes | None = PrivateAttr(default=None)
-    _runtime_scoped: bool = PrivateAttr(default=False)
-
-    def source_digest(self) -> bytes | None:
-        """Return the content version captured when this model was loaded."""
-        return self._source_digest
-
-    def record_source_digest(self, digest: bytes) -> None:
-        """Record the content version represented by this model."""
-        self._source_digest = digest
-
-    @property
-    def uses_scroll_history(self) -> bool:
-        """Whether this runtime writes through to durable Scroll history."""
-        return (
-            self.backend == "qwenpaw"
-            and self.running.light_context_config.strategy == "scroll"
-        )
-
-    id: str = Field(..., description="Unique agent ID")
-    name: str = Field(..., description="Human-readable agent name")
-    description: str = Field(default="", description="Agent description")
     workspace_dir: str = Field(
         default="",
         description="Path to agent's workspace (optional, for reference)",
@@ -2518,38 +2516,8 @@ class AgentProfileConfig(BaseModel):
         default=True,
         description="Load and save conversation runtime state between turns",
     )
-    backend: str = Field(
-        default="qwenpaw",
-        description="Runtime backend used for every agent request",
-    )
-    backend_settings: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Configuration validated and consumed by the backend",
-    )
-    template_id: Optional[str] = Field(
-        default=None,
-        description="Builtin template used when this agent was created",
-    )
-
-    # Agent-specific configurations
-    channels: Optional["ChannelConfig"] = Field(
-        default=None,
-        description="Channel configurations for this agent",
-    )
-    mcp: Optional["MCPConfig"] = Field(
-        default=None,
-        description="MCP clients for this agent",
-    )
-    heartbeat: Optional[HeartbeatConfig] = Field(
-        default=None,
-        description="Heartbeat configuration for this agent",
-    )
-    last_dispatch: Optional["LastDispatchConfig"] = Field(
-        default=None,
-        description="Last dispatch target for this agent",
-    )
-    running: AgentsRunningConfig = Field(
-        default_factory=AgentsRunningConfig,
+    running: SessionRunningConfig = Field(
+        default_factory=SessionRunningConfig,
         description="Runtime configuration",
     )
     llm_routing: AgentsLLMRoutingConfig = Field(
@@ -2600,10 +2568,6 @@ class AgentProfileConfig(BaseModel):
             raise ValueError(f"Budget mode requires thinking_budget")
         return self
 
-    language: str = Field(
-        default="zh",
-        description="Language setting for this agent",
-    )
     approval_level: str = Field(
         default="AUTO",
         description=(
@@ -2622,14 +2586,6 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Tools configuration for this agent",
     )
-    security: Optional["SecurityConfig"] = Field(
-        default=None,
-        description="Security configuration for this agent",
-    )
-    acp: Optional[ACPConfig] = Field(
-        default=None,
-        description="ACP configuration for this agent",
-    )
     plan: PlanConfig = Field(
         default_factory=PlanConfig,
         description="Plan mode configuration for this agent",
@@ -2641,6 +2597,81 @@ class AgentProfileConfig(BaseModel):
     advisor_mode: AdvisorModeConfig = Field(
         default_factory=AdvisorModeConfig,
         description="Advisor Mode configuration for this agent",
+    )
+
+
+class AgentProfileConfig(SessionConfig):
+    """Complete Agent Profile configuration (stored in workspace/agent.json).
+
+    Each agent has its own configuration file with all settings.
+    """
+
+    running: AgentsRunningConfig = Field(default_factory=AgentsRunningConfig)
+
+    _source_digest: bytes | None = PrivateAttr(default=None)
+    _runtime_scoped: bool = PrivateAttr(default=False)
+
+    def source_digest(self) -> bytes | None:
+        """Return the content version captured when this model was loaded."""
+        return self._source_digest
+
+    def record_source_digest(self, digest: bytes) -> None:
+        """Record the content version represented by this model."""
+        self._source_digest = digest
+
+    @property
+    def uses_scroll_history(self) -> bool:
+        """Whether this runtime writes through to durable Scroll history."""
+        return (
+            self.backend == "qwenpaw"
+            and self.running.light_context_config.strategy == "scroll"
+        )
+
+    id: str = Field(..., description="Unique agent ID")
+    name: str = Field(..., description="Human-readable agent name")
+    description: str = Field(default="", description="Agent description")
+    backend: str = Field(
+        default="qwenpaw",
+        description="Runtime backend used for every agent request",
+    )
+    backend_settings: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Configuration validated and consumed by the backend",
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description="Builtin template used when this agent was created",
+    )
+
+    # Agent-specific configurations
+    channels: Optional["ChannelConfig"] = Field(
+        default=None,
+        description="Channel configurations for this agent",
+    )
+    mcp: Optional["MCPConfig"] = Field(
+        default=None,
+        description="MCP clients for this agent",
+    )
+    heartbeat: Optional[HeartbeatConfig] = Field(
+        default=None,
+        description="Heartbeat configuration for this agent",
+    )
+    last_dispatch: Optional["LastDispatchConfig"] = Field(
+        default=None,
+        description="Last dispatch target for this agent",
+    )
+
+    language: str = Field(
+        default="zh",
+        description="Language setting for this agent",
+    )
+    security: Optional["SecurityConfig"] = Field(
+        default=None,
+        description="Security configuration for this agent",
+    )
+    acp: Optional[ACPConfig] = Field(
+        default=None,
+        description="ACP configuration for this agent",
     )
     mail: Optional[AgentMailConfig] = Field(
         default=None,
@@ -3759,9 +3790,9 @@ def migrate_agent_mail_credentials(
 
 def load_agent_config(agent_id: str) -> AgentProfileConfig:
     """Read the current execution snapshot, or the persisted profile."""
-    scoped = current_agent_config.get()
-    if scoped is not None and scoped.id == agent_id:
-        return scoped.model_copy(deep=True)
+    scoped = current_runtime_parameters.get()
+    if scoped is not None and scoped.profile.id == agent_id:
+        return scoped.config
     return load_persisted_agent_config(agent_id)
 
 

@@ -64,6 +64,12 @@ class _FakeWorkspace:
         for event in ():
             yield event
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 def _config() -> OpenAIRuntimeProviderConfig:
     return OpenAIRuntimeProviderConfig(
@@ -359,6 +365,9 @@ async def test_cancel_stops_active_prompt(monkeypatch):
     cancelled = asyncio.Event()
 
     class _BlockingWorkspace:
+        async def for_session(self, session_id, parameters):
+            return self
+
         async def stream_query(self, request):  # noqa: ANN001
             del request
             started.set()

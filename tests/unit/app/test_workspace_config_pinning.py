@@ -13,6 +13,10 @@ test_channel_config/test_heartbeat reproduced exactly that loss).
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 
 from pathlib import Path
+from unittest.mock import AsyncMock
+
+from qwenpaw.app.workspace.service_manager import ServiceDescriptor
+from qwenpaw.config.runtime import RuntimeParameters
 
 import pytest
 
@@ -27,7 +31,6 @@ from qwenpaw.config.config import (
     load_agent_config,
     save_agent_config,
 )
-from qwenpaw.config.overrides import agent_config_scope, apply_config_overrides
 
 
 @pytest.fixture
@@ -121,19 +124,69 @@ def test_unsaved_mutation_does_not_leak_into_other_instances(
     assert other.config.description == "original"
 
 
-def test_runtime_workspace_and_session_snapshots_stay_isolated(isolated_agent):
-    ws = _pinned_workspace(isolated_agent)
-    base = load_agent_config("agent")
-    ws._config = apply_config_overrides(base, {"description": "startup"})
-    session = apply_config_overrides(ws._config, {"description": "session"})
-    with agent_config_scope(session):
-        assert ws.config.description == "session"
-        ws.config.description = "unshared mutation"
-        assert ws.config.description == "session"
-    base.description = "external update"
-    save_agent_config("agent", base)
-    assert ws.config.description == "startup"
+@pytest.mark.asyncio
+async def test_session_workspace_owns_and_releases_only_its_resources(
+    isolated_agent,
+    tmp_path,
+    monkeypatch,
+):
+    """Workspace changes rebuild session services without touching peers."""
+    resources = []
+
+    def register_services(workspace):
+        for name, session_owned in (("storage", True), ("watcher", False)):
+
+            def create(owner, service_name=name):
+                resource = AsyncMock()
+                resource.directory = owner.workspace_dir
+                resources.append((service_name, resource))
+                return resource
+
+            workspace._service_manager.register(
+                ServiceDescriptor(
+                    name=name,
+                    create_service=create,
+                    stop_method="stop",
+                    session_owned=session_owned,
+                ),
+            )
+
+    async def start(workspace):
+        workspace._config = load_agent_config(workspace.agent_id)
+        await workspace._service_manager.start_all()
+
+    async def stop(workspace, **_kwargs):
+        await workspace._service_manager.stop_all(final=True)
+
+    monkeypatch.setattr(Workspace, "_register_services", register_services)
+    monkeypatch.setattr(Workspace, "start", start)
+    monkeypatch.setattr(Workspace, "stop", stop)
+    root = Workspace("agent", str(isolated_agent))
+    await root.start()
+    parameters = RuntimeParameters(profile=root.config)
+    first = parameters.with_overrides({"workspace_dir": str(tmp_path / "a")})
+    second = parameters.with_overrides({"workspace_dir": str(tmp_path / "b")})
+    a = await root.for_session("a", first)
+    b = await root.for_session("b", second)
+    assert a is await root.for_session("a", first)
+    assert a.workspace_dir != b.workspace_dir != root.workspace_dir
+    assert [name for name, _ in resources] == [
+        "storage",
+        "watcher",
+        "storage",
+        "storage",
+    ]
+    assert a._service_manager.services["storage"].directory == tmp_path / "a"
+    await root.release_session("a")
+    resources[2][1].stop.assert_awaited_once()
+    resources[3][1].stop.assert_not_awaited()
+    assert root.session_workspace("b") is b
+    assert await root.for_session("a", parameters) is root
     assert (
-        _pinned_workspace(isolated_agent).config.description
-        == "external update"
+        load_agent_config("agent").workspace_dir
+        == parameters.profile.workspace_dir
     )
+    await root.release_session("b")
+    await root.stop()
+    for _, resource in resources:
+        resource.stop.assert_awaited_once()

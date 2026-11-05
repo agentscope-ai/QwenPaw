@@ -8,67 +8,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
 
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
-
-
-def test_session_project_override_uses_canonical_request_key(tmp_path):
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(tmp_path)},
-    )
-
-    assert updated is not config
-    assert updated.project_dir == str(tmp_path.resolve())
-
-
-def test_active_mode_project_precedes_session_project(tmp_path):
-    active_dir = tmp_path / "active"
-    session_dir = tmp_path / "session"
-    active_dir.mkdir()
-    session_dir.mkdir()
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {
-            "active_mode_project_dir": str(active_dir),
-            "project_dir": str(session_dir),
-        },
-    )
-
-    assert updated.project_dir == str(active_dir.resolve())
-
-
-def test_request_project_ignores_non_directory(tmp_path):
-    config = AgentProfileConfig(id="default", name="Default")
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(tmp_path / "missing")},
-    )
-
-    assert updated is config
-
-
-@pytest.mark.usefixtures("capture_qwenpaw_logs")
-def test_request_project_warns_for_unsupported_config(
-    caplog,
-    tmp_path,
-):
-    config = {}
-
-    updated = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(tmp_path)},
-    )
-
-    assert updated is config
-    assert "unsupported config type: dict" in caplog.text
+from qwenpaw.config.runtime import RuntimeParameters
 
 
 def test_normal_prompt_includes_workspace_fallback_as_project(tmp_path):
@@ -102,10 +45,10 @@ def test_normal_prompt_uses_session_project_snapshot(tmp_path):
     workspace_dir.mkdir()
     project_dir.mkdir()
     config = AgentProfileConfig(id="default", name="Default")
-    config = AgentBuilder._apply_request_project(
-        config,
-        {"project_dir": str(project_dir)},
-    )
+    config = RuntimeParameters(
+        profile=config,
+        overrides={"project_dir": str(project_dir)},
+    ).config
     ctx = SimpleNamespace(
         workspace_dir=workspace_dir,
         agent_id="default",

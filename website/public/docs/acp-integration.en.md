@@ -209,7 +209,7 @@ When a new session is created, the agent returns config options that the client 
 
 ### Session Configuration Overrides
 
-Session settings use the same fields as `agent.json`. Precedence from lowest to highest is **saved agent settings → ACP startup settings → session settings**. Objects merge by field; arrays and other values replace earlier values. Omitted fields retain their values. Explicit `false`, `0`, and `null` values must meet the field's type and value requirements. Unknown fields or invalid values return an error.
+ACP accepts only session settings (`SessionConfig`), including workspace and project directories, models, tool permissions, modes, and iteration limits. Unspecified values inherit the agent settings. Precedence from lowest to highest is **global defaults → saved agent settings → ACP startup settings → session settings**. Objects merge by field; arrays and other values replace earlier values. Omitted fields retain their values. Explicit `false`, `0`, and `null` values must meet the field's type and value requirements. Unknown fields or invalid values return an error.
 
 Set initial values for this ACP instance with repeatable `--config PATH=VALUE` arguments. Values accept JSON or plain strings:
 
@@ -245,11 +245,13 @@ Pass `qwenpaw.config` in the `_meta` object of `session/new`, `session/load`, or
 
 Session settings affect only the current session. They do not change `agent.json` or affect another ACP process using the same agent. Each supplied `qwenpaw.config` replaces the previous session settings; `{}` restores the startup defaults. Loading or resuming without it preserves existing settings within the same server process. Resend settings after a server restart. Model changes through `session/set_model` also affect only the current session.
 
-Workspace storage, channels, MCP, memory backends, request rate limits, and goal/mission/custom-mode settings must be supplied at startup with `--config`. Changing these settings within a session returns an error. Use `--agent` to select the agent.
+Both `--config` and `qwenpaw.config` accept only session fields. Agent or global settings such as channels, service connections, memory backends, and shared request rate limits cannot be overridden. Use `--agent` to select an agent and `--workspace` or `workspace_dir` to select internal storage for the session.
 
 Existing clients can keep using `qwenpaw.project_dir` to select a project directory. It takes precedence over project directory settings in `qwenpaw.config`. Without a project directory override, new or loaded sessions use `cwd`, and resumed sessions retain their previous directory. `--workspace` selects internal agent storage separately from the project directory.
 
 With `qwenpaw.ephemeral=true` or `session_persistence=false`, QwenPaw does not load or save conversation runtime state, including when a task is cancelled. Existing `--agent-mode`, `--goal-token-budget`, and `--runtime-provider` options remain available.
+
+Sessions can select a mode with `agent_mode` and enable or disable code orchestration with `coding_mode.enabled`. Settings under `running.loop` for iteration limits, repetition detection, completion checks, goal, mission, and custom modes can also vary by session. Each session keeps its own settings and execution state.
 
 QwenPaw limits each request to 100 iterations by default. Set `running.loop.iteration.max_iterations` to any positive integer to change the limit. Set `running.loop.iteration.enabled=false` to disable it. You can still cancel tasks manually, and other enabled stopping conditions remain active. Without overrides, QwenPaw uses the agent's saved settings.
 

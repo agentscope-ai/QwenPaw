@@ -47,7 +47,7 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
-from ...config.context import current_agent_config
+from ...config.context import current_runtime_parameters
 from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 from ...runtime.hooks import HookContext
@@ -160,6 +160,8 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self,
         agent_id: str,
         workspace_dir: str,
+        *,
+        session_owned: bool = False,
     ):
         """Initialize agent instance.
 
@@ -167,6 +169,10 @@ class Workspace:  # pylint: disable=too-many-public-methods
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
         """
+        self.session_owned = session_owned
+        self._session_workspaces: dict[str, Workspace] = {}
+        self._session_workspace_lock = asyncio.Lock()
+        self._bootstrap_kwargs: dict[str, Any] = {}
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -273,10 +279,10 @@ class Workspace:  # pylint: disable=too-many-public-methods
         snapshot is therefore pinned per workspace and refreshed only
         when agent.json's mtime moves (any save or external edit).
         """
-        scoped = current_agent_config.get()
-        if scoped is not None and scoped.id == self.agent_id:
-            return scoped.model_copy(deep=True)
-        # ACP bootstrap snapshots remain stable outside active requests too.
+        scoped = current_runtime_parameters.get()
+        if scoped is not None and scoped.profile.id == self.agent_id:
+            return scoped.config
+        # Runtime bootstrap snapshots remain stable outside active requests.
         if getattr(self._config, "_runtime_scoped", False):
             return self._config.model_copy(deep=True)
         current_mtime = self._agent_config_file_mtime()
@@ -324,6 +330,19 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         Called once by ``WorkspaceRegistry`` immediately after creation.
         """
+        builtin_tool_funcs = tuple(builtin_tool_funcs or ())
+        builtin_mode_clses = tuple(builtin_mode_clses or ())
+        builtin_contributor_clses = tuple(builtin_contributor_clses or ())
+        builtin_hook_clses = tuple(builtin_hook_clses or ())
+        builtin_command_specs = tuple(builtin_command_specs or ())
+        self._bootstrap_kwargs = {
+            "builtin_tool_funcs": builtin_tool_funcs,
+            "builtin_mode_clses": builtin_mode_clses,
+            "builtin_contributor_clses": builtin_contributor_clses,
+            "builtin_hook_clses": builtin_hook_clses,
+            "builtin_command_specs": builtin_command_specs,
+            "builtin_fallback_handler": builtin_fallback_handler,
+        }
         if builtin_tool_funcs:
             tr = self.plugins.tool_registry
             for func in builtin_tool_funcs:
@@ -436,10 +455,59 @@ class Workspace:  # pylint: disable=too-many-public-methods
         """Inject the cross-workspace AppServiceManager reference."""
         self._app_services = app_services
 
+    def session_workspace(self, session_id: str):
+        """Return the resource owner of an existing session."""
+        return self._session_workspaces.get(session_id, self)
+
+    async def for_session(self, session_id: str, parameters: Any):
+        """Own resources whose workspace or mode definitions differ."""
+        config = parameters.config
+        directory = Path(
+            config.workspace_dir or self.workspace_dir,
+        ).expanduser()
+        current_modes = self._config.running.loop.custom_modes
+        async with self._session_workspace_lock:
+            existing = self._session_workspaces.get(session_id)
+            if existing is not None:
+                if (
+                    existing.workspace_dir == directory
+                    and existing._config.running.loop.custom_modes
+                    == config.running.loop.custom_modes
+                ):
+                    return existing
+                await self._release_session(session_id)
+            if (
+                directory == self.workspace_dir
+                and config.running.loop.custom_modes == current_modes
+            ):
+                return self
+            with parameters.scope():
+                workspace = Workspace(
+                    self.agent_id,
+                    str(directory),
+                    session_owned=True,
+                )
+                workspace.set_app_services(self._app_services)
+                workspace.bootstrap_plugins(**self._bootstrap_kwargs)
+                await workspace.start()
+            self._session_workspaces[session_id] = workspace
+            return workspace
+
     async def release_session(self, session_id: str) -> None:
+        """Release a session after any pending resource initialization."""
+        async with self._session_workspace_lock:
+            await self._release_session(session_id)
+
+    async def _release_session(self, session_id: str) -> None:
         """Release mode state after a session's active request has stopped."""
         from ..agent_context import scoped_session_id
 
+        workspace = self._session_workspaces.get(session_id)
+        if workspace is not None:
+            await workspace.release_session(session_id)
+            await workspace.stop(final=True)
+            del self._session_workspaces[session_id]
+            return
         request = AgentRequest(session_id=session_id, agent_id=self.agent_id)
         ctx = HookContext(
             request=request,
@@ -451,6 +519,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
             workspace=self,
             app_services=self._app_services,
         )
+        self.plugins.session_modes.pop(session_id, None)
         with scoped_session_id(session_id):
             for mode in self.plugins.modes:
                 await mode.on_conversation_reset(ctx)
@@ -467,6 +536,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        parameters = current_runtime_parameters.get()
+        if parameters is not None and parameters.profile.id == self.agent_id:
+            owner = await self.for_session(request.session_id, parameters)
+            if owner is not self:
+                async for event in owner.stream_query(request):
+                    yield event
+                return
         config = load_agent_config(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -655,6 +731,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="channel_manager",
+                session_owned=False,
                 service_class=None,
                 post_init=create_channel_service,
                 start_method="start_all",
@@ -669,6 +746,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="cron_manager",
+                session_owned=False,
                 service_class=CronManager,
                 init_args=lambda ws: {
                     "repo": JsonJobRepository(
@@ -696,6 +774,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="mail_monitor",
+                session_owned=False,
                 service_class=None,
                 post_init=create_mail_monitor_service,
                 start_method="start",
@@ -710,6 +789,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="agent_config_watcher",
+                session_owned=False,
                 service_class=None,
                 post_init=create_agent_config_watcher,
                 start_method="start",
@@ -723,6 +803,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="driver_config_watcher",
+                session_owned=False,
                 service_class=None,
                 post_init=create_driver_config_watcher,
                 start_method="start",
@@ -822,7 +903,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
             self._started = True
             # Reload candidates activate maintenance after ownership commits.
-            if not self.cron_start_paused:
+            if not self.cron_start_paused and not self.session_owned:
                 await self.start_history_retention()
             logger.info(
                 "Workspace started successfully: "
@@ -950,6 +1031,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
             preserve_reused: Keep services borrowed from another workspace
                 alive while cleaning up this workspace.
         """
+        for session_id in list(self._session_workspaces):
+            await self.release_session(session_id)
+
         if not self._started and not self._start_attempted:
             logger.debug(
                 f"Workspace not started: {sanitize_log_value(self.agent_id)}",

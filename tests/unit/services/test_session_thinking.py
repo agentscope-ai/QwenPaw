@@ -23,7 +23,6 @@ from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
-from qwenpaw.config.overrides import apply_config_overrides
 from qwenpaw.providers.thinking import ThinkingControl, ThinkingPreference
 from qwenpaw.schemas import AgentRequest
 from qwenpaw.services.session_thinking import (
@@ -31,41 +30,6 @@ from qwenpaw.services.session_thinking import (
     session_preference,
     thinking_view,
 )
-
-
-async def test_execution_snapshot_precedes_saved_conversation_settings():
-    base = AgentProfileConfig(id="agent", name="Agent")
-    config = apply_config_overrides(
-        base,
-        {
-            "active_model": {"provider_id": "p", "model": "snapshot"},
-            "thinking_level": "off",
-        },
-    )
-    saved = SimpleNamespace(
-        meta={
-            "runtime_context": {
-                "model": {"provider_id": "p", "model": "old"},
-                "thinking": {"p:old": {"level": "high"}},
-            },
-        },
-    )
-    with patch(
-        "qwenpaw.services.session_thinking.get_session_chat",
-        AsyncMock(return_value=saved),
-    ):
-        resolved = await apply_session_thinking(
-            SimpleNamespace(agent_config=config, request=AgentRequest()),
-            config,
-        )
-        inherited = await apply_session_thinking(
-            SimpleNamespace(agent_config=None, request=AgentRequest()),
-            base,
-        )
-    assert resolved.active_model == config.active_model
-    assert resolved.thinking_level == "off"
-    assert inherited.active_model.model == "old"
-    assert inherited.thinking_level == "high"
 
 
 @pytest.mark.parametrize("request_form", ["direct", "context", "mapping"])

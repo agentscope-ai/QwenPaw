@@ -360,12 +360,7 @@ async def apply_chat_model_settings(config, meta=None, *, model_override=None):
 
 async def apply_session_thinking(ctx, config):
     """Snapshot model and model-owned thinking for the calling request."""
-    # An explicit execution snapshot already owns conversation settings.
-    chat = (
-        await get_session_chat(ctx)
-        if getattr(ctx, "agent_config", None) is None
-        else None
-    )
+    chat = await get_session_chat(ctx)
     request = getattr(ctx, "request", None)
     if request is None:
         request = getattr(ctx, "payload", None)

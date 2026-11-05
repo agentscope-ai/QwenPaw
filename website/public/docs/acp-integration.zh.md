@@ -209,7 +209,7 @@ qwenpaw acp --agent-mode goal
 
 ### 会话配置覆盖
 
-会话配置使用与 `agent.json` 相同的字段。优先级从低到高为 **已保存的智能体配置 → ACP 启动设置 → 会话设置**。对象按字段合并，数组和其他值整体替换。未提供的字段沿用原值；`false`、`0` 和 `null` 表示明确设置，仍须符合对应字段的类型和取值要求。未知字段或无效值会返回错误。
+ACP 只允许覆盖会话配置（`SessionConfig`），包括工作区目录、项目目录、模型、工具权限、运行模式和迭代限制。未设置的值继承智能体配置。优先级从低到高为 **全局默认配置 → 已保存的智能体配置 → ACP 启动设置 → 会话设置**。对象按字段合并，数组和其他值整体替换。未提供的字段沿用原值；`false`、`0` 和 `null` 表示明确设置，仍须符合对应字段的类型和取值要求。未知字段或无效值会返回错误。
 
 通过可重复的 `--config PATH=VALUE` 设置当前 ACP 实例的初始值，值支持 JSON 或普通字符串：
 
@@ -245,11 +245,13 @@ qwenpaw acp \
 
 会话设置只影响当前会话，不修改 `agent.json`，也不影响使用同一智能体的其他 ACP 进程。每次提供 `qwenpaw.config` 都替换先前的会话设置，`{}` 恢复启动默认值；同一进程内加载或恢复会话时省略它，则保留已有设置。进程重启后需重新提供。通过 `session/set_model` 切换模型也只影响当前会话。
 
-内部存储目录、渠道、MCP、记忆后端、请求频率限制和 goal/mission/自定义模式配置，需在 ACP 启动时通过 `--config` 设置。会话中修改这些字段会返回错误。使用 `--agent` 选择智能体。
+`--config` 和 `qwenpaw.config` 都只能设置会话字段。渠道、服务连接、记忆后端和全局请求频率限制等智能体或全局设置不接受覆盖。使用 `--agent` 选择智能体；使用 `--workspace` 或 `workspace_dir` 指定当前会话使用的内部存储目录。
 
 旧客户端可以继续使用 `qwenpaw.project_dir` 指定项目目录，其优先级高于 `qwenpaw.config` 中的项目目录设置。未指定项目目录时，新建或加载会话使用 `cwd`，恢复会话保留原目录。`--workspace` 指定智能体内部存储目录，与项目目录分别设置。
 
 设置 `qwenpaw.ephemeral=true` 或 `session_persistence=false` 后，QwenPaw 不加载或保存会话运行状态，取消任务时也不保存。原有 `--agent-mode`、`--goal-token-budget` 和 `--runtime-provider` 参数继续可用。
+
+会话可通过 `agent_mode` 选择运行模式，通过 `coding_mode.enabled` 启用或关闭代码编排。`running.loop` 中的 iteration、doom loop、rubric、goal、mission 和自定义模式配置也可按会话设置。不同会话的设置和执行状态互不影响。
 
 QwenPaw 默认将每次请求的迭代次数限制为 100。可通过 `running.loop.iteration.max_iterations` 设置任意正整数上限。设置 `running.loop.iteration.enabled=false` 可关闭迭代次数限制；仍可手动取消任务，其他已启用的停止条件继续生效。未提供覆盖时，沿用智能体已保存的设置。
 

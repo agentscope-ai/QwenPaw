@@ -20,7 +20,13 @@ import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
-from ..config.context import current_agent_config
+from ..services.session_config import (
+    SessionProjectDirsUnavailable,
+    resolve_runtime_parameters,
+)
+from ..modes.catalog import prepare_session_message
+from .message_convert import rewrite_user_msg
+from ..schemas import AgentRequest
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
 from ..utils.io_utils import run_async_to_completion
@@ -51,13 +57,12 @@ class Runtime:
         self.workspace = workspace
         self.app_services = app_services
 
-    async def run(  # pylint: disable=too-many-branches,too-many-statements
+    async def run(
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
         """8-phase lifecycle orchestration."""
         request = self._normalize(request)
-        from ..schemas import AgentRequest
 
         if (
             isinstance(request, AgentRequest)
@@ -69,9 +74,41 @@ class Runtime:
                 None  # pylint: disable=protected-access
             )
         ctx = self._build_context(request)
-        scoped_config = current_agent_config.get()
-        if scoped_config is not None and scoped_config.id == ctx.agent_id:
-            ctx.agent_config = scoped_config.model_copy(deep=True)
+        try:
+            parameters, resolved = await resolve_runtime_parameters(ctx)
+        except (
+            ValueError,
+            ConfigurationException,
+            SessionProjectDirsUnavailable,
+        ) as error:
+            envelope = Envelope(session_id=ctx.session_id)
+            async for event in envelope.error_envelope(
+                str(error),
+                "CONFIGURATION_ERROR",
+            ):
+                yield event
+            raise
+        ctx.parameters = parameters
+        ctx.agent_config = parameters.config
+        ctx.project_directories = resolved
+        stream = self._run(ctx)
+        exhausted = object()
+        try:
+            while True:
+                with parameters.scope():
+                    event = await anext(stream, exhausted)
+                if event is exhausted:
+                    break
+                yield event
+        finally:
+            with parameters.scope():
+                await stream.aclose()
+
+    async def _run(  # pylint: disable=too-many-branches,too-many-statements
+        self,
+        ctx: HookContext,
+    ) -> AsyncGenerator[Any, None]:
+        """Run every lifecycle phase against the same resolved snapshot."""
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
@@ -90,6 +127,10 @@ class Runtime:
 
             # --- [fixed 1] slash command dispatch ---
             text = _get_last_user_text(ctx.input_msgs)
+            prepared = prepare_session_message(ctx, text or "")
+            if prepared != text:
+                rewrite_user_msg(ctx, prepared, preserve_non_text=True)
+                text = prepared
             cmd_registry = self.workspace.plugins.slash_command_registry
             cmd_msg = await cmd_registry.dispatch(text or "", ctx)
             if cmd_msg is not None:
@@ -256,8 +297,8 @@ class Runtime:
             try:
                 await hooks.run(Phase.FINALLY, ctx)
             finally:
-                if isinstance(request, AgentRequest):
-                    request._channel_control_state = (
+                if isinstance(ctx.request, AgentRequest):
+                    ctx.request._channel_control_state = (
                         None  # pylint: disable=protected-access
                     )
 
@@ -567,8 +608,6 @@ class Runtime:
 
     @staticmethod
     def _normalize(request: Any) -> Any:
-        from ..schemas import AgentRequest
-
         if isinstance(request, dict):
             request = AgentRequest(**request)
         if not getattr(request, "session_id", None):

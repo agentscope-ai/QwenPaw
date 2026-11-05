@@ -20,6 +20,8 @@ from agentscope.message import Msg, TextBlock
 
 from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
+from ...config.config import GoalLoopModeConfig
+from ...config.context import current_runtime_parameters
 from ...app.agent_context import (
     get_current_session_id,
 )
@@ -29,6 +31,7 @@ from ...loop.gates import (
     StopHandlerRegistration,
 )
 from ...runtime.hooks import HookBase, HookContext
+from ...runtime.message_convert import rewrite_user_msg
 from ...token_usage.counter import TokenCounter, track_session_tokens
 from ...runtime.slash_command_registry import (
     CommandSpec,
@@ -38,7 +41,6 @@ from .helpers import (
     create_completion_gate,
     create_doom_loop_gate,
     register_goal_tools_governance,
-    rewrite_user_msg,
 )
 from .prompts import (
     CONTINUATION_PROMPT,
@@ -118,9 +120,9 @@ class GoalMode(AgentMode):
 
     def __init__(self) -> None:
         self._sessions: dict[str, GoalSession] = {}
-        self._default_max_iterations = DEFAULT_MAX_ITERATIONS
-        self._default_max_tokens = DEFAULT_MAX_TOKENS
-        self._handler: StopHandler | None = None
+        self._defaults = GoalLoopModeConfig()
+        self._handlers: dict[str, StopHandler] = {}
+        self._config_keys: dict[str, str] = {}
 
     @property
     def sessions(self) -> dict[str, GoalSession]:
@@ -128,16 +130,17 @@ class GoalMode(AgentMode):
         return self._sessions
 
     @property
-    def default_max_tokens(self) -> int:
-        """Default token budget for new goals."""
-        return self._default_max_tokens
+    def settings(self) -> GoalLoopModeConfig:
+        """Resolve budgets from the current session's runtime parameters."""
+        parameters = current_runtime_parameters.get()
+        if parameters is not None:
+            return parameters.config.running.loop.goal
+        return self._defaults
 
-    @default_max_tokens.setter
-    def default_max_tokens(self, value: int) -> None:
-        """Set the budget used by subsequent goals in this workspace."""
-        if value < -1:
-            raise ValueError(f"Goal token budget must be -1 or greater")
-        self._default_max_tokens = max(0, value)
+    @property
+    def default_max_tokens(self) -> int:
+        """Use the current conversation's goal budget."""
+        return max(0, self.settings.max_tokens)
 
     def active_session(
         self,
@@ -186,8 +189,10 @@ class GoalMode(AgentMode):
     ) -> None:
         """Clear the current goal session on /new or /clear."""
         self._sessions.pop(ctx.session_id, None)
-        if self._handler is not None:
-            self._handler.reset_session()
+        handler = self._handlers.pop(ctx.session_id, None)
+        self._config_keys.pop(ctx.session_id, None)
+        if handler is not None:
+            handler.reset_session()
 
     # ---- AgentMode interface ----
 
@@ -259,44 +264,47 @@ class GoalMode(AgentMode):
         """Register gates into the goal-scoped handler."""
         super().setup(workspace)
 
-        goal_config = workspace.config.running.loop.goal
-        self._default_max_iterations = goal_config.max_iterations
-        self.default_max_tokens = goal_config.max_tokens
-
-        handler = StopHandler()
-        self._handler = handler
+        self._defaults = workspace.config.running.loop.goal
         workspace.plugins.stop_handlers.append(
             StopHandlerRegistration(
                 plugin_id="__goal_mode__",
-                handler=handler,
+                handler=self._check_stop,
                 priority=0,
                 name="goal-stop-handler",
                 scope="goal",
                 is_active=lambda: self.active_session() is not None,
             ),
         )
-        rubric = GoalStatusRubric(
-            get_session_fn=self.session_by_ctx_var,
-        )
-        doom_gate = create_doom_loop_gate(workspace)
-        if doom_gate is not None:
-            handler.register(doom_gate)
-        handler.register(
-            GoalTurnGate(
-                self,
-                max_iterations=self._default_max_iterations,
-            ),
-        )
-        handler.register(GoalBudgetGate(self))
-        handler.register(RubricGate(self, rubric))
-
-        completion_gate = create_completion_gate(
-            workspace,
-        )
-        if completion_gate is not None:
-            handler.register(completion_gate)
-
         register_goal_tools_governance()
+
+    async def _check_stop(self, ctx: Any):
+        handler = self._handlers[get_current_session_id()]
+        return await handler(ctx)
+
+    async def on_turn_start(self, ctx: HookContext) -> None:
+        """Build gates from this session's policy, independently of peers."""
+        config = ctx.agent_config.running.loop
+        key = config.model_dump_json()
+        sid = ctx.session_id
+        if self._config_keys.get(sid) != key:
+            handler = StopHandler()
+            doom = create_doom_loop_gate(config)
+            if doom is not None:
+                handler.register(doom)
+            handler.register(GoalTurnGate(self))
+            handler.register(GoalBudgetGate(self))
+            handler.register(
+                RubricGate(
+                    self,
+                    GoalStatusRubric(get_session_fn=self.session_by_ctx_var),
+                ),
+            )
+            completion = create_completion_gate(config)
+            if completion is not None:
+                handler.register(completion)
+            self._handlers[sid] = handler
+            self._config_keys[sid] = key
+        self._handlers[sid].reset_turn()
 
     def is_active(self, ctx: Any) -> bool:
         """Goal mode is active when session live."""
@@ -353,8 +361,8 @@ class GoalMode(AgentMode):
         session = GoalSession(
             goal=goal_text,
             token_counter=track_session_tokens(session_key),
-            max_iterations=self._default_max_iterations,
-            max_tokens=self._default_max_tokens,
+            max_iterations=self.settings.max_iterations,
+            max_tokens=self.default_max_tokens,
         )
         self._sessions[session_key] = session
 

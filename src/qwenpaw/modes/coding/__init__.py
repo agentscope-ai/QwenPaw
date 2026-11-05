@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from ..base import AgentMode
+from ..catalog import ModeActivation
 from ...runtime.hooks import HookContext
 
 
@@ -11,6 +12,13 @@ class CodingMode(AgentMode):
     """Bundle for coding-mode behaviour."""
 
     name = "coding"
+
+    def describe_activation(self, workspace: object) -> ModeActivation:
+        """Enable coding through the native session configuration."""
+        return ModeActivation(
+            id="code",
+            config={"coding_mode": {"enabled": True}},
+        )
 
     def is_active(self, ctx: HookContext) -> bool:
         cfg = ctx.agent_config

@@ -266,6 +266,7 @@ class QwenPawAgent(Agent):
         context_manager: ContextManager | None = None,
         effective_skills: Optional[list[str]] = None,
         governor: Any = None,
+        stop_handlers: tuple = (),
     ):
         """Initialize QwenPawAgent.
 
@@ -273,6 +274,7 @@ class QwenPawAgent(Agent):
         are provided externally by :class:`AgentBuilder`. The agent does
         not build any of these internally.
         """
+        self._stop_handlers = tuple(stop_handlers)
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
         self._model_session_id = uuid.uuid4().hex
@@ -1736,22 +1738,8 @@ class QwenPawAgent(Agent):
     # ------------------------------------------------------------------
 
     def _get_stop_handlers(self) -> list:
-        """Retrieve stop handlers for this agent."""
-        from ..app.agent_context import (
-            get_current_agent_id,
-        )
-        from ..plugins.registry import PluginRegistry
-
-        agent_id = get_current_agent_id()
-        handlers = PluginRegistry.get_stop_handlers(
-            agent_id=agent_id,
-        )
-        logger.debug(
-            "stop_handlers: agent=%s count=%d",
-            agent_id,
-            len(handlers),
-        )
-        return handlers
+        """Use the handlers injected by this request's owning workspace."""
+        return list(self._stop_handlers)
 
     async def _run_stop_handlers(
         self,

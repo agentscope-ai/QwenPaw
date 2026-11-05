@@ -74,6 +74,7 @@ async def test_runtime_keeps_old_history_on_disk(
         config=SimpleNamespace(session_persistence=True),
         plugins=SimpleNamespace(
             hook_registry=hooks,
+            session_modes={},
             modes=[],
             slash_command_registry=SimpleNamespace(
                 dispatch=AsyncMock(return_value=None),

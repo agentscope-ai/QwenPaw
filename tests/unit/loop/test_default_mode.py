@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -35,7 +36,6 @@ from qwenpaw.loop.gates.doom_loop import DoomLoopGate
 from qwenpaw.loop.gates.iteration import IterationGate
 from qwenpaw.modes.default import DefaultMode, resolve_max_iterations
 from qwenpaw.providers import typesafe_provider
-from qwenpaw.runtime.builder import _resolve_react_iterations
 
 
 @pytest.fixture(autouse=True)
@@ -62,13 +62,11 @@ async def test_disabled_iteration_runs_past_native_limit(monkeypatch, cancel):
         system_prompt="",
         toolkit=Toolkit(tools=[]),
         react_config=ReActConfig(
-            max_iters=_resolve_react_iterations(
-                resolve_max_iterations(config.running),
-                {},
-            ),
+            max_iters=resolve_max_iterations(config.running) or sys.maxsize,
         ),
         middlewares=[],
         agent_config=config,
+        stop_handlers=tuple(workspace.plugins.stop_handlers),
     )
     calls = 0
     reached = asyncio.Event()
@@ -85,11 +83,6 @@ async def test_disabled_iteration_runs_past_native_limit(monkeypatch, cancel):
     # Stub model IO; exercise QwenPaw gates and AgentScope's real reply loop.
     monkeypatch.setattr(agent, "_reasoning_events", model_events)
     monkeypatch.setattr(agent, "compress_context", AsyncMock())
-    monkeypatch.setattr(
-        agent,
-        "_get_stop_handlers",
-        lambda: workspace.plugins.stop_handlers,
-    )
     events = []
 
     async def consume():

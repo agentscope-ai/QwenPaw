@@ -6,22 +6,30 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
+from qwenpaw.modes.coding import CodingMode
 from qwenpaw.agents import model_factory
 from qwenpaw.config import config as config_module
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.config.runtime import RuntimeParameters
+from qwenpaw.services import session_config
 from qwenpaw.exceptions import ConfigurationException
 from qwenpaw.providers import provider_manager
 from qwenpaw.runtime.builder import AgentBuilder
 
 
 @pytest.mark.asyncio
-async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
+async def test_runtime_resolves_config_once_in_worker_thread(
+    monkeypatch,
+    tmp_path,
+):
     """The async builder must not read agent config on its event loop."""
     caller_thread = threading.get_ident()
     calls = []
-    config = SimpleNamespace(
+    config = AgentProfileConfig(
         id="agent-1",
-        active_model=None,
-        coding_mode=SimpleNamespace(enabled=False),
+        name="Agent",
+        agent_mode="code",
     )
 
     def load_agent_config(agent_id):
@@ -29,8 +37,8 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
         return config
 
     monkeypatch.setattr(
-        config_module,
-        "load_agent_config",
+        session_config,
+        "load_persisted_agent_config",
         load_agent_config,
     )
     monkeypatch.setattr(
@@ -43,7 +51,23 @@ async def test_build_loads_agent_config_once_in_worker_thread(monkeypatch):
         ),
     )
     builder = AgentBuilder.__new__(AgentBuilder)
-    ctx = SimpleNamespace(agent_id="agent-1")
+    workspace = SimpleNamespace(plugins=WorkspacePlugins())
+    workspace.plugins.register_mode(CodingMode(), workspace)
+    ctx = SimpleNamespace(
+        agent_id="agent-1",
+        session_id="",
+        workspace=workspace,
+        workspace_dir=tmp_path,
+        request=SimpleNamespace(),
+    )
+    parameters, _ = await session_config.resolve_runtime_parameters(ctx)
+    assert parameters.config.coding_mode.enabled is True
+    with parameters.with_overrides(
+        {"coding_mode": {"enabled": False}},
+    ).scope():
+        overridden, _ = await session_config.resolve_runtime_parameters(ctx)
+    assert overridden.config.coding_mode.enabled is False
+    ctx.agent_config = parameters.config
 
     with pytest.raises(
         ConfigurationException,
@@ -127,6 +151,7 @@ async def test_build_constructs_model_in_worker_thread(monkeypatch):
     )
     ctx = SimpleNamespace(
         agent_id="agent-1",
+        agent_config=config,
         request=SimpleNamespace(model_slot_override=None),
         extras={},
     )
@@ -206,6 +231,7 @@ async def test_build_constructs_prompt_in_worker_thread(monkeypatch):
     monkeypatch.setattr(builder, "build_prompt", build_prompt)
     ctx = SimpleNamespace(
         agent_id="agent-1",
+        agent_config=config,
         request=SimpleNamespace(model_slot_override=None),
         extras={},
     )
@@ -245,6 +271,7 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
 async def test_request_model_is_resolved_before_validation_and_build(
     monkeypatch,
     location,
+    tmp_path,
 ):
     """A request override works even when no agent/global default exists."""
     from unittest.mock import AsyncMock
@@ -289,12 +316,22 @@ async def test_request_model_is_resolved_before_validation_and_build(
         request.model_slot_override = selected
     else:
         request.request_context["model_slot_override"] = selected
-    ctx = SimpleNamespace(agent_id="agent", request=request, extras={})
+    ctx = SimpleNamespace(
+        agent_id="agent",
+        request=request,
+        extras={},
+        session_id="",
+        workspace=None,
+        workspace_dir=tmp_path,
+    )
+    with RuntimeParameters(profile=config).scope():
+        parameters, _ = await session_config.resolve_runtime_parameters(ctx)
+    ctx.agent_config = parameters.config
 
     def build_model(cfg, model_slot_override=None):
         assert cfg.active_model == selected
         assert cfg.thinking_level == "inherit"
-        assert model_slot_override == selected
+        assert model_slot_override is None
         raise RuntimeError("selected model reached factory")
 
     monkeypatch.setattr(builder, "build_model", build_model)

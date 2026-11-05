@@ -193,6 +193,12 @@ class _FakeWorkspace:
         for event in ():
             yield event
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 class _TestACPAgent(QwenPawACPAgent):
     def __init__(self, workspace: _FakeWorkspace) -> None:

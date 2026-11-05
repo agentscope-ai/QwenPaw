@@ -23,7 +23,7 @@ from dataclasses import replace
 from typing import Any, TYPE_CHECKING
 
 from ..runtime.hooks import HookBase, HookContext, HookResult
-from .catalog import LoopModeInfo, _as_str_dict
+from .catalog import LoopModeInfo, ModeActivation, _as_str_dict
 
 if TYPE_CHECKING:
     from ..runtime.prompt_manager import PromptContributor
@@ -42,6 +42,13 @@ class AgentMode:
     name: str
     owner_plugin_id: str = ""
     loop_entry: str | None = None
+
+    def describe_activation(self, workspace: Any) -> ModeActivation | None:
+        """Use the declared loop command as the default activation."""
+        loop = self.describe_loop(workspace)
+        if loop is None:
+            return None
+        return ModeActivation(id=loop.id, command=loop.slash_command)
 
     def describe_loop(self, workspace: Any) -> LoopModeInfo | None:
         """Describe an explicitly declared plugin entry command."""

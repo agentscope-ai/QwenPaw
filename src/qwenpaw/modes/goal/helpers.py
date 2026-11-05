@@ -7,35 +7,11 @@ Separated from goal_mode.py for maintainability.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from ...loop.gates import DoomLoopGate, QualitativeRubricGate
+from ...config.config import SessionLoopConfig
 
-from agentscope.message import Msg, TextBlock
 
 logger = logging.getLogger(__name__)
-
-
-def rewrite_user_msg(
-    ctx: Any,
-    text: str,
-    *,
-    preserve_non_text: bool = False,
-) -> None:
-    """Replace the command text in the last user message.
-
-    Optionally keep non-text blocks such as images attached to the task.
-    """
-    msgs = getattr(ctx, "input_msgs", None)
-    if not msgs:
-        return
-    last = msgs[-1]
-    if not isinstance(last, Msg):
-        return
-    attachments = (
-        [block for block in last.content if not isinstance(block, TextBlock)]
-        if preserve_non_text
-        else []
-    )
-    last.content = [TextBlock(type="text", text=text), *attachments]
 
 
 def register_goal_tools_governance() -> None:
@@ -65,100 +41,34 @@ def register_goal_tools_governance() -> None:
         )
 
 
-def create_doom_loop_gate(
-    workspace: object,
-) -> Any:
-    """Create DoomLoopGate from agent config.
-
-    Returns None if doom loop detection is disabled
-    or config is unavailable.
-    """
-    try:
-        from ...loop.gates import DoomLoopGate
-
-        agent_cfg = getattr(
-            workspace,
-            "agent_config",
-            None,
-        )
-        if agent_cfg is None:
-            return None
-        running = getattr(agent_cfg, "running", None)
-        if running is None:
-            return None
-        loop_cfg = getattr(running, "loop", None)
-        if loop_cfg is None:
-            return None
-        doom_cfg = getattr(
-            loop_cfg,
-            "doom_loop",
-            None,
-        )
-        if doom_cfg is None or not doom_cfg.enabled:
-            return None
-
-        return DoomLoopGate(
-            window_size=doom_cfg.window_size,
-            similarity_threshold=(doom_cfg.similarity_threshold),
-            stages=doom_cfg.stages,
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "DoomLoopGate creation skipped",
-            exc_info=True,
-        )
+def create_doom_loop_gate(config: SessionLoopConfig) -> DoomLoopGate | None:
+    """Build the enabled doom-loop gate from this session's settings."""
+    doom = config.doom_loop
+    if not doom.enabled:
         return None
+    return DoomLoopGate(
+        window_size=doom.window_size,
+        similarity_threshold=doom.similarity_threshold,
+        stages=doom.stages,
+    )
 
 
 def create_completion_gate(
-    workspace: object,
-) -> Any:
-    """Create QualitativeRubricGate from config.
-
-    Returns None when the rubric completion check
-    is disabled or the config is missing.
-    """
-    try:
-        from ...loop.gates import (
-            QualitativeRubricGate,
-        )
-
-        agent_cfg = getattr(
-            workspace,
-            "agent_config",
-            None,
-        )
-        if agent_cfg is None:
-            return None
-        running = getattr(agent_cfg, "running", None)
-        if running is None:
-            return None
-        loop_cfg = getattr(running, "loop", None)
-        if loop_cfg is None:
-            return None
-        rubric_cfg = getattr(
-            loop_cfg,
-            "rubric",
-            None,
-        )
-        if rubric_cfg is None or not rubric_cfg.enabled:
-            return None
-
-        return QualitativeRubricGate(
-            rubric=rubric_cfg.prompt,
-            max_evaluations=(rubric_cfg.max_interventions),
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug(
-            "QualitativeRubricGate creation skipped",
-            exc_info=True,
-        )
+    config: SessionLoopConfig,
+) -> QualitativeRubricGate | None:
+    """Build the completion check when enabled for explicit loop modes."""
+    rubric = config.rubric
+    if not rubric.enabled or not rubric.in_loop_modes:
         return None
+    return QualitativeRubricGate(
+        rubric=rubric.prompt,
+        max_evaluations=rubric.max_interventions,
+        use_decision_model=rubric.use_decision_model,
+    )
 
 
 __all__ = [
     "create_completion_gate",
     "create_doom_loop_gate",
     "register_goal_tools_governance",
-    "rewrite_user_msg",
 ]

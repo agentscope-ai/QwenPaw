@@ -16,7 +16,7 @@ import pytest
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
 from qwenpaw.config.config import AgentProfileConfig
-from qwenpaw.agents.acp.configuration import ACPConfiguration
+from qwenpaw.agents.acp.parameters import ACPRuntimeParameters
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
@@ -122,7 +122,7 @@ async def _drain(conn: _FakeConn, *, timeout: float = 5.0) -> None:
 def test_build_available_commands_set():
     agent = object.__new__(QwenPawACPAgent)
     agent._workspace = None
-    commands = agent._build_available_commands()
+    commands = agent._build_available_commands(agent._workspace)
     names = {c.name for c in commands}
 
     # When workspace is None, no commands should be advertised.
@@ -167,7 +167,7 @@ async def test_registered_help_text_command_is_executed_and_advertised():
     agent._workspace = SimpleNamespace(
         plugins=SimpleNamespace(slash_command_registry=registry),
     )
-    commands = agent._build_available_commands()
+    commands = agent._build_available_commands(agent._workspace)
     by_name = {cmd.name: cmd.description for cmd in commands}
     assert by_name["demo_cmd"] == "Demo command for ACP advertise regression"
 
@@ -214,9 +214,8 @@ async def test_load_session_advertises_commands():
 
 async def test_new_session_reports_agent_id_in_meta():
     agent = QwenPawACPAgent(agent_id="my-agent")
-    agent._configuration = ACPConfiguration(
+    agent._configuration = ACPRuntimeParameters.from_profile(
         AgentProfileConfig(id="my-agent", name="Test"),
-        {},
     )
     conn = _FakeConn()
     agent.on_connect(conn)
@@ -235,10 +234,15 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
             if self.request is None:
                 yield None
 
+        async def for_session(self, session_id, parameters):
+            return self
+
+        def session_workspace(self, session_id):
+            return self
+
     agent = QwenPawACPAgent(agent_id="my-agent")
-    agent._configuration = ACPConfiguration(
+    agent._configuration = ACPRuntimeParameters.from_profile(
         AgentProfileConfig(id="my-agent", name="Test"),
-        {},
     )
     conn = _FakeConn()
     workspace = _FakeWorkspace()

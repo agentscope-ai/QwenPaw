@@ -16,11 +16,11 @@ if TYPE_CHECKING:
     from agentscope.tool import Toolkit
 
     from ..services.project_directory import ResolvedProjectDir
-    from .config import AgentProfileConfig
+    from .runtime import RuntimeParameters
 
 
-current_agent_config: ContextVar[AgentProfileConfig | None] = ContextVar(
-    "current_agent_config",
+current_runtime_parameters: ContextVar[RuntimeParameters | None] = ContextVar(
+    "current_runtime_parameters",
     default=None,
 )
 

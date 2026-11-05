@@ -68,7 +68,10 @@ class _Workspace:
 
     async def stream_query(self, request):
         self.request = request
-        assert load_agent_config("agent").session_persistence is False
+        config = load_agent_config("agent")
+        assert config.running.loop.iteration.enabled is True
+        assert config.running.loop.iteration.max_iterations >= 100
+        assert config.session_persistence is False
         assert load_agent_config("agent").approval_level == "OFF"
         self.requests.append(request)
         self.active_queries += 1

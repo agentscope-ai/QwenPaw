@@ -57,6 +57,12 @@ class _FakeWorkspace:
         async for event in self._stream():
             yield event
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 def _content_event(text: str = "ok"):
     return SimpleNamespace(

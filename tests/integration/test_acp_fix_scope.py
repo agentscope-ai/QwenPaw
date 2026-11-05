@@ -67,6 +67,12 @@ class _FakeWorkspace:
         async for event in self._stream():
             yield event
 
+    async def for_session(self, session_id, parameters):
+        return self
+
+    def session_workspace(self, session_id):
+        return self
+
 
 def _content_event(text: str = "hello"):
     return SimpleNamespace(
@@ -420,7 +426,7 @@ async def test_harness_terminal_preserves_output_and_status(
     conn = _RecordingConn()
     agent.on_connect(conn)
     session_id = f"harness-review"
-    agent._sessions[session_id] = agent._session_configuration().resolve(
+    agent._sessions[session_id] = agent._session_configuration().for_session(
         str(tmp_path),
         {},
     )
@@ -433,10 +439,12 @@ async def test_harness_terminal_preserves_output_and_status(
         ):
             yield event
 
+    workspace = SimpleNamespace(stream_query=stream_query)
+    workspace.for_session = AsyncMock(return_value=workspace)
     monkeypatch.setattr(
         agent,
         f"_ensure_workspace",
-        AsyncMock(return_value=SimpleNamespace(stream_query=stream_query)),
+        AsyncMock(return_value=workspace),
     )
     if outcome in {f"error", f"exception"}:
         with pytest.raises(RequestError) as caught:

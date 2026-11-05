@@ -10,7 +10,7 @@ import pytest
 from agentscope.message import ToolResultState
 
 import qwenpaw.agents.context as context_mod
-from qwenpaw.runtime.builder import AgentBuilder, _resolve_react_iterations
+from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.workspace.workspace import Workspace
@@ -324,27 +324,6 @@ async def test_cancelled_scroll_build_releases_workspace_history(
         release.set()
         await ws._service_manager.stop_all(final=True)
     assert ws.history_store.closed
-
-
-def test_only_internal_migration_can_raise_react_iterations():
-    assert _resolve_react_iterations(100, {}) == 100
-    assert (
-        _resolve_react_iterations(
-            100,
-            {"source": "portability_adaptation", "max_react_iterations": 800},
-        )
-        == 800
-    )
-    assert (
-        _resolve_react_iterations(
-            100,
-            {
-                "source": "portability_adaptation",
-                "max_react_iterations": 99_999,
-            },
-        )
-        == 4_000
-    )
 
 
 @pytest.mark.asyncio

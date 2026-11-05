@@ -14,9 +14,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..config.overrides import agent_config_scope, apply_config_overrides
+from ..config.runtime import RuntimeParameters
 from ..agents.tools.agent_management import MAX_SPAWN_BATCH_CONCURRENCY
 from ..modes.mission import MissionMode
+from ..modes.default import resolve_max_iterations
 from ..schemas import AgentRequest
 from ..utils.io_utils import run_sync_io
 from .adaptation_mission import prepare_mission, sync_mission
@@ -594,9 +595,6 @@ async def _run_phase(
             "request_context": {
                 "source": "portability_adaptation",
                 "portability_phase": "mission_repair",
-                "max_react_iterations": _iteration_budget(
-                    asset.tool_budget - asset.tool_calls,
-                ),
                 "subagent_allowed_tools": list(tools),
                 "subagent_skills": [],
             },
@@ -605,14 +603,27 @@ async def _run_phase(
     binding = _RequestBinding(context, asset.asset_key, asyncio.Event())
     _ACTIVE_CONTEXTS[session_id] = binding
     activity = asyncio.Event()
-    config = apply_config_overrides(
-        workspace.config,
-        {
+    profile = workspace.config
+    iteration_budget = max(
+        resolve_max_iterations(profile.running) or 0,
+        _iteration_budget(asset.tool_budget - asset.tool_calls),
+    )
+    parameters = RuntimeParameters(
+        profile=profile,
+        overrides={
             "session_persistence": False,
             "approval_level": "OFF",
+            "running": {
+                "loop": {
+                    "iteration": {
+                        "enabled": True,
+                        "max_iterations": iteration_budget,
+                    },
+                },
+            },
         },
     )
-    with agent_config_scope(config):
+    with parameters.scope():
         task = asyncio.create_task(
             _consume_query(workspace, request, activity.set),
         )

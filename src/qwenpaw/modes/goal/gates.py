@@ -42,11 +42,9 @@ class GoalTurnGate(LoopGate):
     def __init__(
         self,
         goal_mode: "GoalMode",
-        max_iterations: int = DEFAULT_MAX_ITERATIONS,
     ) -> None:
         super().__init__()
         self._mode = goal_mode
-        self._max_iterations = max_iterations
 
     @property
     def name(self) -> str:
@@ -80,12 +78,12 @@ class GoalTurnGate(LoopGate):
         logger.debug(
             "GoalTurn: iter=%d/%d tokens=%d/%d",
             session.iteration,
-            self._max_iterations,
+            session.max_iterations,
             session.tokens_used,
             session.max_tokens,
         )
 
-        if session.iteration >= self._max_iterations:
+        if session.iteration >= session.max_iterations:
             session.active = False
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
