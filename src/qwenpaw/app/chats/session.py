@@ -413,6 +413,7 @@ class SafeJSONSession:
         user_id: str = "",
         channel: str = "",
         create_if_not_exist: bool = True,
+        delete: bool = False,
     ) -> None:
         session_save_path = await run_sync_io(
             self._get_save_path,
@@ -448,10 +449,17 @@ class SafeJSONSession:
             cur = states
             for k in path[:-1]:
                 if k not in cur or not isinstance(cur[k], dict):
+                    if delete:
+                        return
                     cur[k] = {}
                 cur = cur[k]
 
-            cur[path[-1]] = value
+            if delete:
+                if path[-1] not in cur:
+                    return
+                del cur[path[-1]]
+            else:
+                cur[path[-1]] = value
 
             await write_json_atomic_async(
                 session_save_path,

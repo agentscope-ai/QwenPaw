@@ -745,9 +745,24 @@ async def test_update_session_state_creates_file(session, tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("key", "value", "delete", "expected_memory"),
+    [
+        (("agent", "memory", "x"), "new", False, {"x": "new"}),
+        ("agent.memory.x", None, False, {"x": None}),
+        ("agent.memory.x", None, True, {}),
+        ("agent.memory.absent", None, True, {"x": "old"}),
+        ("agent.absent.x", None, True, {"x": "old"}),
+        ("agent.other.x", None, True, {"x": "old"}),
+    ],
+)
 async def test_update_session_state_appends_to_existing(
     session,
     tmp_path: Path,
+    key,
+    value,
+    delete,
+    expected_memory,
 ):
     path = tmp_path / "u_sess-3.json"
     path.write_text(
@@ -757,19 +772,22 @@ async def test_update_session_state_appends_to_existing(
 
     await session.update_session_state(
         session_id="sess-3",
-        key=("agent", "memory", "x"),
-        value="new",
+        key=key,
+        value=value,
         user_id="u",
+        delete=delete,
     )
 
     saved = json.loads(path.read_text("utf-8"))
-    assert saved == {"agent": {"memory": {"x": "new"}, "other": 1}}
+    assert saved == {"agent": {"memory": expected_memory, "other": 1}}
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delete", [False, True])
 async def test_update_session_state_serializes_across_instances(
     tmp_path: Path,
     monkeypatch,
+    delete,
 ):
     """Two session objects must not lose updates to the same file."""
     first_session = SafeJSONSession(save_dir=str(tmp_path))
@@ -802,9 +820,10 @@ async def test_update_session_state_serializes_across_instances(
     second_update = asyncio.create_task(
         second_session.update_session_state(
             session_id="shared",
-            key="second",
+            key="first" if delete else "second",
             value=2,
             user_id="u",
+            delete=delete,
         ),
     )
     await asyncio.sleep(0.05)
@@ -814,11 +833,12 @@ async def test_update_session_state_serializes_across_instances(
     saved = json.loads(
         (tmp_path / "u_shared.json").read_text(encoding="utf-8"),
     )
-    assert saved == {"first": 1, "second": 2}
+    assert saved == ({} if delete else {"first": 1, "second": 2})
 
 
 @pytest.mark.asyncio
-async def test_update_session_state_missing_file_disallowed(session):
+@pytest.mark.parametrize("delete", [False, True])
+async def test_update_session_state_missing_file_disallowed(session, delete):
     with pytest.raises(AgentStateError):
         await session.update_session_state(
             session_id="ghost",
@@ -826,6 +846,7 @@ async def test_update_session_state_missing_file_disallowed(session):
             value=1,
             user_id="u",
             create_if_not_exist=False,
+            delete=delete,
         )
 
 

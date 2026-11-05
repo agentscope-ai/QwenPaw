@@ -11,6 +11,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from fastapi import FastAPI, Request
+
+from qwenpaw.app.chats.session import DatabaseSession, SafeJSONSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.pawapp import deps
 
 
 class FakeSession:
@@ -52,7 +57,10 @@ class FakeSession:
                 self.states[session_id][key] = value
 
     async def delete_session_state(
-        self, session_id: str, user_id: str = "", channel: str = "",
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
     ) -> None:
         self.deleted.append(session_id)
         self.states.pop(session_id, None)
@@ -81,34 +89,55 @@ def test_app_storage_set_get_roundtrip() -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_app_storage_keys_and_delete(tmp_path) -> None:
-    """keys lists namespace keys; delete removes a key."""
+@pytest.mark.parametrize("backend", ["json", "db"])
+def test_app_storage_keys_and_delete(tmp_path, monkeypatch, backend) -> None:
+    """Exercise injected and fallback storage through the real dependency."""
     import asyncio
 
-    from qwenpaw.pawapp.context import AppStorage
-
-    from qwenpaw.app.chats.session import DatabaseSession
-    from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
-
-    catalog = TranscriptCatalog(tmp_path)
-    session = DatabaseSession(
-        catalog=catalog, legacy_save_dir=str(tmp_path / "sessions"),
+    app = FastAPI()
+    catalog = None
+    monkeypatch.setattr(deps, "WORKING_DIR", tmp_path)
+    if backend == "db":
+        catalog = TranscriptCatalog(tmp_path)
+        app.state.session = DatabaseSession(
+            catalog=catalog,
+            legacy_save_dir=str(tmp_path / "sessions"),
+        )
+    request = Request(
+        {
+            "type": "http",
+            "app": app,
+            "path": "/api/demo/storage",
+            "headers": [],
+            "query_string": b"",
+        },
     )
-    storage = AppStorage(session, namespace="ns")
 
     async def run() -> None:
+        ctx = await deps.get_ctx(request)
+        storage = ctx.storage
+        if backend == "json":
+            assert isinstance(deps._get_session(request), SafeJSONSession)
         await storage.set("a", 1)
         await storage.set("b", 2)
-        assert sorted(await storage.keys()) == ["a", "b"]
+        await storage.set("nullable", None)
+        assert sorted(await storage.keys()) == ["a", "b", "nullable"]
         await storage.delete("a")
-        assert sorted(await storage.keys()) == ["b"]
-        await storage.clear_namespace()
-        assert await storage.keys() == []
+        await storage.delete("a")
+        # Recreate the request context to verify persisted state.
+        restored = (await deps.get_ctx(request)).storage
+        assert sorted(await restored.keys()) == ["b", "nullable"]
+        assert await restored.get("a", default="missing") == "missing"
+        assert await restored.get("b") == 2
+        assert await restored.get("nullable", default="missing") is None
+        await restored.clear_namespace()
+        assert await restored.keys() == []
 
     try:
         asyncio.run(run())
     finally:
-        catalog.close()
+        if catalog is not None:
+            catalog.close()
 
 
 @pytest.mark.integration
@@ -144,6 +173,8 @@ def test_app_storage_error_paths_return_defaults() -> None:
             self,
             session_id: str,
             allow_not_exist: bool = False,
+            user_id: str = "",
+            channel: str = "",
         ) -> dict[str, Any]:
             raise RuntimeError("boom")
 
