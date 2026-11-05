@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Local Matrix API transport; actual nio/client/platform remain unmocked."""
 import asyncio
+from contextlib import closing
 import json
+import sqlite3
 from nio import AsyncClient
 from nio.crypto import ENCRYPTION_ENABLED
 from pathlib import Path
@@ -283,7 +285,23 @@ async def test_default_e2ee_dependency_initializes_crypto_store(
     assert platform._client.olm is not None
     assert platform._client.olm.account.shared
     assert len(hs.calls("/keys/upload")) == 1
-    assert any(platform._state.crypto_dir.glob("*.db"))
+    database_path = Path(platform._client.store.database_path)
+    identity_keys = platform._client.olm.account.identity_keys.copy()
+    await platform.stop()
+
+    # The SDK path can name an NTFS stream, invisible to directory globbing.
+    with closing(
+        sqlite3.connect(database_path.as_uri() + "?mode=ro", uri=True),
+    ) as database:
+        assert database.execute(
+            "SELECT user_id, device_id, shared FROM accounts",
+        ).fetchall() == [(BOT, hs.device, 1)]
+
+    restarted = platform_factory(encryption=True)
+    await restarted.start()
+    assert Path(restarted._client.store.database_path) == database_path
+    assert restarted._client.olm.account.identity_keys == identity_keys
+    assert restarted._client.olm.account.shared
 
 
 @pytest.mark.asyncio
