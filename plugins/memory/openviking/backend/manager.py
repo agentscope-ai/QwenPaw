@@ -109,6 +109,7 @@ class OpenVikingMemoryManager(BaseMemoryManager):
         super().__init__(context=context)
         self._config: OpenVikingMemoryConfig | None = None
         self._client: OpenVikingClient | None = None
+        self._http_close_task: asyncio.Task[bool] | None = None
         self._identity: OpenVikingIdentity | None = None
         self._installation_id = ""
         self._ready_sessions: OrderedDict[str, None] = OrderedDict()
@@ -156,21 +157,32 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             )
 
     async def _close_backend(self) -> bool:
-        """Close HTTP resources after BaseMemoryManager drains its worker."""
-        client, self._client = self._client, None
-        self._identity = None
-        self._ready_sessions.clear()
-        if client is None:
-            return True
+        """Wait for the same HTTP cleanup task on repeated close calls."""
+        if self._http_close_task is None:
+            # Disable normal use, but keep cleanup owned by its task.
+            client, self._client = self._client, None
+            self._identity = None
+            self._ready_sessions.clear()
+            if client is None:
+                return True
+            self._http_close_task = asyncio.create_task(
+                self._close_http_client(client),
+            )
+
+        # Cancelling a caller must not cancel the underlying cleanup.
+        return await asyncio.shield(self._http_close_task)
+
+    async def _close_http_client(self, client: OpenVikingClient) -> bool:
+        """Retain the actual cleanup result, including a failed close."""
         try:
             await client.close()
-            return True
         except Exception as exc:
             logger.warning(
                 "OpenViking client close failed: %s",
                 self._safe_exception_summary(exc, client=client),
             )
             return False
+        return True
 
     def get_memory_prompt(self) -> str:
         if self._client is None:

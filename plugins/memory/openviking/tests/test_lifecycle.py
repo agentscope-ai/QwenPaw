@@ -184,7 +184,7 @@ async def test_close_failure_is_reported_with_redacted_key(
     attach_client,
 ):
     key = "close-secret-key"
-    manager = manager_factory()
+    manager = manager_factory(expected_close_result=False)
     client = client_factory(api_key=key)
     client.close.side_effect = RuntimeError(f"Closing failed with {key}")
     attach_client(manager, client)
@@ -195,8 +195,112 @@ async def test_close_failure_is_reported_with_redacted_key(
         assert key not in caplog.text
         assert "<redacted>" in caplog.text
         assert not manager.list_memory_tools()
+        assert manager.get_memory_prompt() == ""
+        assert manager.get_auto_memory_interval() == 0
+        assert await manager.get_auto_memory_search_options() is None
+        # A cleared client reference must not turn a failed close into success.
+        assert await manager.close() is False
+        client.close.assert_awaited_once()
     finally:
         await manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_succeeds", [True, False])
+async def test_close_waiter_cancellation_does_not_cancel_http_cleanup(
+    close_succeeds,
+    manager_factory,
+    client_factory,
+    attach_client,
+):
+    manager = manager_factory(expected_close_result=close_succeeds)
+    client = client_factory()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+
+    async def close_client():
+        started.set()
+        await release.wait()
+        finished.set()
+        if not close_succeeds:
+            raise RuntimeError("Injected HTTP cleanup failure")
+
+    client.close.side_effect = close_client
+    attach_client(manager, client)
+    waiters = [asyncio.create_task(manager.close())]
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        waiters[0].cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiters[0]
+
+        assert not finished.is_set()
+        assert not manager.list_memory_tools()
+        waiters.append(asyncio.create_task(manager.close()))
+        await asyncio.sleep(0)
+        assert not waiters[1].done()
+        client.close.assert_awaited_once()
+
+        release.set()
+        assert await asyncio.wait_for(waiters[1], timeout=2) is close_succeeds
+        assert finished.is_set()
+        assert await manager.close() is close_succeeds
+        client.close.assert_awaited_once()
+    finally:
+        release.set()
+        await asyncio.gather(*waiters, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_close_waits_for_same_http_cleanup(
+    manager_factory,
+    client_factory,
+    attach_client,
+):
+    manager = manager_factory()
+    client = client_factory()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def close_client():
+        started.set()
+        await release.wait()
+
+    client.close.side_effect = close_client
+    attach_client(manager, client)
+    waiters = [asyncio.create_task(manager.close())]
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        waiters.append(asyncio.create_task(manager.close()))
+        await asyncio.sleep(0)
+        assert all(not waiter.done() for waiter in waiters)
+        client.close.assert_awaited_once()
+
+        release.set()
+        assert await asyncio.wait_for(
+            asyncio.gather(*waiters),
+            timeout=2,
+        ) == [True, True]
+        client.close.assert_awaited_once()
+    finally:
+        release.set()
+        await asyncio.gather(*waiters, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_successful_close_is_idempotent(
+    manager_factory,
+    client_factory,
+    attach_client,
+):
+    manager = manager_factory()
+    client = client_factory()
+    attach_client(manager, client)
+
+    assert await manager.close() is True
+    assert await manager.close() is True
+    client.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

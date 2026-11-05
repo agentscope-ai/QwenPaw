@@ -25,6 +25,7 @@ async def manager_factory(tmp_path):
         *,
         agent_id: str = "agent-1",
         config: OpenVikingMemoryConfig | None = None,
+        expected_close_result: bool = True,
     ) -> OpenVikingMemoryManager:
         resolved_config = config or OpenVikingMemoryConfig()
         manager = OpenVikingMemoryManager(
@@ -38,14 +39,16 @@ async def manager_factory(tmp_path):
         )
         # Most tests attach a mock client without calling start().
         manager._config = resolved_config
-        managers.append(manager)
+        managers.append((manager, expected_close_result))
         return manager
 
     try:
         yield create
     finally:
-        for manager in reversed(managers):
-            assert await manager.close(), "Test manager did not close cleanly"
+        for manager, expected_close_result in reversed(managers):
+            assert (
+                await manager.close() is expected_close_result
+            ), "Unexpected test manager close result"
 
 
 @pytest.fixture
