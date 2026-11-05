@@ -3453,6 +3453,7 @@
       "internal": "Dikelola secara internal oleh QwenPaw."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Perlindungan memori pohon proses shell: 0 menonaktifkannya, auto menggunakan separuh memori yang tersedia (maksimum 4096 MiB), atau masukkan batas berupa bilangan bulat positif dalam MiB. Batas yang ditentukan juga tidak boleh melebihi separuh memori yang tersedia. Perubahan berlaku mulai pemanggilan shell berikutnya; perintah yang sedang berjalan tetap menggunakan batas awal. Perlindungan melalui pemeriksaan berkala bukan batas memori ketat yang diberlakukan oleh sistem operasi.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Waktu tunggu maksimum untuk konten stream pertama; nol menonaktifkan pemantauan.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Waktu tunggu maksimum antarbagian stream; nol menonaktifkan pemantauan."
     },

@@ -180,6 +180,7 @@ import {
   getPendingProjectDirectory,
   setPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
+import { notifyProjectDirectoryChanged } from "../../features/project-directory/projectDirectoryChangeEvent";
 import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
@@ -574,6 +575,10 @@ async function startBackgroundQueue(
           setPendingThinking(queueAgentId, queueKey, null);
           if (pendingRequest.projectDir) {
             setPendingProjectDirectory(queueAgentId, queueKey, null);
+            notifyProjectDirectoryChanged(
+              { kind: "session", agentId: queueAgentId, sessionId: queueKey },
+              { preserveTabs: true },
+            );
           }
           fetchStarted = true;
 
@@ -3466,6 +3471,14 @@ export default function ChatPage() {
             requestSnapshot.agentId,
             projectSessionId,
             null,
+          );
+          notifyProjectDirectoryChanged(
+            {
+              kind: "session",
+              agentId: requestSnapshot.agentId,
+              sessionId: projectSessionId,
+            },
+            { preserveTabs: true },
           );
         }
         sessionApi.triggerResolve(localIdToResolve);

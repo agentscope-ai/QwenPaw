@@ -15,7 +15,7 @@ import {
   ChevronDown as DownOutlined,
   Save as SaveOutlined,
 } from "lucide-react";
-import { Progress } from "antd";
+import { Progress, Segmented } from "antd";
 import type {
   LocalModelConfig,
   ProviderInfo,
@@ -31,6 +31,8 @@ import styles from "../../index.module.less";
 import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
+import huggingFaceLogo from "./local-models/huggingface.svg";
+import modelScopeLogo from "./local-models/modelscope.png";
 import {
   formatProgressText,
   getProgressPercent,
@@ -129,6 +131,8 @@ export function LocalModelManageModal({
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [catalogSource, setCatalogSource] =
+    useState<LocalDownloadSource>("huggingface");
   const [customModelRepoId, setCustomModelRepoId] = useState("");
   const [customModelSource, setCustomModelSource] =
     useState<LocalDownloadSource>("huggingface");
@@ -858,7 +862,10 @@ export function LocalModelManageModal({
 
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy =
-    stoppingServer || startingModelName !== null || deletingModelName !== null;
+    stoppingServer ||
+    startingModelName !== null ||
+    deletingModelName !== null ||
+    isDownloadActive(llamacppDownload);
   const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const runtimeLockedMessage =
@@ -983,6 +990,34 @@ export function LocalModelManageModal({
             </div>
           ) : null}
 
+          <div className={styles.localSectionHeader}>
+            <span>{t("models.localSource")}</span>
+            <Segmented
+              aria-label={t("models.localSource")}
+              value={catalogSource}
+              options={[
+                {
+                  label: "Hugging Face",
+                  value: "huggingface",
+                  icon: (
+                    <img src={huggingFaceLogo} width={18} height={18} alt="" />
+                  ),
+                },
+                {
+                  label: "ModelScope",
+                  value: "modelscope",
+                  icon: (
+                    <img src={modelScopeLogo} width={18} height={18} alt="" />
+                  ),
+                },
+              ]}
+              onChange={(value) => {
+                const source = value as LocalDownloadSource;
+                setCatalogSource(source);
+                setCustomModelSource(source);
+              }}
+            />
+          </div>
           <div className={styles.localModelGroups}>
             {(["chat", "decision"] as const).map((group) => {
               const title = t(
@@ -990,10 +1025,12 @@ export function LocalModelManageModal({
                   ? "models.localDecisionModelsTitle"
                   : "models.localChatModelsTitle",
               );
-              const models = localModels.filter((model) =>
-                group === "decision"
-                  ? model.model_type === "decision"
-                  : model.model_type !== "decision",
+              const models = localModels.filter(
+                (model) =>
+                  (model.source === catalogSource || model.source === "auto") &&
+                  (group === "decision"
+                    ? model.model_type === "decision"
+                    : model.model_type !== "decision"),
               );
               return (
                 <section key={group} aria-label={title}>
