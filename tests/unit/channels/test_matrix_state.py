@@ -15,7 +15,13 @@ MatrixStateStore = matrix_module.MatrixStateStore
 USER = "@bot:example.com"
 OTHER_USER = "@other:example.com"
 DEVICE = "qwenpaw-worker"
-DATABASE_NAME = f"{USER}_{DEVICE}.db"
+LEGACY_DATABASE_NAME = f"{USER}_{DEVICE}.db"
+DATABASE_NAME = (
+    hashlib.sha256(
+        json.dumps(["https://matrix.test", USER, DEVICE]).encode(),
+    ).hexdigest()
+    + ".db"
+)
 
 
 def make_store(workspace, legacy):
@@ -214,7 +220,7 @@ def test_e2ee_copy_failure_does_not_create_new_identity(
             store.bind(USER, DEVICE, encryption_enabled=True)
         assert store.directory is None
         assert not list(store.root.glob(".matrix-migration-*"))
-        database = legacy / "matrix_crypto_store" / DATABASE_NAME
+        database = legacy / "matrix_crypto_store" / LEGACY_DATABASE_NAME
         assert database.read_bytes() == b"legacy-crypto"
     finally:
         store.close()
@@ -254,7 +260,7 @@ def test_existing_owner_with_global_crypto_is_copied_to_workspace(tmp_path):
         assert (store.crypto_dir / DATABASE_NAME).read_bytes() == (
             b"legacy-crypto"
         )
-        legacy_database = legacy / "matrix_crypto_store" / DATABASE_NAME
+        legacy_database = legacy / "matrix_crypto_store" / LEGACY_DATABASE_NAME
         assert legacy_database.read_bytes() == b"legacy-crypto"
     finally:
         store.close()

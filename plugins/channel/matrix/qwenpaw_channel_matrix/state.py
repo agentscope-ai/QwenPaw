@@ -64,6 +64,7 @@ class MatrixStateStore:
         self.owner = None
         self.directory = None
         self.crypto_dir = None
+        self.database_name = None
         self._claims = ExitStack()
         self._begun = False
 
@@ -111,6 +112,44 @@ class MatrixStateStore:
             and legacy.get("device_id", "") == device_id,
         )
 
+    @staticmethod
+    def _migrate_crypto_files(
+        crypto,
+        user_id,
+        device_id,
+        database_name,
+    ):
+        legacy_base = f"{user_id}_{device_id}"
+        safe_base = Path(database_name).stem
+        for suffix in (
+            ".db",
+            ".trusted_devices",
+            ".blacklisted_devices",
+            ".ignored_devices",
+        ):
+            legacy_path = crypto / f"{legacy_base}{suffix}"
+            safe_path = crypto / f"{safe_base}{suffix}"
+            if not legacy_path.exists():
+                continue
+            if safe_path.exists():
+                raise MatrixStateError("MATRIX_CRYPTO_STORE_CONFLICT")
+            fd, temporary = tempfile.mkstemp(
+                prefix=".matrix-crypto-",
+                dir=crypto,
+            )
+            try:
+                with (
+                    os.fdopen(fd, "wb") as target,
+                    legacy_path.open("rb") as source,
+                ):
+                    shutil.copyfileobj(source, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, safe_path)
+                legacy_path.unlink()
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+
     def _claim_device(self, scope):
         claim_root = (
             self.legacy / "matrix_plugin_claims"
@@ -150,7 +189,14 @@ class MatrixStateStore:
             raise MatrixStateError("MATRIX_STATE_IDENTITY_CONFLICT")
         return source
 
-    def _copy_crypto_for_existing_owner(self, directory, database_name):
+    def _copy_crypto_for_existing_owner(
+        self,
+        directory,
+        user_id,
+        device_id,
+        database_name,
+        legacy_database_name,
+    ):
         target = directory / "crypto_store"
         if (target / database_name).is_file():
             return
@@ -159,7 +205,10 @@ class MatrixStateStore:
         if self.legacy is None:
             return
         legacy_crypto = self.legacy / "matrix_crypto_store"
-        if not (legacy_crypto / database_name).is_file():
+        if not any(
+            (legacy_crypto / name).is_file()
+            for name in (database_name, legacy_database_name)
+        ):
             return
         self.root.mkdir(parents=True, exist_ok=True)
         staging = Path(
@@ -180,6 +229,12 @@ class MatrixStateStore:
             if target.exists():
                 target.rmdir()
             os.replace(staging / "crypto_store", target)
+            self._migrate_crypto_files(
+                target,
+                user_id,
+                device_id,
+                database_name,
+            )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
@@ -188,6 +243,7 @@ class MatrixStateStore:
         directory,
         owner,
         database_name,
+        legacy_database_name,
         encryption_enabled,
         source_directory=None,
     ):
@@ -195,6 +251,13 @@ class MatrixStateStore:
         staging = Path(
             tempfile.mkdtemp(prefix=".matrix-migration-", dir=self.root),
         )
+
+        def has_crypto(path):
+            return any(
+                (path / name).is_file()
+                for name in (database_name, legacy_database_name)
+            )
+
         try:
             try:
                 with ExitStack() as migration_locks:
@@ -224,9 +287,9 @@ class MatrixStateStore:
                             else None
                         )
                         if (
-                            not (source_crypto / database_name).is_file()
+                            not has_crypto(source_crypto)
                             and legacy_crypto is not None
-                            and (legacy_crypto / database_name).is_file()
+                            and has_crypto(legacy_crypto)
                         ):
                             source_crypto = legacy_crypto
                     if sync.is_file():
@@ -240,11 +303,17 @@ class MatrixStateStore:
                                 "initial sync: %s",
                                 exc,
                             )
-                    if (source_crypto / database_name).is_file():
+                    if has_crypto(source_crypto):
                         try:
                             shutil.copytree(
                                 source_crypto,
                                 staging / "crypto_store",
+                            )
+                            self._migrate_crypto_files(
+                                staging / "crypto_store",
+                                owner["user_id"],
+                                owner["device_id"],
+                                database_name,
                             )
                         except (OSError, shutil.Error):
                             if encryption_enabled:
@@ -289,13 +358,25 @@ class MatrixStateStore:
         directory = self.root / scope
         if not directory.resolve().is_relative_to(self.root.resolve()):
             raise MatrixStateError("MATRIX_STATE_PATH_UNSAFE")
-        database_name = f"{user_id}_{device_id}.db"
-        if Path(database_name).name != database_name or "\\" in database_name:
+        database_name = f"{scope}.db"
+        legacy_database_name = f"{user_id}_{device_id}.db"
+        if (
+            Path(legacy_database_name).name != legacy_database_name
+            or "\\" in legacy_database_name
+        ):
             raise MatrixStateError("MATRIX_CRYPTO_FILENAME_UNSAFE")
         device_claim, latest = self._claim_device(scope)
         previous = _read_json(directory / "owner.json")
         if previous is not None and previous != owner:
             raise MatrixStateError("MATRIX_STATE_IDENTITY_CONFLICT")
+        crypto = directory / "crypto_store"
+        if crypto.exists():
+            self._migrate_crypto_files(
+                crypto,
+                user_id,
+                device_id,
+                database_name,
+            )
         legacy = self._legacy_identity()
         latest_source = (
             self._latest_workspace_state(latest, owner, scope)
@@ -303,7 +384,13 @@ class MatrixStateStore:
             else None
         )
         if previous is not None:
-            self._copy_crypto_for_existing_owner(directory, database_name)
+            self._copy_crypto_for_existing_owner(
+                directory,
+                user_id,
+                device_id,
+                database_name,
+                legacy_database_name,
+            )
         elif latest_source is not None or self._matches(
             legacy,
             user_id,
@@ -315,6 +402,7 @@ class MatrixStateStore:
                 directory,
                 owner,
                 database_name,
+                legacy_database_name,
                 encryption_enabled,
                 source_directory=latest_source,
             )
@@ -332,6 +420,7 @@ class MatrixStateStore:
         self.owner = owner
         self.directory = directory
         self.crypto_dir = directory / "crypto_store"
+        self.database_name = database_name
 
     def save_auth(self, token, user_id, device_id):
         if (
