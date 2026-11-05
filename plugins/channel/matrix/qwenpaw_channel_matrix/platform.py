@@ -14,7 +14,7 @@ import time
 import urllib.parse
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -65,6 +65,27 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
+
+if ENCRYPTION_ENABLED:
+    from nio.store import DefaultStore, KeyStore
+
+    class _ScopedStore(DefaultStore):
+        """Use the scope-derived database basename for every state file."""
+
+        def __post_init__(self):
+            super().__post_init__()
+            base = Path(self.database_name).stem
+            for attribute, suffix in (
+                ("trust_db", ".trusted_devices"),
+                ("blacklist_db", ".blacklisted_devices"),
+                ("ignore_db", ".ignored_devices"),
+            ):
+                path = Path(self.store_path) / f"{base}{suffix}"
+                setattr(self, attribute, KeyStore(str(path)))
+
+else:
+    DefaultStore = None
+    _ScopedStore = None
 
 logger = logging.getLogger("qwenpaw.plugins.matrix")
 
@@ -462,6 +483,10 @@ class MatrixPlatform:
         if self.encryption:
             self._state.crypto_dir.mkdir(parents=True, exist_ok=True)
             self._client.store_path = str(self._state.crypto_dir)
+            self._client.config = replace(
+                self._client.config,
+                store_name=self._state.database_name,
+            )
 
     def _save_auth_state(self):
         if (
@@ -518,6 +543,7 @@ class MatrixPlatform:
         sync_s = self.sync_timeout_ms / 1000
         request_timeout = max(sync_s + 30, 60)
         return AsyncClientConfig(
+            store=_ScopedStore if encryption else DefaultStore,
             store_sync_tokens=False,
             encryption_enabled=encryption,
             request_timeout=request_timeout,

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Instance-owned files and a non-copying reader for legacy Matrix state."""
+"""Instance-owned files and legacy Matrix state migration."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import shutil
 import tempfile
 
 from qwenpaw.plugins.install_lock import plugin_install_lock
@@ -73,6 +74,7 @@ class MatrixStateStore:
         self.owner = None
         self.directory = None
         self.crypto_dir = None
+        self.database_name = None
         self._claims = ExitStack()
         self._begun = False
         self._legacy_adopted = False
@@ -149,6 +151,44 @@ class MatrixStateStore:
         except MatrixLegacyError as exc:
             raise MatrixStateError(str(exc)) from None
 
+    @staticmethod
+    def _migrate_crypto_files(
+        crypto,
+        user_id,
+        device_id,
+        database_name,
+    ):
+        legacy_base = f"{user_id}_{device_id}"
+        safe_base = Path(database_name).stem
+        for suffix in (
+            ".db",
+            ".trusted_devices",
+            ".blacklisted_devices",
+            ".ignored_devices",
+        ):
+            legacy_path = crypto / f"{legacy_base}{suffix}"
+            safe_path = crypto / f"{safe_base}{suffix}"
+            if not legacy_path.exists():
+                continue
+            if safe_path.exists():
+                raise MatrixStateError("MATRIX_CRYPTO_STORE_CONFLICT")
+            fd, temporary = tempfile.mkstemp(
+                prefix=".matrix-crypto-",
+                dir=crypto,
+            )
+            try:
+                with (
+                    os.fdopen(fd, "wb") as target,
+                    legacy_path.open("rb") as source,
+                ):
+                    shutil.copyfileobj(source, target)
+                    target.flush()
+                    os.fsync(target.fileno())
+                os.replace(temporary, safe_path)
+                legacy_path.unlink()
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+
     def bind(
         self,
         user_id,
@@ -175,12 +215,14 @@ class MatrixStateStore:
         directory = self.root / scope
         if not directory.resolve().is_relative_to(self.root.resolve()):
             raise MatrixStateError("MATRIX_STATE_PATH_UNSAFE")
-        database_name = f"{user_id}_{device_id}.db"
+        database_name = f"{scope}.db"
+        legacy_database_name = f"{user_id}_{device_id}.db"
         needs_crypto = encryption_enabled or (
             self.legacy and (self.legacy / "matrix_crypto_store").exists()
         )
         if needs_crypto and (
-            Path(database_name).name != database_name or "\\" in database_name
+            Path(legacy_database_name).name != legacy_database_name
+            or "\\" in legacy_database_name
         ):
             raise MatrixStateError("MATRIX_CRYPTO_FILENAME_UNSAFE")
         # Across workspaces, the same account/device must not acquire two key
@@ -232,19 +274,26 @@ class MatrixStateStore:
             # silently take over this device's Olm/Megolm database.
             legacy_crypto = self.legacy / "matrix_crypto_store"
             if legacy_crypto.exists():
-                expected = database_name
-                foreign = [
-                    p for p in legacy_crypto.glob("*.db") if p.name != expected
-                ]
-                if foreign and not (legacy_crypto / expected).is_file():
+                expected = any(
+                    (legacy_crypto / name).is_file()
+                    for name in (database_name, legacy_database_name)
+                )
+                if not expected and any(legacy_crypto.iterdir()):
                     raise MatrixStateError(
                         "MATRIX_LEGACY_CRYPTO_IDENTITY_CONFLICT",
                     )
-                if any(crypto.glob("*.db")):
+                if crypto.exists() and any(crypto.iterdir()):
                     raise MatrixStateError("MATRIX_CRYPTO_STORE_CONFLICT")
                 crypto = legacy_crypto
             _atomic_json(self.legacy / "matrix_plugin_owner.json", owner)
             self._legacy_adopted = True
+        if needs_crypto:
+            self._migrate_crypto_files(
+                crypto,
+                user_id,
+                device_id,
+                database_name,
+            )
         _atomic_json(device_claim.with_suffix(".json"), owner)
         _atomic_json(directory / "owner.json", owner)
         _atomic_json(
@@ -252,6 +301,7 @@ class MatrixStateStore:
             {"homeserver": self.homeserver, "scope": scope},
         )
         self.owner, self.directory, self.crypto_dir = owner, directory, crypto
+        self.database_name = database_name
 
     def save_auth(self, token, user_id, device_id):
         if (
