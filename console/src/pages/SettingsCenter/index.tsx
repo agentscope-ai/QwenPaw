@@ -325,7 +325,7 @@ function pageKeyFromPath(pathname: string) {
   return key || "general";
 }
 
-export default function SettingsCenter() {
+export default function SettingsCenter({ routeId }: { routeId?: string }) {
   const reducedMotion = useReducedMotion();
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
@@ -503,7 +503,9 @@ export default function SettingsCenter() {
 
   const activeKey = pageKeyFromPath(location.pathname);
   const allPages = availableGroups.flatMap((group) => group.pages);
-  const matchedActivePage = allPages.find((page) => page.key === activeKey);
+  const matchedActivePage = allPages.find((page) =>
+    routeId ? page.routeId === routeId : page.key === activeKey,
+  );
   const activePage = matchedActivePage ?? allPages[0];
   const ActiveComponent = activePage?.Component
     ? activePage.Component

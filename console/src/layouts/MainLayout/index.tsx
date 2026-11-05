@@ -11,7 +11,8 @@ import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
-import { useRoutes } from "../../plugins/registry/hooks";
+import { useMenuItems, useRoutes } from "../../plugins/registry/hooks";
+import { findMenuItem, flattenMenu } from "../registry/adapter";
 import { Slot } from "../../plugins/registry/Slot";
 import { PageShell } from "../../components/PageShell";
 import { pickSelectedKey } from "./routeSelection";
@@ -28,6 +29,24 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const location = useLocation();
   const currentPath = location.pathname;
   const routes = useRoutes();
+  const settingsMenu = useMenuItems("primary.settings");
+  const SettingsCenterPage = routes.find(
+    (route) => route.id === "core.settings-center",
+  )?.Component;
+  const settingsRouteIds = useMemo(() => {
+    const menuRouteIds = new Set(
+      flattenMenu(settingsMenu, routes, 16).map(
+        (entry) => findMenuItem(settingsMenu, entry.key)?.route,
+      ),
+    );
+    return new Set(
+      routes
+        .filter(
+          (route) => route.source !== "core" && menuRouteIds.has(route.id),
+        )
+        .map((route) => route.id),
+    );
+  }, [routes, settingsMenu]);
 
   // Backend is the source of truth for Coding Mode state — refill the
   // in-memory store every time the selected agent changes.
@@ -37,7 +56,9 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     () => pickSelectedKey(currentPath, routes),
     [currentPath, routes],
   );
-  const settingsCenterActive = selectedKey === "core.settings-center";
+  const settingsCenterActive =
+    selectedKey === "core.settings-center" ||
+    Boolean(SettingsCenterPage && settingsRouteIds.has(selectedKey));
   const selectedRoute = routes.find((route) => route.id === selectedKey);
   const pageTitle = getRouteTitle(selectedRoute, i18n.language);
 
@@ -102,7 +123,12 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                             title={getRouteTitle(r, i18n.language)}
                             mode="compat"
                           >
-                            <r.Component />
+                            {SettingsCenterPage &&
+                            settingsRouteIds.has(r.id) ? (
+                              <SettingsCenterPage routeId={r.id} />
+                            ) : (
+                              <r.Component />
+                            )}
                           </PageShell>
                         }
                       />
