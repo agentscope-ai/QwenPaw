@@ -1956,6 +1956,7 @@
       "internal": "Do QwenPaw quản lý nội bộ."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Bảo vệ bộ nhớ cho cây tiến trình shell: 0 để tắt, auto sử dụng một nửa bộ nhớ khả dụng (tối đa 4096 MiB), hoặc nhập giới hạn là số nguyên dương theo MiB. Giới hạn được chỉ định cũng không vượt quá một nửa bộ nhớ khả dụng. Thay đổi có hiệu lực từ lần gọi shell tiếp theo; các lệnh đang chạy giữ nguyên giới hạn ban đầu. Bảo vệ bằng kiểm tra định kỳ không phải là giới hạn bộ nhớ cứng do hệ điều hành áp đặt.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Thời gian chờ tối đa cho nội dung stream đầu tiên; đặt 0 để tắt giám sát.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Thời gian chờ tối đa giữa các phần stream; đặt 0 để tắt giám sát."
     },

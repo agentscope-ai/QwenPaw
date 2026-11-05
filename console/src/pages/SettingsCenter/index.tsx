@@ -53,6 +53,10 @@ import {
   flattenMenu,
   renderIcon,
 } from "@/layouts/registry/adapter";
+import {
+  getAgentMenuCapabilities,
+  isAgentMenuItemAvailable,
+} from "@/layouts/registry/capabilities";
 import { useAgentStore } from "@/stores/agentStore";
 import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
@@ -334,9 +338,17 @@ export default function SettingsCenter() {
   const routes = useRoutes();
   const pluginSearch = usePluginSettingsSearch();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
-  const selectedBackend = useAgentStore(
-    (state) =>
-      state.agents.find((agent) => agent.id === state.selectedAgent)?.backend,
+  const currentAgent = useAgentStore((state) =>
+    state.agents.find((agent) => agent.id === state.selectedAgent),
+  );
+  const selectedBackend = currentAgent?.backend;
+  const backendCapabilities = useMemo(
+    () => getAgentMenuCapabilities(currentAgent),
+    [currentAgent],
+  );
+  const canConfigureRuntime = Boolean(
+    currentAgent &&
+      isAgentMenuItemAvailable("core.agent-config", backendCapabilities),
   );
   const { loading: pluginsLoading } = usePlugins();
   const rawAgentMenu = useMenuItems("primary.agentScoped");
@@ -368,8 +380,7 @@ export default function SettingsCenter() {
   );
   const hasRuntime = routes.some((route) => route.id === "core.agent-config");
   useEffect(() => {
-    if (!hasRuntime || (selectedBackend && selectedBackend !== "qwenpaw"))
-      return;
+    if (!hasRuntime || !canConfigureRuntime) return;
     const controller = new AbortController();
     const revision = ++runtimeAvailabilityRevision.current;
     void request<AgentsRunningConfig>("/workspace/running-config", {
@@ -385,7 +396,12 @@ export default function SettingsCenter() {
       })
       .catch(() => {});
     return () => controller.abort();
-  }, [hasRuntime, selectedAgent, selectedBackend, updateRuntimeAvailability]);
+  }, [
+    hasRuntime,
+    selectedAgent,
+    canConfigureRuntime,
+    updateRuntimeAvailability,
+  ]);
   const [channelNames, setChannelNames] = useState<{
     agentId: string | null;
     labels: Record<string, string>;
@@ -481,17 +497,31 @@ export default function SettingsCenter() {
         legacyPath: route.path,
       });
     }
-    return extensionPages.length > 0
-      ? [
-          ...coreGroups,
-          {
-            key: "extensions",
-            labelKey: "settingsCenter.groups.extensions",
-            fallback: "Extensions",
-            pages: extensionPages,
-          },
-        ]
-      : coreGroups;
+    const groups =
+      extensionPages.length > 0
+        ? [
+            ...coreGroups,
+            {
+              key: "extensions",
+              labelKey: "settingsCenter.groups.extensions",
+              fallback: "Extensions",
+              pages: extensionPages,
+            },
+          ]
+        : coreGroups;
+    return groups
+      .map((group) => ({
+        ...group,
+        pages: group.pages.filter(
+          (page) =>
+            page.routeId === "core.import" ||
+            isAgentMenuItemAvailable(
+              page.routeId ?? page.key,
+              backendCapabilities,
+            ),
+        ),
+      }))
+      .filter((group) => group.pages.length > 0);
   }, [
     componentByRouteId,
     rawAgentMenu,
@@ -499,6 +529,7 @@ export default function SettingsCenter() {
     routes,
     pluginSearch,
     i18n.language,
+    backendCapabilities,
   ]);
 
   const activeKey = pageKeyFromPath(location.pathname);
