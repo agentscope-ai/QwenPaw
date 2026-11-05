@@ -238,7 +238,10 @@ async def test_takeover_turn_survives_session_save_hook_and_reload(
         root_session_id=session_id,
         root_agent_id="assistant",
         workspace_dir=tmp_path,
-        workspace=SimpleNamespace(session=session),
+        workspace=SimpleNamespace(
+            session=session,
+            config=SimpleNamespace(session_persistence=True),
+        ),
         app_services=None,
         agent=agent,
     )

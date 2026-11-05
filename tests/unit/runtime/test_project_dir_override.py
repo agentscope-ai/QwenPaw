@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
 
@@ -50,7 +49,7 @@ def test_request_project_ignores_non_directory(tmp_path):
 
     updated = AgentBuilder._apply_request_project(
         config,
-        {ACP_PROJECT_DIR_META_KEY: str(tmp_path / "missing")},
+        {"project_dir": str(tmp_path / "missing")},
     )
 
     assert updated is config
@@ -65,7 +64,7 @@ def test_request_project_warns_for_unsupported_config(
 
     updated = AgentBuilder._apply_request_project(
         config,
-        {ACP_PROJECT_DIR_META_KEY: str(tmp_path)},
+        {"project_dir": str(tmp_path)},
     )
 
     assert updated is config

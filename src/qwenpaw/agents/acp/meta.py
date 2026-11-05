@@ -6,13 +6,13 @@ without importing the ACP server implementation.
 """
 
 ACP_PROJECT_DIR_META_KEY = "qwenpaw.project_dir"
-ACP_LOOP_META_KEY = "qwenpaw.loop"
+ACP_CONFIG_META_KEY = "qwenpaw.config"
 ACP_EPHEMERAL_META_KEY = "qwenpaw.ephemeral"
 ACP_APPROVAL_EXPIRES_AT_META_KEY = "qwenpaw.approval_expires_at"
 
 __all__ = [
     "ACP_APPROVAL_EXPIRES_AT_META_KEY",
     "ACP_EPHEMERAL_META_KEY",
-    "ACP_LOOP_META_KEY",
+    "ACP_CONFIG_META_KEY",
     "ACP_PROJECT_DIR_META_KEY",
 ]

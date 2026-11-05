@@ -17,7 +17,7 @@ from qwenpaw.agents.acp.runtime_provider import (
     OpenAIRuntimeProviderConfig,
 )
 from qwenpaw.agents.acp.server import QwenPawACPAgent
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import ModelSlotConfig, load_agent_config
 
 
 class _FakeManager:
@@ -56,9 +56,11 @@ class _FakeConn:
 class _FakeWorkspace:
     def __init__(self) -> None:
         self.requests = []
+        self.configs = []
 
     async def stream_query(self, request):  # noqa: ANN001
         self.requests.append(request)
+        self.configs.append(load_agent_config(request.agent_id))
         for event in ():
             yield event
 
@@ -180,7 +182,7 @@ async def test_runtime_provider_is_registered_only_in_memory(monkeypatch):
 
     provider = manager.custom_providers[RUNTIME_OPENAI_PROVIDER_ID]
     assert provider.api_key == "execution-secret"
-    assert manager.active_model == _config().model_slot
+    assert manager.active_model is original_model
 
     agent._remove_runtime_provider()
 
@@ -238,7 +240,7 @@ async def test_runtime_provider_credentials_are_not_persisted(
     agent._remove_runtime_provider()
 
 
-async def test_runtime_provider_forces_model_override(monkeypatch):
+async def test_runtime_provider_uses_session_configuration(monkeypatch):
     manager = _FakeManager()
     workspace = _FakeWorkspace()
     agent = QwenPawACPAgent(
@@ -268,7 +270,10 @@ async def test_runtime_provider_forces_model_override(monkeypatch):
     )
 
     assert workspace.requests
-    assert workspace.requests[0].model_slot_override == _config().model_slot
+    assert workspace.configs[0].active_model == _config().model_slot
+    assert workspace.configs[0].session_persistence is False
+    assert "model_slot_override" not in workspace.requests[0].model_dump()
+    assert manager.active_model.model == "original-model"
 
 
 async def test_runtime_provider_is_advertised_as_current_model(monkeypatch):

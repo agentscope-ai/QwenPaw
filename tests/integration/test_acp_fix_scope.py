@@ -420,7 +420,10 @@ async def test_harness_terminal_preserves_output_and_status(
     conn = _RecordingConn()
     agent.on_connect(conn)
     session_id = f"harness-review"
-    agent._sessions[session_id] = {f"user_id": session_id}
+    agent._sessions[session_id] = agent._session_configuration().resolve(
+        str(tmp_path),
+        {},
+    )
 
     async def stream_query(request):
         async for event in runtime.stream(

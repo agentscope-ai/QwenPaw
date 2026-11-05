@@ -47,8 +47,11 @@ from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
+from ...config.context import current_agent_config
 from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
+from ...runtime.hooks import HookContext
+from ...schemas import AgentRequest
 
 if TYPE_CHECKING:
     from ...agents.context.scroll.history import HistoryStore
@@ -157,20 +160,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self,
         agent_id: str,
         workspace_dir: str,
-        *,
-        mode_config_overrides: dict[str, dict[str, Any]] | None = None,
     ):
         """Initialize agent instance.
 
         Args:
             agent_id: Unique agent identifier
             workspace_dir: Path to agent's workspace directory
-            mode_config_overrides: Process-local mode settings, never saved.
         """
-        self.mode_config_overrides = {
-            name: dict(values)
-            for name, values in (mode_config_overrides or {}).items()
-        }
         self.agent_id = agent_id
         self.workspace_dir = Path(workspace_dir).expanduser()
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
@@ -277,6 +273,12 @@ class Workspace:  # pylint: disable=too-many-public-methods
         snapshot is therefore pinned per workspace and refreshed only
         when agent.json's mtime moves (any save or external edit).
         """
+        scoped = current_agent_config.get()
+        if scoped is not None and scoped.id == self.agent_id:
+            return scoped.model_copy(deep=True)
+        # ACP bootstrap snapshots remain stable outside active requests too.
+        if getattr(self._config, "_runtime_scoped", False):
+            return self._config.model_copy(deep=True)
         current_mtime = self._agent_config_file_mtime()
         if self._config is None or current_mtime != self._config_mtime:
             self._config = load_agent_config(self.agent_id)
@@ -433,6 +435,25 @@ class Workspace:  # pylint: disable=too-many-public-methods
     def set_app_services(self, app_services: Any) -> None:
         """Inject the cross-workspace AppServiceManager reference."""
         self._app_services = app_services
+
+    async def release_session(self, session_id: str) -> None:
+        """Release mode state after a session's active request has stopped."""
+        from ..agent_context import scoped_session_id
+
+        request = AgentRequest(session_id=session_id, agent_id=self.agent_id)
+        ctx = HookContext(
+            request=request,
+            session_id=session_id,
+            agent_id=self.agent_id,
+            root_session_id=session_id,
+            root_agent_id=self.agent_id,
+            workspace_dir=self.workspace_dir,
+            workspace=self,
+            app_services=self._app_services,
+        )
+        with scoped_session_id(session_id):
+            for mode in self.plugins.modes:
+                await mode.on_conversation_reset(ctx)
 
     @_sdk_observe_stream
     async def stream_query(

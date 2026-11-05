@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 
@@ -40,11 +39,14 @@ class _FakeSession:
 def _ctx(session: _FakeSession, *, ephemeral: bool):
     return SimpleNamespace(
         request=SimpleNamespace(
-            request_context={ACP_EPHEMERAL_META_KEY: ephemeral},
+            request_context={},
             user_id="acp_warmup",
             channel="",
         ),
-        workspace=SimpleNamespace(session=session),
+        workspace=SimpleNamespace(
+            session=session,
+            config=SimpleNamespace(session_persistence=not ephemeral),
+        ),
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
         mode_state={},

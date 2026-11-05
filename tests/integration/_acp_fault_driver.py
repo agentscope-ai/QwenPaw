@@ -74,7 +74,7 @@ async def _bridge_approval_requests(
     await asyncio.sleep(3600)
 
 
-async def _build_model_state(self):
+async def _build_model_state(self, session_id=None):
     return None
 
 

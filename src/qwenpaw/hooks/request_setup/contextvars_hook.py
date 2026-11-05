@@ -395,18 +395,10 @@ def _entry_path_strings(entries: Optional[list]) -> list[str]:
 def _trusted_request_project_dir(request_context: dict) -> str | None:
     """Return an ephemeral PRIMARY project override from a trusted source.
 
-    Recognised sources:
-
-    * ACP session metadata (``qwenpaw.project_dir``)
-    * a pre-validated ``project_dir`` injected by server-side callers
+    Accept a pre-validated ``project_dir`` from server-side callers.
 
     Per-run only: never written back to the agent's saved default.
     """
-    from ...agents.acp.meta import ACP_PROJECT_DIR_META_KEY
-
-    value = request_context.get(ACP_PROJECT_DIR_META_KEY)
-    if isinstance(value, str) and value.strip():
-        return value.strip()
     value = request_context.get("project_dir")
     if isinstance(value, str) and value.strip():
         return value.strip()
@@ -497,7 +489,8 @@ async def _session_project_dirs(ctx: HookContext) -> list | None:
     what it is handed, and doing it twice would ``resolve()`` every
     directory twice per turn.
     """
-    if not ctx.session_id:
+    # A resolved execution config owns its project selection already.
+    if getattr(ctx, "agent_config", None) is not None or not ctx.session_id:
         return None
 
     from ...app.channels.schema import DEFAULT_CHANNEL

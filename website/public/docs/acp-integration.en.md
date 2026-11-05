@@ -156,9 +156,9 @@ For example, `--agent-mode goal` adds `/goal` to the first message of each new s
 
 Messages that already start with a slash command are never modified and consume the first-message slot. Loaded or resumed sessions are not re-prefixed; this option does not add mode-state persistence. `--agent-mode default` leaves messages unchanged. Loop selection is separate from ACP permission settings.
 
-Goal tokens are unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
+The goal token budget inherits the agent profile (unlimited by default). Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
 
-Mode authors declare `loop_entry` on their existing `AgentMode` to select an entry command explicitly. Override `describe_loop(workspace)` for custom IDs or availability rules. HTTP and ACP collect these descriptions from registered modes; command ordering does not select the entry. Process-local `Workspace.mode_config_overrides` are read and validated by the owning mode during setup and never modify persisted agent configuration.
+Mode authors declare `loop_entry` on their existing `AgentMode` to select an entry command explicitly. Override `describe_loop(workspace)` for custom IDs or availability rules. HTTP and ACP collect these descriptions from registered modes; command ordering does not select the entry. ACP startup overrides use the same agent configuration schema as the saved profile and never modify it.
 
 ### Supported ACP Methods
 
@@ -209,9 +209,19 @@ When a new session is created, the agent returns config options that the client 
 | --------- | ------ | -------- | --------- | ------------------------------------------------------------------------------------------- |
 | `mode`    | select | `mode`   | `default` | `default`: normal mode with Tool Guard enabled; `bypassPermissions`: skip tool guard checks |
 
-### Session Loop Overrides
+### Session Configuration Overrides
 
-Pass `qwenpaw.loop` in the `_meta` object of `session/new`, `session/load`, or `session/resume` to override ordinary-mode loop settings for that session:
+ACP uses one configuration overlay with the same structure as `agent.json`. The precedence is **saved profile → ACP startup overrides → session overrides**. Objects merge recursively; arrays and scalar values replace earlier values. Omitted fields inherit; `false`, `0`, and `null` are explicit values validated by the native schema. Unknown fields and invalid values are rejected.
+
+Set initial values for this ACP instance with repeatable `--config PATH=VALUE` arguments. Values accept JSON or plain strings:
+
+```bash
+qwenpaw acp \
+  --config running.loop.iteration.enabled=false \
+  --config running.shell_command_timeout=120
+```
+
+Pass `qwenpaw.config` in the `_meta` object of `session/new`, `session/load`, or `session/resume` for an individual session:
 
 ```json
 {
@@ -222,19 +232,26 @@ Pass `qwenpaw.loop` in the `_meta` object of `session/new`, `session/load`, or `
     "cwd": "/workspace",
     "mcpServers": [],
     "_meta": {
-      "qwenpaw.loop": {
-        "iteration": { "enabled": true, "max_iterations": 10000 }
+      "qwenpaw.config": {
+        "running": {
+          "shell_command_timeout": 30,
+          "loop": {
+            "iteration": { "enabled": true, "max_iterations": 10000 }
+          }
+        }
       }
     }
   }
 }
 ```
 
-`iteration`, `doom_loop`, and `rubric` accept their native configuration fields. Supplied fields override the agent profile; omitted fields retain its values. Unknown fields, invalid types, and values outside the native constraints are rejected. `max_iterations` accepts any positive integer, including values above 500. Goal, mission, and custom-mode configuration are outside this session override interface.
+Each session owns a detached configuration snapshot. Overrides never write to `agent.json` or affect another ACP process using the same agent. Each supplied `qwenpaw.config` replaces the previous session overlay; `{}` restores the startup defaults. Loading or resuming without it preserves the existing session overlay within the same server process. Resend overrides after a server restart. Model changes through `session/set_model` also remain session-local.
 
-The iteration gate and AgentScope ReAct share the resolved iteration limit: the example sets both to 10000. To disable the iteration gate, send `"iteration": {"enabled": false}`; ReAct then receives `sys.maxsize` as a practical integer ceiling. Cancellation, timeouts, and other stopping rules still apply. Without an override, the existing profile policy applies; the global defaults remain an enabled gate and a fallback limit of 100.
+Settings used to construct shared services (such as workspace storage, channels, MCP, memory backends, rate limiters, and goal/mission/custom-mode definitions) must be supplied at startup with `--config`. Attempting to change them per session returns an error identifying the field. The agent ID remains selected by `--agent`.
 
-Overrides and gate state are isolated between concurrent sessions and do not write to the agent configuration file. Each supplied `qwenpaw.loop` replaces the previous session override; send `{}` to restore the profile settings. Loading or resuming without this metadata preserves an override already held in the same server process. Overrides are not persisted across server restarts; resend them when restoring a session. Loop overrides use session metadata rather than `set_config_option`.
+Existing clients can keep using `qwenpaw.project_dir` and `qwenpaw.ephemeral`. The ACP boundary converts these inputs to `project_dirs` and `session_persistence=false`. The permission selector converts to `approval_level`, and runtime-provider selection converts to `active_model`. They all use the same configuration overlay; no separate request-context injection is used. Set `session_persistence=false` directly to skip loading and saving conversation runtime state, including cancellation saves. An explicit legacy project directory takes precedence over the configuration overlay; otherwise new/load use `cwd` unless a project directory override is configured. Resume retains the previous project selection unless a new one is supplied. `--workspace` still selects internal agent storage, not the project directory. Existing `--agent-mode`, `--goal-token-budget`, and runtime-provider options remain available.
+
+The iteration gate and AgentScope ReAct share one resolved limit. A positive `max_iterations` can exceed 500. Setting `running.loop.iteration.enabled=false` removes the iteration limit, including the native AgentScope fallback; cancellation and other enabled gates still apply. Without overrides, the saved profile policy applies (an enabled gate and a fallback limit of 100 by default).
 
 ### Configuration
 

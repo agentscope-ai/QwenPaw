@@ -182,6 +182,9 @@ class _FakeWorkspace:
         self.driver_manager = _FakeDriverManager()
         self.requests: list[Any] = []
 
+    async def release_session(self, session_id: str) -> None:
+        self.released_session = session_id
+
     async def stream_query(
         self,
         request: Any,
@@ -316,7 +319,7 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
         assert load_task.done()
         load_task.cancel()
         await load_task
-        assert agent._sessions[response.session_id]["cwd"] == str(new_cwd)
+        assert agent._sessions[response.session_id].cwd == str(new_cwd)
         handler_name = next(iter(manager._scope_handlers[scope_id]))
         assert manager._handlers[handler_name].card.endpoint["cwd"] == str(
             new_cwd,
@@ -375,7 +378,7 @@ async def test_acp_load_session_restores_metadata_on_mcp_failure(
         session_id="session-1",
         mcp_servers=[],
     )
-    previous = dict(agent._sessions["session-1"])
+    previous = agent._sessions["session-1"]
     workspace.driver_manager.fail_replacement = True
 
     with pytest.raises(RuntimeError, match="registration failed"):

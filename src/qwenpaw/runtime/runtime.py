@@ -20,7 +20,7 @@ import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
-from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from ..config.context import current_agent_config
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
 from ..utils.io_utils import run_async_to_completion
@@ -69,6 +69,9 @@ class Runtime:
                 None  # pylint: disable=protected-access
             )
         ctx = self._build_context(request)
+        scoped_config = current_agent_config.get()
+        if scoped_config is not None and scoped_config.id == ctx.agent_id:
+            ctx.agent_config = scoped_config.model_copy(deep=True)
         hooks = self.workspace.plugins.hook_registry
 
         envelope = Envelope(session_id=ctx.session_id)
@@ -301,22 +304,12 @@ class Runtime:
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
-        request = getattr(ctx, "request", None)
-        request_context = getattr(request, "request_context", None)
-        if isinstance(request_context, dict):
-            ephemeral = request_context.get(ACP_EPHEMERAL_META_KEY)
-            if ephemeral is True or (
-                isinstance(ephemeral, str)
-                and ephemeral.lower() in {"1", "true", "yes"}
-            ):
-                return
-
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return
         workspace = getattr(ctx, "workspace", None)
         session = getattr(workspace, "session", None) if workspace else None
-        if session is None:
+        if session is None or not workspace.config.session_persistence:
             return
         try:
             envelope = getattr(ctx, "_envelope", None)

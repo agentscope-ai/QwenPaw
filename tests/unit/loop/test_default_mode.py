@@ -9,6 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from agentscope.agent import ReActConfig
+from agentscope.tool import Toolkit
+from agentscope.event import ReplyEndEvent
 from agentscope.classifier import (
     BinaryAnswer,
     ChoiceAnswer,
@@ -24,19 +27,89 @@ from agentscope.message import (
 )
 
 from qwenpaw.app.agent_context import scoped_session_id
-from qwenpaw.config.config import RubricGateConfig
+from qwenpaw.agents.react_agent import QwenPawAgent
+from qwenpaw.config.config import AgentProfileConfig, RubricGateConfig
 from qwenpaw.loop.gates import StopAction
 from qwenpaw.loop.gates import rubric as rubric_module
 from qwenpaw.loop.gates.doom_loop import DoomLoopGate
 from qwenpaw.loop.gates.iteration import IterationGate
 from qwenpaw.modes.default import DefaultMode, resolve_max_iterations
 from qwenpaw.providers import typesafe_provider
+from qwenpaw.runtime.builder import _resolve_react_iterations
 
 
 @pytest.fixture(autouse=True)
 def _force_session_id():
     with scoped_session_id("test-session"):
         yield
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_disabled_iteration_runs_past_native_limit(monkeypatch, cancel):
+    config = AgentProfileConfig(id="default", name="Default")
+    config.running.loop.iteration.enabled = False
+    mode = DefaultMode()
+    workspace = SimpleNamespace(plugins=SimpleNamespace(stop_handlers=[]))
+    mode.setup(workspace)
+    await mode.on_turn_start(SimpleNamespace(agent_config=config))
+    agent = QwenPawAgent(
+        name="QwenPaw",
+        model=SimpleNamespace(
+            context_size=100000,
+            formatter=SimpleNamespace(supported_input_media_types=set()),
+        ),
+        system_prompt="",
+        toolkit=Toolkit(tools=[]),
+        react_config=ReActConfig(
+            max_iters=_resolve_react_iterations(
+                resolve_max_iterations(config.running),
+                {},
+            ),
+        ),
+        middlewares=[],
+        agent_config=config,
+    )
+    calls = 0
+    reached = asyncio.Event()
+
+    async def model_events(_tool_choice):
+        nonlocal calls
+        calls += 1
+        if calls == 120:
+            reached.set()
+            if cancel:
+                await asyncio.Future()
+            yield AssistantMsg(name="QwenPaw", content="finished")
+
+    # Stub model IO; exercise QwenPaw gates and AgentScope's real reply loop.
+    monkeypatch.setattr(agent, "_reasoning_events", model_events)
+    monkeypatch.setattr(agent, "compress_context", AsyncMock())
+    monkeypatch.setattr(
+        agent,
+        "_get_stop_handlers",
+        lambda: workspace.plugins.stop_handlers,
+    )
+    events = []
+
+    async def consume():
+        async for event in agent.reply_stream(
+            UserMsg(name="user", content="continue"),
+        ):
+            events.append(event)
+
+    task = asyncio.create_task(consume())
+    if cancel:
+        await asyncio.wait_for(reached.wait(), timeout=5)
+        task.cancel()
+    await asyncio.wait_for(task, timeout=5)
+    assert calls == 120
+    reasons = [
+        event.finished_reason
+        for event in events
+        if isinstance(event, ReplyEndEvent)
+    ]
+    assert reasons == ["interrupted" if cancel else "completed"]
 
 
 def _running_config(

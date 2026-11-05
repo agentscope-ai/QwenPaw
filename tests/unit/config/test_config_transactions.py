@@ -5,6 +5,9 @@
 # pylint: disable=redefined-outer-name,unused-argument
 
 import json
+import os
+import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
@@ -25,6 +28,7 @@ from qwenpaw.config.config import (
     save_agent_config,
 )
 from qwenpaw.drivers.credentials.store import AsyncCredentialStore
+from qwenpaw.config.overrides import agent_config_scope, apply_config_overrides
 
 
 @pytest.fixture
@@ -124,6 +128,50 @@ def test_load_agent_config_returns_detached_cache_copy(isolated_agent):
     loaded.description = "unsaved"
 
     assert load_agent_config("agent").description == "original"
+
+
+def test_runtime_overrides_never_enter_persistence(
+    isolated_agent,
+    isolated_config,
+):
+    base = load_agent_config("agent")
+    scoped = apply_config_overrides(
+        base,
+        {"running": {"shell_command_timeout": 17}, "description": "session"},
+    )
+    before = isolated_agent.read_bytes()
+    with agent_config_scope(scoped):
+        assert load_agent_config("agent").description == "session"
+        with pytest.raises(ValueError, match="cannot be persisted"):
+            save_agent_config("agent", load_agent_config("agent"))
+        assert isolated_agent.read_bytes() == before
+        # A distinct process with the same agent sees only saved settings.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from qwenpaw.config.config import load_agent_config; "
+                "print(load_agent_config('agent').description)",
+            ],
+            env={
+                **os.environ,
+                "QWENPAW_WORKING_DIR": str(isolated_config.parent),
+            },
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert result.stdout.strip() == "original"
+        mutate_agent_config("agent", lambda cfg: setattr(cfg, "name", "New"))
+        assert load_agent_config("agent").name == base.name
+
+    saved = load_agent_config("agent")
+    assert saved.name == "New"
+    assert saved.description == "original"
+    assert (
+        saved.running.shell_command_timeout
+        == base.running.shell_command_timeout
+    )
 
 
 def test_concurrent_agent_mutations_retain_both_changes(isolated_agent):

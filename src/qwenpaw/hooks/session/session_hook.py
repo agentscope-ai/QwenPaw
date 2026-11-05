@@ -13,7 +13,6 @@ import logging
 
 from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
-from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
 from ...runtime.console_turn_state import (
     prepare_console_regeneration,
@@ -27,18 +26,6 @@ from .signals import SESSION_SAVE_SUCCEEDED_KEY
 logger = logging.getLogger(__name__)
 
 
-def _is_ephemeral_request(ctx: HookContext) -> bool:
-    request = ctx.request
-    request_context = getattr(request, "request_context", None)
-    if isinstance(request_context, dict):
-        value = request_context.get(ACP_EPHEMERAL_META_KEY)
-        if value is True:
-            return True
-        if isinstance(value, str) and value.lower() in {"1", "true", "yes"}:
-            return True
-    return False
-
-
 class SessionLoadHook(LifecycleHook):
     """Load persisted session state before agent construction."""
 
@@ -47,9 +34,9 @@ class SessionLoadHook(LifecycleHook):
     priority = 10
 
     async def run(self, ctx: HookContext) -> HookResult:
-        if _is_ephemeral_request(ctx):
-            return HookResult()
         if ctx.workspace is None:
+            return HookResult()
+        if not ctx.workspace.config.session_persistence:
             return HookResult()
         session = getattr(ctx.workspace, "session", None)
         if session is None:
@@ -99,9 +86,9 @@ class SessionSaveHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
-        if _is_ephemeral_request(ctx):
-            return HookResult()
         if ctx.workspace is None or ctx.agent is None:
+            return HookResult()
+        if not ctx.workspace.config.session_persistence:
             return HookResult()
         session = getattr(ctx.workspace, "session", None)
         if session is None:

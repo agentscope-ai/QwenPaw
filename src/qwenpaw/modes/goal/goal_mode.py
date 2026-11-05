@@ -20,7 +20,6 @@ from agentscope.message import Msg, TextBlock
 
 from ..catalog import LoopModeInfo
 from ..base import AgentMode, find_active_explicit_mode
-from ...config.config import GoalLoopModeConfig
 from ...app.agent_context import (
     get_current_session_id,
 )
@@ -261,10 +260,6 @@ class GoalMode(AgentMode):
         super().setup(workspace)
 
         goal_config = workspace.config.running.loop.goal
-        overrides = getattr(workspace, f"mode_config_overrides", {})
-        goal_config = GoalLoopModeConfig.model_validate(
-            goal_config.model_dump() | overrides.get(self.name, {}),
-        )
         self._default_max_iterations = goal_config.max_iterations
         self.default_max_tokens = goal_config.max_tokens
 

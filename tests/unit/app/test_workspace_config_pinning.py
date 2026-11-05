@@ -27,6 +27,7 @@ from qwenpaw.config.config import (
     load_agent_config,
     save_agent_config,
 )
+from qwenpaw.config.overrides import agent_config_scope, apply_config_overrides
 
 
 @pytest.fixture
@@ -118,3 +119,21 @@ def test_unsaved_mutation_does_not_leak_into_other_instances(
 
     other = _pinned_workspace(isolated_agent)
     assert other.config.description == "original"
+
+
+def test_runtime_workspace_and_session_snapshots_stay_isolated(isolated_agent):
+    ws = _pinned_workspace(isolated_agent)
+    base = load_agent_config("agent")
+    ws._config = apply_config_overrides(base, {"description": "startup"})
+    session = apply_config_overrides(ws._config, {"description": "session"})
+    with agent_config_scope(session):
+        assert ws.config.description == "session"
+        ws.config.description = "unshared mutation"
+        assert ws.config.description == "session"
+    base.description = "external update"
+    save_agent_config("agent", base)
+    assert ws.config.description == "startup"
+    assert (
+        _pinned_workspace(isolated_agent).config.description
+        == "external update"
+    )

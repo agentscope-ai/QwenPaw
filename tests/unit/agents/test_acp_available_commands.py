@@ -15,6 +15,8 @@ import pytest
 
 from acp.schema import AllowedOutcome, RequestPermissionResponse
 
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.agents.acp.configuration import ACPConfiguration
 from qwenpaw.agents.acp.meta import ACP_APPROVAL_EXPIRES_AT_META_KEY
 from qwenpaw.agents.acp.server import (
     _EnvelopeTracker,
@@ -212,6 +214,10 @@ async def test_load_session_advertises_commands():
 
 async def test_new_session_reports_agent_id_in_meta():
     agent = QwenPawACPAgent(agent_id="my-agent")
+    agent._configuration = ACPConfiguration(
+        AgentProfileConfig(id="my-agent", name="Test"),
+        {},
+    )
     conn = _FakeConn()
     agent.on_connect(conn)
 
@@ -230,6 +236,10 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
                 yield None
 
     agent = QwenPawACPAgent(agent_id="my-agent")
+    agent._configuration = ACPConfiguration(
+        AgentProfileConfig(id="my-agent", name="Test"),
+        {},
+    )
     conn = _FakeConn()
     workspace = _FakeWorkspace()
     agent.on_connect(conn)

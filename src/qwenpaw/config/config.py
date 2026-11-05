@@ -37,6 +37,7 @@ from qwenpaw.exceptions import (
 )
 
 from .history_path import normalize_history_db_filename
+from .context import current_agent_config
 from .timezone import detect_system_timezone
 from .channel_normalizers import NORMALIZER_MARKER, strip_trailing_slash
 from ..constant import (
@@ -2477,6 +2478,7 @@ class AgentProfileConfig(BaseModel):
     """
 
     _source_digest: bytes | None = PrivateAttr(default=None)
+    _runtime_scoped: bool = PrivateAttr(default=False)
 
     def source_digest(self) -> bytes | None:
         """Return the content version captured when this model was loaded."""
@@ -2511,6 +2513,10 @@ class AgentProfileConfig(BaseModel):
     project_dirs: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Ordered default project directories, primary first.",
+    )
+    session_persistence: bool = Field(
+        default=True,
+        description="Load and save conversation runtime state between turns",
     )
     backend: str = Field(
         default="qwenpaw",
@@ -3751,7 +3757,16 @@ def migrate_agent_mail_credentials(
     return True
 
 
-def load_agent_config(  # pylint: disable=too-many-branches,too-many-statements
+def load_agent_config(agent_id: str) -> AgentProfileConfig:
+    """Read the current execution snapshot, or the persisted profile."""
+    scoped = current_agent_config.get()
+    if scoped is not None and scoped.id == agent_id:
+        return scoped.model_copy(deep=True)
+    return load_persisted_agent_config(agent_id)
+
+
+# pylint: disable-next=too-many-branches,too-many-statements
+def load_persisted_agent_config(
     agent_id: str,
 ) -> AgentProfileConfig:
     """Load an agent configuration with fingerprint-based caching.
@@ -3982,6 +3997,12 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
     Raises:
         ValueError: If agent ID not found in root config
     """
+    if agent_config._runtime_scoped:  # pylint: disable=protected-access
+        raise ValueError(
+            "Runtime configuration cannot be persisted; "
+            "use mutate_agent_config to update the saved profile",
+        )
+
     from .utils import (
         load_config,
         _agent_config_cache,
@@ -4099,7 +4120,7 @@ def mutate_agent_config(
     from .utils import _agent_config_lock
 
     with _agent_config_lock:
-        candidate = load_agent_config(agent_id)
+        candidate = load_persisted_agent_config(agent_id)
         mutator(candidate)
         save_agent_config(agent_id, candidate)
         return candidate.model_copy(deep=True)

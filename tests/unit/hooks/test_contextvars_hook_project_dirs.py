@@ -128,14 +128,14 @@ class TestTrustedRequestProjectDir:
         ctx = {"project_dir": 123}
         assert cvh._trusted_request_project_dir(ctx) is None
 
-    def test_acp_meta_key_takes_priority(self):
+    def test_acp_wire_metadata_is_normalized_before_runtime(self):
         from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 
         ctx = {
             ACP_PROJECT_DIR_META_KEY: "/acp/proj",
             "project_dir": "/other",
         }
-        assert cvh._trusted_request_project_dir(ctx) == "/acp/proj"
+        assert cvh._trusted_request_project_dir(ctx) == "/other"
 
 
 # ---------------------------------------------------------------------------

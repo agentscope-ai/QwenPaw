@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from ..config.overrides import agent_config_scope, apply_config_overrides
 from ..agents.tools.agent_management import MAX_SPAWN_BATCH_CONCURRENCY
 from ..modes.mission import MissionMode
 from ..schemas import AgentRequest
@@ -597,8 +597,6 @@ async def _run_phase(
                 "max_react_iterations": _iteration_budget(
                     asset.tool_budget - asset.tool_calls,
                 ),
-                ACP_EPHEMERAL_META_KEY: True,
-                "approval_level": "off",
                 "subagent_allowed_tools": list(tools),
                 "subagent_skills": [],
             },
@@ -607,9 +605,17 @@ async def _run_phase(
     binding = _RequestBinding(context, asset.asset_key, asyncio.Event())
     _ACTIVE_CONTEXTS[session_id] = binding
     activity = asyncio.Event()
-    task = asyncio.create_task(
-        _consume_query(workspace, request, activity.set),
+    config = apply_config_overrides(
+        workspace.config,
+        {
+            "session_persistence": False,
+            "approval_level": "OFF",
+        },
     )
+    with agent_config_scope(config):
+        task = asyncio.create_task(
+            _consume_query(workspace, request, activity.set),
+        )
     completed = asyncio.create_task(binding.completed.wait())
     loop = asyncio.get_running_loop()
     started_at = last_activity = loop.time()

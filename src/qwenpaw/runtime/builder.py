@@ -16,8 +16,6 @@ from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
-from ..agents.acp.meta import ACP_LOOP_META_KEY, ACP_PROJECT_DIR_META_KEY
-from ..config.session_loop import apply_session_loop
 from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
@@ -364,10 +362,6 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
-        if ACP_LOOP_META_KEY in request_context:
-            agent_config = apply_session_loop(
-                agent_config, request_context[ACP_LOOP_META_KEY],
-            )
         if request_context.get(f"coding_mode") is True:
             agent_config = agent_config.model_copy(deep=True)
             agent_config.coding_mode.enabled = True
@@ -836,8 +830,6 @@ class AgentBuilder:
         raw_project_dir = request_context.get("active_mode_project_dir")
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             raw_project_dir = request_context.get("project_dir")
-        if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
-            raw_project_dir = request_context.get(ACP_PROJECT_DIR_META_KEY)
         fork_raw = request_context.get("fork_project_dir")
         if not isinstance(raw_project_dir, str) or not raw_project_dir.strip():
             # spawn_subagent(fork=True) places the worktree here.
@@ -846,7 +838,7 @@ class AgentBuilder:
             return agent_config
 
         # When fork_project_dir is present, the final project directory MUST be
-        # the validated worktree — never fall through to an unchecked ACP path.
+        # the validated worktree, including when another path was requested.
         if isinstance(fork_raw, str) and fork_raw.strip():
             existing_pd = getattr(agent_config, "project_dir", None)
             workspace_hint = request_context.get("workspace_dir") or getattr(
