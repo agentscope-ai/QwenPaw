@@ -85,6 +85,7 @@ class AgentSummary(BaseModel):
     id: str
     name: str
     description: str
+    avatar: str | None = None
     workspace_dir: str
     enabled: bool
     pinned: bool
@@ -305,6 +306,7 @@ class CreateAgentRequest(BaseModel):
     id: str | None = None
     name: str
     description: str = ""
+    avatar: str | None = None
     workspace_dir: str | None = None
     language: str | None = None
     skill_names: list[str] | None = None
@@ -546,6 +548,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     id=agent_id,
                     name=agent_config.name,
                     description=description,
+                    avatar=agent_config.avatar,
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
                     pinned=pinned,
@@ -569,6 +572,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     id=agent_id,
                     name=agent_id.title(),
                     description="",
+                    avatar=None,
                     workspace_dir=agent_ref.workspace_dir,
                     enabled=enabled,
                     pinned=pinned,
@@ -904,6 +908,7 @@ async def create_agent(
         id=new_id,
         name=request.name,
         description=request.description,
+        avatar=request.avatar,
         workspace_dir=str(workspace_dir),
         backend=request.backend,
         backend_settings=request.backend_settings,
