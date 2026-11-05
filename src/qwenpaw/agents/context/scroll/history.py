@@ -199,6 +199,26 @@ def _validate_history_schema(conn: sqlite3.Connection) -> int:
     return version
 
 
+def _strip_windows_extended_prefix(value: str) -> str:
+    """Drop a Windows extended-length prefix from a path string.
+
+    ``Path.resolve()`` and some configuration sources hand back ``\\\\?\\``
+    (or ``\\\\?\\UNC\\``) prefixed paths on Windows. They address the same
+    file but cannot be embedded in a SQLite URI.
+    """
+    if value.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + value[8:]
+    if value.startswith("\\\\?\\"):
+        return value[4:]
+    return value
+
+
+def _sqlite_uri(path: Path, mode: str) -> str:
+    """Build a SQLite ``file:`` URI for an existing filesystem path."""
+    text = _strip_windows_extended_prefix(str(path))
+    return Path(text).as_uri() + "?mode=" + mode
+
+
 def validate_history_database(
     db_path: str | Path,
     *,
@@ -214,7 +234,7 @@ def validate_history_database(
     if not path.is_file():
         raise FileNotFoundError(path)
     conn = sqlite3.connect(
-        path.as_uri() + "?mode=ro",
+        _sqlite_uri(path, "ro"),
         uri=True,
         timeout=_BUSY_TIMEOUT_MS / 1000,
     )
@@ -256,7 +276,7 @@ def backup_history_database(
     target.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(
-        source_path.as_uri() + "?mode=ro",
+        _sqlite_uri(source_path, "ro"),
         uri=True,
         timeout=_BUSY_TIMEOUT_MS / 1000,
     )
@@ -358,8 +378,7 @@ class HistoryStore:
     def _open(self, *, initialize: bool) -> None:
         # Maintenance opens an existing schema without creating or upgrading it.
         self._conn = sqlite3.connect(
-            self._path.resolve().as_uri()
-            + ("?mode=rwc" if initialize else "?mode=rw"),
+            _sqlite_uri(self._path.resolve(), "rwc" if initialize else "rw"),
             uri=True,
             check_same_thread=False,
             timeout=_BUSY_TIMEOUT_MS / 1000,
