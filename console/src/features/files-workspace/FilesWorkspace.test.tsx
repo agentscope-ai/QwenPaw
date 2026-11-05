@@ -809,7 +809,7 @@ describe("FilesWorkspace directory changes", () => {
     expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
   });
 
-  it("refreshes confirmed directories without closing project tabs", () => {
+  it("refreshes confirmed directories without remounting the editor", () => {
     const scope = {
       kind: "session" as const,
       agentId: "agent-a",
@@ -822,6 +822,16 @@ describe("FilesWorkspace directory changes", () => {
 
     expect(lifecycle.clearProjectTabs).not.toHaveBeenCalled();
     expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(2);
+    expect(lifecycle.editorUnmounted).not.toHaveBeenCalled();
+    expect(lifecycle.editorMounted).toHaveBeenCalledTimes(1);
+
+    act(() => notifyProjectDirectoryChanged(scope));
+
+    expect(lifecycle.clearProjectTabs).toHaveBeenCalledWith(
+      "session:agent-a:session-a",
+    );
+    expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(3);
+    expect(lifecycle.editorUnmounted).toHaveBeenCalledTimes(1);
     expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
   });
 

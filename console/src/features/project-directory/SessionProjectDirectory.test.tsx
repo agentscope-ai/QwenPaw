@@ -877,6 +877,105 @@ describe("SessionProjectDirectory session scope direct path input (#7588)", () =
   const getPathInput = async () =>
     screen.findByPlaceholderText("projectDirectory.pathPlaceholder");
 
+  it.each(["remove", "make primary", "add"])(
+    "keeps an unsaved %s when the first message confirms directories",
+    async (edit) => {
+      setPendingProjectDirectory("default", "sess-1", boundDirs);
+      const user = userEvent.setup();
+      renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+      await openSessionPanel(user);
+
+      let paths: string[];
+      if (edit === "remove") {
+        await user.click(
+          screen.getAllByRole("button", { name: "projectDirectory.remove" })[1],
+        );
+        paths = ["/projects/alpha"];
+      } else if (edit === "make primary") {
+        await user.click(
+          screen.getByRole("button", { name: "projectDirectory.makePrimary" }),
+        );
+        paths = ["/projects/beta", "/projects/alpha"];
+      } else {
+        await user.type(await getPathInput(), "/projects/custom");
+        await user.click(
+          screen.getByRole("button", { name: "projectDirectory.add" }),
+        );
+        paths = ["/projects/alpha", "/projects/beta", "/projects/custom"];
+      }
+
+      await act(async () => {
+        setPendingProjectDirectory("default", "sess-1", null);
+        notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+      });
+      await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+      await waitFor(() => {
+        expect(mockSetProjectDirs).toHaveBeenCalledWith(
+          "chat-1",
+          paths.map((path) => ({ path, label: null })),
+        );
+      });
+    },
+  );
+
+  it("keeps edits made while directory confirmation is loading", async () => {
+    setPendingProjectDirectory("default", "sess-1", boundDirs);
+    let confirm!: (value: unknown) => void;
+    mockGetProjectDirs.mockReturnValueOnce(
+      new Promise((resolve) => {
+        confirm = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+    await openSessionPanel(user);
+
+    act(() => {
+      setPendingProjectDirectory("default", "sess-1", null);
+      notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+    });
+    await user.click(
+      screen.getAllByRole("button", { name: "projectDirectory.remove" })[1],
+    );
+    await act(async () => {
+      confirm({
+        project_dirs: boundDirs,
+        source: "session",
+        agent_project_dir: null,
+      });
+    });
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetProjectDirs).toHaveBeenCalledWith("chat-1", [
+        { path: "/projects/alpha", label: null },
+      ]);
+    });
+  });
+
+  it("refreshes an unedited open panel with confirmed directory details", async () => {
+    setPendingProjectDirectory("default", "sess-1", boundDirs);
+    mockGetProjectDirs.mockResolvedValue({
+      project_dirs: [{ ...boundDirs[0], label: "Confirmed project" }],
+      source: "session",
+      agent_project_dir: null,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<SessionProjectDirectory scope={sessionScope} />);
+    await openSessionPanel(user);
+
+    await act(async () => {
+      setPendingProjectDirectory("default", "sess-1", null);
+      notifyProjectDirectoryChanged(sessionScope, { preserveTabs: true });
+    });
+
+    expect(await screen.findByText("Confirmed project")).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "projectDirectory.remove" }),
+    ).toHaveLength(1);
+  });
+
   it("replaces a pending selection when another directory is saved", async () => {
     setPendingProjectDirectory("default", "sess-1", [
       { path: "/projects/custom", label: null },
