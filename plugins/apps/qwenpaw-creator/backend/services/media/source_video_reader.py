@@ -422,6 +422,79 @@ class SourceVideoReaderService:
                 ),
             )
 
+    async def cancel_for_asset(
+        self,
+        project_id: str,
+        *,
+        logical_asset_id: str | None = None,
+        version_id: str | None = None,
+    ) -> int:
+        """Cancel live frame-read workers that are reading one source asset.
+
+        Settling the durable Task is not enough: the worker would finish the
+        extraction and persist frames for media that has just been deleted, so
+        the deletion has to revoke the coroutine itself. Same convergence as
+        ``drain`` (detach, cancel, await, terminalize), but the Task settles
+        CANCELLED because a human removed the asset.
+
+        Returns how many live workers were revoked.
+        """
+
+        if logical_asset_id is None and version_id is None:
+            return 0
+        workers: dict[str, asyncio.Task[None]] = {}
+        specs: dict[str, SourceVideoReadJob] = {}
+        for task_id, job in list(self._job_specs.items()):
+            if job.project_id != project_id:
+                continue
+            if (
+                job.logical_asset_id != logical_asset_id
+                and job.version_id != version_id
+            ):
+                continue
+            worker = self._jobs.get(task_id)
+            if worker is None or worker.done():
+                continue
+            workers[task_id] = worker
+            specs[task_id] = job
+        if not workers:
+            return 0
+        for task_id in workers:
+            self._jobs.pop(task_id, None)
+            self._job_specs.pop(task_id, None)
+        for worker in workers.values():
+            worker.cancel()
+        await asyncio.gather(*workers.values(), return_exceptions=True)
+        for job in specs.values():
+            await asyncio.to_thread(self._cancel_terminalize_sync, job)
+        return len(specs)
+
+    def _cancel_terminalize_sync(self, job: SourceVideoReadJob) -> None:
+        """Settle one revoked video read Task as CANCELLED (best effort).
+
+        ``_drive`` re-raises CancelledError without touching the record, so the
+        cancellation has to be persisted here or the Task would stay RUNNING
+        forever with nobody left to finish it.
+        """
+
+        try:
+            self.executions.transition_task(
+                job.project_id,
+                job.task_id,
+                expected_status={TaskStatus.QUEUED, TaskStatus.RUNNING},
+                status=TaskStatus.CANCELLED,
+                updates={
+                    "error": {
+                        "code": "SOURCE_ASSET_DELETED",
+                        "message": "Source asset was deleted",
+                    },
+                },
+            )
+        except (ExecutionStateConflict, RecordNotFoundError):
+            # Already terminal elsewhere, or its record left with the deleted
+            # Project: nothing remains to disarm.
+            pass
+
     def _admit_sync(  # pylint: disable=too-many-arguments
         self,
         project_id: str,

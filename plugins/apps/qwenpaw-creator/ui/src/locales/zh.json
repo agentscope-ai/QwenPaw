@@ -599,6 +599,7 @@
     "linkSubmitted": "链接已提交入库",
     "textSubmitted": "文本素材已提交入库",
     "uploadSuccess": "素材已提交，入库完成后会自动出现在这里",
+    "uploadReused": "{{name}} 与已有素材内容相同，已复用原素材，未重复保存",
     "uploadFailed": "上传失败",
     "addFailed": "添加失败",
     "projectReadError": "Project 无法读取",
@@ -651,7 +652,37 @@
     "viewFullImage": "放大查看图片",
     "currentVersion": "当前采用",
     "audioSample": "音频样本",
-    "currentPrompt": "当前生成提示词"
+    "currentPrompt": "当前生成提示词",
+    "deleteTooltip": "删除素材",
+    "deleteConfirmTitle": "确认删除素材",
+    "deleteConfirmContent": "确定要删除素材「{{name}}」吗？删除后无法恢复。",
+    "deleteConfirmOk": "删除",
+    "deleteSuccess": "素材已删除",
+    "deleteFailed": "删除失败",
+    "deleteInUseTitle": "素材正被时间线引用",
+    "deleteInUseContent": "确认删除后，以下引用会被解除，相关镜头需要重新准备该输入：",
+    "deleteInUseItem": "{{timeline}} · {{element}} · {{refKind}}",
+    "deleteInUseSnapshotHint": "历史快照中的引用也会一并解除，该快照将无法再恢复这张素材。",
+    "deleteInUseOk": "仍要删除",
+    "deleteInUseBlockedTitle": "请先删除相关时间线元素",
+    "deleteInUseBlockedContent": "以下元素必须持有这张素材，无法自动解除引用，请先在时间线上删除它们：",
+    "deleteInUseBlockedItem": "{{timeline}} · {{element}}（{{reason}}）",
+    "blockedReason": {
+      "audio": "音轨元素的源素材不可为空",
+      "edit": "剪辑元素的源片段引用不可为空",
+      "overlay": "无文字贴片的全部内容就是这份素材",
+      "default": "该元素的引用不可自动解除"
+    },
+    "refKind": {
+      "i2vFirstFrame": "首帧",
+      "s2vPortrait": "数字人形象",
+      "s2vDriveAudio": "驱动音频",
+      "r2vStoryboardRef": "分镜参考",
+      "r2vVideoRef": "视频参考",
+      "overlayRef": "叠加素材",
+      "renderSource": "渲染源",
+      "audioSource": "音轨源素材"
+    }
   },
   "plan": {
     "creativeBrief": "创作总纲",

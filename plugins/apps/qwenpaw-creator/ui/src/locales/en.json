@@ -599,6 +599,7 @@
     "linkSubmitted": "Link submitted",
     "textSubmitted": "Text asset submitted",
     "uploadSuccess": "Asset submitted, will appear after ingestion",
+    "uploadReused": "{{name}} has the same content as an existing asset, so that asset was reused instead of storing a second copy",
     "uploadFailed": "Upload failed",
     "addFailed": "Add failed",
     "projectReadError": "Project cannot be read",
@@ -651,7 +652,37 @@
     "viewFullImage": "Enlarge image",
     "currentVersion": "In use",
     "audioSample": "Audio sample",
-    "currentPrompt": "Current generation prompt"
+    "currentPrompt": "Current generation prompt",
+    "deleteTooltip": "Delete asset",
+    "deleteConfirmTitle": "Confirm delete asset",
+    "deleteConfirmContent": "Are you sure you want to delete asset \"{{name}}\"? This cannot be undone.",
+    "deleteConfirmOk": "Delete",
+    "deleteSuccess": "Asset deleted",
+    "deleteFailed": "Delete failed",
+    "deleteInUseTitle": "Asset is still used by the timeline",
+    "deleteInUseContent": "Deleting it clears these references; the shots listed below will need a new input:",
+    "deleteInUseItem": "{{timeline}} · {{element}} · {{refKind}}",
+    "deleteInUseSnapshotHint": "References stored in history snapshots are cleared too, so that snapshot can no longer restore this asset.",
+    "deleteInUseOk": "Delete anyway",
+    "deleteInUseBlockedTitle": "Delete the timeline element first",
+    "deleteInUseBlockedContent": "These elements must keep this asset, so its reference cannot be cleared automatically. Delete them on the timeline first:",
+    "deleteInUseBlockedItem": "{{timeline}} · {{element}} ({{reason}})",
+    "blockedReason": {
+      "audio": "an audio element cannot be left without its source asset",
+      "edit": "an edit element cannot be left without its source clip",
+      "overlay": "a text-free sticker is nothing but this asset",
+      "default": "this element's reference cannot be cleared automatically"
+    },
+    "refKind": {
+      "i2vFirstFrame": "first frame",
+      "s2vPortrait": "digital-human portrait",
+      "s2vDriveAudio": "drive audio",
+      "r2vStoryboardRef": "storyboard reference",
+      "r2vVideoRef": "video reference",
+      "overlayRef": "overlay asset",
+      "renderSource": "render source",
+      "audioSource": "audio source asset"
+    }
   },
   "plan": {
     "creativeBrief": "Creative Brief",

@@ -18,6 +18,10 @@ export interface AssetIngestAccepted {
     | "QUARANTINED";
   progress?: number | null;
   assetVersionId?: string | null;
+  /** True when these exact bytes were already in the Project and got reused. */
+  reused?: boolean;
+  /** Name of the stored Asset the reused bytes landed on, when reused. */
+  reusedName?: string | null;
   result?: Record<string, unknown> | null;
   error?: Record<string, unknown> | null;
 }

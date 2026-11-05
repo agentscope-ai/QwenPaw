@@ -321,3 +321,105 @@ def test_startup_gc_sweeps_legacy_locks_but_spares_project_assets(tmp_path):
 
     assert all(path.exists() for path in assets)
     assert not any(path.exists() for path in legacy)
+
+
+def test_detach_clears_intelligence_pointer_when_selected_version_deleted(
+    tmp_path,
+):
+    """Regression for deep-CR finding on commit c939b4c39.
+
+    Deleting a source version that owns an intelligence version must clear the
+    source's `current_intelligence_version_id` in the SAME batch the intel
+    version is removed. If the pointer is left dangling, the write path
+    re-validates the graph and raises instead of completing (a 500 on the
+    "delete an analysed source asset" path).
+    """
+    from services.project_files.models import (
+        IndexedFile,
+        ProjectSource,
+        SourceAssetVersion,
+        SourceIntelligenceVersion,
+    )
+
+    now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
+
+    def _file(file_id: str, kind: str) -> IndexedFile:
+        return IndexedFile(
+            file_id=file_id,
+            kind=kind,
+            relative_uri=f"assets/{file_id}.bin",
+            sha256="0" * 64,
+            size_bytes=1,
+            media_type="application/octet-stream",
+            created_at=now,
+        )
+
+    checksum = "1" * 64
+    v1 = SourceAssetVersion(
+        version_id="v1",
+        logical_asset_id="L1",
+        name="a",
+        file_id="F1",
+        checksum=checksum,
+        media_kind="image",
+        media_type="image/png",
+        created_at=now,
+    )
+    v2 = SourceAssetVersion(
+        version_id="v2",
+        logical_asset_id="L1",
+        name="a2",
+        file_id="F2",
+        checksum="2" * 64,
+        media_kind="image",
+        media_type="image/png",
+        created_at=now,
+    )
+    iv1 = SourceIntelligenceVersion(
+        intelligence_version_id="iv1",
+        source_asset_version_id="v1",
+        file_id="F3",
+        source_checksum=checksum,
+        created_at=now,
+    )
+    s1 = ProjectSource(
+        source_id="s1",
+        display_name="S",
+        logical_asset_id="L1",
+        selected_asset_version_id="v1",
+        current_intelligence_version_id="iv1",
+    )
+
+    project = _project("project-detach")
+    assets = project.assets.model_copy(
+        update={
+            "files_by_id": {
+                "F1": _file("F1", "source_original"),
+                "F2": _file("F2", "source_original"),
+                "F3": _file("F3", "source_intelligence"),
+            },
+            "source_versions_by_id": {"v1": v1, "v2": v2},
+            "intelligence_versions_by_id": {"iv1": iv1},
+        },
+    )
+    sources = project.sources.model_copy(
+        update={
+            "sources": project.sources.sources.model_copy(
+                update={"items": {"s1": s1}, "order": ["s1"]},
+            ),
+        },
+    )
+    project = project.model_copy(update={"assets": assets, "sources": sources})
+
+    detached = ProjectStore(tmp_path.resolve())._detach_source_version_refs(
+        project,
+        "v1",
+    )
+
+    survivor = detached.sources.sources.items["s1"]
+    # Re-pointed to the surviving sibling version...
+    assert survivor.selected_asset_version_id == "v2"
+    # ...and the pointer into the removed intelligence version is cleared
+    # (the old code left this as "iv1", dangling at write time).
+    assert survivor.current_intelligence_version_id is None
+    assert "iv1" not in detached.assets.intelligence_versions_by_id
