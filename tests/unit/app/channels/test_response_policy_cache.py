@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.agents.tools.agent_management import _json_safe_channel_meta
 from qwenpaw.app.channels.isolated_proxy import IsolatedChannelProxy
 from qwenpaw.channel_protocol.response_policy import ResponsePolicy
 
@@ -65,12 +66,15 @@ async def test_send_parts_survives_serialized_policy_cache() -> None:
         return "ok"
 
     proxy._send_operation = _send_operation
-    meta = {
-        "_response_policy": [
-            "route-1",
-            "ResponsePolicy(streaming=False, prepare=False)",
-        ],
-    }
+    meta = _json_safe_channel_meta(
+        {
+            "_response_policy": (
+                "route-1",
+                ResponsePolicy(streaming=False, prepare=False),
+            ),
+        },
+    )
+    assert meta == {"_response_policy": ["route-1"]}
 
     result = await proxy._send_parts_owned(
         "handle",
@@ -94,7 +98,9 @@ async def test_send_parts_survives_serialized_policy_cache() -> None:
         ("other-route", ResponsePolicy(prepare=True)),
     ],
 )
-async def test_response_policy_ignores_serialized_or_stale_cache(cached) -> None:
+async def test_response_policy_ignores_serialized_or_stale_cache(
+    cached,
+) -> None:
     process = _Process()
     proxy = _proxy(process)
     meta = {"_response_policy": cached}
