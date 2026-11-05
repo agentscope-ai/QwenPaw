@@ -1681,7 +1681,7 @@
     "fieldWebSocketHost": "Хост WebSocket",
     "fieldWebSocketPort": "Порт WebSocket",
     "matrixUserHelp": "Полный MXID (например, @bot:matrix.org) или локальное имя (bot).",
-    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element) и установите пакет: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "После включения подтвердите устройство в Matrix (например, Element).",
     "matrixDeviceHelp": "Постоянное имя устройства Matrix. По умолчанию: qwenpaw-worker.",
     "messageTypeHelp": "markdown: обычные сообщения; card: интерактивная карточка ИИ.",
     "scheduledMessageTypeHelp": "Тип сообщений задач по расписанию, независимо от формата чата.",
@@ -4757,6 +4757,27 @@
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
     "marketSortFavorites": "Most favorited"
+  },
+  "approvalNotifications": {
+    "settingTitle": "Уведомления о подтверждениях на компьютере",
+    "openApprovals": "Показать ожидающие подтверждения",
+    "description": "Получайте системное уведомление о новом подтверждении, когда QwenPaw работает в фоне.",
+    "title": "QwenPaw · Требуется подтверждение",
+    "body": "{{tool}} ожидает вашего подтверждения. Откройте QwenPaw, чтобы проверить запрос.",
+    "failed": "Не удалось отправить уведомление. Проверьте настройки уведомлений.",
+    "permission": {
+      "default": "При включении потребуется разрешение",
+      "granted": "Разрешение браузера получено",
+      "denied": "Заблокировано — разрешите уведомления в настройках сайта",
+      "native": "Управляется системными настройками уведомлений",
+      "checking": "Проверка разрешения на уведомления",
+      "unavailable": "Не удалось проверить системное разрешение на уведомления. Перезапустите приложение.",
+      "nativeDefault": "При включении потребуется системное разрешение",
+      "nativeGranted": "Системное разрешение на уведомления получено",
+      "nativeDenied": "Заблокировано — разрешите QwenPaw в системных настройках уведомлений",
+      "unsupported": "Этот браузер не поддерживает уведомления на рабочем столе",
+      "insecure": "Откройте приложение через HTTPS или localhost, чтобы включить уведомления"
+    }
   },
   "inbox": {
     "title": "Ежедневный AI-сбор",

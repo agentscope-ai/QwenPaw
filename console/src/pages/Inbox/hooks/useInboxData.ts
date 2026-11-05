@@ -164,7 +164,7 @@ const getChannelName = (event: InboxEvent, t: TFunction): string => {
   }
 };
 
-const mapEventToPushMessage = (
+export const mapEventToPushMessage = (
   event: InboxEvent,
   resolveAgentName: (agentId: string) => string,
   t: TFunction,

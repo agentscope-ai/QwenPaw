@@ -1341,6 +1341,27 @@
       "copyBackend": "Sao chép nhật ký"
     }
   },
+  "approvalNotifications": {
+    "settingTitle": "Thông báo phê duyệt trên desktop",
+    "openApprovals": "Xem các phê duyệt đang chờ",
+    "description": "Nhận thông báo hệ thống khi có yêu cầu phê duyệt trong lúc QwenPaw chạy ở chế độ nền.",
+    "title": "QwenPaw · Cần phê duyệt",
+    "body": "{{tool}} đang chờ bạn phê duyệt. Mở QwenPaw để xem xét.",
+    "failed": "Không thể gửi thông báo. Hãy kiểm tra cài đặt thông báo.",
+    "permission": {
+      "default": "Cần cấp quyền khi bật",
+      "granted": "Đã được trình duyệt cấp quyền",
+      "denied": "Đã chặn — hãy cho phép thông báo trong cài đặt trang web của trình duyệt",
+      "native": "Được quản lý bởi cài đặt thông báo của hệ thống",
+      "checking": "Đang kiểm tra quyền thông báo",
+      "unavailable": "Không thể kiểm tra quyền thông báo hệ thống. Hãy mở lại ứng dụng desktop.",
+      "nativeDefault": "Cần cấp quyền hệ thống khi bật",
+      "nativeGranted": "Đã được cấp quyền thông báo hệ thống",
+      "nativeDenied": "Đã chặn — hãy cho phép QwenPaw trong cài đặt thông báo hệ thống",
+      "unsupported": "Trình duyệt này không hỗ trợ thông báo desktop",
+      "insecure": "Mở qua HTTPS hoặc localhost để bật thông báo"
+    }
+  },
   "inbox": {
     "title": "Hộp thư",
     "tabApprovals": "Phê duyệt",
@@ -3563,7 +3584,7 @@
     "fieldWebSocketHost": "Máy chủ WebSocket",
     "fieldWebSocketPort": "Cổng WebSocket",
     "matrixUserHelp": "Nhập MXID đầy đủ (như @bot:matrix.org) hoặc tên cục bộ (bot).",
-    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element) và cài: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element).",
     "matrixDeviceHelp": "Tên thiết bị Matrix cố định. Mặc định: qwenpaw-worker.",
     "messageTypeHelp": "markdown: tin nhắn thường; card: thẻ AI tương tác.",
     "scheduledMessageTypeHelp": "Loại tin nhắn theo lịch, độc lập với định dạng trò chuyện.",

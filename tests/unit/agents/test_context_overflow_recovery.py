@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,unused-argument
-"""Tests for one-shot recovery from context and request body overflow."""
+"""Tests for bounded recovery from context and request body overflow."""
 
 import base64
 import json
@@ -143,7 +143,7 @@ async def test_context_overflow_forces_scroll_rebuilds_and_retries_once(
 
 
 @pytest.mark.asyncio
-async def test_context_overflow_retries_only_once(monkeypatch):
+async def test_context_overflow_retries_at_most_twice(monkeypatch):
     calls = 0
 
     async def fake_call_model(self, messages, tools, tool_choice=None):
@@ -160,9 +160,42 @@ async def test_context_overflow_retries_only_once(monkeypatch):
     with pytest.raises(_ContextOverflowError, match="context length"):
         await agent._call_model(messages=["old"], tools=[])
 
-    assert calls == 2
-    assert len(scroll.calls) == 1
-    agent._prepare_model_input.assert_awaited_once()
+    assert calls == 3
+    assert len(scroll.calls) == 2
+    assert agent._prepare_model_input.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_context_overflow_recovers_from_invocation_then_stream(
+    monkeypatch,
+):
+    calls = 0
+    message = (
+        "The input (265309 tokens) is longer than the model's context "
+        "length (262144 tokens)."
+    )
+
+    async def fake_call_model(self, messages, tools, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _ContextOverflowError(message)
+
+        async def stream():
+            if calls == 2:
+                raise _ContextOverflowError(message)
+            yield SimpleNamespace(content=[TextBlock(text="recovered")])
+
+        return stream()
+
+    monkeypatch.setattr(Agent, "_call_model", fake_call_model)
+    manager = _ScrollManager(["compacted"])
+    agent = _agent(context_manager=manager)
+    stream = await agent._call_model(messages=["old"], tools=[])
+    chunks = [chunk async for chunk in stream]
+    assert chunks[-1].content[0].text == "recovered"
+    assert calls == 3
+    assert len(manager.calls) == 2
 
 
 @pytest.mark.asyncio

@@ -27,6 +27,7 @@ from urllib.parse import unquote, urlparse
 
 
 import aiohttp
+from qwenpaw.app.channels.utils import split_text
 from qwenpaw.config.utils import get_config_path
 from qwenpaw.constant import DEFAULT_MEDIA_DIR
 from qwenpaw.exceptions import ChannelError
@@ -71,6 +72,32 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# DingTalk markdown is capped near 5000 chars. 3500 matches the
+# historical safe budget; longer bodies are split below that so each
+# piece still sends as markdown (GFM tables stay renderable).
+_MARKDOWN_SAFE_LEN = 3500
+_MARKDOWN_CHUNK_LEN = 3000
+
+
+def _markdown_chunks(text: str) -> List[str]:
+    """Split oversized DingTalk markdown into renderable chunks.
+
+    Bodies within the markdown-safe budget are returned unchanged.
+    Longer bodies go through ``split_text`` so GFM tables repeat their
+    header on every chunk instead of the message dropping to plain text.
+    """
+    if len(text) <= _MARKDOWN_SAFE_LEN:
+        return [text]
+    chunks = split_text(text, max_len=_MARKDOWN_CHUNK_LEN)
+    if not chunks:
+        return [text]
+    logger.info(
+        "dingtalk markdown split: text_len=%s chunks=%s",
+        len(text),
+        len(chunks),
+    )
+    return chunks
 
 
 class DingTalkTransport(DingTalkPlatform):
@@ -458,13 +485,13 @@ class DingTalkTransport(DingTalkPlatform):
         at_user_ids: Optional[List[str]] = None,
         at_dingtalk_ids: Optional[List[str]] = None,
     ) -> bool:
-        """Send one text message via DingTalk sessionWebhook. Returns True
-        on success.
+        """Send text via DingTalk sessionWebhook. Returns True on success.
 
         When ``at_user_ids`` or ``at_dingtalk_ids`` is provided, the
-        ``at`` field is added to the webhook payload so that the
-        mentioned users receive a push notification.  The @mention text
-        is also prepended to the message body (DingTalk requires both).
+        ``at`` field is added so mentioned users get a push notification.
+        The @mention text is also prepended to the message body (DingTalk
+        requires both). Oversized bodies are split and each chunk is sent
+        as markdown; ``at`` is attached only to the first chunk.
         """
         text = (bot_prefix + "  " + body) if body else bot_prefix
 
@@ -481,28 +508,24 @@ class DingTalkTransport(DingTalkPlatform):
                 mentions.extend(f"@{did}" for did in at_dingtalk_ids)
             text = " ".join(mentions) + "\n" + text
 
-        if len(text) > 3500:
+        for index, chunk in enumerate(_markdown_chunks(text)):
+            norm = dingtalk_markdown.normalize_dingtalk_markdown(chunk)
             payload: Dict[str, Any] = {
-                "msgtype": "text",
-                "text": {"content": text},
-            }
-        else:
-            norm = dingtalk_markdown.normalize_dingtalk_markdown(text)
-            payload = {
                 "msgtype": "markdown",
                 "markdown": {
                     "title": f"💬{norm[:10]}...",
                     "text": norm,
                 },
             }
-
-        if at_payload:
-            payload["at"] = at_payload
-
-        return await self._send_payload_via_session_webhook(
-            session_webhook,
-            payload,
-        )
+            if index == 0 and at_payload:
+                payload["at"] = at_payload
+            sent = await self._send_payload_via_session_webhook(
+                session_webhook,
+                payload,
+            )
+            if not sent:
+                return False
+        return True
 
     async def _send_via_open_api(
         self,
@@ -518,6 +541,9 @@ class DingTalkTransport(DingTalkPlatform):
         Uses robot_1_0 SDK:
         - org_group_send for groups
         - batch_send_oto for DMs
+
+        Oversized bodies are split and each chunk is sent as
+        ``sampleMarkdown`` (not ``sampleText``).
         """
         text = (bot_prefix + "  " + body) if body else bot_prefix
         is_group = conversation_type == "group"
@@ -531,24 +557,22 @@ class DingTalkTransport(DingTalkPlatform):
             len(text),
         )
 
-        if len(text) > 3500:
-            msg_key = "sampleText"
-            msg_param = json.dumps({"content": text})
-        else:
-            norm = dingtalk_markdown.normalize_dingtalk_markdown(text)
-            msg_key = "sampleMarkdown"
+        for chunk in _markdown_chunks(text):
+            norm = dingtalk_markdown.normalize_dingtalk_markdown(chunk)
             msg_param = json.dumps(
                 {"title": f"💬{norm[:10]}...", "text": norm},
             )
-
-        return await self._send_robot_message(
-            msg_key=msg_key,
-            msg_param=msg_param,
-            conversation_id=conversation_id,
-            is_group=is_group,
-            sender_staff_id=sender_staff_id,
-            caller="_send_via_open_api",
-        )
+            sent = await self._send_robot_message(
+                msg_key="sampleMarkdown",
+                msg_param=msg_param,
+                conversation_id=conversation_id,
+                is_group=is_group,
+                sender_staff_id=sender_staff_id,
+                caller="_send_via_open_api",
+            )
+            if not sent:
+                return False
+        return True
 
     async def _try_open_api_fallback(
         self,

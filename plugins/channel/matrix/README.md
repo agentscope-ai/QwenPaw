@@ -13,27 +13,22 @@ device ID and the server's returned device ID takes precedence. The retained
 model defaults are `enabled=False`, `vision_enabled=True`; legacy raw inputs
 that omit them still use `enabled=True`, `vision_enabled=False`.
 
-## Dependencies and optional encryption
+## Dependencies and encryption
 
-`requirements.txt` is the single mandatory dependency list. Ordinary Matrix
-requires `matrix-nio>=0.25.0` and `httpx>=0.27.0`; Markdown HTML uses
-`markdown-it-py` and `linkify-it-py`, with escaped plain HTML fallback.
+`requirements.txt` is the single mandatory dependency list. Matrix requires
+matrix-nio 0.26 with its E2EE dependencies and `httpx>=0.27.0`; Markdown HTML
+uses `markdown-it-py` and `linkify-it-py`, with escaped plain HTML fallback.
 
-E2EE is an explicit optional installation in the selected shared interpreter:
+The E2EE dependencies, including vodozemac, are installed by default with the
+Matrix plugin and the `channels`/`full` Python extras. The Matrix `encryption`
+configuration still defaults to `false`; enabling it requires no additional
+package installation.
 
-```sh
-python -m pip install 'matrix-nio[e2e]>=0.25.0'
-```
-
-Configure the optional encryption dependencies for the matrix-nio version in the
-selected interpreter. Native availability differs by OS and Python version;
-ordinary Matrix installation does not force this extra on every OS. Startup
-checks the real `nio.crypto.ENCRYPTION_ENABLED`
-flag. As in the old implementation, a missing backend logs an error and sets
-`encryption=False`; a missing usable device identity can also disable E2EE.
-This migration does not introduce a new policy that forbids plaintext fallback.
-An initial key upload rejection prevents a connected startup. Maintenance,
-room-state encryption checks and the previous warning behavior remain.
+If an upgraded or damaged runtime lacks the required backend, startup logs an
+error and sets `encryption=False`, preserving the existing plaintext fallback.
+A missing usable device identity can also disable E2EE. An initial key upload
+rejection prevents a connected startup. Maintenance, room-state encryption
+checks and the previous warning behavior remain.
 Live encrypted-peer interoperability is not claimed by migration acceptance.
 
 ## Authentication and state
