@@ -34,7 +34,7 @@ async def load_reranker_config(agent_id: str) -> RerankerConfig | None:
             config is not None
             and config.enabled
             and config.model_name
-            and bool(config.api_key and config.api_key.strip())
+            and config.api_key.strip()
         ):
             return config
     except Exception:
@@ -51,7 +51,7 @@ async def call_reranker_api(
     if not config.base_url:
         logger.warning("[rerank] base_url not configured")
         return None
-    if not config.api_key or not config.api_key.strip():
+    if not config.api_key.strip():
         logger.warning("[rerank] api_key not configured")
         return None
     if not query or not documents:
