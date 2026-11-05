@@ -26,8 +26,6 @@ dependencies = [
     "questionary>=2.1.1",
     "mss>=9.0.0",
     "reme-ai==0.4.2.2",
-    # ReMe's MCP integration must use the MCP 2.x-compatible FastMCP line.
-    "fastmcp>=4.1.4",
     "reme-auto-fin==0.1.3",
     "reme-daily-paper==0.1.3",
     "transformers>=4.30.0",
