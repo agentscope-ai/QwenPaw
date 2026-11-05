@@ -2332,6 +2332,7 @@
       "internal": "由 QwenPaw 内部管理。"
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Shell 进程树内存保护：0 关闭，auto 使用可用内存的一半（最高 4096 MiB），或填写正整数 MiB 上限。指定上限也不超过可用内存的一半。修改从下一次 Shell 调用生效，运行中的命令保持原限制。轮询保护不等同于系统硬内存限制。",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "等待首个有效流式内容的最长时间；设为 0 可关闭检测。",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "两个有效流式内容之间的最长等待时间；设为 0 可关闭检测。"
     },
