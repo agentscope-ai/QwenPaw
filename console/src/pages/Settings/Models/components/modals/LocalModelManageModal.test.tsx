@@ -320,6 +320,76 @@ describe("LocalModelManageModal", () => {
     setupDefaultMocks();
   });
 
+  it("disables model startup during an inference engine update", async () => {
+    vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue({
+      ...mockLlamacppProgress,
+      status: "downloading",
+    });
+    renderModal();
+    expect(await screen.findByText("models.localStartServer")).toBeDisabled();
+    expect(api.startLocalServer).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "uses ModelScope repository IDs for downloaded=%s models",
+    async (downloaded) => {
+      const hf: LocalModelInfo = {
+        ...mockModels[0],
+        id: "agentscope-ai/Piccolo-4B-Q8_0",
+        name: "Piccolo-4B-Q8_0",
+        model_type: "decision",
+        downloaded,
+      };
+      const ms: LocalModelInfo = {
+        ...hf,
+        id: "AgentScope/Piccolo-4B-Q8_0",
+        source: "modelscope",
+      };
+      vi.mocked(api.listRecommendedLocalModels).mockResolvedValue([hf, ms]);
+      renderModal();
+      expect(
+        await screen.findByText(hf.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(ms.id, { exact: false }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("radio", { name: "ModelScope" }).closest("label")!,
+      );
+      expect(
+        await screen.findByText(ms.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(hf.id, { exact: false }),
+      ).not.toBeInTheDocument();
+      const decisions = screen.getByRole("region", {
+        name: "models.localDecisionModelsTitle",
+      });
+      await userEvent.click(
+        within(decisions).getByText(
+          downloaded ? "models.localStartServer" : "common.download",
+        ),
+      );
+      if (downloaded) {
+        expect(api.startLocalServer).toHaveBeenCalledWith({ model_id: ms.id });
+      } else {
+        expect(api.startLocalModelDownload).toHaveBeenCalledWith(
+          ms.id,
+          "modelscope",
+        );
+      }
+      await userEvent.click(
+        screen.getByRole("radio", { name: "Hugging Face" }).closest("label")!,
+      );
+      expect(
+        await screen.findByText(hf.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(ms.id, { exact: false }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it.each(["Q8_0", "BF16"])(
     "keeps %s decision models in their native controls",
     async (precision) => {

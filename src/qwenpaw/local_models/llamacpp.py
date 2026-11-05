@@ -4,6 +4,7 @@ from __future__ import annotations
 import atexit
 import asyncio
 import logging
+import hashlib
 import multiprocessing as mp
 import shutil
 import socket
@@ -27,6 +28,12 @@ from .download_manager import (
     DownloadTaskStatus,
     ProcessDownloadController,
     ProcessDownloadTaskSpec,
+)
+from .runtime_release import (
+    RELEASE,
+    matches_release,
+    read_runtime_metadata,
+    validate_runtime_bundle,
 )
 from ..utils.command_runner import (
     CommandExecutionError,
@@ -136,6 +143,12 @@ class LlamaCppBackend:
         """Check if there is a newer version of llama.cpp available."""
         if not self.check_llamacpp_installation()[0]:
             return False
+        if latest_version == RELEASE["release"]:
+            metadata = read_runtime_metadata(self.target_dir)
+            return not (
+                matches_release(metadata)
+                and metadata.get("target") == self._runtime_target()
+            )
         try:
             return int(latest_version[1:]) > int(
                 (await self.get_version()),
@@ -202,6 +215,8 @@ class LlamaCppBackend:
                     "chunk_size": chunk_size,
                     "timeout": timeout,
                     "headers": self._download_headers,
+                    "release": tag if tag == RELEASE["release"] else None,
+                    "target": self._runtime_target(),
                 },
                 finalize_result=lambda result: self._finalize_download_result(
                     result,
@@ -230,6 +245,11 @@ class LlamaCppBackend:
             max_context_length: Optional context window passed to llama.cpp
             port: Optional fixed server port. None means auto select.
         """
+        if self._is_download_active():
+            raise RuntimeError(
+                "Wait for the inference engine update to finish before "
+                "starting a model.",
+            )
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
@@ -460,7 +480,7 @@ class LlamaCppBackend:
             raise RuntimeError(
                 "Piccolo requires a llama.cpp runtime with Piccolo SystemOne "
                 "and bidirectional prompt attention support. "
-                "See docs/local-piccolo.md for the compatible runtime.",
+                "Update the inference engine in Models > QwenPaw Local.",
             )
 
     async def shutdown_server(self) -> None:
@@ -557,9 +577,9 @@ class LlamaCppBackend:
         return ModelInfo(
             id=model_name,
             name=model_name,
-            model_type="decision"
-            if model_name in PICCOLO_REPO_IDS
-            else "chat",
+            model_type=(
+                "decision" if model_name in PICCOLO_REPO_IDS else "chat"
+            ),
             supports_multimodal=supports_multimodal,
             # TODO: add more detailed capability flags
             supports_image=supports_multimodal,
@@ -577,12 +597,20 @@ class LlamaCppBackend:
         if result.status != DownloadTaskStatus.COMPLETED:
             return result, None
 
+        backup_dir = final_dir.with_name(
+            f".llamacpp-backup-{uuid.uuid4().hex}",
+        )
         try:
-            if final_dir.exists():
-                shutil.rmtree(final_dir)
             final_dir.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(staging_dir), str(final_dir))
-        except (OSError, shutil.Error) as exc:
+            if final_dir.exists():
+                final_dir.rename(backup_dir)
+            try:
+                staging_dir.rename(final_dir)
+            except OSError:
+                if backup_dir.exists():
+                    backup_dir.rename(final_dir)
+                raise
+        except OSError as exc:
             logger.warning(
                 "Failed to finalize llama.cpp download from %s to %s: %s",
                 staging_dir,
@@ -599,6 +627,9 @@ class LlamaCppBackend:
                 ),
                 None,
             )
+
+        # A successful swap is complete even if old-file cleanup is delayed.
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
         return (
             DownloadTaskResult(
@@ -626,6 +657,23 @@ class LlamaCppBackend:
                 follow_redirects=True,
                 timeout=timeout,
             ) as client:
+                expected = None
+                if payload.get("release"):
+                    manifest_url = (
+                        url.rsplit("/", 1)[0] + "/runtime-release.json"
+                    )
+                    manifest_response = client.get(
+                        manifest_url,
+                        headers=headers,
+                    )
+                    manifest_response.raise_for_status()
+                    manifest = manifest_response.json()
+                    if not matches_release(manifest):
+                        raise ValueError(
+                            "Runtime release is not ready for installation.",
+                        )
+                    expected = manifest["artifacts"][file_name]
+                digest = hashlib.sha256()
                 with client.stream(
                     "GET",
                     url,
@@ -647,6 +695,7 @@ class LlamaCppBackend:
                             if not chunk:
                                 continue
                             file_obj.write(chunk)
+                            digest.update(chunk)
                             downloaded += len(chunk)
                             queue.put(
                                 DownloadProgressUpdate(
@@ -655,12 +704,19 @@ class LlamaCppBackend:
                                     source=url,
                                 ).to_message(),
                             )
+                if expected and (
+                    downloaded != expected["size"]
+                    or digest.hexdigest() != expected["sha256"]
+                ):
+                    raise ValueError("Runtime download checksum mismatch.")
 
             LlamaCppBackend._extract_archive(
                 temp_path,
                 staging_dir,
             )
             temp_path.unlink(missing_ok=True)
+            if payload.get("release"):
+                validate_runtime_bundle(staging_dir, payload["target"])
             queue.put(
                 DownloadTaskResult(
                     status=DownloadTaskStatus.COMPLETED,
@@ -984,3 +1040,13 @@ class LlamaCppBackend:
             return f"llama-{tag}-bin-win-cpu-{self.arch}.zip"
 
         raise RuntimeError(f"Unsupported OS: {self.os_name}")
+
+    def _runtime_target(self) -> str:
+        filename = self._build_filename("runtime")
+        return (
+            filename.removeprefix("llama-runtime-bin-")
+            .removesuffix(
+                ".tar.gz",
+            )
+            .removesuffix(".zip")
+        )
