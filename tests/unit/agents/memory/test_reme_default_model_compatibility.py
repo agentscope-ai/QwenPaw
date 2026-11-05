@@ -17,6 +17,7 @@ from qwenpaw.exceptions import ConfigurationException, ProviderError
 from qwenpaw.providers.fallback_chat_model import FallbackChatModel
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.plugin_provider_registry import PluginProviderRegistry
 from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 
@@ -128,6 +129,77 @@ async def test_combined_memory_fallback_preserves_policy_and_metadata(
     )
 
 
+@pytest.mark.parametrize("provider_id", ["ollama", "OLLAMA"])
+@pytest.mark.parametrize("with_fallback", [False, True])
+@pytest.mark.parametrize("output", ["response", "stream", "structured"])
+async def test_equivalent_memory_primary_preserves_auth_failure_policy(
+    monkeypatch,
+    local_models,
+    make_memory_model_manager,
+    provider_id,
+    with_fallback,
+    output,
+):
+    from qwenpaw.providers.openai_chat_model_compat import (
+        OpenAIChatModelCompat,
+    )
+
+    class AuthError(Exception):
+        status_code = 401
+
+    calls = []
+
+    async def call(model, *args, **kwargs):
+        calls.append(model.model)
+        if model.model == "agent":
+            raise AuthError("Invalid API key")
+        return StructuredResponse(content={"answer": "unexpected fallback"})
+
+    monkeypatch.setattr(OpenAIChatModelCompat, "__call__", call)
+    monkeypatch.setattr(
+        OpenAIChatModelCompat,
+        "generate_structured_output",
+        call,
+    )
+    profile = AgentProfileConfig.model_validate(
+        {
+            "id": "equivalent-primary",
+            "name": "Equivalent primary",
+            "active_model": {"provider_id": "ollama", "model": "agent"},
+            "fallback_policy": {"enabled": True, "target_scope": "configured"},
+            "fallback_models": (
+                [{"provider_id": "ollama", "model": "vision-fallback"}]
+                if with_fallback
+                else []
+            ),
+            "running": {
+                "llm_retry_enabled": False,
+                "reme_light_memory_config": {
+                    "memory_model": {
+                        "provider_id": provider_id,
+                        "model": "agent",
+                    },
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=profile),
+    )
+    manager = make_memory_model_manager(profile.id)
+    model = await manager._update_qwenpaw_model()
+    invoke = (
+        model.generate_structured_output if output == "structured" else model
+    )
+    with pytest.raises(AuthError):
+        response = await invoke(messages=[], tools=[])
+        if output == "stream":
+            _ = [chunk async for chunk in response]
+    assert calls == ["agent"]
+
+
 @pytest.fixture(name="local_models")
 def fixture_local_models(monkeypatch):
     """Real local model construction, without live model-service requests."""
@@ -146,13 +218,16 @@ def fixture_local_models(monkeypatch):
             )
         ],
     )
-    providers = SimpleNamespace(
-        active_model=ModelSlotConfig(provider_id="ollama", model="global"),
-        get_provider=lambda provider_id: (
-            provider if provider_id == "ollama" else None
-        ),
+    providers = ProviderManager.__new__(ProviderManager)
+    providers.default_models = {}
+    providers.active_model = ModelSlotConfig(
+        provider_id="ollama",
+        model="global",
     )
-    providers.get_active_model = lambda: providers.active_model
+    providers.builtin_providers = {"ollama": provider}
+    providers.custom_providers = {}
+    providers.plugin_providers = {}
+    providers._plugin_registry = PluginProviderRegistry(providers)
     monkeypatch.setattr(ProviderManager, "_instance", providers)
     return providers
 

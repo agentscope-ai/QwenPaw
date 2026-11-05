@@ -639,7 +639,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             else:
                 from ..prompt import get_model_supports_image
 
-                if main_model is None or (
+                if main_model is not None and get_model_identity(
+                    memory_model,
+                ) == get_model_identity(main_model):
+                    # Provider aliases/case can resolve to the same primary.
+                    # Reuse its original chain and fallback-trigger policy.
+                    model = main_model
+                elif main_model is None or (
                     require_image_support
                     and await run_sync_io(
                         get_model_supports_image,

@@ -267,8 +267,8 @@ async def test_dedicated_model_receives_shared_factory_settings(model_setup):
     """Verify factory wiring once, separately from slot normalization."""
     slot = ModelSlotConfig(provider_id="dashscope", model="memory")
     config = _agent_config(memory_model=slot)
-    main_model, memory_model = SimpleNamespace(name="main"), SimpleNamespace(
-        name="memory",
+    main_model, memory_model = SimpleNamespace(model="main"), SimpleNamespace(
+        model="memory",
     )
     factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
     manager = model_setup(agent_config=config, factory=factory)
@@ -392,8 +392,8 @@ async def test_image_jobs_exclude_unsafe_main_model_fallback(
     model_setup,
 ):
     """Only confirmed image-capable main models can receive memory images."""
-    main_model = SimpleNamespace(name="main")
-    memory_model = SimpleNamespace(name="memory")
+    main_model = SimpleNamespace(model="main")
+    memory_model = SimpleNamespace(model="memory")
     factory = AsyncMock(side_effect=[(main_model, None), (memory_model, None)])
     manager = model_setup(
         memory_model=ModelSlotConfig(provider_id="custom", model="vision"),
