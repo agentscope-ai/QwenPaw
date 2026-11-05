@@ -356,8 +356,17 @@ class OllamaProvider(OpenAIProvider):
             payload = response.json()
         except Exception:
             return {}
+        # Malformed /api/ps must not abort enrichment: return {} so
+        # /api/show probes can still attach a valid num_ctx.
+        if not isinstance(payload, dict):
+            return {}
+        models = payload.get("models")
+        if models is None:
+            models = []
+        if not isinstance(models, (list, tuple)):
+            return {}
         result: dict[str, int] = {}
-        for row in payload.get("models") or []:
+        for row in models:
             if not isinstance(row, dict):
                 continue
             raw = row.get("context_length")
