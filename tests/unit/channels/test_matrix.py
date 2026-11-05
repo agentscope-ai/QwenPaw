@@ -260,6 +260,32 @@ async def test_password_precedes_token_and_server_identity_is_persisted(
 
 
 @pytest.mark.asyncio
+async def test_legacy_identity_mismatch_does_not_block_valid_token(
+    platform_factory,
+):
+    platform = platform_factory()
+    legacy = Path(platform.config["legacy_state_dir"])
+    legacy.mkdir(parents=True)
+    old_auth = {
+        "access_token": "old-test-token",
+        "user_id": "@old-bot:example.com",
+        "device_id": "OLD-DEVICE",
+    }
+    (legacy / "matrix_auth_state.json").write_text(json.dumps(old_auth))
+    (legacy / "matrix_sync_token").write_text("old-batch")
+    await platform.start()
+    assert platform.observed_states == ["connected"]
+    assert platform._state.owner["user_id"] == BOT
+    assert (
+        json.loads(
+            (legacy / "matrix_auth_state.json").read_text(),
+        )
+        == old_auth
+    )
+    assert (legacy / "matrix_sync_token").read_text() == "old-batch"
+
+
+@pytest.mark.asyncio
 async def test_missing_e2ee_dependency_keeps_plaintext_fallback(
     platform_factory,
     monkeypatch,
@@ -355,19 +381,22 @@ def test_scoped_crypto_filenames_migrate_legacy_names(
         )
 
     state.begin()
+    target_crypto = state.root / scope / "crypto_store"
     try:
         state.bind(
             BOT,
             "SERVER-DEVICE",
-            legacy_verified=use_legacy,
             encryption_enabled=True,
         )
-        assert state.crypto_dir == crypto
+        assert state.crypto_dir == target_crypto
         assert state.database_name == f"{scope}.db"
         for index, suffix in enumerate(suffixes):
             legacy_path = crypto / f"{BOT}_SERVER-DEVICE{suffix}"
-            safe_path = crypto / f"{scope}{suffix}"
-            assert not legacy_path.exists()
+            safe_path = target_crypto / f"{scope}{suffix}"
+            if use_legacy:
+                assert legacy_path.read_bytes() == f"state-{index}".encode()
+            else:
+                assert not legacy_path.exists()
             assert safe_path.read_bytes() == f"state-{index}".encode()
     finally:
         state.close()

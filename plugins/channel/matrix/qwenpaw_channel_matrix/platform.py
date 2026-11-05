@@ -422,62 +422,12 @@ class MatrixPlatform:
         except Exception as exc:
             logger.warning("Matrix auth hint could not be read: %s", exc)
 
-    async def _bind_authenticated_state(self, whoami=None):
+    async def _bind_authenticated_state(self):
         user_id = self._user_id or ""
         device_id = self._client.device_id or ""
-        verified = False
-        if self._state.has_legacy_state():
-            hint = self._state.legacy_auth() or {}
-            if (
-                hint.get("user_id") != user_id
-                or hint.get("device_id", "") != device_id
-            ):
-                raise RuntimeError("MATRIX_LEGACY_IDENTITY_CONFLICT")
-            expected_owner = {
-                "homeserver": self.homeserver,
-                "user_id": user_id,
-                "device_id": device_id,
-                "workspace_dir": str(self._workspace_dir),
-            }
-            owner = self._state.legacy_owner()
-            if owner is not None:
-                if owner != expected_owner:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_CONFLICT")
-                verified = True
-            elif self._state.has_legacy_authorization:
-                verified = self._state.captured_legacy_verified(
-                    user_id,
-                    device_id,
-                )
-                if not verified:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
-            else:
-                # The old JSON has no homeserver. Only a token the user has
-                # explicitly provided for THIS server may be checked here.
-                # Never transmit an unrelated cached token to a new server.
-                explicit_token = self.config.get("access_token") or ""
-                if not explicit_token or explicit_token != hint.get(
-                    "access_token",
-                ):
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
-                if whoami is None:
-                    current_token = self._client.access_token
-                    try:
-                        self._client.access_token = explicit_token
-                        whoami = await self._client.whoami()
-                    finally:
-                        self._client.access_token = current_token
-                verified = (
-                    isinstance(whoami, WhoamiResponse)
-                    and whoami.user_id == user_id
-                    and whoami.device_id == device_id
-                )
-                if not verified:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
         self._state.bind(
             user_id,
             device_id,
-            legacy_verified=verified,
             encryption_enabled=self.encryption,
         )
         if self.encryption:
@@ -804,7 +754,7 @@ class MatrixPlatform:
             self._user_id,
             whoami.device_id,
         )
-        await self._bind_authenticated_state(whoami)
+        await self._bind_authenticated_state()
         self._save_auth_state()
         if self.encryption and self._client.store_path:
             if self._client.device_id:
