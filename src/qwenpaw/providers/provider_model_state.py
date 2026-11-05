@@ -70,12 +70,12 @@ def _migrate_legacy_model_output_limit(
 def _coerce_loose_int(value: Any) -> int | None:
     """Return *value* as an int the way Pydantic would, else None.
 
-    Mirrors Pydantic's lax int parsing: real ints, integral floats and
-    numeric strings (``"100"``, ``"100.0"``) convert; bools, fractional
-    floats and non-numeric values do not.
+    Mirrors Pydantic's lax int parsing: real ints, bools (coerced to
+    0/1), integral floats and numeric strings (``"100"``, ``"100.0"``)
+    convert; fractional floats and non-numeric values do not.
     """
     if isinstance(value, bool):
-        return None
+        return int(value)
     if isinstance(value, int):
         return value
     if isinstance(value, float):
@@ -175,6 +175,26 @@ _MODEL_SCALAR_MINIMUMS = (
 )
 
 
+def _clear_max_input_length_override(model: dict[str, Any]) -> None:
+    """Clear the explicit-override markers for ``max_input_length``.
+
+    Mirrors the write path's clear operation: without this, a reset
+    ``max_input_length`` would still be treated as an explicit user
+    override (the configured flag and the ``config_overrides`` entries
+    survive in the snapshot) and take precedence over auto-detected
+    values.
+    """
+    if model.get("max_input_length_configured"):
+        model["max_input_length_configured"] = False
+    overrides = model.get("config_overrides")
+    if isinstance(overrides, list):
+        model["config_overrides"] = [
+            field
+            for field in overrides
+            if field not in {"max_input_length", "max_input_length_configured"}
+        ]
+
+
 def _migrate_legacy_model_scalars(model: dict[str, Any]) -> bool:
     """Reset persisted model scalars that violate their field bounds.
 
@@ -198,6 +218,7 @@ def _migrate_legacy_model_scalars(model: dict[str, Any]) -> bool:
         else:
             model.pop(field)
             outcome = "restoring the field default"
+            _clear_max_input_length_override(model)
         logger.warning(
             "Migrating legacy %s %r in a persisted provider config: %s.",
             field,

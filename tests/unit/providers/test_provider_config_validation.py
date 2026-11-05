@@ -292,3 +292,62 @@ def test_load_provider_survives_invalid_persisted_scalars():
     assert loaded is not None
     assert loaded.models[0].thinking_budget is None
     assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW
+
+
+def test_persisted_invalid_max_input_length_clears_configured_flag():
+    # Resetting the value is not enough on its own: the snapshot also
+    # carries the explicit-override markers (the configured flag and the
+    # config_overrides entries). Left in place, the restored default
+    # would still be treated as an explicit user override and take
+    # precedence over auto-detected values. The write path's clear
+    # operation removes exactly these markers; the migration mirrors it.
+    data = make_persisted_snapshot()
+    model = data["models"][0]
+    model["max_input_length"] = 500
+    model["max_input_length_configured"] = True
+    model["config_overrides"] = [
+        "max_input_length",
+        "max_input_length_configured",
+        "thinking_budget",
+    ]
+    assert migrate_provider_snapshot(data) is True
+    assert "max_input_length" not in model
+    assert model["max_input_length_configured"] is False
+    assert model["config_overrides"] == ["thinking_budget"]
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW
+    assert loaded.models[0].max_input_length_configured is False
+    assert loaded.models[0].config_overrides == ["thinking_budget"]
+
+
+def test_persisted_bool_thinking_budget_follows_pydantic_coercion():
+    # Pydantic coerces True to 1 for int fields, so a persisted True is
+    # a previously valid value (1 >= 1); the migration must not clear
+    # it as if it were a non-numeric legacy value.
+    data = make_persisted_snapshot()
+    data["models"][0]["thinking_budget"] = True
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget == 1
+
+
+def test_persisted_bool_range_is_preserved_on_load():
+    # Same alignment at both levels: [True, 1000] coerces to the valid
+    # range [1, 1000] under Pydantic and must survive migration.
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget_range"] = [True, 1000]
+    data["thinking_budget_range"] = [True, 1000]
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range == [1, 1000]
+    assert loaded.thinking_budget_range == [1, 1000]
+
+
+def test_persisted_false_thinking_budget_is_reset_on_load():
+    # False coerces to 0, which is below the ge=1 bound, so it is
+    # treated like any other out-of-bound legacy value and reset.
+    data = make_persisted_snapshot()
+    data["models"][0]["thinking_budget"] = False
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget is None
