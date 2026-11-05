@@ -1737,10 +1737,6 @@ class QwenPawAgent(Agent):
     # Stop Hook: loop continuation support
     # ------------------------------------------------------------------
 
-    def _get_stop_handlers(self) -> list:
-        """Use the handlers injected by this request's owning workspace."""
-        return list(self._stop_handlers)
-
     async def _run_stop_handlers(
         self,
         final_msg: Optional[Msg],
@@ -1748,9 +1744,8 @@ class QwenPawAgent(Agent):
         """Run registered stop handlers every iteration."""
         from ..loop.gates.runner import run_stop_handlers
 
-        handlers = self._get_stop_handlers()
         return await run_stop_handlers(
-            handlers,
+            list(self._stop_handlers),
             agent=self,
             final_msg=final_msg,
             iteration=self.state.cur_iter,

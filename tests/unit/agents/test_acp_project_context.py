@@ -200,6 +200,36 @@ async def test_acp_project_config_preserves_legacy_restore_contract(tmp_path):
         agent._sessions[session.session_id].config.project_dir == "old-client"
     )
 
+    temporary = await agent.new_session(
+        cwd="original",
+        **{
+            ACP_CONFIG_META_KEY: {
+                "project_dir": "temporary",
+                "session_persistence": False,
+            },
+        },
+    )
+    await agent.resume_session(
+        cwd="restored",
+        session_id=temporary.session_id,
+        **{ACP_CONFIG_META_KEY: {}},
+    )
+    reset = agent._sessions[temporary.session_id].config
+    assert reset.project_dir == "restored"
+    assert reset.session_persistence is True
+    legacy = await agent.new_session(
+        cwd="original",
+        **{ACP_PROJECT_DIR_META_KEY: "legacy", ACP_EPHEMERAL_META_KEY: True},
+    )
+    await agent.resume_session(
+        cwd="changed",
+        session_id=legacy.session_id,
+        **{ACP_CONFIG_META_KEY: {}},
+    )
+    retained = agent._sessions[legacy.session_id].config
+    assert retained.project_dir == "legacy"
+    assert retained.session_persistence is False
+
 
 async def test_acp_close_releases_only_its_session_gate_state(tmp_path):
     mode = DefaultMode()

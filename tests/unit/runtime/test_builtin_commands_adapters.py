@@ -21,7 +21,7 @@ from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 
 from qwenpaw.runtime import builtin_commands as bc
-from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.services.session_state import StateProxy
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
 

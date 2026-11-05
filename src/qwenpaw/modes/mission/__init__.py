@@ -76,12 +76,10 @@ class MissionMode(AgentMode):
 
     def hooks(self) -> list[HookBase]:
         from .hooks import (
-            MissionStateLoadHook,
             MissionStateSaveHook,
         )
 
         return [
-            MissionStateLoadHook(owner_mode=self),
             MissionStateSaveHook(owner_mode=self),
         ]
 

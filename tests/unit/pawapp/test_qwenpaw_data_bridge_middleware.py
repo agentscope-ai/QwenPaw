@@ -15,7 +15,7 @@ from agentscope.state import AgentState
 
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.hooks.session.session_hook import SessionSaveHook
-from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.services.session_state import StateProxy
 from qwenpaw.runtime.hooks import HookContext, HookRegistry
 from qwenpaw.runtime.phases import Phase
 

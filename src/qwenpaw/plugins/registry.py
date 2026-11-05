@@ -447,55 +447,6 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_manager
 
-    @classmethod
-    def get_stop_handlers(
-        cls,
-        agent_id: "str | None" = None,
-    ) -> list:
-        """Collect stop handlers.
-
-        Args:
-            agent_id: If provided, only return handlers
-                registered on that workspace. Otherwise
-                return handlers from all workspaces.
-
-        Returns:
-            List of StopHandlerRegistration objects.
-        """
-        inst = cls._instance
-        if inst is None:
-            return []
-        mgr = inst.get_workspace_manager()
-        workspaces = dict(
-            getattr(
-                mgr,
-                "agents",
-                getattr(mgr, "workspaces", {}),
-            ),
-        )
-        if agent_id is not None:
-            ws = workspaces.get(agent_id)
-            if ws is None:
-                return []
-            plugins = getattr(ws, "plugins", None)
-            if plugins is None:
-                return []
-            return list(
-                getattr(plugins, "stop_handlers", []),
-            )
-        handlers: list = []
-        for ws in workspaces.values():
-            plugins = getattr(ws, "plugins", None)
-            if plugins is None:
-                continue
-            ws_handlers = getattr(
-                plugins,
-                "stop_handlers",
-                [],
-            )
-            handlers.extend(ws_handlers)
-        return handlers
-
     def register_startup_hook(
         self,
         plugin_id: str,

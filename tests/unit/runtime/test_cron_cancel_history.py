@@ -17,7 +17,10 @@ from qwenpaw.hooks.cron.cron_hook import (
     CronMemoryIsolateHook,
     CronMemoryRestoreHook,
 )
-from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
+from qwenpaw.hooks.session.session_hook import (
+    SessionPrepareHook,
+    SessionSaveHook,
+)
 from qwenpaw.runtime.hooks import HookRegistry
 from qwenpaw.runtime.runtime import Runtime
 
@@ -63,7 +66,7 @@ async def test_runtime_keeps_old_history_on_disk(
     hooks = HookRegistry()
     for hook in [
         CronContextHook(),
-        SessionLoadHook(),
+        SessionPrepareHook(),
         CronMemoryIsolateHook(),
         CronMemoryRestoreHook(),
         SessionSaveHook(),

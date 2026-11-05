@@ -152,6 +152,8 @@ async def test_session_workspace_owns_and_releases_only_its_resources(
             )
 
     async def start(workspace):
+        if workspace.workspace_dir.name == "failed":
+            raise OSError("storage unavailable")
         workspace._config = load_agent_config(workspace.agent_id)
         await workspace._service_manager.start_all()
 
@@ -177,6 +179,28 @@ async def test_session_workspace_owns_and_releases_only_its_resources(
         "storage",
     ]
     assert a._service_manager.services["storage"].directory == tmp_path / "a"
+    failed = parameters.with_overrides(
+        {
+            "workspace_dir": str(tmp_path / "failed"),
+        },
+    )
+    with pytest.raises(OSError, match="storage unavailable"):
+        await root.for_session("a", failed)
+    assert root.session_workspace("a") is a
+    resources[2][1].stop.assert_not_awaited()
+    replacement = parameters.with_overrides(
+        {
+            "workspace_dir": str(tmp_path / "replacement"),
+        },
+    )
+    with pytest.raises(OSError, match="driver unavailable"):
+        async with root.configure_session("a", replacement) as candidate:
+            assert candidate is not a
+            assert root.session_workspace("a") is a
+            raise OSError("driver unavailable")
+    assert root.session_workspace("a") is a
+    resources[2][1].stop.assert_not_awaited()
+    resources[-1][1].stop.assert_awaited_once()
     await root.release_session("a")
     resources[2][1].stop.assert_awaited_once()
     resources[3][1].stop.assert_not_awaited()

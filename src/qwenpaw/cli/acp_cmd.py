@@ -19,7 +19,7 @@ from ..config.overrides import parse_config_overrides
     multiple=True,
     metavar="PATH=VALUE",
     help=(
-        "Override agent configuration for ACP sessions without saving. "
+        "Override session configuration without saving. "
         "Repeat for multiple paths; values accept JSON or plain strings."
     ),
 )

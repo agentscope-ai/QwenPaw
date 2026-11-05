@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MAX_ITERATIONS = 20
-
 
 class GoalTurnGate(LoopGate):
     """Goal-mode turn gate (outer loop).

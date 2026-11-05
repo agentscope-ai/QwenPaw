@@ -189,7 +189,7 @@ The previous pain points were hardcoded tools in the agent class and scattered p
 | **Model**         | `ProviderManager` + model factory                | LLM model + formatter                                                          |
 | **Middlewares**   | `ToolCoordinatorMiddleware` + plugin middlewares | Onion-model middleware                                                         |
 | **Governor**      | `ResourceGovernor`                               | Governance policy layer (sandbox, permissions)                                 |
-| **Session State** | `ctx.session_state` (from `SessionLoadHook`)     | Session state restoration                                                      |
+| **Session State** | `ctx.session_state` (loaded during core session preparation) | Session state restoration                                                      |
 
 Key improvement: **Tools are no longer hardcoded in the agent class.** They are obtained via the workspace's `list_tools()`, which internally uses `ToolRegistry` (tools registered via the `@tool_descriptor` decorator) to filter per-request based on active modes, skills, and features.
 
@@ -236,7 +236,7 @@ class HookBase:
     after: tuple[str, ...] = ()   # "run after these hooks"
 ```
 
-For example, `SessionLoadHook` declares `priority = 10` (executes earlier in `PRE_AGENT_BUILD`), while `MissionStateLoadHook` declares `after = ("session_load",)`, ensuring task state loads after session state.
+For example, a `PRE_AGENT_BUILD` hook that needs prepared conversation history can declare `after = ("session_prepare",)` to run after `SessionPrepareHook`.
 
 ### Built-in LifecycleHooks
 
@@ -246,7 +246,7 @@ The project currently includes the following built-in LifecycleHooks (many appea
 | -------------------------- | --------------- | -------- | ---------------------------------------------------------------- |
 | `ContextVarsSetupHook`     | PRE_DISPATCH    | 10       | Inject per-request ContextVars (workspace_dir, session_id, etc.) |
 | `CronContextHook`          | PRE_DISPATCH    | 5        | Mark cron-originated requests                                    |
-| `SessionLoadHook`          | PRE_AGENT_BUILD | 10       | Load session state from persistent storage                       |
+| `SessionPrepareHook`       | PRE_AGENT_BUILD | 10       | Prepare loaded history for regeneration and repair invalid media |
 | `MediaProcessHook`         | PRE_EXECUTE     | 5        | Process file/media blocks in input messages                      |
 | `CronMemoryIsolateHook`    | PRE_EXECUTE     | 10       | Snapshot and clear agent context (cron isolation)                |
 | `LangfuseTraceHook`        | PRE_EXECUTE     | 12       | Open Langfuse root trace span                                    |
@@ -500,16 +500,11 @@ Upon receiving the request, `Workspace` calls `Runtime.run()`, beginning the 8-p
 
 **Phase 1 + Fixed 1 — Request Normalization & Command Dispatch**
 
-LifecycleHooks inject per-request context variables (workspace_dir, session_id, etc.). Then `SlashCommandRegistry` attempts to match the user message — "First, help me check..." is not a slash command, so `skip_agent` remains `False`, continuing into the agent build flow.
+Core session preparation loads saved state and resolves the runtime configuration, including any project directories pinned by Mission. LifecycleHooks publish the resolved context variables (workspace_dir, session_id, etc.). Then `SlashCommandRegistry` attempts to match the user message — "First, help me check..." is not a slash command, so `skip_agent` remains `False`, continuing into the agent build flow.
 
-**Phase 3 · PRE_AGENT_BUILD — ModeGatedHook + Topological Sorting in Action**
+**Phase 3 · PRE_AGENT_BUILD — Prepare Conversation History**
 
-This demonstrates two core designs of the new architecture:
-
-- `SessionLoadHook` (LifecycleHook) loads session state and conversation history first
-- `MissionStateLoadHook` (**ModeGatedHook**, `after=("session_load",)`) then loads task state
-
-Key point: `MissionStateLoadHook` declares `after=("session_load",)`, and HookRegistry's **topological sorting** ensures it always executes after SessionLoadHook. Meanwhile, because it is a ModeGatedHook, it is **automatically skipped** when Mission Mode is inactive — developers need not write any if/else.
+`SessionPrepareHook` prepares the loaded history for message regeneration and repairs invalid media references. Saved mode state is already available in `ctx.mode_state`; Mission and the Builder consume the same resolved session configuration.
 
 **Fixed 2 · AgentBuilder — Three Registries Working Together**
 

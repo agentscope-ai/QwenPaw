@@ -45,7 +45,8 @@ def _apply_session(
     patch = deepcopy(dict(overrides))
     if (
         "active_model" in patch
-        and patch["active_model"] != values["active_model"]
+        and merge_overrides(values, patch)["active_model"]
+        != values["active_model"]
     ):
         values.update(thinking_level="inherit", thinking_budget=None)
     candidate = SessionConfig.model_validate(
@@ -86,12 +87,14 @@ class RuntimeParameters:
     profile: AgentProfileConfig
     defaults: dict[str, Any] = field(default_factory=dict)
     overrides: dict[str, Any] = field(default_factory=dict)
-    start_mode: bool = True
+    mode_defaults: dict[str, Any] = field(default_factory=dict)
+    restored_mode: str | None = None
     _config: AgentProfileConfig = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "profile", self.profile.model_copy(deep=True))
         object.__setattr__(self, "defaults", deepcopy(self.defaults))
+        object.__setattr__(self, "mode_defaults", deepcopy(self.mode_defaults))
         object.__setattr__(self, "overrides", deepcopy(self.overrides))
         object.__setattr__(
             self,
@@ -138,25 +141,24 @@ class RuntimeParameters:
     @property
     def base(self) -> AgentProfileConfig:
         """Return the agent and startup defaults without session overrides."""
-        return _apply_session(self.profile, self.defaults)
+        return _apply_session(
+            _apply_session(self.profile, self.mode_defaults),
+            self.defaults,
+        )
 
     @property
     def config(self) -> AgentProfileConfig:
         """Give consumers a detached, fully validated execution snapshot."""
         return self._config.model_copy(deep=True)
 
-    def with_overrides(self, values: Mapping, *, reset: bool = False) -> Self:
+    def with_overrides(self, values: Mapping) -> Self:
         """Replace the snapshot atomically after validating the new layer."""
         if not isinstance(values, Mapping):
             raise ValueError("Session configuration must be an object")
         return replace(
             self,
-            overrides=merge_overrides({} if reset else self.overrides, values),
+            overrides=merge_overrides(self.overrides, values),
         )
-
-    def with_defaults(self, values: Mapping) -> Self:
-        """Apply entry-point defaults below explicit session settings."""
-        return replace(self, defaults=merge_overrides(self.defaults, values))
 
     @contextmanager
     def scope(self) -> Iterator[None]:

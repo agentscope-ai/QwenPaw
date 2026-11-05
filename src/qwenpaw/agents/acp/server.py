@@ -1135,13 +1135,16 @@ class QwenPawACPAgent(Agent):
 
         workspace = await self._ensure_workspace()
         parameters = self._sessions[session_id]
-        workspace = await workspace.for_session(session_id, parameters)
-        driver_manager = getattr(workspace, "driver_manager", None)
-        if driver_manager is None:
-            raise RuntimeError(
-                "QwenPaw workspace has no DriverManager for ACP MCP",
-            )
-        await driver_manager.replace_transient_drivers(scope_id, cards)
+        async with workspace.configure_session(
+            session_id,
+            parameters,
+        ) as owner:
+            driver_manager = owner.driver_manager
+            if driver_manager is None:
+                raise RuntimeError(
+                    "QwenPaw workspace has no DriverManager for ACP MCP",
+                )
+            await driver_manager.replace_transient_drivers(scope_id, cards)
 
     async def _remove_session_mcp(self, session_id: str) -> None:
         """Remove transient MCP Drivers for one ACP session if initialized."""

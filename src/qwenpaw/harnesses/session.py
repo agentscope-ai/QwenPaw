@@ -11,7 +11,7 @@ from typing import Any
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
-from ..runtime._state_utils import StateProxy
+from ..services.session_state import StateProxy
 from ..schemas import AgentResponse, Message, MessageType
 from .events import HarnessHistoryItem, HarnessHistoryKind
 

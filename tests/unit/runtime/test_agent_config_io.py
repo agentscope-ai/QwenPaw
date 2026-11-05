@@ -67,6 +67,9 @@ async def test_runtime_resolves_config_once_in_worker_thread(
     ).scope():
         overridden, _ = await session_config.resolve_runtime_parameters(ctx)
     assert overridden.config.coding_mode.enabled is False
+    with parameters.with_overrides({"agent_mode": None}).scope():
+        reset, _ = await session_config.resolve_runtime_parameters(ctx)
+    assert reset.config.coding_mode.enabled is False
     ctx.agent_config = parameters.config
 
     with pytest.raises(
@@ -257,11 +260,10 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
         create_model_and_formatter,
     )
 
-    AgentBuilder.__new__(AgentBuilder).build_model(config, "provider:model")
+    AgentBuilder.__new__(AgentBuilder).build_model(config)
 
     assert captured == {
         "agent_id": "agent-1",
-        "model_slot_override": "provider:model",
         "agent_config": config,
     }
 

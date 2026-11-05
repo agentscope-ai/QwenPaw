@@ -20,6 +20,7 @@ from ..providers.model_selection import (
 from ..utils.io_utils import run_sync_io
 from .project_directory import agent_project_dirs_from_config
 from .session_thinking import apply_chat_model_settings, get_session_chat
+from .session_state import load_session_state
 
 if TYPE_CHECKING:
     from ..runtime.hooks import HookContext
@@ -76,6 +77,7 @@ async def resolve_runtime_parameters(ctx: HookContext):
     if overrides:
         parameters = parameters.with_overrides(overrides)
 
+    mode_defaults = {}
     if parameters.config.agent_mode is not None:
         from ..modes.catalog import resolve_mode_activation
 
@@ -83,11 +85,14 @@ async def resolve_runtime_parameters(ctx: HookContext):
             ctx.workspace,
             parameters.config.agent_mode,
         )
-        parameters = parameters.with_defaults(
-            merge_overrides(activation.config, parameters.defaults),
-        )
+        mode_defaults = activation.config
+    parameters = replace(parameters, mode_defaults=mode_defaults)
 
     config = parameters.config
+    ctx.session_state = await load_session_state(ctx, config)
+    saved_modes = (ctx.session_state or {}).get("mode_state")
+    if isinstance(saved_modes, dict):
+        ctx.mode_state = {**saved_modes, **getattr(ctx, "mode_state", {})}
     session_dirs = await _session_project_dirs(ctx)
     explicit = merge_overrides(parameters.defaults, parameters.overrides)
     if {"project_dir", "project_dirs"}.intersection(explicit):
@@ -185,10 +190,6 @@ def _resolve_turn_project_dirs(
                 session_project_dirs = _pending_project_dirs(request_context)
 
     mode_override = None
-    if request_context is not None:
-        active_project = request_context.get("active_mode_project_dir")
-        if isinstance(active_project, str) and active_project.strip():
-            mode_override = [active_project]
     if mission_loop_dir:
         from ..modes.mission.state import read_loop_config
 
@@ -213,7 +214,7 @@ def _resolve_turn_project_dirs(
         )
     except ValueError:
         logger.warning(
-            "contextvars_setup: could not resolve project dirs",
+            "Could not resolve session project directories",
             exc_info=True,
         )
         return None
@@ -234,7 +235,7 @@ def _resolve_turn_project_dirs(
             source,
         )
     logger.debug(
-        "contextvars_setup: project dirs resolved source=%s dirs=%s",
+        "Session project directories resolved source=%s dirs=%s",
         source,
         [str(entry.path) for entry in resolved.dirs],
     )

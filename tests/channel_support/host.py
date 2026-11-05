@@ -43,7 +43,7 @@ def session_path(ws, room, user="alice"):
 
 async def saved_texts(ws, room, user="alice"):
     from qwenpaw.app.chats.session import SafeJSONSession
-    from qwenpaw.runtime._state_utils import StateProxy
+    from qwenpaw.services.session_state import StateProxy
 
     proxy = StateProxy()
     await SafeJSONSession(
@@ -277,7 +277,7 @@ class Host:
         from qwenpaw.config.utils import load_config, save_config
         from qwenpaw.hooks.base import LifecycleHook
         from qwenpaw.hooks.session.session_hook import (
-            SessionLoadHook,
+            SessionPrepareHook,
             SessionSaveHook,
         )
         from qwenpaw.runtime.hooks import HookResult
@@ -365,7 +365,7 @@ class Host:
 
         await ws.channel_manager.stop_all()
         ws.plugins = WorkspacePlugins()
-        for hook in (SessionLoadHook(), SessionSaveHook(), Observe()):
+        for hook in (SessionPrepareHook(), SessionSaveHook(), Observe()):
             ws.plugins.hook_registry.register(hook)
         ws.session = SafeJSONSession(str(ws.workspace_dir / "sessions"))
         runtime = Runtime(workspace=ws, app_services=None)

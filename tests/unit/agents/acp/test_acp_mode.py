@@ -20,6 +20,7 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.modes.custom_loop import load_custom_loop_modes
 from qwenpaw.modes.goal import GoalMode
+from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.catalog import prepare_session_message
 
 from qwenpaw.agents.acp.server import QwenPawACPAgent
@@ -36,6 +37,7 @@ def _workspace(custom_modes=()):
         plugins=WorkspacePlugins(),
     )
     workspace.plugins.register_mode(GoalMode(), workspace)
+    workspace.plugins.register_mode(MissionMode(), workspace)
     load_custom_loop_modes(workspace)
     return workspace
 
@@ -71,8 +73,20 @@ async def test_restored_session_does_not_restart_mode(
     ):
         monkeypatch.setattr(agent, name, AsyncMock())
     await getattr(agent, method)(cwd=str(tmp_path), session_id=f"restored")
-    assert _prepare(agent, f"Continue", f"restored", _workspace()) == (
-        f"Continue"
+    workspace = _workspace()
+    assert _prepare(agent, "Continue", "restored", workspace) == "Continue"
+    parameters = agent._sessions["restored"]
+    agent._sessions["restored"] = parameters.with_overrides(
+        {"agent_mode": "mission"},
+    )
+    assert (
+        _prepare(agent, "Switch", "restored", workspace) == "/mission Switch"
+    )
+    agent._sessions["restored"] = parameters.with_overrides(
+        {"agent_mode": "goal"},
+    )
+    assert (
+        _prepare(agent, "New goal", "restored", workspace) == "/goal New goal"
     )
 
 
@@ -133,6 +147,7 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
     ctx = SimpleNamespace(
         session_id=f"custom-session",
         workspace=workspace,
+        mode_state={},
         input_msgs=[
             Msg(
                 name=f"user",

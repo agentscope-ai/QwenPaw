@@ -54,8 +54,12 @@ def prepare_session_message(ctx: Any, text: str) -> str:
     if started.get(ctx.session_id) == mode_id:
         return text
     activation = resolve_mode_activation(ctx.workspace, mode_id)
+    restored = (
+        ctx.session_id not in started
+        and mode_id == ctx.parameters.restored_mode
+    )
     started[ctx.session_id] = mode_id
-    if not ctx.parameters.start_mode:
+    if restored:
         return text
     return activation.prepare_message(text)
 
@@ -115,15 +119,3 @@ def _as_str_dict(value: Any) -> dict[str, str]:
         if text:
             result[str(key)] = text
     return result
-
-
-def resolve_loop_mode(workspace: Any, mode_id: str) -> LoopModeInfo:
-    """Resolve a selectable mode and verify its activation command exists."""
-    catalog, _ = build_loop_catalog(workspace)
-    mode = next((item for item in catalog if item.id == mode_id), None)
-    if mode is None:
-        available = ", ".join(item.id for item in catalog)
-        raise ValueError(
-            f"Unknown loop mode '{mode_id}'. Available: {available}",
-        )
-    return mode

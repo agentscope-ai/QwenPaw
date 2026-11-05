@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -195,6 +197,10 @@ class _FakeWorkspace:
 
     async def for_session(self, session_id, parameters):
         return self
+
+    @asynccontextmanager
+    async def configure_session(self, session_id, parameters):
+        yield self
 
     def session_workspace(self, session_id):
         return self

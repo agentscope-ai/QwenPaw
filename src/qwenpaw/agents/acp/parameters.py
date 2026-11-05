@@ -2,6 +2,7 @@
 """Decode ACP inputs into native session runtime parameters."""
 
 from dataclasses import dataclass, field, replace
+from collections.abc import Mapping
 from typing import Any, Self
 
 from ...config.overrides import merge_overrides
@@ -21,7 +22,7 @@ class ACPRuntimeParameters(RuntimeParameters):
     """Translate wire inputs without maintaining another config schema."""
 
     cwd: str = ""
-    supplied: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def mode(self) -> str:
@@ -42,57 +43,65 @@ class ACPRuntimeParameters(RuntimeParameters):
         restored: bool = False,
     ) -> Self:
         """Normalize legacy metadata before the common merge and validation."""
-        overrides = meta.get(
+        supplied = meta.get(
             ACP_CONFIG_META_KEY,
-            previous.supplied if previous else {},
+            previous.metadata.get(ACP_CONFIG_META_KEY, {}) if previous else {},
         )
-        if not isinstance(overrides, dict):
+        if not isinstance(supplied, dict):
             raise ValueError("Configuration overrides must be an object")
-        overrides = merge_overrides({}, overrides)
-        transport: dict[str, Any] = {}
+        metadata = {ACP_CONFIG_META_KEY: merge_overrides({}, supplied)}
         project_keys = {"project_dir", "project_dirs"}
-        has_project = bool(project_keys.intersection(overrides))
-        if (
-            resume
-            and previous
-            and not (ACP_CONFIG_META_KEY in meta and has_project)
-        ):
-            transport.update(
-                project_dir=previous.config.project_dir,
-                project_dirs=previous.config.project_dirs,
-            )
-        elif not has_project and not project_keys.intersection(self.defaults):
-            transport["project_dir"] = cwd
+        if resume and previous:
+            for key in (ACP_PROJECT_DIR_META_KEY, ACP_EPHEMERAL_META_KEY):
+                if key in previous.metadata:
+                    metadata[key] = previous.metadata[key]
+            if ACP_CONFIG_META_KEY in meta:
+                if project_keys.intersection(supplied):
+                    metadata.pop(ACP_PROJECT_DIR_META_KEY, None)
+                if "session_persistence" in supplied:
+                    metadata.pop(ACP_EPHEMERAL_META_KEY, None)
+
         explicit_project = meta.get(ACP_PROJECT_DIR_META_KEY)
         if isinstance(explicit_project, str) and explicit_project.strip():
-            transport["project_dir"] = explicit_project
-            transport.pop("project_dirs", None)
+            metadata[ACP_PROJECT_DIR_META_KEY] = explicit_project
         elif explicit_project is not None and not (resume and previous):
-            transport.pop("project_dir", None)
-
-        if resume and previous and "session_persistence" not in overrides:
-            transport[
-                "session_persistence"
-            ] = previous.config.session_persistence
+            metadata[ACP_PROJECT_DIR_META_KEY] = None
+        if (
+            ACP_PROJECT_DIR_META_KEY not in metadata
+            and not project_keys.intersection(supplied)
+            and not project_keys.intersection(self.defaults)
+        ):
+            metadata[ACP_PROJECT_DIR_META_KEY] = cwd
         if meta.get(ACP_EPHEMERAL_META_KEY) is True:
-            transport["session_persistence"] = False
+            metadata[ACP_EPHEMERAL_META_KEY] = True
 
-        merged = merge_overrides(overrides, transport)
+        transport: dict[str, Any] = {}
+        project = metadata.get(ACP_PROJECT_DIR_META_KEY)
+        if project is not None:
+            transport["project_dir"] = project
+        if metadata.get(ACP_EPHEMERAL_META_KEY) is True:
+            transport["session_persistence"] = False
+        overrides = merge_overrides(supplied, transport)
+        selected_mode = overrides.get("agent_mode", self.config.agent_mode)
         return replace(
             self,
             cwd=cwd,
-            supplied=overrides,
-            overrides=merged,
-            start_mode=not (resume or restored),
+            metadata=metadata,
+            overrides=overrides,
+            restored_mode=(
+                previous.config.agent_mode if previous else selected_mode
+            )
+            if resume or restored
+            else None,
         )
 
-    def with_overrides(self, values, *, reset: bool = False) -> Self:
+    def with_overrides(self, values: Mapping) -> Self:
         """Preserve standard ACP setters when a session is resumed."""
-        result = super().with_overrides(values, reset=reset)
-        return replace(
-            result,
-            supplied=merge_overrides({} if reset else self.supplied, values),
-        )
+        result = super().with_overrides(values)
+        supplied = self.metadata.get(ACP_CONFIG_META_KEY, {})
+        metadata = merge_overrides(self.metadata, {})
+        metadata[ACP_CONFIG_META_KEY] = merge_overrides(supplied, values)
+        return replace(result, metadata=metadata)
 
     def with_permission_mode(self, mode: str) -> Self:
         """Translate the permission selector to a session setting."""

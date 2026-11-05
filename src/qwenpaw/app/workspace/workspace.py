@@ -13,6 +13,7 @@ Request processing is handled by ``Runtime`` (see ``stream_query``).
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -460,7 +461,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         return self._session_workspaces.get(session_id, self)
 
     async def for_session(self, session_id: str, parameters: Any):
-        """Own resources whose workspace or mode definitions differ."""
+        """Return the configured resource owner for one session."""
+        async with self.configure_session(session_id, parameters) as owner:
+            return owner
+
+    @asynccontextmanager
+    async def configure_session(self, session_id: str, parameters: Any):
+        """Publish replacement resources only after preparation succeeds."""
         config = parameters.config
         directory = Path(
             config.workspace_dir or self.workspace_dir,
@@ -468,19 +475,23 @@ class Workspace:  # pylint: disable=too-many-public-methods
         current_modes = self._config.running.loop.custom_modes
         async with self._session_workspace_lock:
             existing = self._session_workspaces.get(session_id)
-            if existing is not None:
-                if (
-                    existing.workspace_dir == directory
-                    and existing._config.running.loop.custom_modes
-                    == config.running.loop.custom_modes
-                ):
-                    return existing
-                await self._release_session(session_id)
+            if existing is not None and (
+                existing.workspace_dir == directory
+                and existing._config.running.loop.custom_modes
+                == config.running.loop.custom_modes
+            ):
+                with parameters.scope():
+                    yield existing
+                return
             if (
                 directory == self.workspace_dir
                 and config.running.loop.custom_modes == current_modes
             ):
-                return self
+                with parameters.scope():
+                    yield self
+                if existing is not None:
+                    await self._release_session(session_id)
+                return
             with parameters.scope():
                 workspace = Workspace(
                     self.agent_id,
@@ -488,10 +499,15 @@ class Workspace:  # pylint: disable=too-many-public-methods
                     session_owned=True,
                 )
                 workspace.set_app_services(self._app_services)
-                workspace.bootstrap_plugins(**self._bootstrap_kwargs)
-                await workspace.start()
+                try:
+                    workspace.bootstrap_plugins(**self._bootstrap_kwargs)
+                    await workspace.start()
+                    yield workspace
+                    await self._release_session(session_id)
+                except BaseException:
+                    await run_async_to_completion(workspace.stop(final=True))
+                    raise
             self._session_workspaces[session_id] = workspace
-            return workspace
 
     async def release_session(self, session_id: str) -> None:
         """Release a session after any pending resource initialization."""

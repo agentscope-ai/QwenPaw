@@ -363,7 +363,7 @@ class Runtime:
                 )
 
             from ..hooks.cron.cron_hook import restore_cron_context
-            from ._state_utils import StateProxy
+            from ..services.session_state import StateProxy
 
             restore_cron_context(ctx)
             proxy = StateProxy()
