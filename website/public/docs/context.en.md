@@ -399,7 +399,7 @@ limits. Select an agent decision model in Model settings, or configure a global 
 The current implementation supports the TypeSafe decision provider.
 
 QwenPaw reuses its provider model factory, saved credentials and request headers, and lends the same
-decision model instance to ReMe. No separate ReMe API key is needed. Requires ReMe 0.4.2.0.
+decision model instance to ReMe. No separate ReMe API key is needed.
 
 Disabled by default, this enhancement supports both `scroll` and `native`, independently of long-term memory
 and the chat decision toggle. Automatic context compaction must be enabled. This pass runs only above the normal

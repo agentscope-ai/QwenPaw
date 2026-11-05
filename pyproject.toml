@@ -25,7 +25,7 @@ dependencies = [
     "playwright>=1.49.0",
     "questionary>=2.1.1",
     "mss>=9.0.0",
-    "reme-ai==0.4.2.0",
+    "reme-ai==0.4.2.2",
     # ReMe's MCP integration must use the MCP 2.x-compatible FastMCP line.
     "fastmcp>=4.1.4",
     "reme-auto-fin==0.1.3",
