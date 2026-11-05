@@ -124,6 +124,24 @@ async def test_no_false_positive_after_reset(gate):
 
 
 @pytest.mark.asyncio
+async def test_spaced_repetition_is_treated_as_polling(gate):
+    """Polling after a real wait must not trip the tight-loop detector."""
+    with patch(
+        "qwenpaw.loop.gates.doom_loop.time.monotonic",
+        side_effect=[0.0, 30.0, 60.0, 90.0],
+    ):
+        results = []
+        for iteration in range(4):
+            gate.record("tool_a", "hash1")
+            results.append(await gate.check({"iteration": iteration}))
+
+    assert [result.action for result in results] == [
+        StopAction.BYPASS,
+    ] * 4
+    assert gate._ensure_state().consecutive_hits == 0
+
+
+@pytest.mark.asyncio
 async def test_cross_request_no_bleed(gate):
     """Simulates two user requests: reset prevents bleed."""
     for _ in range(3):
