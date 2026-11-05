@@ -38,8 +38,14 @@ import styles from "./SessionProjectDirectory.module.less";
 import InlineHelp from "../../components/InlineHelp";
 import { setPendingProjectDirectory } from "./pendingProjectDirectory";
 import { loadSessionProjectDirs } from "./loadSessionProjectDirs";
-import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
-import { notifyProjectDirectoryChanged } from "./projectDirectoryChangeEvent";
+import {
+  filesWorkspaceScopeKey,
+  type FilesWorkspaceScope,
+} from "../files-workspace/filesWorkspaceScope";
+import {
+  listenForProjectDirectoryChanges,
+  notifyProjectDirectoryChanged,
+} from "./projectDirectoryChangeEvent";
 
 /** Mirrors the server's MAX_PROJECT_DIRS: the whole list is capped at 10. */
 const MAX_PROJECT_DIRS = 10;
@@ -118,6 +124,8 @@ export default function SessionProjectDirectory({
   const sessionId = scope.kind === "session" ? scope.sessionId : "";
   const isAgentScope = scope.kind === "agent";
   const isListScope = !isAgentScope || multiAgentDefault;
+  const scopeKey = filesWorkspaceScopeKey(scope);
+  const refreshSeq = useRef(0);
   const [info, setInfo] = useState<EffectiveProjectDirectory | null>(null);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
@@ -203,8 +211,10 @@ export default function SessionProjectDirectory({
   );
 
   const refresh = useCallback(async () => {
+    const seq = ++refreshSeq.current;
     if (multiAgentDefault) {
       const next = await projectDirectoryApi.getDirs();
+      if (seq !== refreshSeq.current) return;
       applyList(
         next.project_dirs.length
           ? next.project_dirs
@@ -226,6 +236,7 @@ export default function SessionProjectDirectory({
     }
     if (isAgentScope) {
       const next = await projectDirectoryApi.get();
+      if (seq !== refreshSeq.current) return;
       const fallback: EffectiveProjectDirectory = {
         project_dir: next.path,
         source: next.is_workspace_default ? "workspace_fallback" : "agent",
@@ -243,6 +254,7 @@ export default function SessionProjectDirectory({
       sessionId,
       chatId,
     );
+    if (seq !== refreshSeq.current) return;
     applyList(snapshot.dirs, {
       source: snapshot.source,
       agent_project_dir: snapshot.agentProjectDir,
@@ -258,8 +270,16 @@ export default function SessionProjectDirectory({
   ]);
 
   useEffect(() => {
+    const sequence = refreshSeq;
+    const unsubscribe = listenForProjectDirectoryChanges((changedScopeKey) => {
+      if (changedScopeKey === scopeKey) void refresh();
+    });
     void refresh();
-  }, [refresh]);
+    return () => {
+      unsubscribe();
+      sequence.current++;
+    };
+  }, [refresh, scopeKey]);
 
   useEffect(() => {
     updateSyncAsAgentDefault(false);
@@ -612,6 +632,7 @@ export default function SessionProjectDirectory({
         chatId,
         payload,
       );
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       applyList(saved.project_dirs, saved);
       setPendingPath("");
       updateSyncAsAgentDefault(false);
@@ -747,6 +768,7 @@ export default function SessionProjectDirectory({
     setListError(null);
     try {
       await chatProjectDirectoryApi.clearProjectDirs(chatId);
+      setPendingProjectDirectory(selectedAgent, sessionId, null);
       // Re-read rather than applying the response: dropping the override
       // usually leaves an empty list, and refresh() knows how to fall back
       // to the effective directory instead of showing an empty panel.

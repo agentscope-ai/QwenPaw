@@ -142,9 +142,9 @@ export default function FilesWorkspace({
 
   useEffect(
     () =>
-      listenForProjectDirectoryChanges((changedScopeKey) => {
+      listenForProjectDirectoryChanges((changedScopeKey, options) => {
         if (changedScopeKey === scopeKey) {
-          clearProjectTabs(scopeKey);
+          if (!options.preserveTabs) clearProjectTabs(scopeKey);
           setDirectoryRevision((current) => current + 1);
         }
       }),
