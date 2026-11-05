@@ -148,8 +148,8 @@ export default function FilesWorkspace({
           if (!options.preserveTabs) {
             clearProjectTabs(scopeKey);
             setEditorRevision((current) => current + 1);
+            setDirectoryRevision((current) => current + 1);
           }
-          setDirectoryRevision((current) => current + 1);
         }
       }),
     [clearProjectTabs, scopeKey],
