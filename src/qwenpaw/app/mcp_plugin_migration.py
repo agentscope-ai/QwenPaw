@@ -400,6 +400,61 @@ def _card_status(value: Any) -> str:
     )
 
 
+def _feature_status(config: Mapping) -> str:
+    """Recognize explicit Mail/ACP intent before model defaults are filled."""
+    mail = config.get("mail")
+    configured = mail is not None
+    if configured and not isinstance(mail, Mapping):
+        return "needs_review"
+    tools = config.get("tools", {})
+    if not isinstance(tools, Mapping):
+        return "needs_review"
+    builtin = tools.get("builtin_tools", {})
+    if not isinstance(builtin, Mapping):
+        return "needs_review"
+    delegate = builtin.get("delegate_external_agent", {})
+    if not isinstance(delegate, Mapping):
+        return "needs_review"
+    configured |= delegate.get("enabled") is True
+    acp = config.get("acp", {})
+    if not isinstance(acp, Mapping):
+        return "needs_review"
+    configured |= acp.get("enabled") is True
+    agents = acp.get("agents", {})
+    if not isinstance(agents, Mapping):
+        return "needs_review"
+    defaults = {
+        "opencode": ("opencode", ["acp"], "update_detail"),
+        "qwen_code": ("qwen", ["--acp"], "call_detail"),
+        "claude_code": (
+            "npx",
+            ["-y", "@zed-industries/claude-agent-acp"],
+            "update_detail",
+        ),
+        "codex": ("npx", ["-y", "@zed-industries/codex-acp"], "call_detail"),
+    }
+    for name, runner in agents.items():
+        if not isinstance(runner, Mapping):
+            return "needs_review"
+        if runner.get("enabled") is not True:
+            continue
+        if name not in defaults:
+            configured = True
+            continue
+        command, args, parse_mode = defaults[name]
+        fingerprint = {
+            "enabled": True,
+            "command": command,
+            "args": args,
+            "env": {},
+            "trusted": True,
+            "tool_parse_mode": parse_mode,
+            "stdio_buffer_limit_bytes": 50 * 1024 * 1024,
+        }
+        configured |= {**fingerprint, **runner} != fingerprint
+    return "configured" if configured else "unused"
+
+
 def _workspace_status(workspace: MCPWorkspaceSnapshot) -> str:
     if workspace.errors or not isinstance(workspace.config, Mapping):
         return "needs_review"
@@ -417,7 +472,7 @@ def _workspace_status(workspace: MCPWorkspaceSnapshot) -> str:
         or not isinstance(clients, Mapping)
     ):
         return "needs_review"
-    statuses = []
+    statuses = [_feature_status(workspace.config)]
     for name, raw in clients.items():
         client = _client(raw)
         if not _text(name) or client is None:

@@ -292,6 +292,11 @@ async def create_mail_monitor_service(
     if not credential.name or not credential.auth_code:
         return None
 
+    from ..mcp.feature_gate import is_mcp_ready
+
+    if not is_mcp_ready(workspace_id=ws.agent_id):
+        return None
+
     from ..mail.monitor import MailMonitorService
     from ...agents.utils import ensure_workspace_md_file
 

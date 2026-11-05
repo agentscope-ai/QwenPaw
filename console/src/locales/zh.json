@@ -1,4 +1,10 @@
 {
+  "mcpFeature": {
+    "required": "需要 MCP 插件",
+    "unavailable": "MCP 插件未安装或不可用，Mail 和 ACP 暂不可用。配置已保留，请前往官方插件页面安装、启用或修复。",
+    "openOfficial": "前往官方插件",
+    "later": "稍后"
+  },
   "accessibility": {
     "skipToContent": "跳到主要内容"
   },

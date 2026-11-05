@@ -384,7 +384,7 @@ async def _load_plugin_with_optional_force_reinstall(
 
     from ...plugins.dependency_upgrade import install_with_upgrade
 
-    return await install_with_upgrade(
+    record = await install_with_upgrade(
         loader,
         source_path=source_path,
         install_dir=get_plugins_dir(),
@@ -394,6 +394,11 @@ async def _load_plugin_with_optional_force_reinstall(
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
     )
+
+    from ..mcp.feature_gate import reconcile_mcp_features
+
+    await reconcile_mcp_features(loader, record.manifest.id)
+    return record
 
 
 def _extract_plugin_zip_bytes(content: bytes, temp_dir: Path) -> Path:
@@ -869,6 +874,9 @@ async def repair_plugin_dependencies(plugin_id: str, request: Request):
         )
     try:
         record = await loader.repair_dependencies(plugin_id)
+        from ..mcp.feature_gate import reconcile_mcp_features
+
+        await reconcile_mcp_features(loader, plugin_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (DependencyUpgradeRequired, SharedDependencyError) as exc:
@@ -1031,6 +1039,9 @@ async def update_plugin_config(
                 "quiescent": report.quiescent,
             },
         )
+    from ..mcp.feature_gate import reconcile_mcp_features
+
+    await reconcile_mcp_features(loader, plugin_id)
     return {
         "id": plugin_id,
         "ok": True,
@@ -1107,6 +1118,9 @@ async def set_plugin_enabled(
                 "message": f"Plugin '{plugin_id}' disabled.",
             }
         record = await loader.lifecycle.set_enabled(plugin_id, True)
+        from ..mcp.feature_gate import reconcile_mcp_features
+
+        await reconcile_mcp_features(loader, plugin_id)
         return {
             "id": plugin_id,
             "enabled": bool(getattr(record, "enabled", False))

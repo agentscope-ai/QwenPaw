@@ -108,6 +108,13 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
             config_path=str(config_path),
         )
     workspaces = []
+    # Root feature settings can predate per-agent files or be inherited by
+    # agents. Never hydrate Config here: ACP's default runners are enabled.
+    features = {
+        key: root[key] for key in ("mail", "acp", "tools") if key in root
+    }
+    if features:
+        workspaces.append(MCPWorkspaceSnapshot("__root_features__", features))
     profiles = root.get("agents", {}).get("profiles")
     if profiles is None:
         # Old single-agent root config is inventoried before host conversion.
@@ -311,6 +318,17 @@ class MCPPluginCoordinator:
     async def ensure_protocol(self, protocol):
         if protocol != "mcp":
             return
+        from .mcp.feature_gate import is_mcp_ready
+
+        if is_mcp_ready(self.loader):
+            return
+        async with self.loader.plugin_lifecycle(PLUGIN_ID):
+            if is_mcp_ready(self.loader):
+                return
+            await self._ensure_protocol_owned()
+
+    async def _ensure_protocol_owned(self):
+        """Local preparation, serialized without creating a child lock owner."""
         snapshot = await asyncio.to_thread(
             inventory_mcp_usage,
             config_path=self.config_path,
@@ -346,6 +364,7 @@ class MCPPluginCoordinator:
                 _, off = await asyncio.to_thread(self._current_settings)
                 if not off:
                     await self.loader.activate_plugin_unlocked(PLUGIN_ID)
+                    await self._reconcile_live_workspaces()
 
     async def ensure(self, snapshot):
         async with self.loader.plugin_lifecycle(PLUGIN_ID):
@@ -653,4 +672,17 @@ async def prepare_startup_plugins(
         capabilities=["drivers"],
         activate=False,
     )
+    record = loader.get_loaded_plugin(PLUGIN_ID)
+    if (
+        record is not None
+        and record.enabled
+        and get_coordinator(loader).root_valid
+        and PLUGIN_ID not in loader.startup_blocked_plugins
+    ):
+        try:
+            async with loader.plugin_lifecycle(PLUGIN_ID):
+                await loader.activate_plugin_unlocked(PLUGIN_ID)
+        except Exception:
+            # Optional Mail/ACP must not prevent ordinary agents from starting.
+            loader.startup_blocked_plugins.add(PLUGIN_ID)
     return result

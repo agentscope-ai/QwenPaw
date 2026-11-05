@@ -72,7 +72,11 @@ def workspace_is_current(registry, workspace):
     """Match actual live identity, including during workspace replacement."""
     manager = registry.get_workspace_manager()
     live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
-    return live.get(workspace.agent_id) is workspace
+    return (
+        live.get(workspace.agent_id) is workspace
+        or getattr(registry, "_stop_workspaces", {}).get(workspace.agent_id)
+        is workspace
+    )
 
 
 def _workspace_guard(registry, workspace):

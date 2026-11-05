@@ -1,4 +1,10 @@
 {
+  "mcpFeature": {
+    "required": "MCP plugin required",
+    "unavailable": "MCP is not installed or is unavailable. Mail and ACP cannot run. Your settings are retained; install, enable or repair MCP on the official plugins page.",
+    "openOfficial": "Open official plugins",
+    "later": "Later"
+  },
   "accessibility": {
     "skipToContent": "Skip to content"
   },

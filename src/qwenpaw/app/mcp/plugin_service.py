@@ -61,14 +61,18 @@ def unavailable():
 
 
 def require_runtime(request):
+    from .feature_gate import is_mcp_ready
+
     loader = getattr(request.app.state, "plugin_loader", None)
     record = loader.get_loaded_plugin(PLUGIN_ID) if loader else None
-    if record is None or not record.enabled or record.status != "active":
+    if not is_mcp_ready(loader):
         raise unavailable()
     return record
 
 
 async def plugin_state(request):
+    from .feature_gate import is_mcp_ready, OFFICIAL_PLUGIN_PATH
+
     loader = getattr(request.app.state, "plugin_loader", None)
     record = loader.get_loaded_plugin(PLUGIN_ID) if loader else None
     if loader:
@@ -108,6 +112,14 @@ async def plugin_state(request):
         "enabled": enabled,
         "status": status,
         "diagnostics": diagnostics,
+        "available": is_mcp_ready(
+            loader,
+            getattr(request.state, "agent_id", None)
+            or request.headers.get("X-Agent-Id")
+            or config.agents.active_agent
+            or "default",
+        ),
+        "official_plugins_path": OFFICIAL_PLUGIN_PATH,
         **recovery,
     }
 

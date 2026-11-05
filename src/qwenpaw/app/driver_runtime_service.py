@@ -181,14 +181,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 return
             # Ignore converted clients, but preserve malformed/unknown fields
             # so the classifier can still require review of the raw evidence.
-            evidence = (
-                raw
-                if version == 0
-                else {
-                    **raw,
-                    "mcp": {**raw["mcp"], "clients": {}},
-                }
-            )
+            # Mail/ACP intent justifies installing the protocol, not converting
+            # model-filled default MCP clients into live sources.
+            evidence = {"mcp": raw.get("mcp", {})}
+            if version != 0:
+                evidence["mcp"] = {**raw["mcp"], "clients": {}}
             cards = []
             for path in await self.card_store.list_paths(protocols={"mcp"}):
                 cards.append(
@@ -282,9 +279,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         # Establish the baseline before reading the sources to activate. A
         # write during intent discovery must not be acknowledged without apply.
         await self._reconcile_watcher()
-        if protocol not in self._monitoring:
-            return
-        cards = await self._configured_cards(protocol)
+        cards = (
+            await self._configured_cards(protocol)
+            if protocol in self._monitoring
+            else []
+        )
         for card in cards:
             if card.enabled:
                 try:
@@ -295,9 +294,17 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                         card.name,
                         exc_info=True,
                     )
+        if protocol == "mcp":
+            sync = getattr(self._workspace, "sync_mcp_features", None)
+            if sync is not None:
+                await sync(True)
 
     async def deactivate_protocol(self, protocol):
         self._inactive.add(protocol)
+        if protocol == "mcp":
+            sync = getattr(self._workspace, "sync_mcp_features", None)
+            if sync is not None:
+                await sync(False)
         await self._reconcile_watcher()
         pending = {
             task
