@@ -398,7 +398,7 @@ class _Script:
             raise ValueError(f"Code media output exceeded 16 MiB")
         self.output.append(data)
 
-    async def invoke(self, name: str, *positional, **arguments) -> dict:
+    async def invoke(self, name: str, /, *positional, **arguments) -> dict:
         if positional:
             raise TypeError(
                 f"tools.{self.python_names[name]} requires keyword arguments; "
