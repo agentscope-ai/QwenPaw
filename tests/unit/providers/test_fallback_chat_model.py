@@ -151,11 +151,29 @@ def test_excluding_models_copies_nested_chain_and_preserves_policies():
 
     assert filtered._models[0] is primary
     assert filtered._fallback_on_any_error is False
-    assert filtered._models[1]._models == [other]
-    assert filtered._models[1]._fallback_on_any_error is True
+    assert filtered._models[1] is other
     assert original._models == [primary, memory, nested]
     assert nested._models == [memory, other]
     assert original.without_models({("p", name) for name in "AMB"}) is None
+    assert original.without_models({("p", name) for name in "AM"}) is other
+
+
+@pytest.mark.parametrize("fallback_on_any_error", [False, True])
+def test_excluding_models_retains_multi_candidate_policy(
+    fallback_on_any_error,
+):
+    models = [
+        FakeModel(name, HttpError(401), provider_id="p") for name in "MAB"
+    ]
+    original = FallbackChatModel(
+        models,
+        fallback_on_any_error=fallback_on_any_error,
+    )
+
+    filtered = original.without_models({("p", "M")})
+
+    assert filtered._models == models[1:]
+    assert filtered._fallback_on_any_error is fallback_on_any_error
 
 
 async def test_falls_back_on_transient_error_before_output() -> None:

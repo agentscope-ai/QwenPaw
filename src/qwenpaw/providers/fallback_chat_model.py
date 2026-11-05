@@ -85,7 +85,7 @@ class FallbackChatModel(ChatModelBase):
     def without_models(
         self,
         identities: set[tuple[str, str]],
-    ) -> FallbackChatModel | None:
+    ) -> ChatModelBase | None:
         """Copy a fallback tree without excluded models, retaining policies."""
         candidates = []
         for model in self._models:
@@ -97,6 +97,8 @@ class FallbackChatModel(ChatModelBase):
                 candidates.append(model)
         if not candidates:
             return None
+        if len(candidates) == 1:
+            return candidates[0]
         return FallbackChatModel(
             candidates,
             fallback_on_any_error=self._fallback_on_any_error,
