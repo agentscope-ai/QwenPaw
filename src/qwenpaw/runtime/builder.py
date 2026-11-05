@@ -11,11 +11,13 @@ injects all dependencies into the agent constructor.
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from functools import partial
 from typing import Any, Iterable
 
-from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..agents.acp.meta import ACP_LOOP_META_KEY, ACP_PROJECT_DIR_META_KEY
+from ..config.session_loop import apply_session_loop
 from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
@@ -42,10 +44,10 @@ _PORTABILITY_ADAPTATION_SYSTEM_RULES = (
 
 
 def _resolve_react_iterations(
-    configured: int,
+    configured: int | None,
     request_context: dict[str, Any],
 ) -> int:
-    """Let a bounded internal migration outgrow the normal chat limit."""
+    """Map the gate policy to AgentScope's integer iteration budget."""
     requested = request_context.get("max_react_iterations")
     if (
         request_context.get("source") != "portability_adaptation"
@@ -53,7 +55,9 @@ def _resolve_react_iterations(
         or not isinstance(requested, int)
         or requested < 1
     ):
-        return configured
+        return configured if configured is not None else sys.maxsize
+    if configured is None:
+        return min(requested, _PORTABILITY_MAX_ITERS)
     return max(configured, min(requested, _PORTABILITY_MAX_ITERS))
 
 
@@ -360,6 +364,10 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        if ACP_LOOP_META_KEY in request_context:
+            agent_config = apply_session_loop(
+                agent_config, request_context[ACP_LOOP_META_KEY],
+            )
         if request_context.get(f"coding_mode") is True:
             agent_config = agent_config.model_copy(deep=True)
             agent_config.coding_mode.enabled = True

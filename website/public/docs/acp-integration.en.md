@@ -209,6 +209,33 @@ When a new session is created, the agent returns config options that the client 
 | --------- | ------ | -------- | --------- | ------------------------------------------------------------------------------------------- |
 | `mode`    | select | `mode`   | `default` | `default`: normal mode with Tool Guard enabled; `bypassPermissions`: skip tool guard checks |
 
+### Session Loop Overrides
+
+Pass `qwenpaw.loop` in the `_meta` object of `session/new`, `session/load`, or `session/resume` to override ordinary-mode loop settings for that session:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "session/new",
+  "params": {
+    "cwd": "/workspace",
+    "mcpServers": [],
+    "_meta": {
+      "qwenpaw.loop": {
+        "iteration": { "enabled": true, "max_iterations": 10000 }
+      }
+    }
+  }
+}
+```
+
+`iteration`, `doom_loop`, and `rubric` accept their native configuration fields. Supplied fields override the agent profile; omitted fields retain its values. Unknown fields, invalid types, and values outside the native constraints are rejected. `max_iterations` accepts any positive integer, including values above 500. Goal, mission, and custom-mode configuration are outside this session override interface.
+
+The iteration gate and AgentScope ReAct share the resolved iteration limit: the example sets both to 10000. To disable the iteration gate, send `"iteration": {"enabled": false}`; ReAct then receives `sys.maxsize` as a practical integer ceiling. Cancellation, timeouts, and other stopping rules still apply. Without an override, the existing profile policy applies; the global defaults remain an enabled gate and a fallback limit of 100.
+
+Overrides and gate state are isolated between concurrent sessions and do not write to the agent configuration file. Each supplied `qwenpaw.loop` replaces the previous session override; send `{}` to restore the profile settings. Loading or resuming without this metadata preserves an override already held in the same server process. Overrides are not persisted across server restarts; resend them when restoring a session. Loop overrides use session metadata rather than `set_config_option`.
+
 ### Configuration
 
 The ACP agent resolves its configuration in the following order:

@@ -209,6 +209,33 @@ Goal token 预算默认无上限。使用 `--goal-token-budget 300000` 为每个
 | ------- | ------ | ------ | --------- | --------------------------------------------------------------------------- |
 | `mode`  | select | `mode` | `default` | `default`：正常模式，启用 Tool Guard；`bypassPermissions`：跳过工具安全检查 |
 
+### 会话级 Loop 参数
+
+在 `session/new`、`session/load` 或 `session/resume` 的 `_meta` 对象中传入 `qwenpaw.loop`，可为当前会话覆盖普通模式的 loop 设置：
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "session/new",
+  "params": {
+    "cwd": "/workspace",
+    "mcpServers": [],
+    "_meta": {
+      "qwenpaw.loop": {
+        "iteration": { "enabled": true, "max_iterations": 10000 }
+      }
+    }
+  }
+}
+```
+
+支持 `iteration`、`doom_loop`、`rubric` 的原生配置字段。只覆盖显式提供的字段，其他字段沿用智能体配置；未知字段、错误类型和不符合原生约束的值会被拒绝。`max_iterations` 接受正整数，允许超过 500。此会话接口不覆盖 Goal、Mission 或自定义模式的配置。
+
+迭代 gate 与 AgentScope ReAct 使用同一个有效上限，示例中两层均为 10000。发送 `"iteration": {"enabled": false}` 关闭迭代 gate 时，ReAct 使用 `sys.maxsize` 作为实际运行中足够大的整数上限；取消、超时及其他停止规则仍然有效。不传覆盖参数时沿用智能体配置，全局默认仍为启用 gate、回退上限 100。
+
+并行会话的覆盖配置和 gate 状态互相隔离，不写回智能体配置文件。每次提供 `qwenpaw.loop` 都替换该会话先前的覆盖，传入 `{}` 恢复使用智能体配置。在同一服务进程内，不带此元数据的加载或恢复会保留已有会话覆盖；覆盖不会跨进程重启持久化，重启后恢复会话时需重新提供。Loop 参数通过会话元数据设置，不使用 `set_config_option`。
+
 ### 配置
 
 ACP 智能体按以下优先级解析配置：

@@ -86,6 +86,7 @@ from ...config.config import (
     load_agent_config,
     update_agent_config_async,
 )
+from ...config.session_loop import validate_session_loop
 from ...drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
 from ...exceptions import AppBaseException
 from ...providers.provider_manager import ProviderManager
@@ -95,6 +96,7 @@ from ...utils.io_utils import run_sync_io
 from .meta import (
     ACP_APPROVAL_EXPIRES_AT_META_KEY,
     ACP_EPHEMERAL_META_KEY,
+    ACP_LOOP_META_KEY,
     ACP_PROJECT_DIR_META_KEY,
 )
 from .runtime_provider import (
@@ -442,6 +444,8 @@ class QwenPawACPAgent(Agent):
             "mode": QwenPawACPAgent.MODE_DEFAULT,
             DRIVER_SCOPE_CONTEXT_KEY: acp_mcp_scope_id(session_id),
         }
+        if ACP_LOOP_META_KEY in meta:
+            info[ACP_LOOP_META_KEY] = self._session_loop(meta)
         project_dir = meta.get(ACP_PROJECT_DIR_META_KEY)
         if project_dir is None:
             project_dir = cwd
@@ -457,6 +461,16 @@ class QwenPawACPAgent(Agent):
                 _ACP_RUNTIME_MODEL_SLOT_KEY
             ] = self._runtime_provider.model_slot
         return info
+
+    @staticmethod
+    def _session_loop(meta: dict[str, Any]) -> dict[str, Any]:
+        """Validate client metadata before changing session state."""
+        try:
+            return validate_session_loop(meta[ACP_LOOP_META_KEY])
+        except ValueError as error:
+            raise RequestError.invalid_params(
+                {"details": f"Invalid {ACP_LOOP_META_KEY}: {error}"},
+            ) from error
 
     async def _install_runtime_provider(self) -> None:
         """Register the process-scoped provider without persisting it."""
@@ -707,6 +721,14 @@ class QwenPawACPAgent(Agent):
             session_id=session_id,
             meta=kwargs,
         )
+        if (
+            previous_session is not None
+            and ACP_LOOP_META_KEY not in kwargs
+            and ACP_LOOP_META_KEY in previous_session
+        ):
+            self._sessions[session_id][ACP_LOOP_META_KEY] = (
+                previous_session[ACP_LOOP_META_KEY]
+            )
         try:
             await self._sync_session_mcp(session_id, mcp_servers)
         except BaseException:
@@ -1022,6 +1044,10 @@ class QwenPawACPAgent(Agent):
         else:
             candidate_session = dict(previous_session)
             candidate_session["cwd"] = cwd
+            if ACP_LOOP_META_KEY in kwargs:
+                candidate_session[ACP_LOOP_META_KEY] = self._session_loop(
+                    kwargs,
+                )
             project_dir = kwargs.get(ACP_PROJECT_DIR_META_KEY)
             if isinstance(project_dir, str) and project_dir.strip():
                 candidate_session[ACP_PROJECT_DIR_META_KEY] = project_dir
@@ -1171,6 +1197,10 @@ class QwenPawACPAgent(Agent):
 
         if session_info.get(ACP_EPHEMERAL_META_KEY) is True:
             request_context[ACP_EPHEMERAL_META_KEY] = True
+        if ACP_LOOP_META_KEY in session_info:
+            request_context[ACP_LOOP_META_KEY] = session_info[
+                ACP_LOOP_META_KEY
+            ]
 
         driver_scope_id = session_info.get(DRIVER_SCOPE_CONTEXT_KEY)
         if isinstance(driver_scope_id, str) and driver_scope_id:

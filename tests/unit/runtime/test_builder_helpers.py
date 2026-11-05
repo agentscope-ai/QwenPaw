@@ -7,6 +7,7 @@ so they are tested directly; AgentBuilder itself needs the full runtime and is
 covered elsewhere.
 """
 
+import sys
 import types
 
 import pytest
@@ -18,16 +19,21 @@ from qwenpaw.runtime import builder as builder_mod
 
 
 class TestResolveReactIterations:
-    def test_plain_chat_request_keeps_the_configured_limit(self):
-        assert builder_mod._resolve_react_iterations(25, {}) == 25
+    @pytest.mark.parametrize("configured", [None, 25, 10000])
+    def test_plain_chat_request_keeps_the_configured_limit(self, configured):
+        expected = configured if configured is not None else sys.maxsize
+        assert (
+            builder_mod._resolve_react_iterations(configured, {}) == expected
+        )
 
     def test_non_portability_source_ignores_a_larger_request(self):
         ctx = {"source": "chat", "max_react_iterations": 9999}
         assert builder_mod._resolve_react_iterations(25, ctx) == 25
 
-    def test_portability_source_may_outgrow_the_limit(self):
+    @pytest.mark.parametrize("configured", [None, 25])
+    def test_portability_source_may_outgrow_the_limit(self, configured):
         ctx = {"source": "portability_adaptation", "max_react_iterations": 200}
-        assert builder_mod._resolve_react_iterations(25, ctx) == 200
+        assert builder_mod._resolve_react_iterations(configured, ctx) == 200
 
     def test_portability_request_below_configured_keeps_configured(self):
         """max(configured, ...) means a smaller request cannot shrink."""

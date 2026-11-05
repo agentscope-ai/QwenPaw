@@ -1538,7 +1538,6 @@ class IterationGateConfig(BaseModel):
     max_iterations: Optional[int] = Field(
         default=None,
         ge=1,
-        le=500,
         description=(
             "Maximum loop turns before stopping. "
             "Falls back to AgentsRunningConfig.max_iters "
