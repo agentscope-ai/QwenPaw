@@ -34,6 +34,7 @@ from qwenpaw.modes.custom_loop import (
     LoopModeActivationStore,
     load_custom_loop_modes,
 )
+from qwenpaw.providers import typesafe_provider
 from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
 from qwenpaw.runtime.slash_command_registry import SlashCommandRegistry
 
@@ -288,6 +289,28 @@ async def test_qualitative_rubric_only_revises_text_responses() -> None:
     assert gate.build_continuation() == "Check every explicit requirement."
     assert finished.action == StopAction.BYPASS
     assert still_finished.action == StopAction.BYPASS
+
+
+@pytest.mark.parametrize("limit_first", [False, True])
+async def test_iteration_limit_skips_decision_model(limit_first, monkeypatch):
+    rubric = _gate(
+        "rubric",
+        "qualitative_rubric",
+        {"use_decision_model": True},
+    )
+    limit = _gate("limit", "iteration", {"max_iterations": 1})
+    gates = [limit, rubric] if limit_first else [rubric, limit]
+    handler = compile_loop_mode(_mode(*gates))
+    handler.reset_turn()
+    ctx, _ = _rubric_context()
+    ctx["agent"]._agent_config = SimpleNamespace(decision_model=None)
+    resolve = MagicMock()
+    monkeypatch.setattr(typesafe_provider, "resolve_decision_model", resolve)
+
+    result = await handler(ctx)
+
+    assert result.action == StopAction.TERMINATE
+    resolve.assert_not_called()
 
 
 @pytest.mark.asyncio

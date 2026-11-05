@@ -1,7 +1,7 @@
 import { clearPendingThinking } from "./pendingThinking";
 import { request } from "@/api/request";
 import type { ActiveModelsInfo } from "@/api/types";
-import type { DecisionSettings, ThinkingView } from "../thinking/types";
+import type { ThinkingView } from "../thinking/types";
 
 export interface SessionModelScope {
   sessionId: string;
@@ -13,9 +13,7 @@ export interface SessionModel {
 }
 const key = (agent: string, session: string) =>
   `qwenpaw-session-model:${agent}:${session}`;
-type PendingModelSettings = Partial<SessionModel> & {
-  decision_enabled?: boolean;
-};
+type PendingModelSettings = Partial<SessionModel>;
 function readPendingSettings(
   agent: string,
   session: string,
@@ -42,12 +40,6 @@ export function readPendingModel(
 export function clearPendingModel(agent: string, session: string) {
   sessionStorage.removeItem(key(agent, session));
 }
-function clearPendingChatModel(agent: string, session: string) {
-  updatePendingSettings(agent, session, {
-    provider_id: undefined,
-    model: undefined,
-  });
-}
 export function migratePendingModel(agent: string, from: string, to: string) {
   if (from === to) return;
   const raw = sessionStorage.getItem(key(agent, from));
@@ -62,16 +54,12 @@ export function withPendingModel(
   session: string,
 ) {
   const model = readPendingModel(agent, session);
-  const { decision_enabled } = readPendingSettings(agent, session);
-  if (!model && decision_enabled === undefined) return body;
+  if (!model) return body;
   return {
     ...body,
     request_context: {
       ...((body.request_context as Record<string, unknown>) || {}),
-      ...(model ? { session_model: model } : {}),
-      ...(decision_enabled !== undefined
-        ? { session_decision_enabled: decision_enabled }
-        : {}),
+      session_model: model,
     },
   };
 }
@@ -103,19 +91,6 @@ export async function loadSessionThinkingView(
   const view = await request<ThinkingView>(modelViewUrl(agent, scope), {
     headers: { "X-Agent-Id": agent },
   });
-  const decision = readPendingSettings(agent, scope.sessionId).decision_enabled;
-  if (view.decision && decision !== undefined) {
-    if (scope.chatId && view.decision.override === decision)
-      updatePendingSettings(agent, scope.sessionId, {
-        decision_enabled: undefined,
-      });
-    else
-      view.decision = {
-        ...view.decision,
-        override: decision,
-        enabled: view.decision.configured && decision,
-      };
-  }
   if (!scope.chatId || !pending) return view;
   // A newly allocated chat can be read before the first turn saves its model.
   // Keep the submitted choice until the server acknowledges that exact model.
@@ -129,7 +104,7 @@ export async function loadSessionThinkingView(
       current?.model === pending.model &&
       current.provider_id === pending.provider_id
     ) {
-      clearPendingChatModel(agent, scope.sessionId);
+      clearPendingModel(agent, scope.sessionId);
     }
     return view;
   }
@@ -137,7 +112,7 @@ export async function loadSessionThinkingView(
     `/chats/thinking-default?${new URLSearchParams({ ...pending })}`,
     { headers: { "X-Agent-Id": agent } },
   );
-  return { ...preview, model_source: "session", decision: view.decision };
+  return { ...preview, model_source: "session" };
 }
 
 export async function loadSessionModel(
@@ -153,7 +128,7 @@ export async function saveSessionModel(
 ) {
   if (!scope.chatId) {
     if (!model) {
-      clearPendingChatModel(agent, scope.sessionId);
+      clearPendingModel(agent, scope.sessionId);
       return loadSessionModel(agent, scope);
     }
     const view = await request<ThinkingView>(
@@ -173,7 +148,7 @@ export async function saveSessionModel(
       body: JSON.stringify(model),
     },
   );
-  clearPendingChatModel(agent, scope.sessionId);
+  clearPendingModel(agent, scope.sessionId);
   return activeModels(view);
 }
 
@@ -184,29 +159,4 @@ export async function resetSessionModel(
   const models = await saveSessionModel(agent, scope, null);
   clearPendingThinking(agent, scope.sessionId);
   return models;
-}
-
-export async function saveDecisionSettings(
-  agent: string,
-  scope: SessionModelScope,
-  settings: DecisionSettings,
-) {
-  if (!scope.chatId) {
-    updatePendingSettings(agent, scope.sessionId, {
-      decision_enabled: settings.enabled,
-    });
-    return settings;
-  }
-  const saved = await request<DecisionSettings>(
-    `/chats/${encodeURIComponent(scope.chatId)}/decision-settings`,
-    {
-      method: "PUT",
-      headers: { "X-Agent-Id": agent },
-      body: JSON.stringify(settings.enabled),
-    },
-  );
-  updatePendingSettings(agent, scope.sessionId, {
-    decision_enabled: undefined,
-  });
-  return saved;
 }

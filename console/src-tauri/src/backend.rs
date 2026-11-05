@@ -98,6 +98,15 @@ pub(crate) fn detach(app: &tauri::AppHandle) {
         .publish(app, generation, Phase::Stopped, None, None);
 }
 
+pub(crate) fn console_port(app: &tauri::AppHandle) -> Option<u16> {
+    app.state::<BackendState>()
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .as_ref()
+        .map(|runtime| runtime.port)
+}
+
 pub(crate) async fn other_clients(app: &tauri::AppHandle) -> Result<usize, String> {
     let runtime = app
         .state::<BackendState>()

@@ -424,7 +424,9 @@ describe("SettingsCenter", () => {
     });
 
     await waitFor(() => expect(screen.getByText("Card view")).toBeVisible());
-    const thinkingSwitch = screen.getByRole("switch");
+    const thinkingSwitch = screen.getByRole("switch", {
+      name: "Show thinking",
+    });
     expect(thinkingSwitch).toBeChecked();
     await userEvent.click(thinkingSwitch);
     await userEvent.click(screen.getByText("Raw parameters"));

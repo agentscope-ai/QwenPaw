@@ -20,6 +20,7 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import sqlite3
 import time
 import weakref
@@ -175,6 +176,10 @@ class ScrollContextManager:
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
+        # Provider-confirmed correction, checkpointed for the same model key.
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
+        self._token_estimate_context_size = None
 
     @staticmethod
     def should_compress(tokens: float, trigger: float) -> bool:
@@ -406,6 +411,21 @@ class ScrollContextManager:
 
         self._apply_folded_thinking_filter(agent)
         before = await self._live_tokens(agent)
+        target = base_config.trigger_ratio * agent.model.context_size
+        # A rejected request cannot be trusted to be below the trigger.
+        # Keep the discrepancy so reclaimed tokens are subtracted from this
+        # conservative baseline, and subsequent growth retains the margin.
+        baseline = max(before, math.ceil(target))
+        margin = baseline - before
+        self._token_estimate_margin += margin
+        if margin:
+            logger.warning(
+                "scroll: provider rejected locally underestimated input; "
+                "raising recovery baseline from %d to %d tokens",
+                before,
+                before + margin,
+            )
+        before = baseline
         await self.compress(agent, forced_config)
         # A provider rejection is authoritative even when local visual-token
         # estimates are below the hard limit. Reuse result folding, without
@@ -436,7 +456,6 @@ class ScrollContextManager:
         if not changed:
             return False
         after = await self._live_tokens(agent)
-        target = base_config.trigger_ratio * agent.model.context_size
         # Eviction counts do not prove that the provider request shrank.
         # Require restored headroom before retrying a rejected request.
         if after >= before or after > target:
@@ -531,7 +550,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+            tokens = await self._count_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -549,7 +568,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+        tokens = await self._count_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -606,18 +625,20 @@ class ScrollContextManager:
                             f"tool_call_id={tcid!r})"
                         )
                 result = await agent.try_decision_compact(
-                    tokens=tokens,
+                    # Candidate counts are raw estimates. Compare like with
+                    # like so the safety margin cannot hide negative savings.
+                    tokens=tokens - self._token_estimate_margin,
                     source_refs=refs,
                 )
-                if result.changed and result.tokens_after <= trigger:
-                    self._overflow_warned = False
-                    log_timings("decision_compaction_below_trigger")
-                    return
                 tokens = (
-                    result.tokens_after
+                    self._adjust_token_estimate(result.tokens_after)
                     if result.changed
                     else await self._live_tokens(agent)
                 )
+                if result.changed and tokens <= trigger:
+                    self._overflow_warned = False
+                    log_timings("decision_compaction_below_trigger")
+                    return
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
@@ -1546,11 +1567,30 @@ class ScrollContextManager:
         self._summary_update_failed = False
 
     async def _live_tokens(self, agent: Any) -> int:
-        """Token count of the live context as the model would receive it."""
-        return await as_internals.count_model_input_tokens(
+        """Estimate live input tokens, retaining provider-rejection margin."""
+        return await self._count_input_tokens(
             agent,
             await as_internals.prepare_model_input(agent),
         )
+
+    async def _count_input_tokens(self, agent: Any, kwargs: dict) -> int:
+        # Wrapped production models expose provider_id:model_name. Models
+        # without a stable key keep only an instance-local correction.
+        model_key = getattr(agent.model, "model_key", None) or agent.model
+        if (
+            self._token_estimate_model_key != model_key
+            or self._token_estimate_context_size != agent.model.context_size
+        ):
+            self._token_estimate_margin = 0
+            self._token_estimate_model_key = model_key
+            self._token_estimate_context_size = agent.model.context_size
+        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+        return self._adjust_token_estimate(tokens)
+
+    def _adjust_token_estimate(self, current_estimate: int) -> int:
+        # Equivalent to max(current, baseline - (before - current)); the
+        # nonnegative margin preserves net savings and subsequent growth.
+        return current_estimate + self._token_estimate_margin
 
     @staticmethod
     def _block_type(block: Any) -> str | None:
@@ -2240,6 +2280,15 @@ class ScrollContextManager:
         durable instead of re-appending it.
         """
         return {
+            "token_estimate": (
+                {
+                    "margin": self._token_estimate_margin,
+                    "model_key": self._token_estimate_model_key,
+                    "context_size": self._token_estimate_context_size,
+                }
+                if isinstance(self._token_estimate_model_key, str)
+                else None
+            ),
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
@@ -2274,6 +2323,21 @@ class ScrollContextManager:
         freshly-constructed empty default."""
         if not isinstance(data, dict):
             return
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
+        self._token_estimate_context_size = None
+        estimate = data.get("token_estimate")
+        if (
+            isinstance(estimate, dict)
+            and isinstance(estimate.get("margin"), int)
+            and estimate["margin"] >= 0
+            and isinstance(estimate.get("model_key"), str)
+            and isinstance(estimate.get("context_size"), int)
+            and estimate["context_size"] > 0
+        ):
+            self._token_estimate_margin = estimate["margin"]
+            self._token_estimate_model_key = estimate["model_key"]
+            self._token_estimate_context_size = estimate["context_size"]
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
         self._seen_tool_result_ids = set(

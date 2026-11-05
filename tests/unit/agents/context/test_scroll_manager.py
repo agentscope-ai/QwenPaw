@@ -1653,6 +1653,63 @@ async def test_overflow_recovery_forces_compaction_and_reports_change(
     assert agent.context_config.trigger_ratio == pytest.approx(0.8)
 
 
+@pytest.mark.parametrize(
+    ("before", "remaining"),
+    [(600, 400), (900, 200)],
+)
+async def test_overflow_recovery_preserves_conservative_token_baseline(
+    store: HistoryStore,
+    before: int,
+    remaining: int,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")], tokens=[before, 200, 200])
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        mgr.last_compress["folded"] = 1
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+    assert await mgr.recover_from_context_overflow(agent)
+    # Trigger = 800: a 600-token estimate needs a 200-token correction;
+    # a 900-token estimate needs none. Check both sides of the max formula.
+    assert await mgr._live_tokens(agent) == remaining
+
+
+@pytest.mark.parametrize(
+    ("model_key", "context_size", "expected"),
+    [
+        ("provider:model", 1000, 850),
+        ("provider:other-model", 1000, 650),
+        ("provider:model", 2000, 650),
+    ],
+)
+async def test_overflow_margin_survives_session_restore_for_same_model(
+    store: HistoryStore,
+    model_key: str,
+    context_size: int,
+    expected: int,
+):
+    mgr = make_manager(store)
+    agent = FakeAgent([user("current")], tokens=[600, 200])
+    agent.model.model_key = "provider:model"
+    agent.context_config = _CopyableScrollConfig()
+
+    async def fake_compress(actual_agent, context_config):
+        mgr.last_compress["folded"] = 1
+
+    mgr.compress = AsyncMock(side_effect=fake_compress)
+    assert await mgr.recover_from_context_overflow(agent)
+    checkpoint = json.loads(json.dumps(mgr.to_dict()))
+
+    restored = make_manager(store)
+    restored.load_state(checkpoint)
+    rebuilt_agent = FakeAgent([user("next request")], tokens=650)
+    rebuilt_agent.model.model_key = model_key
+    rebuilt_agent.model.context_size = context_size
+    assert await restored._live_tokens(rebuilt_agent) == expected
+
+
 async def test_fold_not_triggered_between_reserve_and_trigger(
     store: HistoryStore,
 ):
