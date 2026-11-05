@@ -1,12 +1,16 @@
+import {
+  WindowedMarkdownTable,
+  WindowedMarkdownTableBody,
+} from "./WindowedMarkdownTable";
 import React, {
   createContext,
   useContext,
   useDeferredValue,
   useRef,
+  useMemo,
 } from "react";
 import { Markdown } from "@agentscope-ai/chat";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
-import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock/RenderableCodeBlock";
 import { useChatListSnapshot } from "../../plugins/registry/useChatExtensions";
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
@@ -17,6 +21,12 @@ import {
 import type { ChatListSnapshot } from "../../plugins/registry/chatExtensions";
 import { resolveLanguage } from "../../components/RenderableCodeBlock/language";
 import { CodeBlockSlot, StableCodeBlocks } from "./StableCodeBlocks";
+
+import {
+  segmentMarkdown,
+  type MarkdownSegments,
+} from "./historyMarkdownChunks";
+import { MeasuredMessageWindow } from "./MeasuredMessageWindow";
 
 import type { ComponentProps } from "@ant-design/x-markdown";
 
@@ -89,7 +99,7 @@ function AssistantCodeBlock(
           .reverse()
           .find((e) => e.item.language === language)
       : undefined;
-  const fallback = () => <RenderableCodeBlock {...props} />;
+  const fallback = () => <RenderableCodeBlock {...props} virtualize />;
   if (!entry || !ctx || typeof props.children !== "string" || !props.domNode)
     return fallback();
   const blockKey = getCodeBlockKey(props.domNode);
@@ -120,9 +130,20 @@ function AssistantCodeBlock(
 }
 
 // Keep the adapter type stable; portals also survive Markdown ancestor replacement.
-const assistantCodeComponents = { code: AssistantCodeBlock };
+const assistantCodeComponents = {
+  code: AssistantCodeBlock,
+  table: WindowedMarkdownTable,
+  tbody: WindowedMarkdownTableBody,
+};
+const chatCodeComponents = {
+  table: WindowedMarkdownTable,
+  tbody: WindowedMarkdownTableBody,
+  code: (props: React.ComponentProps<typeof RenderableCodeBlock>) => (
+    <RenderableCodeBlock {...props} virtualize />
+  ),
+};
 
-export function AssistantMarkdown({
+function AssistantMarkdownDocument({
   content,
   cursor,
   isStreaming = cursor,
@@ -152,7 +173,7 @@ export function AssistantMarkdown({
     return (
       <Markdown
         baseFontSize={baseFontSize}
-        components={renderableCodeComponents}
+        components={chatCodeComponents}
         content={deferredContent}
         cursor={cursor}
       />
@@ -179,5 +200,51 @@ export function AssistantMarkdown({
         />
       </StableCodeBlocks>
     </CodeBlockContext.Provider>
+  );
+}
+
+const MemoizedMarkdownDocument = React.memo(AssistantMarkdownDocument);
+
+/** Share one semantic rendering path between persisted and streaming text. */
+export function AssistantMarkdown(props: {
+  content: string;
+  cursor: boolean;
+  isStreaming?: boolean;
+  messageId: string;
+}) {
+  const entries = useChatListSnapshot()["response.codeBlocks"];
+  const previous = useRef<MarkdownSegments>();
+  const segments = useMemo(() => {
+    const next = entries.length
+      ? { source: props.content, chunks: [props.content], stableLength: 0 }
+      : segmentMarkdown(props.content, 32 * 1024, previous.current);
+    previous.current = next;
+    return next;
+  }, [props.content, entries]);
+  const ids = useMemo(() => {
+    let offset = 0;
+    return segments.chunks.map((chunk) => {
+      const id = `${props.messageId}:markdown:${offset}`;
+      offset += chunk.length;
+      return id;
+    });
+  }, [segments, props.messageId]);
+  const renderChunk = (index: number) => (
+    <MemoizedMarkdownDocument
+      content={segments.chunks[index]}
+      messageId={ids[index]}
+      cursor={index === ids.length - 1 && props.cursor}
+      isStreaming={
+        index === ids.length - 1 && (props.isStreaming ?? props.cursor)
+      }
+    />
+  );
+  // Preserve plugin block identities and small-message layout exactly.
+  if (segments.chunks.length === 1)
+    return <MemoizedMarkdownDocument {...props} />;
+  return (
+    <MeasuredMessageWindow ids={ids} cacheKey={`${props.messageId}:markdown`}>
+      {renderChunk}
+    </MeasuredMessageWindow>
   );
 }

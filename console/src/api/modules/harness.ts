@@ -39,6 +39,7 @@ export interface HarnessCapabilities {
   reasoning_stream: boolean;
   tool_stream: boolean;
   session_resume: boolean;
+  fork_mode?: "none" | "latest" | "turn";
   workspace_ui: boolean;
   native_skills_ui: boolean;
   native_tools_ui: boolean;

@@ -21,6 +21,8 @@ from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
+from ..app.chats.session import SafeJSONSession
+from ..constant import WORKING_DIR
 from .context import PawAppContext
 
 logger = logging.getLogger(__name__)
@@ -59,15 +61,11 @@ def _extract_app_id_from_request(request: Request) -> str:
 
 
 def _get_session(request: Request) -> Any:
-    """Get or create a SafeJSONSession for PawApp storage."""
-    # pylint: disable=unused-argument
-    try:
-        from ..app.chats.session import SafeJSONSession
-        from ..constant import WORKING_DIR
-
-        return SafeJSONSession(save_dir=str(WORKING_DIR))
-    except Exception:
-        return None
+    """Keep app KV shared across agents in its original storage root."""
+    session = getattr(request.app.state, "session", None)
+    if session is not None:
+        return session
+    return SafeJSONSession(save_dir=str(WORKING_DIR))
 
 
 def _build_ctx(

@@ -9,12 +9,15 @@ export type CopyableContent = {
 };
 
 export type CopyableMessage = {
+  id?: string;
   role?: string;
   type?: string;
   content?: string | CopyableContent[];
+  metadata?: Record<string, unknown> | null;
 };
 
 export type CopyableResponse = {
+  id?: string;
   output?: CopyableMessage[];
 };
 
@@ -59,6 +62,23 @@ export function extractCopyableText(response: CopyableResponse): string {
   });
 
   return chunks.filter(Boolean).join("\n\n").trim();
+}
+
+/** Return the durable turn represented by one historical response card. */
+export function extractTranscriptTurnId(
+  response: CopyableResponse,
+): string | undefined {
+  const responsePrefix = "history-response:";
+  if (response.id?.startsWith(responsePrefix)) {
+    return response.id.slice(responsePrefix.length) || undefined;
+  }
+  for (const output of [...(response.output || [])].reverse()) {
+    const position = output.metadata?.qwenpaw_transcript_position;
+    if (!position || typeof position !== "object") continue;
+    const turnId = (position as Record<string, unknown>).turn_id;
+    if (typeof turnId === "string" && turnId) return turnId;
+  }
+  return undefined;
 }
 
 /** Extract plain text from user message content. */

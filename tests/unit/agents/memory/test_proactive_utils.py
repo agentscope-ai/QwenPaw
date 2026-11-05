@@ -13,12 +13,16 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import Msg, TextBlock
+from agentscope.state import AgentState
 
 from qwenpaw.agents.memory.proactive import proactive_utils as pu
-
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.runtime._state_utils import StateProxy
 
 # ---------------------------------------------------------------------------
 # ensure_tz_aware
@@ -281,3 +285,48 @@ class TestGetLastMessageTs:
             chat_manager=SimpleNamespace(list_chats=boom),
         )
         assert await pu.get_last_message_ts(workspace) is None
+
+
+@pytest.mark.asyncio
+async def test_collection_preserves_database_session_identity(tmp_path):
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    state = AgentState()
+    state.context.append(
+        Msg(
+            name="user",
+            role="user",
+            content=[TextBlock(text="remember")],
+        )
+    )
+    proxy = StateProxy()
+    proxy.data = {"state": state.model_dump(mode="json")}
+    await session.save_session_state(
+        session_id="channel:session",
+        user_id="user:id",
+        channel="console",
+        agent=proxy,
+    )
+    workspace = SimpleNamespace(
+        session=session,
+        chat_manager=SimpleNamespace(
+            list_chats=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        session_id="channel:session",
+                        user_id="user:id",
+                        channel="console",
+                        updated_at=datetime.now(timezone.utc),
+                    ),
+                ]
+            )
+        ),
+    )
+    metadata = await pu._read_chat_sessions_metadata(workspace)
+    messages = await pu._collect_messages(metadata, workspace)
+    assert len(messages) == 1
+    assert messages[0]["message"].get_text_content() == "remember"
+    catalog.close()

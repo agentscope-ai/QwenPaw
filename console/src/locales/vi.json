@@ -1176,6 +1176,16 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "fork": "Tạo nhánh",
+    "forkTitle": "Tạo nhánh từ lượt này?",
+    "forkDescription": "Cuộc trò chuyện độc lập mới sẽ bao gồm lượt này và tất cả các lượt trước đó.",
+    "forkCreated": "Đã tạo nhánh",
+    "forkFailed": "Không thể tạo nhánh cuộc trò chuyện",
+    "forkPreparing": "Đang chuẩn bị nhánh",
+    "forkUnavailable": "Không thể tạo nhánh từ lượt này",
+    "forkUnsupported": "Backend của tác nhân này không hỗ trợ tạo nhánh",
+    "forkBoundaryMissing": "Lượt này chưa có ranh giới tạo nhánh gốc đã hoàn tất nên chưa thể tạo nhánh",
+    "sessionLoadFailed": "Không thể tải cuộc trò chuyện. Vui lòng mở lại.",
     "longTextPaste": {
       "title": "Dán văn bản dài",
       "asText": "Dán dưới dạng văn bản",
@@ -1196,6 +1206,13 @@
     },
     "modelSelectTooltip": "Chọn mô hình",
     "chatHistoryTooltip": "Lịch sử trò chuyện",
+    "olderHistoryLoadFailed": "Không thể tải các tin nhắn trước đó",
+    "messageNavigation": {
+      "title": "Điều hướng ({{count}})",
+      "locate": "Tìm tin nhắn hiện tại trong danh sách",
+      "userMessage": "Tin nhắn người dùng",
+      "bottom": "Cuộn xuống cuối"
+    },
     "messageDisplay": {
       "stepsRunning": "Đang chạy… · {{count}} bước",
       "stepsCanceled": "Đã hủy · {{count}} bước",
@@ -1314,6 +1331,7 @@
     },
     "regenerate": "Tạo lại",
     "regenerateUnavailable": "Lượt cũ này không có mã yêu cầu. Hãy gửi tin nhắn mới để tiếp tục.",
+    "canceledWithoutReply": "Người dùng đã hủy, không có phản hồi",
     "turnCanceled": "Đã dừng"
   },
   "debug": {

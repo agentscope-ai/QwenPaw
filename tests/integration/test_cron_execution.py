@@ -278,6 +278,25 @@ def test_cron_agent_manual_run_with_mock_llm(
         rec = records[0]
         assert rec["trigger"] == "manual"
         assert rec["status"] == "success"
+        chats = app_server.api_request("GET", "/api/chats")
+        assert chats.status_code == 200, app_server.logs_tail()
+        chat = next(
+            item
+            for item in chats.json()
+            if item["user_id"] == spec["dispatch"]["target"]["user_id"]
+        )
+        history = app_server.api_request(
+            "GET",
+            f"/api/chats/{chat['id']}/messages",
+        )
+        assert history.status_code == 200, app_server.logs_tail()
+        messages = history.json()["messages"]
+        assert any(message["role"] == "user" for message in messages)
+        assert any(message["role"] == "assistant" for message in messages)
+        assert all(
+            "qwenpaw_transcript_position" in message["metadata"]
+            for message in messages
+        )
     finally:
         _delete_job(app_server, job_id)
         unregister_mock_provider(app_server, provider_id)

@@ -32,6 +32,9 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   groupId?: string | null;
   parentSessionId?: string | null;
   rootSessionId?: string | null;
+  parentChatId?: string | null;
+  forkTurnId?: string | null;
+  forkTurnSeq?: number | null;
 }
 
 interface SessionListStore {

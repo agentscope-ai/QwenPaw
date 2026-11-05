@@ -295,6 +295,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if not pending.future.done():
                 pending.future.cancel()
 
+        for workspace in self._workspaces.values():
+            if workspace.transcript_store is not None:
+                workspace.transcript_store.close()
         await self._app_services.stop()
         AuditLog.close_instance()
         for governor in self._governors.values():
@@ -506,13 +509,17 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace.set_app_services(self._app_services)
             from ..app.chats.manager import ChatManager
             from ..app.chats.repo.json_repo import JsonChatRepository
-            from ..app.chats.session import SafeJSONSession
+            from ..app.chats.session import DatabaseSession
+            from ..app.chats.transcript_catalog import TranscriptCatalog
 
             workspace._service_manager.services["chat_manager"] = ChatManager(
                 repo=JsonChatRepository(path / "chats.json"),
             )
-            workspace._service_manager.services["session"] = SafeJSONSession(
-                save_dir=str(path / "sessions"),
+            catalog = TranscriptCatalog(path)
+            workspace._service_manager.services["transcript_store"] = catalog
+            workspace._service_manager.services["session"] = DatabaseSession(
+                catalog=catalog,
+                legacy_save_dir=str(path / "sessions"),
             )
             from ..hooks.session import SessionLoadHook, SessionSaveHook
 

@@ -5,11 +5,21 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+)
 
 from qwenpaw.harnesses.base import HarnessAdapter
 from qwenpaw.harnesses.events import (
@@ -395,4 +405,134 @@ async def test_runtime_handles_host_clear_for_every_backend(
     ]
 
     assert adapter.reset_session_id == "chat-1"
-    assert output[-1].output[-1].metadata["clear_history"] is True
+    assert output[-1].output[-1].metadata["context_reset"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("command", ["clear", "new"])
+@pytest.mark.parametrize("backend", ["codex", "qoder"])
+@pytest.mark.parametrize(
+    "outcome",
+    ["success", "reset_error", "cancel", "write_error"],
+)
+async def test_native_reset_commits_binding_and_runtime_together(
+    tmp_path,
+    monkeypatch,
+    backend,
+    outcome,
+    command,
+):
+    """Rejected native resets must not discard the durable conversation."""
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    identity = dict(session_id="chat-1", user_id="user", channel="console")
+    catalog.write_runtime_state(
+        **identity,
+        state={"agent": {"saved": True}},
+        context_generation=4,
+    )
+    catalog.record_provider_fact(
+        **identity,
+        kind="session_bound",
+        data={
+            "provider": backend,
+            "external_session_id": "old-native",
+        },
+    )
+    catalog.start_turn(**identity, turn_id="reset")
+    before = catalog.read_runtime_state(**identity)
+    runtime = HarnessRuntime(
+        tmp_path,
+        session=session,
+        workspace=SimpleNamespace(
+            transcript_store=catalog,
+            workspace_dir=tmp_path,
+        ),
+    )
+    runtime._capability_resolver.resolve = AsyncMock(return_value=None)
+    adapter = CommandAdapter()
+    if outcome in {"reset_error", "cancel"}:
+        adapter.reset_session = AsyncMock(
+            side_effect=(
+                asyncio.CancelledError()
+                if outcome == "cancel"
+                else RuntimeError("reset failed")
+            ),
+        )
+    if outcome == "write_error":
+        original = TranscriptStore._append_fact
+
+        def fail_binding(store, **kwargs):
+            if kwargs["event_type"] == "provider.session_bound":
+                raise OSError("disk full")
+            return original(store, **kwargs)
+
+        monkeypatch.setattr(TranscriptStore, "_append_fact", fail_binding)
+    runtime._adapters[backend] = adapter
+    request = AgentRequest(
+        **identity,
+        request_context={
+            TRANSCRIPT_RECORDING_READY_KEY: True,
+            TRANSCRIPT_TURN_ID_CONTEXT_KEY: "reset",
+        },
+        input=[
+            Message(role="user", content=[TextContent(text=f"/{command}")]),
+        ],
+    )
+    output = []
+    try:
+        try:
+            async for item in runtime.stream(
+                backend=backend,
+                request=request,
+                cwd=tmp_path,
+            ):
+                output.append(item)
+        except asyncio.CancelledError:
+            assert outcome == "cancel"
+        after = catalog.read_runtime_state(**identity)
+        binding = catalog.read_provider_state(**identity)["binding"]
+        if outcome == "success":
+            assert after.context_generation == 5
+            assert after.state["agent"]["state"]["context"] == []
+            assert binding["external_session_id"] is None
+            assert output[-1].status.value == "completed"
+        else:
+            assert after == before
+            assert binding["external_session_id"] == "old-native"
+            if outcome != "cancel":
+                assert output[-1].status.value == "failed"
+                assert not any(
+                    (msg.metadata or {}).get("context_reset")
+                    for msg in output[-1].output
+                )
+    finally:
+        catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_reports_persistence_failure(tmp_path):
+    """Provider output is not a successful durable turn when saving fails."""
+    runtime = HarnessRuntime(tmp_path)
+    runtime._adapters["codex"] = FakeAdapter()
+    runtime._session_bridge = SimpleNamespace(
+        append_turn=AsyncMock(side_effect=OSError("disk full")),
+    )
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[Message(role="user", content=[TextContent(text="hello")])],
+    )
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path,
+        )
+    ]
+    assert output[-1].status.value == "failed"
+    assert output[-1].error["code"] == "session_persistence_failed"

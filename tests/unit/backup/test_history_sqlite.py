@@ -8,6 +8,7 @@ import io
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,8 @@ from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.backup._ops import restore
 from qwenpaw.backup._ops.create_helpers import add_agent_workspaces
 from qwenpaw.backup.models import BackupValidationError
+from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 
 
 def _agent_json(db_filename: str = "history.db") -> str:
@@ -142,6 +145,51 @@ def test_workspace_backup_fails_when_history_is_invalid(
             )
 
 
+def test_workspace_backup_snapshots_live_conversation_databases(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    path = workspace / "transcripts" / "storage.db"
+    store = TranscriptStore(path, storage_id="storage")
+    store.write_runtime_state(
+        session_id="session",
+        user_id="user",
+        channel="console",
+        state={"agent": {"saved": True}},
+    )
+    buffer = io.BytesIO()
+    try:
+        with zipfile.ZipFile(buffer, "w") as archive:
+            assert add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=str(workspace)))],
+            )
+    finally:
+        store.close()
+
+    buffer.seek(0)
+    with zipfile.ZipFile(buffer) as archive:
+        payload = archive.read(
+            "data/workspaces/agent/transcripts/storage.db",
+        )
+        assert not any(
+            name.endswith(("-wal", "-shm")) for name in archive.namelist()
+        )
+    restored = tmp_path / "conversation.db"
+    restored.write_bytes(payload)
+    reopened = TranscriptStore(restored, storage_id="storage")
+    try:
+        snapshot = reopened.read_runtime_state(
+            session_id="session",
+            user_id="user",
+            channel="console",
+        )
+        assert snapshot is not None
+        assert snapshot.state == {"agent": {"saved": True}}
+    finally:
+        reopened.close()
+
+
 def test_restore_rejects_invalid_history_before_commit(
     tmp_path: Path,
 ) -> None:
@@ -208,3 +256,66 @@ def test_restore_rejects_history_path_escape_before_commit(
     assert not destination.with_name(
         destination.name + ".restore_tmp",
     ).exists()
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["delete", "create", "chats", "catalog", "identity"],
+)
+def test_workspace_backup_rejects_concurrent_conversation_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+) -> None:
+    """Never publish a backup with a missing or unsnapshotted session DB."""
+    from qwenpaw.backup._ops import create_helpers
+
+    workspace = tmp_path / "workspace"
+    catalog = TranscriptCatalog(workspace)
+    identity = dict(session_id="session", user_id="user", channel="console")
+    catalog.write_runtime_state(**identity, state={})
+    storage_id = catalog.storage_id_for(**identity)
+    path = workspace / "transcripts" / (storage_id + ".db")
+    catalog.close()
+    (workspace / "chats.json").write_text(
+        json.dumps({"chats": [{**identity, "storage_id": storage_id}]}),
+        encoding="utf-8",
+    )
+    original = create_helpers.stage_workspace_files
+
+    def change_during_snapshot(entries, staging, stop_event):
+        if change == "delete":
+            path.unlink()
+        if change == "identity":
+            with closing(sqlite3.connect(path)) as connection, connection:
+                connection.execute(
+                    "UPDATE transcript_sessions SET user_id = 'wrong'",
+                )
+        result = original(entries, staging, stop_event)
+        if change == "create":
+            created = TranscriptStore(path.with_name("new.db"))
+            created.close()
+        elif change == "catalog":
+            catalog_path = workspace / "transcript_catalog.db"
+            with closing(sqlite3.connect(catalog_path)) as db, db:
+                db.execute("DELETE FROM transcript_files")
+        elif change == "chats":
+            (workspace / "chats.json").write_text(
+                '{"chats": []}',
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(
+        create_helpers,
+        "stage_workspace_files",
+        change_during_snapshot,
+    )
+    with zipfile.ZipFile(io.BytesIO(), "w") as archive:
+        with pytest.raises((sqlite3.OperationalError, RuntimeError)):
+            add_agent_workspaces(
+                archive,
+                [("agent", SimpleNamespace(workspace_dir=str(workspace)))],
+            )
+    if change == "delete":
+        assert not path.exists()

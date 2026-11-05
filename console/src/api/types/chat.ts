@@ -29,17 +29,61 @@ export interface ChatSpec {
   group_id?: string | null;
   parent_session_id?: string | null;
   root_session_id?: string | null;
+  parent_chat_id?: string | null;
+  fork_turn_id?: string | null;
+  fork_turn_seq?: number | null;
 }
 
 export interface Message {
   role: string;
   content: unknown;
+  metadata?: unknown;
   [key: string]: unknown;
+}
+
+export interface TranscriptPosition {
+  turn_id: string;
+  turn_seq: number;
+  ordinal: number;
 }
 
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  history?: ChatHistoryMetadata | null;
+  context_state?: ChatContextState | null;
+}
+
+export interface ChatContextState {
+  generation: number;
+  usage?: {
+    usage?: Record<string, unknown> | null;
+    context_usage?: Record<string, unknown> | null;
+  } | null;
+}
+
+export interface ChatHistoryMetadata {
+  migration_pending?: boolean;
+  has_more: boolean;
+  next_before?: string | null;
+  snapshot?: string | null;
+}
+
+export interface ChatMessagePage extends ChatHistoryMetadata {
+  messages: Message[];
+}
+
+export interface ChatUserMessage {
+  client_message_id?: string | null;
+  message_id: string;
+  preview: string;
+  created_at: string;
+  anchor: string;
+}
+
+export interface ChatUserMessagePage extends ChatHistoryMetadata {
+  items: ChatUserMessage[];
+  total?: number;
 }
 
 export interface ChatResolution {

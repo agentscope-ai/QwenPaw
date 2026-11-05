@@ -25,7 +25,6 @@ from qwenpaw.harnesses.events import (
     HarnessEventKind,
 )
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
-from qwenpaw.utils.io_utils import write_json_atomic
 
 
 class FakeCodexClient:
@@ -199,17 +198,13 @@ class BlockingCodexClient(FakeCodexClient):
         return {}
 
 
-def test_loads_persisted_threads_with_io_utils(tmp_path: Path) -> None:
-    write_json_atomic(
-        tmp_path / "codex_sessions.json",
-        {"chat-1": "thread-1"},
-    )
-
+def test_restores_durable_thread_binding(tmp_path: Path) -> None:
     adapter = CodexAdapter(
         tmp_path,
         client=FakeCodexClient(),  # type: ignore[arg-type]
     )
 
+    adapter.bind_session("chat-1", "thread-1")
     assert adapter._threads == {"chat-1": "thread-1"}
 
 
@@ -426,11 +421,14 @@ async def test_run_turn_persists_and_reuses_thread(tmp_path: Path) -> None:
     ]
 
     assert [event.kind for event in events] == [
+        HarnessEventKind.SESSION_BOUND,
+        HarnessEventKind.TURN_BOUNDARY,
         HarnessEventKind.TEXT_DELTA,
         HarnessEventKind.COMPLETED,
     ]
-    assert events[0].text == "done"
-    assert (tmp_path / "codex_sessions.json").is_file()
+    assert events[2].text == "done"
+    assert events[1].data["boundary_id"] == "turn-1"
+    assert not (tmp_path / "codex_sessions.json").exists()
     assert [method for method, _ in client.requests].count("thread/start") == 1
     thread_params = next(
         params

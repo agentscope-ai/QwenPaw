@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -41,11 +42,34 @@ from qwenpaw.harnesses.capabilities import (
     HarnessRuntimeCapabilities,
     HarnessSkillDefinition,
 )
+from qwenpaw.app.chats.provider_migration import _qoder_lineage
 from qwenpaw.harnesses.qoder.adapter import QoderAdapter
 from qwenpaw.harnesses.qoder.projection import materialize_skill_plugin
 from qwenpaw.harnesses.registry import create_adapter, get_provider
 from qwenpaw.security.tool_guard.approval import ApprovalDecision
-from qwenpaw.utils.io_utils import write_json_atomic
+
+
+@pytest.fixture(autouse=True)
+def persisted_sdk_history(monkeypatch):
+    """Provide the durable transcript written by the SDK client double."""
+    reads = 0
+
+    def read_history(*_args):
+        nonlocal reads
+        reads += 1
+        return [
+            SessionMessage(
+                type="assistant",
+                uuid=f"persisted-message-{reads}",
+                session_id="qoder-session",
+                message={"id": "model-response-1", "content": "Done"},
+            ),
+        ]
+
+    monkeypatch.setattr(
+        "qwenpaw.harnesses.qoder.adapter.get_session_messages",
+        read_history,
+    )
 
 
 class FakeQoderClient:
@@ -70,6 +94,8 @@ class FakeQoderClient:
             AssistantMessage(
                 content=[TextBlock(text="Done")],
                 model="qoder-test",
+                uuid="wire-message-1",
+                message_id="model-response-1",
             ),
             ResultMessage(
                 subtype="success",
@@ -165,14 +191,10 @@ def test_skill_projection_uses_portable_copies_with_spaced_paths(
     assert projected.read_text(encoding="utf-8").startswith("---")
 
 
-def test_loads_persisted_qoder_sessions(tmp_path: Path) -> None:
-    write_json_atomic(
-        tmp_path / "qoder_sessions.json",
-        {"chat-1": "550e8400-e29b-41d4-a716-446655440000"},
-    )
-
+def test_restores_durable_qoder_binding(tmp_path: Path) -> None:
     adapter = QoderAdapter(tmp_path)
 
+    adapter.bind_session("chat-1", "550e8400-e29b-41d4-a716-446655440000")
     assert adapter._sessions == {
         "chat-1": "550e8400-e29b-41d4-a716-446655440000",
     }
@@ -320,7 +342,9 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
     assert models[0].id == "auto"
     assert models[0].default_reasoning_effort == "high"
     assert [event.kind for event in events] == [
+        HarnessEventKind.SESSION_BOUND,
         HarnessEventKind.TEXT_DELTA,
+        HarnessEventKind.TURN_BOUNDARY,
         HarnessEventKind.COMPLETED,
     ]
     turn_client = clients[-1]
@@ -333,7 +357,7 @@ async def test_models_and_turns_use_sdk_capabilities(tmp_path: Path) -> None:
     }
     assert turn_client.options.include_partial_messages is True
     assert turn_client.prompts == [("Fix it", "default")]
-    assert (tmp_path / "qoder_sessions.json").is_file()
+    assert not (tmp_path / "qoder_sessions.json").exists()
 
 
 @pytest.mark.asyncio
@@ -719,3 +743,65 @@ async def test_cli_timeout_reaps_process(tmp_path: Path) -> None:
 
     assert process.killed is True
     assert process.waited is True
+
+
+def test_legacy_lineage_preserves_native_ids_across_compactions(monkeypatch):
+    """Recover ancestry without summary or sidechain messages."""
+    entries = []
+    parent = None
+    for n in range(1, 4):
+        for role in ("user", "assistant"):
+            uid = f"{role}-{n}"
+            entries.append(
+                {
+                    "uuid": uid,
+                    "type": role,
+                    "parentUuid": parent,
+                    "message": {"content": f"fact-{n}"},
+                },
+            )
+            parent = uid
+        if n < 3:
+            entries.extend(
+                [
+                    {
+                        "uuid": f"compact-{n}",
+                        "type": "system",
+                        "subtype": "compact_boundary",
+                        "parentUuid": None,
+                        "logicalParentUuid": parent,
+                    },
+                    {
+                        "uuid": f"summary-{n}",
+                        "type": "user",
+                        "parentUuid": f"compact-{n}",
+                        "isCompactSummary": True,
+                        "message": {"content": "synthetic summary"},
+                    },
+                ],
+            )
+            parent = f"summary-{n}"
+    entries.append(
+        {
+            "uuid": "side",
+            "type": "assistant",
+            "parentUuid": "user-1",
+            "isSidechain": True,
+            "message": {"content": "unrelated"},
+        },
+    )
+    raw = "\n".join(json.dumps(entry) for entry in entries)
+    monkeypatch.setattr(
+        "qoder_agent_sdk._internal.sessions._read_session_file",
+        lambda *_: raw,
+    )
+    sid = "11111111-1111-4111-8111-111111111111"
+    expected = [
+        f"{role}-{n}" for n in range(1, 4) for role in ("user", "assistant")
+    ]
+    assert [message.uuid for message in _qoder_lineage(sid)] == expected
+    assert [message.uuid for message in _qoder_lineage(sid)] == expected
+    entries[2]["logicalParentUuid"] = "missing"
+    raw = "\n".join(json.dumps(entry) for entry in entries)
+    with pytest.raises(ValueError, match="ancestry is missing"):
+        _qoder_lineage(sid)

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -28,6 +28,8 @@ class HarnessAttachment(BaseModel):
 class HarnessEventKind(str, Enum):
     """Events emitted by every third-party agent adapter."""
 
+    SESSION_BOUND = "session_bound"
+    TURN_BOUNDARY = "turn_boundary"
     TEXT_DELTA = "text_delta"
     REASONING_DELTA = "reasoning_delta"
     TOOL_STARTED = "tool_started"
@@ -94,6 +96,7 @@ class HarnessCapabilities(BaseModel):
     reasoning_stream: bool = False
     tool_stream: bool = False
     session_resume: bool = False
+    fork_mode: Literal["none", "latest", "turn"] = "none"
     workspace_ui: bool = False
     native_skills_ui: bool = False
     native_tools_ui: bool = False

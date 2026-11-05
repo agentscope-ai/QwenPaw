@@ -4,7 +4,7 @@
 
 Provides access to QwenPaw capabilities via thin delegation:
 - ctx.chat() / ctx.chat_stream() → Workspace.stream_query()
-- ctx.storage.get/set/search → SafeJSONSession (namespaced)
+- ctx.storage.get/set → global app KV storage (namespaced)
 - ctx.tools.invoke() → ToolCoordinator
 - ctx.notify() → ChannelManager
 - ctx.ui.push/confirm → UIBridge (SSE + ApprovalService)
@@ -59,23 +59,30 @@ class AppStorage:
             key=key,
             value=None,
             create_if_not_exist=False,
+            delete=True,
         )
 
     async def keys(self) -> List[str]:
-        """List all keys in this app's namespace."""
+        """List all keys in this app's namespace.
+
+        Hides ``_``-prefixed runtime bookkeeping (e.g. the session
+        layer's ``_context_generation``) so apps see only their own KV.
+        """
         try:
             state = await self._session.get_session_state_dict(
                 session_id=self._namespace,
                 allow_not_exist=True,
             )
-            return list(state.keys())
+            return [key for key in state if not key.startswith("_")]
         except Exception:
             return []
 
     async def clear_namespace(self) -> None:
         """Delete all data in this app's namespace."""
         try:
-            await self._session.delete_session(session_id=self._namespace)
+            await self._session.delete_session_state(
+                session_id=self._namespace,
+            )
         except Exception:
             pass
 

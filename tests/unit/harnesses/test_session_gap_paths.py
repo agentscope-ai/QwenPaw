@@ -5,6 +5,7 @@ Complements ``test_session.py`` by covering ``has_history``,
 ``hydrate`` (including the no-op when a transcript exists), ``clear``,
 and the history-kind branches of ``_history_messages``.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -12,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.harnesses.session import HarnessSessionBridge
 from qwenpaw.schemas import (
@@ -27,8 +29,11 @@ from qwenpaw.schemas import (
 
 
 @pytest.fixture
-def session(tmp_path: Path) -> SafeJSONSession:
-    return SafeJSONSession(str(tmp_path))
+def session(tmp_path: Path) -> DatabaseSession:
+    return DatabaseSession(
+        catalog=TranscriptCatalog(tmp_path),
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
 
 
 @pytest.fixture
@@ -181,6 +186,7 @@ class TestClear:
         request = AgentRequest(
             session_id="s",
             user_id="u",
+            channel="c",
             input=[
                 Message(role=Role.USER, content=[TextContent(text="hi")]),
             ],

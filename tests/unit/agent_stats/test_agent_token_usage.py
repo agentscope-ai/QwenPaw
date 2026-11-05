@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -14,6 +14,19 @@ from qwenpaw.agent_stats.models import AgentStatsSummary
 from qwenpaw.agent_stats.service import (
     AgentStatsService,
     _process_session_file,
+)
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.schemas import (
+    AgentRequest,
+    AgentResponse,
+    Message,
+    Role,
+    RunStatus,
+    TextContent,
 )
 from qwenpaw.token_usage.manager import TokenUsageStats, TokenUsageSummary
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
@@ -44,6 +57,8 @@ def _assistant_with_usage(
     completion_tokens: int,
 ) -> dict:
     return {
+        "id": "assistant-usage",
+        "name": "assistant",
         "role": "assistant",
         "created_at": created_at,
         "content": [{"type": "text", "text": "hi"}],
@@ -57,6 +72,43 @@ def _assistant_with_usage(
             },
         },
     }
+
+
+def _write_transcript(root: Path, messages: list[dict]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    catalog = TranscriptCatalog(root)
+    for index, raw in enumerate(messages):
+        turn_id = f"turn-{index}"
+        metadata = dict(raw.get("metadata") or {})
+        metadata["timestamp"] = raw["created_at"]
+        message = Message(
+            id=f"message-{index}",
+            role=raw["role"],
+            content=raw.get("content") or [],
+            metadata=metadata,
+        ).completed()
+        catalog.start_turn(
+            session_id="s1",
+            user_id="user",
+            channel="console",
+            turn_id=turn_id,
+            created_at=raw["created_at"],
+        )
+        catalog.upsert_message(
+            session_id="s1",
+            turn_id=turn_id,
+            message=message,
+            ordinal=0,
+            created_at=raw["created_at"],
+        )
+        catalog.finish_turn(
+            session_id="s1",
+            turn_id=turn_id,
+            status="completed",
+            finished_at=raw["created_at"],
+        )
+    catalog.close()
+    return root
 
 
 class TestProcessSessionFileAgentTokens:
@@ -187,6 +239,43 @@ class TestProcessSessionFileAgentTokens:
             {},
         )
         assert result[2:] == (0, 0, 0)
+
+    def test_counts_transcript_plugin_call_message(self):
+        daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
+        session_data = {
+            "agent": {
+                "state": {
+                    "context": [
+                        {
+                            "type": "plugin_call",
+                            "role": "assistant",
+                            "created_at": "2026-07-23T10:00:00Z",
+                            "content": [{"type": "data", "data": {}}],
+                        },
+                        {
+                            "type": "plugin_call_output",
+                            "role": "assistant",
+                            "created_at": "2026-07-23T10:00:01Z",
+                            "content": [{"type": "data", "data": {}}],
+                        },
+                    ],
+                },
+            },
+        }
+
+        result = _process_session_file(
+            session_data,
+            "2026-07-23",
+            "2026-07-23",
+            daily_stats,
+            {},
+            "console",
+            "sess-plugin",
+            {},
+        )
+
+        assert result[0] == 1
+        assert daily_stats["2026-07-23"]["tool_calls"] == 1
 
     def test_invalid_usage_tokens_do_not_wipe_session_stats(self):
         daily_stats = {"2026-07-23": _empty_daily("2026-07-23")}
@@ -337,14 +426,21 @@ class TestProcessSessionFileAgentTokens:
 class TestAgentStatsServiceAgentTokens:
     """Cover get_summary wiring for agent_* vs global totals."""
 
-    async def test_get_summary_keeps_global_and_fills_agent_fields(
+    @pytest.mark.asyncio
+    async def test_get_summary_migrates_legacy_chat_sessions(
         self,
         tmp_path: Path,
-    ):
-        workspace = tmp_path / "agent-a"
-        sessions = workspace / "sessions" / "console"
-        sessions.mkdir(parents=True)
-        session_file = sessions / "s1.json"
+    ) -> None:
+        chat = ChatSpec(
+            id="chat-1",
+            session_id="s1",
+            user_id="user",
+            channel="console",
+            created_at=datetime(2026, 7, 23, tzinfo=timezone.utc),
+        )
+        await JsonChatRepository(tmp_path / "chats.json").upsert_chat(chat)
+        session_file = tmp_path / "sessions" / "console" / "user_s1.json"
+        session_file.parent.mkdir(parents=True)
         session_file.write_text(
             json.dumps(
                 {
@@ -352,16 +448,20 @@ class TestAgentStatsServiceAgentTokens:
                         "state": {
                             "context": [
                                 {
+                                    "id": "user-1",
+                                    "name": "user",
                                     "role": "user",
-                                    "created_at": "2026-07-23T09:00:00Z",
+                                    "created_at": (
+                                        "2026-07-23T10:00:00+00:00"
+                                    ),
                                     "content": [
-                                        {"type": "text", "text": "hi"},
+                                        {"type": "text", "text": "hello"},
                                     ],
                                 },
                                 _assistant_with_usage(
-                                    created_at="2026-07-23T09:00:01Z",
-                                    prompt_tokens=111,
-                                    completion_tokens=22,
+                                    created_at=("2026-07-23T10:00:01+00:00"),
+                                    prompt_tokens=10,
+                                    completion_tokens=4,
                                 ),
                             ],
                         },
@@ -369,6 +469,95 @@ class TestAgentStatsServiceAgentTokens:
                 },
             ),
             encoding="utf-8",
+        )
+
+        summary = await AgentStatsService().get_summary(
+            tmp_path,
+            date(2026, 7, 23),
+            date(2026, 7, 23),
+            include_token_overlay=False,
+        )
+
+        assert summary.total_messages == 2
+        assert summary.total_user_messages == 1
+        assert summary.total_assistant_messages == 1
+        assert summary.agent_prompt_tokens == 10
+        assert summary.agent_completion_tokens == 4
+        assert session_file.exists()
+        saved = json.loads(session_file.read_text(encoding="utf-8"))
+        assert saved["agent"]["state"]["context"][0]["id"] == "user-1"
+        assert (tmp_path / "transcript_catalog.db").exists()
+
+    async def test_get_summary_reads_harness_runtime_messages(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        catalog = TranscriptCatalog(tmp_path)
+        session = DatabaseSession(
+            catalog=catalog,
+            legacy_save_dir=str(tmp_path / "sessions"),
+        )
+        bridge = HarnessSessionBridge(session)
+        await bridge.append_turn(
+            request=AgentRequest(
+                session_id="harness-session",
+                user_id="user",
+                channel="console",
+                input=[
+                    Message(
+                        role=Role.USER,
+                        content=[TextContent(text="hello")],
+                    ),
+                ],
+            ),
+            response=AgentResponse(
+                id="response",
+                output=[
+                    Message(
+                        role=Role.ASSISTANT,
+                        status=RunStatus.Completed,
+                        content=[TextContent(text="world")],
+                    ),
+                ],
+                status=RunStatus.Completed,
+            ),
+            backend="codex",
+        )
+        today = date.today()
+
+        summary = await AgentStatsService().get_summary(
+            tmp_path,
+            today,
+            today,
+            include_token_overlay=False,
+            transcript_catalog=catalog,
+            backend="codex",
+        )
+
+        assert summary.total_messages == 2
+        assert summary.total_user_messages == 1
+        assert summary.total_assistant_messages == 1
+        catalog.close()
+
+    async def test_get_summary_keeps_global_and_fills_agent_fields(
+        self,
+        tmp_path: Path,
+    ):
+        workspace = tmp_path / "agent-a"
+        _write_transcript(
+            workspace,
+            [
+                {
+                    "role": "user",
+                    "created_at": "2026-07-23T09:00:00Z",
+                    "content": [{"type": "text", "text": "hi"}],
+                },
+                _assistant_with_usage(
+                    created_at="2026-07-23T09:00:01Z",
+                    prompt_tokens=111,
+                    completion_tokens=22,
+                ),
+            ],
         )
 
         global_summary = TokenUsageSummary(
@@ -421,27 +610,16 @@ class TestAgentStatsServiceAgentTokens:
     async def test_agent_tokens_isolated_per_workspace(self, tmp_path: Path):
         def _write_workspace(name: str, prompt: int, completion: int) -> Path:
             root = tmp_path / name
-            sess_dir = root / "sessions" / "console"
-            sess_dir.mkdir(parents=True)
-            (sess_dir / "s.json").write_text(
-                json.dumps(
-                    {
-                        "agent": {
-                            "state": {
-                                "context": [
-                                    _assistant_with_usage(
-                                        created_at="2026-07-23T10:00:00Z",
-                                        prompt_tokens=prompt,
-                                        completion_tokens=completion,
-                                    ),
-                                ],
-                            },
-                        },
-                    },
-                ),
-                encoding="utf-8",
+            return _write_transcript(
+                root,
+                [
+                    _assistant_with_usage(
+                        created_at="2026-07-23T10:00:00Z",
+                        prompt_tokens=prompt,
+                        completion_tokens=completion,
+                    ),
+                ],
             )
-            return root
 
         ws_a = _write_workspace("agent-a", 100, 10)
         ws_b = _write_workspace("agent-b", 500, 50)
@@ -483,8 +661,7 @@ class TestAgentStatsServiceAgentTokens:
 
 
 def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
-    sess_dir = root / "sessions" / "console"
-    sess_dir.mkdir(parents=True)
+    root.mkdir(parents=True)
     (root / "agent.json").write_text("{}", encoding="utf-8")
     content: list[dict] = [{"type": "text", "text": "hi"}]
     content.extend(
@@ -500,11 +677,7 @@ def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
         )
         msg["content"] = list(content)
         turns.append(msg)
-    (sess_dir / "s.json").write_text(
-        json.dumps({"agent": {"state": {"context": turns}}}),
-        encoding="utf-8",
-    )
-    return root
+    return _write_transcript(root, turns)
 
 
 @pytest.mark.asyncio

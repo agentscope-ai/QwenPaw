@@ -87,6 +87,26 @@ class HarnessAdapter(ABC):
             ),
         ]
 
+    def bind_session(
+        self,
+        session_id: str,
+        external_session_id: str | None,
+    ) -> None:
+        """Restore a provider identity without reconstructing its context."""
+        del session_id, external_session_id
+
+    async def fork_session(
+        self,
+        *,
+        boundary: dict[str, Any],
+        cwd: Path,
+        settings: dict[str, Any],
+    ) -> str:
+        """Create a provider-owned branch at an exact boundary."""
+        raise HarnessOperationNotSupportedError(
+            "This backend does not support native Turn Fork.",
+        )
+
     async def reset_session(self, session_id: str) -> None:
         """Forget provider state associated with one QwenPaw session."""
         del session_id

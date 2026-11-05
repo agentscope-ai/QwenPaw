@@ -92,6 +92,7 @@ class ScrollContextManager:
         *,
         history: HistoryStore,
         session_id: str,
+        archive_session_id: str | None = None,
         agent_id: str | None = None,
         offloader: Any = None,
         compact_tool_result_max_bytes: int | None = None,
@@ -110,6 +111,7 @@ class ScrollContextManager:
             # or failed agent build discards a manager before attaching it.
             self._history_release = weakref.finalize(self, history.release)
         self._session_id = session_id
+        self._archive_session_id = archive_session_id or session_id
         self._agent_id = agent_id
         self._summary_timeout_seconds = summary_timeout_seconds
         # Kept for constructor compatibility with older integrations. Scroll
@@ -383,7 +385,10 @@ class ScrollContextManager:
         if self._offloader is None or not middle:
             return
         try:
-            await self._offloader.offload_context(self._session_id, middle)
+            await self._offloader.offload_context(
+                self._archive_session_id,
+                middle,
+            )
         except Exception:  # noqa: BLE001 - archive is best-effort
             logger.warning("scroll dialog offload failed", exc_info=True)
 
@@ -2355,13 +2360,20 @@ class ScrollContextManager:
             k: Leaf(seq=seq, headline=headline)
             for k, (seq, headline) in data.get("leaf_by_id", {}).items()
         }
-        if "index" in data:
-            self._index = EvictionIndex.from_dict(data["index"])
-        raw_summary = data.get("continuation_summary")
-        if isinstance(raw_summary, dict):
-            self._continuation_summary = ContinuationSummary.from_dict(
-                raw_summary,
+        self._index = (
+            EvictionIndex.from_dict(data["index"])
+            if "index" in data
+            else EvictionIndex(
+                session_id=self._session_id,
+                agent_id=self._agent_id,
             )
+        )
+        raw_summary = data.get("continuation_summary")
+        self._continuation_summary = (
+            ContinuationSummary.from_dict(raw_summary)
+            if isinstance(raw_summary, dict)
+            else None
+        )
         self._summary_update_failed = bool(
             data.get("summary_update_failed", False),
         )

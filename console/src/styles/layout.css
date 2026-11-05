@@ -952,7 +952,7 @@ html.dark-mode
 
 /* Chat bubble list max-width override */
 .qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list {
-  max-width: 960px !important;
+  max-width: var(--chat-history-max-width, 960px) !important;
 }
 
 /* Chat page background in dark mode */

@@ -4,6 +4,8 @@ import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
+  ChatMessagePage,
+  ChatUserMessagePage,
   ChatResolution,
   ChatDeleteResponse,
   ChatUpdateRequest,
@@ -105,11 +107,30 @@ export const chatApi = {
       body: JSON.stringify(chat),
     }),
 
+  forkCapability: (chatId: string, turnId: string, agentId?: string) =>
+    request<{ can_fork: boolean; reason: string | null }>(
+      `/chats/${encodeURIComponent(
+        chatId,
+      )}/fork-capability?turn_id=${encodeURIComponent(turnId)}`,
+      { headers: agentId ? { "X-Agent-Id": agentId } : undefined },
+    ),
+
+  forkChat: (chatId: string, turnId: string, agentId?: string) =>
+    request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}/fork`, {
+      method: "POST",
+      headers: agentId ? { "X-Agent-Id": agentId } : undefined,
+      body: JSON.stringify({ turn_id: turnId }),
+    }),
+
   getChat: (
     chatId: string,
-    options?: { signal?: AbortSignal; include_app_owned?: boolean },
+    options?: {
+      signal?: AbortSignal;
+      include_app_owned?: boolean;
+      agentId?: string;
+    },
   ) => {
-    const searchParams = new URLSearchParams();
+    const searchParams = new URLSearchParams({ full_history: "false" });
     if (options?.include_app_owned !== undefined)
       searchParams.append(
         "include_app_owned",
@@ -120,6 +141,9 @@ export const chatApi = {
       `/chats/${encodeURIComponent(chatId)}${query ? `?${query}` : ""}`,
       {
         signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
       },
     );
   },
@@ -136,6 +160,89 @@ export const chatApi = {
           ? { "X-Agent-Id": options.agentId }
           : undefined,
       },
+    );
+  },
+
+  getChatMessages: (
+    chatId: string,
+    options?: {
+      before?: string;
+      wait_for_migration?: boolean;
+      agentId?: string;
+      after_message_id?: string;
+      before_message_id?: string;
+      limit?: number;
+      signal?: AbortSignal;
+      include_app_owned?: boolean;
+    },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.before) searchParams.append("before", options.before);
+    if (options?.before_message_id)
+      searchParams.append("before_message_id", options.before_message_id);
+    if (options?.after_message_id)
+      searchParams.append("after_message_id", options.after_message_id);
+    if (options?.limit !== undefined)
+      searchParams.append("limit", String(options.limit));
+    if (options?.include_app_owned !== undefined)
+      searchParams.append(
+        "include_app_owned",
+        String(options.include_app_owned),
+      );
+    if (options?.wait_for_migration)
+      searchParams.append("wait_for_migration", "true");
+    const query = searchParams.toString();
+    return request<ChatMessagePage>(
+      `/chats/${encodeURIComponent(chatId)}/messages${
+        query ? `?${query}` : ""
+      }`,
+      {
+        signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
+      },
+    );
+  },
+
+  getChatUserMessageText: (
+    chatId: string,
+    messageId: string,
+    signal?: AbortSignal,
+  ) =>
+    request<{ text: string }>(
+      `/chats/${encodeURIComponent(chatId)}/user-messages/${encodeURIComponent(
+        messageId,
+      )}`,
+      { signal },
+    ),
+
+  getChatUserMessages: (
+    chatId: string,
+    options?: {
+      before?: string;
+      limit?: number;
+      signal?: AbortSignal;
+      include_app_owned?: boolean;
+    },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.before) searchParams.append("before", options.before);
+    if (options?.limit !== undefined) {
+      searchParams.append("limit", String(options.limit));
+    }
+    if (options?.include_app_owned !== undefined) {
+      searchParams.append(
+        "include_app_owned",
+        String(options.include_app_owned),
+      );
+    }
+    const query = searchParams.toString();
+    return request<ChatUserMessagePage>(
+      `/chats/${encodeURIComponent(chatId)}/user-messages${
+        query ? `?${query}` : ""
+      }`,
+      { signal: options?.signal },
     );
   },
 

@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 from agentscope.state import AgentState
 
-from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.utils import agentscope_msg_to_message
 from qwenpaw.harnesses.session import HarnessSessionBridge
 from qwenpaw.schemas import (
@@ -29,7 +30,10 @@ from qwenpaw.schemas import (
 async def test_bridge_persists_refreshable_reasoning_and_tools(
     tmp_path: Path,
 ) -> None:
-    session = SafeJSONSession(str(tmp_path))
+    session = DatabaseSession(
+        catalog=TranscriptCatalog(tmp_path),
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
     bridge = HarnessSessionBridge(session)
     request = AgentRequest(
         session_id="chat-1",
@@ -115,7 +119,10 @@ async def test_bridge_persists_refreshable_reasoning_and_tools(
 async def test_bridge_persists_attachment_only_message(
     tmp_path: Path,
 ) -> None:
-    session = SafeJSONSession(str(tmp_path))
+    session = DatabaseSession(
+        catalog=TranscriptCatalog(tmp_path),
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
     bridge = HarnessSessionBridge(session)
     image_path = tmp_path / "screen.png"
     file_path = tmp_path / "notes.txt"

@@ -11,6 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agentscope.state import AgentState
+
+from .._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+)
 from ..schemas import (
     AgentResponse,
     ContentType,
@@ -51,6 +57,7 @@ class HarnessRuntime:
     ) -> None:
         self._state_dir = workspace_dir / "harnesses"
         self._agent_id = agent_id
+        self._store = getattr(workspace, "transcript_store", None)
         self._adapters: dict[str, HarnessAdapter] = {}
         self._adapter_keys: dict[str, tuple[Any, ...]] = {}
         self._adapter_lock = asyncio.Lock()
@@ -126,6 +133,13 @@ class HarnessRuntime:
         ] = await self._capability_resolver.resolve(request_context)
         adapter = await self.adapter(backend, settings)
         session_id = str(getattr(request, "session_id", "") or "default")
+        identity = {
+            "session_id": session_id,
+            "user_id": str(getattr(request, "user_id", "") or session_id),
+            "channel": str(getattr(request, "channel", "") or ""),
+        }
+        context = getattr(request, "request_context", None) or {}
+        turn_id = context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)
         prompt, attachments = self._content_from_request(request)
         command, arguments = (
             self._parse_command(prompt) if not attachments else ("", "")
@@ -159,8 +173,54 @@ class HarnessRuntime:
         task_cancelled = False
 
         try:
+            if self._store is not None:
+                if not turn_id or not context.get(
+                    TRANSCRIPT_RECORDING_READY_KEY,
+                ):
+                    raise ValueError(
+                        "Conversation recording is unavailable; cannot "
+                        "start a native turn without durable identity.",
+                    )
+                saved = await asyncio.to_thread(
+                    self._store.read_provider_state,
+                    **identity,
+                )
+                binding = saved["binding"]
+                if binding and binding["provider"] != backend:
+                    raise ValueError("Conversation backend binding changed")
+                if (
+                    not binding
+                    and saved["has_history"]
+                    and command not in {"new", "clear"}
+                ):
+                    raise ValueError(
+                        "External session binding is missing; refusing to "
+                        "start an empty provider conversation.",
+                    )
+                adapter.bind_session(
+                    session_id,
+                    binding.get("external_session_id") if binding else None,
+                )
             if command in {"new", "clear"}:
                 await adapter.reset_session(session_id)
+                if self._store is not None:
+                    await asyncio.to_thread(
+                        self._store.write_runtime_state,
+                        **identity,
+                        turn_id=turn_id,
+                        state={
+                            "agent": {
+                                "state": AgentState().model_dump(mode="json"),
+                            },
+                        },
+                        reset_context=True,
+                        reset_provider=backend,
+                    )
+                elif self._session_bridge is not None:
+                    await self._session_bridge.clear(
+                        **identity,
+                        turn_id=turn_id,
+                    )
                 events = [
                     HarnessEvent(
                         kind=HarnessEventKind.TEXT_DELTA,
@@ -196,7 +256,23 @@ class HarnessRuntime:
                     attachments=attachments,
                 )
             async for event in event_stream:
-                if event.kind == HarnessEventKind.TEXT_DELTA:
+                if event.kind in {
+                    HarnessEventKind.SESSION_BOUND,
+                    HarnessEventKind.TURN_BOUNDARY,
+                }:
+                    if self._store is not None:
+                        if not turn_id:
+                            raise ValueError(
+                                "QwenPaw Turn identity is missing",
+                            )
+                        await asyncio.to_thread(
+                            self._store.record_provider_fact,
+                            **identity,
+                            kind=event.kind.value,
+                            turn_id=turn_id,
+                            data={"provider": backend, **event.data},
+                        )
+                elif event.kind == HarnessEventKind.TEXT_DELTA:
                     for item in text_stream.push(
                         MessageType.MESSAGE,
                         event.text,
@@ -232,11 +308,16 @@ class HarnessRuntime:
         for item in text_stream.finish():
             yield tagged(item)
 
-        clear_history = command in {"new", "clear"}
-        if clear_history and response.output:
+        reset_context = command in {"new", "clear"}
+        if (
+            reset_context
+            and not error_text
+            and not cancelled
+            and response.output
+        ):
             response.output[-1].metadata = {
                 **dict(response.output[-1].metadata or {}),
-                "clear_history": True,
+                "context_reset": True,
             }
 
         if error_text:
@@ -249,34 +330,23 @@ class HarnessRuntime:
         response.completed_at = datetime.now(timezone.utc).isoformat(
             timespec="seconds",
         )
-        if self._session_bridge is not None and clear_history:
-            try:
-                await self._session_bridge.clear(
-                    session_id=session_id,
-                    user_id=str(
-                        getattr(request, "user_id", "") or session_id,
-                    ),
-                    channel=str(getattr(request, "channel", "") or ""),
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to clear third-party session %s",
-                    session_id,
-                    exc_info=True,
-                )
-        elif self._session_bridge is not None:
+        if self._session_bridge is not None and not reset_context:
             try:
                 await self._session_bridge.append_turn(
                     request=request,
                     response=response,
                     backend=backend,
                 )
-            except Exception:
-                logger.warning(
+            except Exception as exc:
+                logger.exception(
                     "Failed to persist third-party session %s",
                     session_id,
-                    exc_info=True,
                 )
+                response.status = RunStatus.Failed
+                response.error = {
+                    "code": "session_persistence_failed",
+                    "message": str(exc),
+                }
         if task_cancelled:
             raise asyncio.CancelledError
         yield tagged(response)
@@ -308,6 +378,17 @@ class HarnessRuntime:
         ):
             return
         adapter = await self.adapter(backend, settings)
+        if self._store is not None:
+            saved = await asyncio.to_thread(
+                self._store.read_provider_state,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            binding = saved["binding"]
+            if not binding or binding["provider"] != backend:
+                return
+            adapter.bind_session(session_id, binding["external_session_id"])
         history = await adapter.history(session_id)
         await self._session_bridge.hydrate(
             session_id=session_id,

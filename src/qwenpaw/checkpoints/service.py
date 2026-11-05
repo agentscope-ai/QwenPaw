@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import sqlite3
+import tempfile
 import time
 import weakref
 from dataclasses import dataclass
@@ -36,6 +39,7 @@ from .policy import (
     ref_session_key,
     sanitize_ref_component,
     session_key,
+    session_snapshot_path,
 )
 from .models import (
     CheckpointEntry,
@@ -326,6 +330,11 @@ class CheckpointService:
         """Create a snapshot and return its complete internal result."""
         if kind not in {"auto", "snap", "pre-restore"}:
             raise ValueError(f"Unsupported checkpoint kind: {kind}")
+        await self.ensure_session_migrated(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
         async with self.maintenance_lock:
             async with self.lock:
                 result = await run_sync_io(
@@ -357,6 +366,22 @@ class CheckpointService:
             user_id=user_id,
             session_id=session_id,
         )
+        conversation_path = session_snapshot_path(
+            channel=channel,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        runtime = self._runtime_snapshot(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        conversation_blob = self._session_database_snapshot(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        virtual_files = {conversation_path: conversation_blob}
         parent_commit = self.session_head(key)
         now_ms = int(time.time() * 1000)
         if kind == "auto":
@@ -381,16 +406,18 @@ class CheckpointService:
                 ref = f"refs/pre-restore/{now_ms}-{key}"
             subject = f"pre-restore {key} {now_ms}"
 
-        tree = tree_override or self.repository.write_workspace_tree()
+        tree = (
+            self.repository.add_virtual_files_to_tree(
+                tree_override,
+                virtual_files,
+            )
+            if tree_override
+            else self.repository.write_workspace_tree(virtual_files)
+        )
         body = message.strip() if message else subject
         query = query_override
         if query is None:
-            query = latest_user_query(
-                self.repository.workspace_dir,
-                session_id=session_id,
-                user_id=user_id,
-                channel=channel,
-            )
+            query = latest_user_query(runtime.state if runtime else {})
         metadata = encode_metadata(
             query,
             channel=channel,
@@ -412,6 +439,174 @@ class CheckpointService:
             parent_commit=parent_commit,
             timestamp_ms=now_ms,
         )
+
+    def _runtime_snapshot(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ):
+        store, owned = self._transcript_store()
+        try:
+            snapshot = store.read_runtime_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            native_binding = (
+                store.read_provider_state(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )["binding"]
+                if snapshot is None
+                else None
+            )
+        finally:
+            if owned:
+                store.close()
+        if snapshot is None and not native_binding:
+            raise CheckpointError(
+                "Conversation runtime state does not exist",
+            )
+        return snapshot
+
+    async def ensure_session_migrated(self, **identity) -> None:
+        """Migrate a legacy conversation before checkpoint operations."""
+        session = getattr(self.workspace, "session", None)
+        migrate = getattr(session, "ensure_legacy_migrated", None)
+        if migrate is not None:
+            await migrate(**identity)
+
+    def _session_database_snapshot(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bytes:
+        store, owned = self._transcript_store()
+        try:
+            return store.export_session_database(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        except (KeyError, OSError, sqlite3.Error, ValueError) as exc:
+            raise CheckpointError(
+                "Conversation database snapshot failed",
+            ) from exc
+        finally:
+            if owned:
+                store.close()
+
+    def restore_session_database(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Restore one checkpoint database into the live session."""
+        store, owned = self._transcript_store()
+        try:
+            store.restore_session_database(
+                blob,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        except (KeyError, OSError, sqlite3.Error, ValueError) as exc:
+            raise CheckpointError(
+                "Checkpoint session database is invalid",
+            ) from exc
+        finally:
+            if owned:
+                store.close()
+
+    def restore_legacy_session_state(
+        self,
+        blob: bytes,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> None:
+        """Convert one legacy JSON checkpoint and restore it as a database."""
+        from ..app.chats.session import _legacy_current_usage
+        from ..app.chats.transcript import TranscriptStore
+        from ..app.chats.utils import session_state_to_messages
+
+        try:
+            state = json.loads(blob.decode("utf-8", errors="surrogatepass"))
+            if not isinstance(state, dict):
+                raise ValueError("session state must be an object")
+            messages = session_state_to_messages(state)
+            catalog, owned = self._transcript_store()
+            try:
+                storage_id = catalog.storage_id_for(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+            finally:
+                if owned:
+                    catalog.close()
+            with tempfile.TemporaryDirectory() as directory:
+                snapshot = TranscriptStore(
+                    Path(directory) / "session.db",
+                    storage_id=storage_id,
+                )
+                try:
+                    snapshot.import_legacy_messages(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        messages=messages,
+                    )
+                    snapshot.write_runtime_state(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                        state=state,
+                        current_usage=_legacy_current_usage(state),
+                        migration_anchor=True,
+                    )
+                    database = snapshot.export_database(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    )
+                finally:
+                    snapshot.close()
+            self.restore_session_database(
+                database,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+        except (
+            KeyError,
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            sqlite3.Error,
+            ValueError,
+        ) as exc:
+            raise CheckpointError(
+                "Legacy checkpoint session state is invalid",
+            ) from exc
+
+    def _transcript_store(self):
+        workspace = self.workspace
+        store = getattr(workspace, "transcript_store", None)
+        if store is not None:
+            return store, False
+        from ..app.chats.transcript_catalog import TranscriptCatalog
+
+        return TranscriptCatalog(self.workspace_dir), True
 
     # -- reset ------------------------------------------------------------
 

@@ -1,3 +1,6 @@
+import { useMessageHistoryNavigation } from "./useMessageHistoryNavigation";
+import { BOTTOM_THRESHOLD_PX, distanceFromBottom } from "./bottomFollow";
+import { ChatBottomFollow } from "./ChatBottomFollow";
 import { ChatSessionActivation } from "./components/ChatSessionActivation";
 import {
   ChatSessionTransition,
@@ -15,9 +18,12 @@ import { setPendingThinking } from "@/features/thinking/sessionThinkingApi";
 import { SessionThinking } from "@/features/thinking/SessionThinking";
 import {
   AgentScopeRuntimeWebUI,
+  useChatAnywhereSessionsState,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeWebUIInputData,
+  type IAgentScopeRuntimeWebUIMessage,
+  type IAgentScopeRuntimeWebUISession,
   type IAgentScopeRuntimeWebUISenderBeforeSubmitResult,
   type IAgentScopeRuntimeWebUIRef,
   type IAgentScopeRuntimeWebUISubmissionContext,
@@ -38,8 +44,11 @@ import { useIsMobile } from "../../hooks/useIsMobile";
 import {
   CircleAlert as ExclamationCircleOutlined,
   Copy,
+  GitFork,
   Paperclip as SparkAttachmentLine,
+  RotateCw,
   Settings as SettingOutlined,
+  TriangleAlert,
 } from "lucide-react";
 import { usePlugins } from "../../plugins/PluginContext";
 import { bindChatSubmit } from "../../plugins/hostSdk/chatSubmit";
@@ -48,7 +57,7 @@ import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi from "./sessionApi";
+import sessionApi, { mergeHistoryMessages } from "./sessionApi";
 import {
   getDraftStorageKey,
   handoverDraftToSession,
@@ -80,6 +89,7 @@ import {
 } from "./ModelSelector/AdvisorModelsPill";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
+import { syncSessionsGlobal } from "../../stores/sessionListStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -103,6 +113,7 @@ import { toChatThemeHex } from "@/utils/chatThemeColor";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import { wrapChatResponseUsageStream } from "./turnUsage";
+import { batchLiveChatDeltas } from "./liveDeltaBatch";
 import { wrapReplayFastForward } from "./replayFastForward";
 import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
@@ -133,12 +144,23 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostResponseCard } from "./HostBubbles";
+import { HistoryMessageWindowCard } from "./HistoryMessageWindow";
+import { ChatUserMessageNavigation } from "./ChatUserMessageNavigation";
+import {
+  createHistoryMessageWindowCard,
+  HISTORY_MESSAGE_WINDOW_CARD,
+  historyMessageWindow,
+  splitHistoryMessagesIntoTurnRows,
+  boundHistoryRows,
+  type HistoryNavigationMode,
+} from "./historyMessageWindowStore";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
   awaitInChatScope,
   awaitQueueAcceptance,
   recoverSendingQueueHead,
   waitForChatIdle,
+  waitForChatStatusIdle,
 } from "./chatRunLifecycle";
 import { applyChatPayloadTransforms } from "./chatPayload";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";
@@ -192,7 +214,13 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import { LongTextPasteInput, LongTextPasteProvider } from "./LongTextPaste";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  getMessageScroller,
+  getUnscrollableHistoryTarget,
+  isOldestLoadedMessageVisible,
+  needsHistoryFill,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -244,10 +272,10 @@ import {
   toStoredName,
   copyText,
   extractCopyableText,
+  extractTranscriptTurnId,
   buildModelError,
   normalizeContentUrls,
   extractUserMessageText,
-  extractTextFromMessage,
   getActiveSenderTextarea,
   getSenderTextareaFromTarget,
   setTextareaValue,
@@ -303,7 +331,7 @@ import {
 
 /**
  * Convert a queue item's attachments array into the content-item format
- * expected by the backend POST body and by patchLastUserMessage.
+ * expected by the backend POST body.
  */
 function buildAttachmentContentItems(
   attachments: Array<{ url: string; name?: string; type?: string }> | undefined,
@@ -474,27 +502,6 @@ async function startBackgroundQueue(
           .getState()
           .setItemStatus(queueKey, item.id, "sending");
 
-        // Mirror what foreground customFetch does: cache the in-flight user
-        // text in shared storage so that when ChatPage re-mounts during
-        // generation, sessionApi.patchLastUserMessage can patch THIS user
-        // message into history (otherwise the previous turn's stale text
-        // would surface, e.g. showing user="2" while task3 is generating).
-        if (chatIdForStatus || backendSessionId || queueKey) {
-          // Build content items matching the POST body (stored-name format)
-          // so patchLastUserMessage can rebuild the user card with attachments.
-          const contentItems: Array<{ type: string; [key: string]: unknown }> =
-            [
-              { type: "text", text: item.text },
-              ...buildAttachmentContentItems(item.attachments),
-            ];
-          sessionApi.setLastUserMessage(
-            [chatIdForStatus, queueKey],
-            item.text,
-            contentItems,
-            clientMessageId,
-          );
-        }
-
         let fetchSucceeded = false;
         // True once fetch() has resolved with an HTTP response. For a streaming
         // chat endpoint, this means the backend has already accepted the
@@ -565,10 +572,6 @@ async function startBackgroundQueue(
           }
 
           if (!res.ok) {
-            sessionApi.discardLastUserMessage(
-              [chatIdForStatus, queueKey],
-              clientMessageId,
-            );
             throw new Error(`HTTP ${res.status}`);
           }
           setPendingThinking(queueAgentId, queueKey, null);
@@ -717,44 +720,41 @@ interface CommandSuggestion {
   description: string;
 }
 
-function messageRequestsHistoryClear(message: unknown): boolean {
-  if (!message || typeof message !== "object") return false;
-  const metadata = (message as Record<string, unknown>).metadata;
-  if (!metadata || typeof metadata !== "object") return false;
-
-  const meta = metadata as Record<string, unknown>;
-  if (meta.clear_history === true) return true;
-
-  const nested = meta.metadata;
-  return (
-    !!nested &&
-    typeof nested === "object" &&
-    (nested as Record<string, unknown>).clear_history === true
-  );
-}
-
-function payloadRequestsHistoryClear(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
-
-  const record = payload as Record<string, unknown>;
-  const candidates: unknown[] = [];
-
-  if (record.object === "message") {
-    candidates.push(record);
-  }
-
-  if (record.object === "response" && Array.isArray(record.output)) {
-    candidates.push(...record.output);
-  }
-
-  return candidates.some(messageRequestsHistoryClear);
-}
-
 function payloadCompletesResponse(payload: unknown): boolean {
   if (!payload || typeof payload !== "object") return false;
 
   const record = payload as Record<string, unknown>;
   return record.object === "response" && record.status === "completed";
+}
+
+function payloadResetsContext(payload: Record<string, unknown>): boolean {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const metadata = (item as Record<string, unknown>).metadata;
+    return (
+      metadata !== null &&
+      typeof metadata === "object" &&
+      (metadata as Record<string, unknown>).context_reset === true
+    );
+  });
+}
+
+function resetCurrentContextUsage(): void {
+  const store = useTurnUsageStore.getState();
+  const maxInputLength =
+    store.snapshot?.context_usage?.max_input_length ??
+    store.activeMaxInputLength ??
+    131072;
+  store.invalidateTurn();
+  store.setSnapshot({
+    usage: null,
+    context_usage: {
+      estimated_tokens: 0,
+      max_input_length: maxInputLength,
+      context_usage_ratio: 0,
+    },
+  });
 }
 
 function renderSuggestionLabel(command: string, description?: string) {
@@ -981,156 +981,6 @@ function useMultimodalCapabilities(
   return { multimodalCaps, fetchMultimodalCaps };
 }
 
-function useMessageHistoryNavigation(
-  chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
-  isChatActive: () => boolean,
-  isComposingRef: React.RefObject<boolean>,
-) {
-  const historyIndexRef = useRef<number>(-1);
-  const draftRef = useRef<string>("");
-
-  /** Cached user messages to avoid re-computing on every keydown */
-  const userMessagesCacheRef = useRef<string[]>([]);
-  const cachedMessageCountRef = useRef<number>(0);
-
-  const getUserMessagesWithText = useCallback((): string[] => {
-    if (!chatRef.current?.messages?.getMessages) return [];
-
-    const allMessages = chatRef.current.messages.getMessages();
-    if (!Array.isArray(allMessages)) return [];
-
-    const currentCount = allMessages.length;
-    if (
-      userMessagesCacheRef.current.length > 0 &&
-      cachedMessageCountRef.current === currentCount
-    ) {
-      return userMessagesCacheRef.current;
-    }
-
-    const userMessages = allMessages
-      .filter((msg) => msg.role === "user")
-      .map((msg) => extractTextFromMessage(msg))
-      .filter((text) => text.trim().length > 0);
-
-    userMessagesCacheRef.current = userMessages;
-    cachedMessageCountRef.current = currentCount;
-
-    return userMessages;
-  }, [chatRef]);
-
-  interface MessageResult {
-    index: number;
-    text: string;
-  }
-
-  const findMessageInDirection = (
-    messages: string[],
-    startIndex: number,
-    direction: 1 | -1,
-  ): MessageResult | null => {
-    const MAX_LOOKUP = 100;
-    let lookupIndex = startIndex;
-    let steps = 0;
-
-    while (
-      lookupIndex >= 0 &&
-      lookupIndex < messages.length &&
-      steps < MAX_LOOKUP
-    ) {
-      const messageText = messages[messages.length - 1 - lookupIndex];
-      if (messageText) {
-        return { index: lookupIndex, text: messageText };
-      }
-      lookupIndex += direction;
-      steps += 1;
-    }
-
-    return null;
-  };
-
-  const isSuggestionPopupOpen = (textarea: HTMLTextAreaElement): boolean =>
-    textarea.value.startsWith("/");
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isChatActive()) return;
-      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
-
-      const textarea = getSenderTextareaFromTarget(e.target);
-      if (!textarea) return;
-      if (isComposingRef.current || e.isComposing) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-
-      const hasSelection = textarea.selectionStart !== textarea.selectionEnd;
-      if (hasSelection) return;
-
-      const userMessages = getUserMessagesWithText();
-
-      if (e.key === "ArrowUp") {
-        if (isSuggestionPopupOpen(textarea)) return;
-
-        const cursorPosition = textarea.selectionStart || 0;
-        const textBeforeCursor = textarea.value.substring(0, cursorPosition);
-        const lineBreaks = textBeforeCursor.split("\n").length - 1;
-        if (lineBreaks > 0) return;
-
-        if (userMessages.length === 0) return;
-
-        if (historyIndexRef.current === -1) {
-          draftRef.current = textarea.value;
-        }
-
-        const startIndex = historyIndexRef.current + 1;
-        const messageText = findMessageInDirection(userMessages, startIndex, 1);
-
-        if (messageText) {
-          e.preventDefault();
-          historyIndexRef.current = messageText.index;
-          setTextareaValue(textarea, messageText.text);
-        }
-      } else if (e.key === "ArrowDown") {
-        if (historyIndexRef.current < 0) return;
-
-        const cursorPosition = textarea.selectionStart || 0;
-        const textAfterCursor = textarea.value.substring(cursorPosition);
-        if (textAfterCursor.includes("\n")) return;
-
-        const startIndex = historyIndexRef.current - 1;
-        const messageText = findMessageInDirection(
-          userMessages,
-          startIndex,
-          -1,
-        );
-
-        if (messageText) {
-          e.preventDefault();
-          historyIndexRef.current = messageText.index;
-          setTextareaValue(textarea, messageText.text);
-        } else {
-          e.preventDefault();
-          historyIndexRef.current = -1;
-          setTextareaValue(textarea, draftRef.current);
-        }
-      }
-    };
-
-    const handleFocus = (e: FocusEvent) => {
-      if (getSenderTextareaFromTarget(e.target)) {
-        historyIndexRef.current = -1;
-        draftRef.current = "";
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    document.addEventListener("focusin", handleFocus, true);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-      document.removeEventListener("focusin", handleFocus, true);
-    };
-  }, [isChatActive, isComposingRef, getUserMessagesWithText]);
-}
-
 function RuntimeLoadingBridge({
   bridgeRef,
   onLoadingChange,
@@ -1154,9 +1004,16 @@ function RuntimeLoadingBridge({
     setSdkLocale?.(i18n.language.startsWith("zh") ? "cn" : "en");
   }, [i18n.language, setSdkLocale]);
   const setDisabled = useChatAnywhereInput((value) => value.setDisabled);
+  const setSessionDisabled = useChatAnywhereInput(
+    (value) => value.setSessionDisabled,
+  );
+  const { currentSessionId } = useChatAnywhereSessionsState();
   useEffect(() => {
-    setDisabled?.(disabled);
-  }, [disabled, setDisabled]);
+    // Route readiness belongs to the target Chat, not the SDK's previous
+    // active session while its controlled selection is still catching up.
+    if (sessionId) setSessionDisabled?.(sessionId, disabled);
+    else if (!currentSessionId) setDisabled?.(disabled);
+  }, [sessionId, currentSessionId, disabled, setDisabled, setSessionDisabled]);
   const { loading, setLoading, getLoading, setSessionLoading } =
     useChatAnywhereInput(
       (value) =>
@@ -1270,16 +1127,30 @@ export default function ChatPage() {
   // older active Chat. Storage identity must follow the same route as the SDK.
   const queueSessionId = chatId ?? "new";
   const queueKey = getQueueKey(selectedAgent, queueSessionId);
+  const transformHistorySessionRef =
+    useRef<
+      (
+        id: string,
+        session: IAgentScopeRuntimeWebUISession,
+      ) => IAgentScopeRuntimeWebUISession
+    >();
   const sdkSessionAdapter = useMemo(
     () =>
-      createSdkSessionAdapter(sessionApi.bindToOwner(), (id, session) => {
-        // SDK 1.2 only clears hydrated idle state when its own queue is enabled.
-        // CoPaw owns the queue: clear the loaded Chat's cached connection state
-        // before readiness wakes its sender. Never clear another Chat's stream.
-        if (session && !session.generating) {
-          runtimeLoadingBridgeRef.current?.setSessionLoading?.(id, false);
-        }
-      }),
+      createSdkSessionAdapter(
+        sessionApi.bindToOwner(),
+        (id, session) => {
+          // SDK 1.2 only clears hydrated idle state when its own queue is enabled.
+          // CoPaw owns the queue: clear the loaded Chat's cached connection state
+          // before readiness wakes its sender. Never clear another Chat's stream.
+          if (session && !session.generating) {
+            runtimeLoadingBridgeRef.current?.setSessionLoading?.(id, false);
+          }
+        },
+        (id, session) =>
+          session
+            ? transformHistorySessionRef.current?.(id, session) ?? session
+            : session,
+      ),
     [selectedAgent],
   );
   const sdkSessionApi = sdkSessionAdapter.api;
@@ -1553,6 +1424,51 @@ export default function ChatPage() {
     [],
   );
 
+  const historyTurnRowsRef = useRef<IAgentScopeRuntimeWebUIMessage[][] | null>(
+    null,
+  );
+  const [historyViewActive, setHistoryViewActive] = useState(false);
+  const pendingLatestScrollRef = useRef<string>();
+  const restoreLatestHistory = useCallback((scrollToBottom = false): void => {
+    const visibleSessionId = chatIdRef.current;
+    if (!visibleSessionId || historyTurnRowsRef.current === null) return;
+    const historyScroll = document.querySelector<HTMLElement>(
+      '[data-history-message-window="true"]',
+    );
+    if (
+      !scrollToBottom &&
+      historyScroll &&
+      (distanceFromBottom(historyScroll) > BOTTOM_THRESHOLD_PX ||
+        historyMessageWindow.getSnapshot()?.canLoadNewer === true)
+    ) {
+      // A queued/new run must not replace the history the reader is viewing.
+      historyMessageWindow.setReturnToLatest(visibleSessionId, () =>
+        restoreLatestHistory(true),
+      );
+      return;
+    }
+    const latest = sessionApi.showLatestHistory(visibleSessionId);
+    const liveMessages = (
+      chatRef.current?.messages.getSessionMessages(visibleSessionId) ?? []
+    ).filter(
+      (item) =>
+        !(item as { history?: boolean }).history &&
+        item.id !== `qwenpaw-history-window-${visibleSessionId}`,
+    );
+    historyTurnRowsRef.current = null;
+    pendingLatestScrollRef.current = scrollToBottom
+      ? visibleSessionId
+      : undefined;
+    historyMessageWindow.end(visibleSessionId);
+    setHistoryViewActive(false);
+    if (latest) {
+      chatRef.current?.messages.setSessionMessages(
+        visibleSessionId,
+        mergeHistoryMessages(latest, liveMessages),
+      );
+    }
+  }, []);
+
   /**
    * Execute one CoPaw-owned queue item through the SDK Run pipeline.
    * CoPaw keeps ordering/persistence/Web Locks; the SDK owns message creation,
@@ -1603,13 +1519,9 @@ export default function ChatPage() {
           );
           if (!idle) return false;
           // A retry may already have a durable receipt. Reconcile the visible
-          // history as well as the queue, and remove the previous failed local
-          // attempt before creating another SDK request card.
+          // history as well as the queue before creating another SDK request
+          // card.
           if (canSend() && (item.retryCount > 0 || !locateQueue())) {
-            sessionApi.discardLastUserMessage(
-              [queueSessionId, sessionApi.getRealIdForSession(queueSessionId)],
-              item.clientMessageId ?? item.id,
-            );
             const recovered = await sessionApi.refreshSession(
               queueSessionId,
               signal,
@@ -1617,7 +1529,12 @@ export default function ChatPage() {
             if (!canSend() || !recovered || recovered.generating) return false;
             chatRef.current?.messages.setSessionMessages(
               queueSessionId,
-              recovered.messages,
+              (
+                transformHistorySessionRef.current?.(
+                  queueSessionId,
+                  recovered,
+                ) ?? recovered
+              ).messages,
             );
             if (!locateQueue()) return true;
           }
@@ -1637,6 +1554,7 @@ export default function ChatPage() {
         )
           return false;
         item = freshItem;
+        restoreLatestHistory();
         store.setCurrentSendingId(item.id);
         store.setItemStatus(freshQueueId, item.id, "sending");
         const accepted = await awaitQueueAcceptance(
@@ -1715,6 +1633,7 @@ export default function ChatPage() {
       selectedAgent,
       queueKey,
       sdkSessionAdapter,
+      restoreLatestHistory,
     ],
   );
 
@@ -1989,7 +1908,10 @@ export default function ChatPage() {
       // remount the input or write session selection while handing over.
       chatRef.current?.messages.setSessionMessages(
         queueSessionId,
-        session.messages,
+        (
+          transformHistorySessionRef.current?.(queueSessionId, session) ??
+          session
+        ).messages,
       );
       pendingHandoffRefreshRef.current = null;
     }).finally(() => {
@@ -2346,7 +2268,6 @@ export default function ChatPage() {
     return () => window.removeEventListener("model-switched", handler);
   }, [fetchMultimodalCaps]);
 
-  const pendingClearHistoryRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
   const [whisperEnabled, setWhisperEnabled] = useState(false);
   const [whisperChecked, setWhisperChecked] = useState(false);
@@ -2375,7 +2296,7 @@ export default function ChatPage() {
     }
   }, []);
 
-  useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
+  useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef, chatId);
   useChatInputDraft(isChatActiveRef.current, selectedAgent, routeChatId);
   // ── Message Queue ───────────────────────────────────────────────────────
 
@@ -2704,10 +2625,6 @@ export default function ChatPage() {
               queueKey,
             );
             if (!idle || signal.aborted) return;
-            sessionApi.discardLastUserMessage(
-              [queueSessionId, sessionApi.getRealIdForSession(queueSessionId)],
-              skipped.clientMessageId ?? skipped.id,
-            );
             const recovered = await sessionApi.refreshSession(
               queueSessionId,
               signal,
@@ -2717,7 +2634,12 @@ export default function ChatPage() {
             if (recovered && !recovered.generating) {
               chatRef.current?.messages.setSessionMessages(
                 queueSessionId,
-                recovered.messages,
+                (
+                  transformHistorySessionRef.current?.(
+                    queueSessionId,
+                    recovered,
+                  ) ?? recovered
+                ).messages,
               );
             }
           }
@@ -2822,18 +2744,10 @@ export default function ChatPage() {
     sessionApi.trackNavigatedSession(chatId, setLastChatId, selectedAgent);
   }, [chatId, selectedAgent, setLastChatId]);
 
-  const scheduleHistoryClear = useCallback(() => {
-    queueMicrotask(() => {
-      if (!pendingClearHistoryRef.current) return;
-      pendingClearHistoryRef.current = false;
-      chatRef.current?.messages.removeAllMessages();
-      useTurnUsageStore.getState().setSnapshot(null);
-    });
-  }, []);
-
   const handleCompactCommand = useCallback(() => {
     const execution = chatRef.current?.execution;
     if (!execution || !queueSessionId || queueSessionId === "new") return;
+    restoreLatestHistory();
     const identity = sessionApi.getSessionIdentity(queueSessionId);
     execution.execute(
       {
@@ -2850,19 +2764,15 @@ export default function ChatPage() {
       },
       { sessionId: queueSessionId, source: "direct" },
     );
-  }, [queueSessionId, selectedAgent, captureRequestContext]);
+  }, [
+    queueSessionId,
+    selectedAgent,
+    captureRequestContext,
+    restoreLatestHistory,
+  ]);
 
   const handleNewCommand = useCallback(() => {
-    const current = useTurnUsageStore.getState().snapshot;
-    const maxInputLength = current?.context_usage?.max_input_length ?? 131072;
-    useTurnUsageStore.getState().setSnapshot({
-      usage: null,
-      context_usage: {
-        estimated_tokens: 0,
-        max_input_length: maxInputLength,
-        context_usage_ratio: 0,
-      },
-    });
+    resetCurrentContextUsage();
     chatRef.current?.input.submit({ query: "/new" });
   }, []);
 
@@ -3227,6 +3137,168 @@ export default function ChatPage() {
     [message, t],
   );
 
+  const preparingForkRef = useRef<string | null>(null);
+  const forkResponse = useCallback(
+    async (response: CopyableResponse) => {
+      const owner = sessionApi.getActiveOwner();
+      const originChatId = chatIdRef.current;
+      const preparationKey = `${owner.agentId}:${owner.generation}:${originChatId}`;
+      if (preparingForkRef.current === preparationKey) return;
+      let turnId = extractTranscriptTurnId(response);
+      if (backendChatId && !turnId) {
+        const prepared = sessionApi.getPreparedForkTurnId(
+          backendChatId,
+          (response.output || []).flatMap((item) => (item.id ? [item.id] : [])),
+        );
+        if (prepared) {
+          preparingForkRef.current = preparationKey;
+          const hide = message.loading(t("chat.forkPreparing"), 0);
+          try {
+            turnId = await prepared;
+          } finally {
+            hide();
+            if (preparingForkRef.current === preparationKey)
+              preparingForkRef.current = null;
+          }
+          if (
+            !sessionApi.isActiveOwner(owner) ||
+            chatIdRef.current !== originChatId
+          )
+            return;
+        }
+      }
+      if (!backendChatId || !turnId) {
+        message.error(t("chat.forkUnavailable"));
+        return;
+      }
+      if (!usesQwenPawBackend) {
+        try {
+          const capability = await chatApi.forkCapability(
+            backendChatId,
+            turnId,
+            selectedAgent,
+          );
+          if (!capability.can_fork) {
+            message.warning(
+              capability.reason === "Backend cannot fork"
+                ? t("chat.forkUnsupported")
+                : capability.reason ===
+                  "This turn has no completed native fork boundary"
+                ? t("chat.forkBoundaryMissing")
+                : capability.reason || t("chat.forkUnavailable"),
+            );
+            return;
+          }
+        } catch (error) {
+          message.error(error instanceof Error ? error.message : String(error));
+          return;
+        }
+      }
+      const confirmation = Modal.confirm({
+        title: t("chat.forkTitle"),
+        content: t("chat.forkDescription"),
+        okText: t("chat.fork"),
+        cancelText: t("common.cancel", "Cancel"),
+        onOk: async () => {
+          try {
+            const forked = await chatApi.forkChat(
+              backendChatId,
+              turnId,
+              selectedAgent,
+            );
+            confirmation.destroy();
+            if (!sessionApi.isActiveOwner(owner)) return;
+            sessionApi.registerForkedChat(forked, owner);
+            sessionApi.preferredChatId = forked.id;
+            sessionApi.lastActiveChatId = forked.id;
+            setLastChatId(selectedAgent, forked.id);
+            navigate(buildChatPath(forked.id));
+            message.success(t("chat.forkCreated"));
+            void sessionApi
+              .getSessionList()
+              .then((sessions) => {
+                if (sessionApi.isActiveOwner(owner)) {
+                  syncSessionsGlobal(sessions);
+                }
+              })
+              .catch((error) => {
+                console.warn("Failed to refresh chats after fork", error);
+              });
+          } catch (error) {
+            message.error(
+              error instanceof Error ? error.message : t("chat.forkFailed"),
+            );
+            throw error;
+          }
+        },
+      });
+    },
+    [
+      backendChatId,
+      message,
+      navigate,
+      selectedAgent,
+      setLastChatId,
+      t,
+      usesQwenPawBackend,
+    ],
+  );
+
+  const recoverReplayOverflow = useCallback(
+    (displayChatId: string, canonicalChatId: string, agentId: string) => {
+      replayRecoveryRef.current?.abort();
+      const controller = new AbortController();
+      replayRecoveryRef.current = controller;
+
+      void waitForChatStatusIdle(canonicalChatId, controller.signal, agentId)
+        .then(async (idle) => {
+          if (
+            !idle ||
+            controller.signal.aborted ||
+            chatIdRef.current !== displayChatId ||
+            selectedAgentRef.current !== agentId ||
+            !isOwnerRef.current
+          ) {
+            return;
+          }
+          const recovered = await sessionApi.refreshSession(
+            displayChatId,
+            controller.signal,
+          );
+          if (
+            !recovered ||
+            recovered.generating ||
+            controller.signal.aborted ||
+            chatIdRef.current !== displayChatId ||
+            selectedAgentRef.current !== agentId ||
+            !isOwnerRef.current
+          ) {
+            return;
+          }
+          chatRef.current?.messages.setSessionMessages(
+            displayChatId,
+            (
+              transformHistorySessionRef.current?.(displayChatId, recovered) ??
+              recovered
+            ).messages,
+          );
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          console.error("Failed to recover chat history:", error);
+          message.error(
+            t("chat.historyLoadFailed", "Failed to load chat history"),
+          );
+        })
+        .finally(() => {
+          if (replayRecoveryRef.current === controller) {
+            replayRecoveryRef.current = null;
+          }
+        });
+    },
+    [message, t],
+  );
+
   const customFetch = useCallback(
     async (
       data: {
@@ -3411,38 +3483,6 @@ export default function ChatPage() {
         appliedProjectDir = pendingRequest.projectDir ?? null;
       }
 
-      const submittedChatId = fallbackLocalChatId || "";
-      const backendChatId =
-        sessionApi.getRealIdForSession(submittedChatId) ?? submittedChatId;
-      const pendingSessionIds = [backendChatId, submittedChatId];
-      if (backendChatId) {
-        const userMessages = rewrittenInput.filter((m) => m.role === "user");
-        const userText = userMessages
-          .map(extractUserMessageText)
-          .join("\n")
-          .trim();
-        const lastUserMsg = userMessages.slice(-1)[0];
-        const contentArr = Array.isArray(lastUserMsg?.content)
-          ? (lastUserMsg.content as Array<{
-              type: string;
-              [key: string]: unknown;
-            }>)
-          : undefined;
-        const hasAttachmentContent = contentArr?.some(
-          (item) => item.type !== "text",
-        );
-        if (userText || hasAttachmentContent) {
-          // Cache full content so attachment-only messages survive refresh,
-          // reconnect, and the backend history flush window.
-          sessionApi.setLastUserMessage(
-            pendingSessionIds,
-            userText,
-            contentArr,
-            clientMessageId,
-          );
-        }
-      }
-
       headlineStreamFilterRef.current = createHeadlineFilterState();
 
       const response = await fetch(getApiUrl("/console/chat"), {
@@ -3451,10 +3491,6 @@ export default function ChatPage() {
         body: JSON.stringify(requestBody),
         signal: data.signal,
       });
-
-      if (!response.ok && backendChatId) {
-        sessionApi.discardLastUserMessage(pendingSessionIds, clientMessageId);
-      }
 
       const localIdToResolve = fallbackLocalChatId;
       if (response.ok && projectSessionId) {
@@ -3468,12 +3504,37 @@ export default function ChatPage() {
             null,
           );
         }
+        sessionApi.invalidateConvertedCache(
+          sessionApi.getRealIdForSession(localIdToResolve) || localIdToResolve,
+        );
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
+      return wrapChatResponseUsageStream(
+        batchLiveChatDeltas(
+          wrapReplayFastForward(response, 0, () => {
+            if (fallbackLocalChatId) {
+              recoverReplayOverflow(
+                fallbackLocalChatId,
+                sessionApi.getRealIdForSession(fallbackLocalChatId) ||
+                  fallbackLocalChatId,
+                requestSnapshot.agentId,
+              );
+            }
+          }),
+          data.signal,
+        ),
+        chatRef,
+        usageTurn,
+      );
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      usesQwenPawBackend,
+      recoverReplayOverflow,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -3533,19 +3594,448 @@ export default function ChatPage() {
 
   const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const requestedSession = pendingLatestScrollRef.current;
+    if (historyViewActive || !requestedSession) return;
+    pendingLatestScrollRef.current = undefined;
+    if (requestedSession !== chatId) return;
+    const root = chatMessagesAreaRef.current;
+    const scroller = root && getMessageScroller(root);
+    if (!scroller) return;
+    // The SDK list is reversed; its newest edge is scrollTop zero.
+    scroller.scrollTop = scroller.className.includes("bubble-list-order-desc")
+      ? 0
+      : scroller.scrollHeight;
+  }, [chatId, historyViewActive]);
+  const historyLoadRef = useRef<Promise<void> | null>(null);
+  const historyLoadAbortRef = useRef<AbortController | null>(null);
+  const historyLoadSessionRef = useRef(chatId);
+  const replayRecoveryRef = useRef<AbortController | null>(null);
+  const [historyLoadFailed, setHistoryLoadFailed] = useState(false);
+  historyLoadSessionRef.current = chatId;
+
+  useEffect(() => {
+    historyLoadAbortRef.current?.abort();
+    historyLoadAbortRef.current = null;
+    historyLoadRef.current = null;
+    replayRecoveryRef.current?.abort();
+    replayRecoveryRef.current = null;
+    historyTurnRowsRef.current = null;
+    historyMessageWindow.end();
+    setHistoryViewActive(false);
+    setHistoryLoadFailed(false);
+    return () => {
+      historyLoadAbortRef.current?.abort();
+      replayRecoveryRef.current?.abort();
+    };
+  }, [chatId, selectedAgent]);
+
+  const navigateToHistoryUserMessage = useCallback(
+    (
+      entry: {
+        messageId: string;
+        preview: string;
+        createdAt: string;
+        anchor: string;
+      },
+      mode: HistoryNavigationMode = "replace",
+    ) => {
+      const sessionId = chatIdRef.current;
+      if (!sessionId) return;
+      if (mode === "append-newer" && historyLoadRef.current) return;
+      if (
+        mode === "append-newer" &&
+        historyMessageWindow.getSnapshot()?.newerLoadFailed
+      )
+        return;
+      historyMessageWindow.setNewerLoadFailed(sessionId, false);
+      historyLoadAbortRef.current?.abort();
+      const controller = new AbortController();
+      historyLoadAbortRef.current = controller;
+      if (historyTurnRowsRef.current === null) {
+        sessionApi.syncVisibleHistory(
+          sessionId,
+          chatRef.current?.messages.getSessionMessages(sessionId) ?? [],
+        );
+      }
+      historyMessageWindow.setLoading(sessionId, true);
+      const boundaryMessageId =
+        mode === "append-newer"
+          ? (historyTurnRowsRef.current ?? [])
+              .flat()
+              .reverse()
+              .find((item) => item.role === "user")?.id
+          : undefined;
+      const load = sessionApi
+        .loadHistoryAtAnchor(
+          sessionId,
+          entry.anchor,
+          boundaryMessageId ?? entry.messageId,
+          controller.signal,
+          mode,
+          historyMessageWindow.getSnapshot()?.userMessages.slice(-1)[0]
+            ?.messageId === entry.messageId,
+        )
+        .then(({ messages, noMore }) => {
+          if (controller.signal.aborted || chatIdRef.current !== sessionId) {
+            return;
+          }
+          if (mode === "append-newer" && messages.length === 0) {
+            historyMessageWindow.setCanLoadNewer(sessionId, false);
+            return;
+          }
+          if (mode === "replace")
+            historyMessageWindow.setCanLoadNewer(sessionId, true);
+          if (historyTurnRowsRef.current === null) {
+            const messagesApi = chatRef.current?.messages;
+            if (messagesApi) {
+              const isRunning = runtimeLoadingBridgeRef.current?.getLoading?.();
+              const session = transformHistorySessionRef.current?.(sessionId, {
+                id: sessionId,
+                name: sessionId,
+                messages,
+                historyPage: { has_more: !noMore },
+              } as IAgentScopeRuntimeWebUISession);
+              if (session && historyTurnRowsRef.current !== null) {
+                // Keep the response card owned by the active stream mounted.
+                messagesApi.setSessionMessages(
+                  sessionId,
+                  isRunning
+                    ? [
+                        ...session.messages,
+                        ...messagesApi.getSessionMessages(sessionId),
+                      ]
+                    : session.messages,
+                );
+                return;
+              }
+              messagesApi.setSessionMessages(
+                sessionId,
+                mergeHistoryMessages(
+                  messages,
+                  messagesApi.getSessionMessages(sessionId),
+                ),
+              );
+            }
+            return;
+          }
+          const allTurnRows =
+            mode === "append-newer"
+              ? splitHistoryMessagesIntoTurnRows(
+                  mergeHistoryMessages(
+                    (historyTurnRowsRef.current ?? []).flat(),
+                    messages,
+                  ),
+                )
+              : splitHistoryMessagesIntoTurnRows(messages);
+          const turnRows = boundHistoryRows(
+            allTurnRows,
+            "newest",
+            mode === "append-newer"
+              ? splitHistoryMessagesIntoTurnRows(messages).length + 1
+              : 1,
+          );
+          historyTurnRowsRef.current = turnRows;
+          const currentWindow = historyMessageWindow.getSnapshot();
+          historyMessageWindow.setTurnRows(
+            sessionId,
+            turnRows,
+            mode === "append-newer" && currentWindow
+              ? currentWindow.canLoadOlder ||
+                  turnRows.length < allTurnRows.length
+              : !noMore,
+          );
+        })
+        .catch((error) => {
+          if (
+            controller.signal.aborted ||
+            chatIdRef.current !== sessionId ||
+            (error instanceof DOMException && error.name === "AbortError")
+          ) {
+            return;
+          }
+          if (mode === "append-newer") {
+            historyMessageWindow.setNewerLoadFailed(sessionId, true);
+            return;
+          }
+          message.error(
+            t("chat.historyNavigationFailed", "Failed to locate message"),
+          );
+        })
+        .finally(() => {
+          const ownsLoad = historyLoadRef.current === load;
+          if (ownsLoad) {
+            historyLoadRef.current = null;
+          }
+          if (historyLoadAbortRef.current === controller) {
+            historyLoadAbortRef.current = null;
+          }
+          if (ownsLoad) {
+            historyMessageWindow.setLoading(sessionId, false);
+          }
+        });
+      historyLoadRef.current = load;
+    },
+    [message, t],
+  );
+
+  const cancelPendingHistoryInteraction = useCallback(() => {
+    historyLoadAbortRef.current?.abort();
+  }, []);
+
+  const loadOlderHistory = useCallback(
+    (_target: HTMLElement, accumulate = false) => {
+      const sessionId = chatIdRef.current;
+      if (!sessionId || historyLoadRef.current) return;
+      const alreadyInHistory = historyTurnRowsRef.current !== null;
+      const messagesApi = chatRef.current?.messages;
+      if (!messagesApi) return;
+      // During a route switch, getMessages() can still belong to the old chat.
+      const visibleHistory = messagesApi.getSessionMessages(sessionId);
+      if (!alreadyInHistory) {
+        sessionApi.syncVisibleHistory(sessionId, visibleHistory);
+      }
+      const controller = new AbortController();
+      historyLoadAbortRef.current = controller;
+      historyMessageWindow.setLoading(sessionId, true);
+      setHistoryLoadFailed(false);
+      const load = sessionApi
+        .loadOlderHistory(
+          sessionId,
+          controller.signal,
+          accumulate,
+          historyTurnRowsRef.current?.[0]?.find((item) => item.role === "user")
+            ?.id,
+        )
+        .then(({ messages: olderMessages, noMore }) => {
+          if (
+            controller.signal.aborted ||
+            historyLoadSessionRef.current !== sessionId
+          ) {
+            return;
+          }
+          if (olderMessages.length === 0) {
+            if (alreadyInHistory) {
+              historyMessageWindow.setTurnRows(
+                sessionId,
+                historyTurnRowsRef.current ?? [],
+                !noMore,
+              );
+            }
+            return;
+          }
+          if (!alreadyInHistory) {
+            const isRunning = runtimeLoadingBridgeRef.current?.getLoading?.();
+            const hasLiveMessages = visibleHistory.some(
+              (item) => !(item as { history?: boolean }).history,
+            );
+            const retainLive = isRunning || hasLiveMessages;
+            const turnRows = splitHistoryMessagesIntoTurnRows(
+              mergeHistoryMessages(olderMessages, visibleHistory),
+            );
+            historyTurnRowsRef.current = turnRows;
+            historyMessageWindow.begin({
+              sessionId,
+              turnRows,
+              canLoadOlder: !noMore,
+              userMessages: [],
+              onLoadOlder: loadOlderHistory,
+              onFillOlder: (scrollTarget) => {
+                loadOlderHistory(scrollTarget);
+              },
+              onNavigateToUserMessage: navigateToHistoryUserMessage,
+              onCancelPending: cancelPendingHistoryInteraction,
+              onReturnToLatest: retainLive
+                ? () => restoreLatestHistory(true)
+                : undefined,
+            });
+            messagesApi.setSessionMessages(sessionId, [
+              createHistoryMessageWindowCard(sessionId),
+              // SSE updates must keep their response card mounted while the
+              // user browses history, just as with directory navigation.
+              ...(retainLive ? messagesApi.getSessionMessages(sessionId) : []),
+            ]);
+            setHistoryViewActive(true);
+          } else {
+            const currentTurnRows = historyTurnRowsRef.current ?? [];
+            const oldestTurn = currentTurnRows[0] ?? [];
+            const prependedTurns = splitHistoryMessagesIntoTurnRows(
+              mergeHistoryMessages(olderMessages, oldestTurn),
+            );
+            const allTurnRows = splitHistoryMessagesIntoTurnRows(
+              mergeHistoryMessages(olderMessages, currentTurnRows.flat()),
+            );
+            const turnRows = boundHistoryRows(
+              allTurnRows,
+              "oldest",
+              prependedTurns.length,
+            );
+            if (turnRows.length < allTurnRows.length)
+              historyMessageWindow.setCanLoadNewer(sessionId, true);
+            historyTurnRowsRef.current = turnRows;
+            historyMessageWindow.setTurnRows(sessionId, turnRows, !noMore);
+          }
+        })
+        .catch((error) => {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          message.error(
+            t("chat.olderHistoryLoadFailed", "Failed to load older messages"),
+          );
+          setHistoryLoadFailed(true);
+        })
+        .finally(() => {
+          const ownsLoad = historyLoadRef.current === load;
+          if (ownsLoad) {
+            historyLoadRef.current = null;
+          }
+          if (historyLoadAbortRef.current === controller) {
+            historyLoadAbortRef.current = null;
+          }
+          if (ownsLoad) historyMessageWindow.setLoading(sessionId, false);
+        });
+      historyLoadRef.current = load;
+    },
+    [
+      chatId,
+      cancelPendingHistoryInteraction,
+      message,
+      navigateToHistoryUserMessage,
+      restoreLatestHistory,
+      t,
+    ],
+  );
+
+  transformHistorySessionRef.current = (requestedId, session) => {
+    const visibleSessionId = chatIdRef.current;
+    if (
+      !visibleSessionId ||
+      session.generating ||
+      session.messages.length === 0 ||
+      sessionApi.getEffectiveSessionId(requestedId, null) !==
+        sessionApi.getEffectiveSessionId(visibleSessionId, null)
+    ) {
+      return session;
+    }
+    const turnRows = splitHistoryMessagesIntoTurnRows(session.messages);
+    if (turnRows.length === 0) return session;
+    historyTurnRowsRef.current = turnRows;
+    historyMessageWindow.begin({
+      sessionId: visibleSessionId,
+      turnRows,
+      canLoadOlder: Boolean(
+        (
+          session as IAgentScopeRuntimeWebUISession & {
+            historyPage?: { has_more?: boolean };
+          }
+        ).historyPage?.has_more,
+      ),
+      userMessages: [],
+      onLoadOlder: loadOlderHistory,
+      onFillOlder: (target) => loadOlderHistory(target),
+      onNavigateToUserMessage: navigateToHistoryUserMessage,
+      onCancelPending: cancelPendingHistoryInteraction,
+      onReturnToLatest: runtimeLoadingBridgeRef.current?.getLoading?.()
+        ? () => restoreLatestHistory(true)
+        : undefined,
+    });
+    historyMessageWindow.setLoading(visibleSessionId, false);
+    setHistoryViewActive(true);
+    return {
+      ...session,
+      messages: [createHistoryMessageWindowCard(visibleSessionId)],
+    };
+  };
+
+  const handleHistoryScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      const oldestLoadedMessage = chatRef.current?.messages.getMessages()?.[0];
+      const oldestLoadedElement = oldestLoadedMessage?.id
+        ? document.getElementById(oldestLoadedMessage.id)
+        : null;
+      if (
+        !(target instanceof HTMLElement) ||
+        target.scrollHeight <= target.clientHeight ||
+        !isOldestLoadedMessageVisible(target, oldestLoadedElement) ||
+        historyLoadRef.current
+      ) {
+        return;
+      }
+      loadOlderHistory(target);
+    },
+    [loadOlderHistory],
+  );
+
+  useEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root || !chatId || isSessionTransition || historyViewActive) {
+      return undefined;
+    }
+
+    let frame = 0;
+    const check = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const target = getMessageScroller(root);
+        if (target && needsHistoryFill(target) && !historyLoadRef.current) {
+          loadOlderHistory(target, true);
+        }
+      });
+    };
+    const mutationObserver = new MutationObserver(check);
+    mutationObserver.observe(root, { childList: true, subtree: true });
+    const resizeObserver = new ResizeObserver(check);
+    resizeObserver.observe(root);
+    check();
+
+    return () => {
+      cancelAnimationFrame(frame);
+      mutationObserver.disconnect();
+      resizeObserver.disconnect();
+    };
+  }, [chatId, historyViewActive, isSessionTransition, loadOlderHistory]);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
     if (!root) return;
 
     const handleMessagesWheel = (event: WheelEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[data-history-message-window="true"]')
+      ) {
+        return;
+      }
       const handled = scrollReverseMessageList(
         root,
         event.target,
         event.deltaY,
         event.deltaMode,
       );
-      if (handled) event.preventDefault();
+      if (handled) {
+        event.preventDefault();
+        return;
+      }
+
+      if (event.deltaY > 0) return;
+
+      const oldestLoadedMessage = chatRef.current?.messages.getMessages()?.[0];
+      const oldestLoadedElement = oldestLoadedMessage?.id
+        ? document.getElementById(oldestLoadedMessage.id)
+        : null;
+      const historyTarget = getUnscrollableHistoryTarget(
+        root,
+        event.target,
+        oldestLoadedElement,
+        event.deltaY,
+      );
+      if (!historyTarget) return;
+
+      event.preventDefault();
+      if (historyLoadRef.current) return;
+      loadOlderHistory(historyTarget);
     };
 
     root.addEventListener("wheel", handleMessagesWheel, {
@@ -3555,7 +4045,7 @@ export default function ChatPage() {
     return () => {
       root.removeEventListener("wheel", handleMessagesWheel, true);
     };
-  }, []);
+  }, [loadOlderHistory]);
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
@@ -3631,6 +4121,7 @@ export default function ChatPage() {
         !sdkSessionAdapter.isReady(chatIdRef.current)
       )
         return false;
+      restoreLatestHistory();
       // Capture the original route and input before checking backend status.
       // SDK 1.2 owns submission cancellation; the host owns queued snapshots.
       const admissionVisit = queueVisitRef.current;
@@ -3982,6 +4473,7 @@ export default function ChatPage() {
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
       ...LONG_CHAT_USER_MESSAGE_ANCHORS,
+      enabled: false,
     };
 
     // leftHeader: whole-section render wins, otherwise partial merge {logo, title}.
@@ -4009,11 +4501,20 @@ export default function ChatPage() {
         colorPrimary,
         bubbleList: {
           ...defaultConfig.theme.bubbleList,
+          // Durable history is paged by the host in a bounded block window.
+          // The SDK's simulated pager adds a fixed 300 ms delay per local
+          // slice and would serialize backend cursor progress behind it.
+          pagination: false,
           userMessageAnchors: userMessageAnchorsConfig,
         },
         leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
+            <ChatUserMessageNavigation
+              sessionId={chatId}
+              onNavigate={navigateToHistoryUserMessage}
+              onCancel={cancelPendingHistoryInteraction}
+            />
             <ChatSessionInitializer />
             <ChatSessionActivation
               sessionId={chatId}
@@ -4274,6 +4775,10 @@ export default function ChatPage() {
           markLoopModeRunning();
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
+          if (payloadResetsContext(payload)) {
+            resetCurrentContextUsage();
+          }
+
           for (const event of parseModelFallbackEvents(payload)) {
             const key = modelFallbackEventKey(event);
             if (pendingFallbackEventKeysRef.current.has(key)) continue;
@@ -4330,6 +4835,19 @@ export default function ChatPage() {
             return null;
           }
 
+          if (payload.type === "reconnect_required") {
+            console.warn(
+              "Chat stream buffer overflow; history resync required",
+            );
+            return { object: "message", type: "heartbeat" } as ReturnType<
+              NonNullable<
+                NonNullable<
+                  IAgentScopeRuntimeWebUIOptions["api"]
+                >["responseParser"]
+              >
+            >;
+          }
+
           // Replay boundary marker from the reconnect stream. The
           // fast-forward wrapper strips it at the byte level; if one
           // still slips through, map it to the SDK's heartbeat no-op —
@@ -4351,13 +4869,6 @@ export default function ChatPage() {
             setRateLimitAlternatives(alts);
             message.warning(t("chat.rateLimitHit"));
             return null;
-          }
-
-          if (payloadRequestsHistoryClear(payload)) {
-            pendingClearHistoryRef.current = true;
-            if (payloadCompletesResponse(payload)) {
-              scheduleHistoryClear();
-            }
           }
 
           return payload as unknown as ReturnType<
@@ -4407,6 +4918,7 @@ export default function ChatPage() {
             signal?: AbortSignal;
           },
         ) {
+          restoreLatestHistory();
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
@@ -4428,22 +4940,41 @@ export default function ChatPage() {
             .getState()
             .beginTurn(snapshot.agentId, snapshot.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: snapshot.sessionId,
-              user_id: snapshot.userId,
-              channel: snapshot.channel,
-            }),
-            signal: data.signal,
-          });
+          const response = await fetch(
+            getApiUrl("/console/chat?materialized_replay=1"),
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: snapshot.sessionId,
+                user_id: snapshot.userId,
+                channel: snapshot.channel,
+              }),
+              signal: data.signal,
+            },
+          );
+
+          const displayChatId = chatIdRef.current;
+          const canonicalChatId = displayChatId
+            ? sessionApi.getRealIdForSession(displayChatId) || displayChatId
+            : null;
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
           return wrapChatResponseUsageStream(
-            wrapReplayFastForward(response),
+            batchLiveChatDeltas(
+              wrapReplayFastForward(response, undefined, () => {
+                if (displayChatId && canonicalChatId) {
+                  recoverReplayOverflow(
+                    displayChatId,
+                    canonicalChatId,
+                    snapshot.agentId,
+                  );
+                }
+              }),
+              data.signal,
+            ),
             chatRef,
             usageTurn,
           );
@@ -4455,6 +4986,7 @@ export default function ChatPage() {
         // CoPaw still owns assistant Markdown/media/artifact rendering. User
         // request extensions use the SDK's public request seam above.
         AgentScopeRuntimeResponseCard: HostResponseCard,
+        [HISTORY_MESSAGE_WINDOW_CARD]: HistoryMessageWindowCard,
         Audios: DownloadableAudios,
         ...pluginCards,
       },
@@ -4470,6 +5002,22 @@ export default function ChatPage() {
               void copyResponse(data);
             },
           },
+          ...(usesQwenPawBackend ||
+          (backendCapabilities?.fork_mode &&
+            backendCapabilities.fork_mode !== "none")
+            ? [
+                {
+                  icon: (
+                    <span title={t("chat.fork")}>
+                      <GitFork />
+                    </span>
+                  ),
+                  onClick: ({ data }: { data: CopyableResponse }) => {
+                    forkResponse(data);
+                  },
+                },
+              ]
+            : []),
           {
             render: ({
               data,
@@ -4525,7 +5073,11 @@ export default function ChatPage() {
     } as unknown as IAgentScopeRuntimeWebUIOptions;
   }, [
     customFetch,
+    cancelPendingHistoryInteraction,
+    navigateToHistoryUserMessage,
     copyResponse,
+    forkResponse,
+    chatLoading,
     handleFileUpload,
     t,
     i18n.language,
@@ -4535,7 +5087,6 @@ export default function ChatPage() {
     toolRenderConfig,
     extScalar,
     extLists,
-    scheduleHistoryClear,
     consoleSkills,
     loopAvailableModes,
     advisorConversation,
@@ -4588,6 +5139,8 @@ export default function ChatPage() {
     sdkSessionAdapter,
     isSessionTransition,
     queueKey,
+    recoverReplayOverflow,
+    restoreLatestHistory,
   ]);
 
   const filesDrawerClass =
@@ -4612,14 +5165,47 @@ export default function ChatPage() {
         <div className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
+            onScrollCapture={handleHistoryScroll}
             className={[
               styles.chatMessagesArea,
+              historyViewActive && styles.historyMode,
               isWideMode && styles.wideMode,
               advisorConversation && styles.advisorComposer,
             ]
               .filter(Boolean)
               .join(" ")}
           >
+            <ChatBottomFollow
+              rootRef={chatMessagesAreaRef}
+              sessionId={chatId}
+              disabled={historyViewActive || isSessionTransition}
+            />
+            {historyLoadFailed && (
+              <Alert
+                banner
+                className={styles.historyNotice}
+                icon={<TriangleAlert size={16} />}
+                type="error"
+                message={t(
+                  "chat.olderHistoryLoadFailed",
+                  "Failed to load older messages",
+                )}
+                action={
+                  <Tooltip title={t("common.retry", "Retry")}>
+                    <Button
+                      aria-label={t("common.retry", "Retry")}
+                      icon={<RotateCw size={15} />}
+                      size="small"
+                      type="text"
+                      onClick={() => {
+                        const target = chatMessagesAreaRef.current;
+                        if (target) loadOlderHistory(target);
+                      }}
+                    />
+                  </Tooltip>
+                }
+              />
+            )}
             <LongTextPasteProvider
               enabled={supportsAttachments}
               scopeKey={queueKey}

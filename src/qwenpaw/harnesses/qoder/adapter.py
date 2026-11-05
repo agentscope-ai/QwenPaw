@@ -14,14 +14,15 @@ from pathlib import Path
 from typing import Any
 
 from qoder_agent_sdk import (
+    AssistantMessage,
     PermissionResultAllow,
     PermissionResultDeny,
     QoderAgentOptions,
     QoderSDKClient,
     ToolPermissionContext,
     access_token_from_env,
-    delete_session,
     get_session_messages,
+    fork_session,
     qodercli_auth,
 )
 
@@ -32,8 +33,6 @@ from ...app.approvals import (
 from ...security.tool_guard.approval import ApprovalDecision
 from ...utils.io_utils import (
     read_bytes_async,
-    read_json,
-    write_json_atomic_async,
 )
 from ..base import HarnessAdapter, HarnessOperationNotSupportedError
 from ..capabilities import HarnessRuntimeCapabilities
@@ -42,6 +41,7 @@ from ..events import (
     HarnessAttachmentKind,
     HarnessDiscoveredSkill,
     HarnessEvent,
+    HarnessEventKind,
     HarnessHistoryItem,
     HarnessModel,
     HarnessProvider,
@@ -71,10 +71,9 @@ class QoderAdapter(HarnessAdapter):
         client_factory: Callable[[QoderAgentOptions], Any] | None = None,
     ) -> None:
         self._state_dir = state_dir
-        self._session_path = state_dir / "qoder_sessions.json"
         self._binary = binary
         self._client_factory = client_factory or QoderSDKClient
-        self._sessions = self._load_sessions()
+        self._sessions: dict[str, str] = {}
         self._clients: dict[str, Any] = {}
         self._client_keys: dict[str, tuple[Any, ...]] = {}
         self._contexts: dict[str, dict[str, Any]] = {}
@@ -273,7 +272,20 @@ class QoderAdapter(HarnessAdapter):
             cwd,
             settings,
         )
+        external_id = self._sessions[session_id]
+        yield HarnessEvent(
+            kind=HarnessEventKind.SESSION_BOUND,
+            data={"external_session_id": external_id},
+        )
+        previous = await asyncio.to_thread(
+            get_session_messages,
+            external_id,
+            str(cwd),
+        )
+        previous_uuid = previous[-1].uuid if previous else None
         mapper = QoderEventMapper()
+        completed = False
+        last_message_id = None
         try:
             query_input: str | AsyncIterator[dict[str, Any]] = prompt
             if attachments:
@@ -284,8 +296,50 @@ class QoderAdapter(HarnessAdapter):
                 )
             await client.query(query_input)
             async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
+                    last_message_id = message.message_id
                 for event in mapper.convert(message):
+                    if event.kind == HarnessEventKind.COMPLETED:
+                        completed = True
+                        continue
                     yield event
+            if completed:
+                for attempt in range(40):
+                    messages = await asyncio.to_thread(
+                        get_session_messages,
+                        external_id,
+                        str(cwd),
+                    )
+                    persisted_uuid = messages[-1].uuid if messages else None
+                    persisted_message_id = (
+                        messages[-1].message.get("id") if messages else None
+                    )
+                    # Wire UUIDs differ from transcript UUIDs in Qoder.
+                    if (
+                        persisted_uuid
+                        and persisted_uuid != previous_uuid
+                        and (
+                            not last_message_id
+                            or persisted_message_id == last_message_id
+                        )
+                    ):
+                        break
+                    if attempt == 39:
+                        raise RuntimeError(
+                            "Qoder has not persisted this turn's boundary "
+                            f"(expected={last_message_id}, "
+                            f"persisted={persisted_message_id})",
+                        )
+                    await asyncio.sleep(0.05)
+                yield HarnessEvent(
+                    kind=HarnessEventKind.TURN_BOUNDARY,
+                    data={
+                        "external_session_id": external_id,
+                        "boundary_kind": "message",
+                        "boundary_id": messages[-1].uuid,
+                    },
+                )
+                yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
         except asyncio.CancelledError:
             await asyncio.shield(client.interrupt())
             raise
@@ -391,15 +445,9 @@ class QoderAdapter(HarnessAdapter):
             client = self._clients.pop(session_id, None)
             self._client_keys.pop(session_id, None)
             self._contexts.pop(session_id, None)
-            qoder_session_id = self._sessions.pop(session_id, None)
+            self._sessions.pop(session_id, None)
             if client is not None:
                 await client.disconnect()
-            if qoder_session_id:
-                await asyncio.to_thread(delete_session, qoder_session_id)
-            await write_json_atomic_async(
-                self._session_path,
-                self._sessions,
-            )
 
     async def stop(self) -> None:
         """Disconnect every Qoder SDK client owned by this adapter."""
@@ -457,10 +505,6 @@ class QoderAdapter(HarnessAdapter):
                 await client.connect()
             if not is_resume:
                 self._sessions[session_id] = qoder_session_id
-                await write_json_atomic_async(
-                    self._session_path,
-                    self._sessions,
-                )
             self._clients[session_id] = client
             self._client_keys[session_id] = key
             return client
@@ -626,16 +670,34 @@ class QoderAdapter(HarnessAdapter):
             _runtime_capability_fingerprint(settings),
         )
 
-    def _load_sessions(self) -> dict[str, str]:
-        try:
-            raw = read_json(self._session_path)
-        except (OSError, json.JSONDecodeError):
-            return {}
-        if not isinstance(raw, dict):
-            return {}
-        return {
-            str(key): str(value) for key, value in raw.items() if key and value
-        }
+    def bind_session(
+        self,
+        session_id: str,
+        external_session_id: str | None,
+    ) -> None:
+        """Restore an external identity; never replay QwenPaw history."""
+        if external_session_id:
+            self._sessions[session_id] = external_session_id
+        else:
+            self._sessions.pop(session_id, None)
+
+    async def fork_session(
+        self,
+        *,
+        boundary: dict[str, Any],
+        cwd: Path,
+        settings: dict[str, Any],
+    ) -> str:
+        """Copy the native transcript through an inclusive message UUID."""
+        if boundary["boundary_kind"] != "message":
+            raise ValueError("invalid Qoder fork boundary")
+        result = await asyncio.to_thread(
+            fork_session,
+            boundary["external_session_id"],
+            directory=str(cwd),
+            up_to_message_id=boundary["boundary_id"],
+        )
+        return result.session_id
 
     @staticmethod
     def _status_fields(output: str) -> dict[str, str]:

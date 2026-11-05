@@ -19,17 +19,12 @@ from .agent_startup import (
     AgentStartupStatus,
 )
 from .workspace import Workspace
-from .workspace.service_factories import history_service_path
-from ..agents.context.scroll.sync import (
-    PENDING_MIGRATION,
-    invalidate_agent_migration,
-)
 from ..constant import (
     BUILTIN_QA_AGENT_ID,
     CUSTOM_AGENT_STARTUP_CONCURRENCY,
 )
 from ..config.utils import load_config
-from ..utils.io_utils import run_async_to_completion, run_sync_io
+from ..utils.io_utils import run_async_to_completion
 from ..utils.logging import sanitize_log_value
 from ..utils.startup_display import AgentStartupDisplay
 
@@ -69,7 +64,6 @@ class MultiAgentManager:
         self._agent_stop_tasks: Dict[int, asyncio.Task] = {}
         self._unloaded_stop_tasks: Dict[str, asyncio.Task] = {}
         self._reloading_agents: Dict[str, int] = {}
-        self._history_transition_agents: Set[str] = set()
         self._config_generations: Dict[str, int] = {}
         self._operation_locks: dict[str, asyncio.Lock] = {}
         self._channel_delivery_locks: dict[str, asyncio.Lock] = {}
@@ -159,61 +153,12 @@ class MultiAgentManager:
         candidate._defer_channel_start = True
         candidate.cron_start_paused = True
         candidate.set_manager(self)
-        await self._drain_history_writers(candidate)
         await candidate.start()
         await self._setup_workspace_plugins(candidate, str(workspace_dir))
         logger.info(
             f"New workspace instance started: {sanitize_log_value(agent_id)}",
         )
         return reusable
-
-    async def _drain_history_writers(self, candidate: Workspace) -> None:
-        """Finish outgoing saves before reconciling a different history sink."""
-        target = history_service_path(candidate)
-        if target is None:
-            return
-        pending = (candidate.workspace_dir / PENDING_MIGRATION).exists()
-        owners = {
-            instance
-            for instance in (
-                *self.agents.values(),
-                *self._retired_instances.values(),
-            )
-            if instance.agent_id == candidate.agent_id
-            and instance is not candidate
-            and (
-                pending
-                or instance.history_store is None
-                or not instance.history_store.matches_path(target)
-            )
-        }
-        if not owners:
-            return
-        self._history_transition_agents.add(candidate.agent_id)
-        # Even a previously used target must reconcile outgoing final saves.
-        await run_sync_io(invalidate_agent_migration, candidate.workspace_dir)
-        tasks = set()
-        for owner in owners:
-            tasks.update(
-                (
-                    await owner.task_tracker.snapshot_active_tasks(owner=owner)
-                ).values(),
-            )
-            if owner.cron_manager is not None:
-                tasks.update(
-                    owner.cron_manager.snapshot_active_tasks().values(),
-                )
-        if asyncio.current_task() in tasks:
-            raise RuntimeError("An active request must schedule its reload")
-        logger.info(
-            "Waiting for %d outgoing request(s) before Scroll migration: %s",
-            len(tasks),
-            candidate.agent_id,
-        )
-        await asyncio.gather(
-            *(asyncio.shield(task) for task in tasks),
-            return_exceptions=True,
-        )
 
     @staticmethod
     async def _discard_reload_candidate(
@@ -712,10 +657,6 @@ class MultiAgentManager:
         )
 
     def assert_agent_available(self, agent_id: str) -> None:
-        if agent_id in self._history_transition_agents:
-            raise RuntimeError(
-                f"Agent '{agent_id}' is switching to Scroll history",
-            )
         if agent_id in self._uninstalling_agents:
             raise RuntimeError(f"Agent '{agent_id}' is being uninstalled")
         if agent_id in self._unloaded_stop_tasks:
@@ -1110,21 +1051,7 @@ class MultiAgentManager:
                     )
                 return False
         finally:
-            try:
-                if (
-                    agent_id in self._history_transition_agents
-                    and not candidate_committed
-                ):
-                    # A discarded candidate resumes outgoing writers.
-                    await run_async_to_completion(
-                        run_sync_io(
-                            invalidate_agent_migration,
-                            old_instance.workspace_dir,
-                        ),
-                    )
-            finally:
-                self._history_transition_agents.discard(agent_id)
-                await handoff.aclose()
+            await handoff.aclose()
 
         logger.info(
             f"Workspace instance replaced: {sanitize_log_value(agent_id)}",
@@ -1143,13 +1070,9 @@ class MultiAgentManager:
 
         # Once committed, cleanup must take ownership even if the reload
         # request is cancelled while capturing outgoing tasks.
-        async def finish_handoff():
-            try:
-                await self._graceful_stop_old_instance(old_instance, agent_id)
-            finally:
-                await new_instance.start_history_retention()
-
-        await run_async_to_completion(finish_handoff())
+        await run_async_to_completion(
+            self._graceful_stop_old_instance(old_instance, agent_id),
+        )
         return True
 
     # pylint: enable=too-many-branches,too-many-statements

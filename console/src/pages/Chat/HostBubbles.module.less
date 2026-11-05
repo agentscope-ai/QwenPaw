@@ -1,3 +1,22 @@
+.deferredHistoryContent {
+  min-height: calc(48px * var(--app-font-scale));
+  contain: layout paint style;
+}
+
+.historyMarkdown {
+  overflow-anchor: none;
+}
+
+.loadOlderMarkdown {
+  margin-bottom: 12px;
+  border: 0;
+  padding: 0;
+  color: var(--app-primary-color);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
 .collapsedSteps {
   // Stay inside the bubble's paint boundary: content-visibility on the SDK
   // bubble clips a negatively offset header, including its left border.

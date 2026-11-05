@@ -7,13 +7,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { forwardRef, useImperativeHandle, useEffect } from "react";
 import { screen, waitFor, act, fireEvent } from "@testing-library/react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Modal } from "antd";
 import { renderWithProviders } from "@/test/common_setup";
 import { useMessageQueueStore } from "@/stores/messageQueueStore";
 import ChatPage from "./index";
 import { LongTextPasteInput } from "./LongTextPaste";
 import { ChatRunLifecycle } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Execution/runLifecycle";
 import sessionApi from "./sessionApi";
+import { getSenderTextareaFromTarget } from "./utils";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
@@ -39,10 +41,15 @@ const {
   mockRequiresQwenPawModel,
   mockHoldOwnershipLock,
   mockRuntimeMount,
+  mockRemoveAllMessages,
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
   mockApprovalLevelToggle,
   mockHydrateBackgroundTasksForSession,
+  mockGetLoading,
+  mockGetMessages,
+  mockGetSessionMessages,
+  mockSetSessionMessages,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockPreviewModelInfo: vi.fn(),
@@ -60,10 +67,15 @@ const {
   mockRequiresQwenPawModel: vi.fn(() => true),
   mockHoldOwnershipLock: vi.fn(),
   mockRuntimeMount: vi.fn(),
+  mockRemoveAllMessages: vi.fn(),
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
   mockApprovalLevelToggle: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
+  mockGetLoading: vi.fn(() => false),
+  mockGetMessages: vi.fn(() => [] as any[]),
+  mockGetSessionMessages: vi.fn((_id: string) => [] as any[]),
+  mockSetSessionMessages: vi.fn(),
 }));
 
 let capturedOptions: any = null;
@@ -111,10 +123,10 @@ vi.mock("@agentscope-ai/chat", () => ({
     useImperativeHandle(ref, () => ({
       input: { submit: mockRuntimeSubmit },
       messages: {
-        removeAllMessages: vi.fn(),
-        getSessionMessages: vi.fn(() => []),
-        getMessages: vi.fn(() => []),
-        setSessionMessages: vi.fn(),
+        removeAllMessages: mockRemoveAllMessages,
+        getSessionMessages: mockGetSessionMessages,
+        getMessages: mockGetMessages,
+        setSessionMessages: mockSetSessionMessages,
       },
       execution: {
         execute: mockRuntimeSubmit,
@@ -140,7 +152,7 @@ vi.mock("@agentscope-ai/chat", () => ({
     select({
       loading: false,
       setLoading: vi.fn(),
-      getLoading: vi.fn(() => false),
+      getLoading: mockGetLoading,
       setSessionLoading: vi.fn(),
       setDisabled: vi.fn(),
     }),
@@ -179,6 +191,7 @@ vi.mock("@/api/modules/chat", () => ({
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
     stopChat: vi.fn(() => Promise.resolve()),
+    forkChat: vi.fn(),
   },
 }));
 
@@ -223,6 +236,8 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
+    loadUserMessageIndexPage: vi.fn(async () => ({ items: [], total: 0 })),
+    loadHistoryAtAnchor: vi.fn(async () => ({ messages: [], noMore: true })),
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -237,6 +252,7 @@ vi.mock("./sessionApi", () => ({
       (owner: { agentId: string }) => owner.agentId === mockSelectedAgent(),
     ),
     registerResolvedChat: vi.fn(),
+    registerForkedChat: vi.fn(),
     getRouteResolutionVersion: vi.fn(() => 0),
     isRouteRemoved: vi.fn(() => false),
     clearRouteRemoval: vi.fn(),
@@ -251,18 +267,24 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      noMore: true,
+    })),
+    loadNewerHistory: vi.fn(() => null),
+    showLatestHistory: vi.fn(() => null),
+    syncVisibleHistory: vi.fn(),
     setVisibleSession: vi.fn(),
     getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
       userId: "test-user",
       channel: "console",
     })),
+    getSessionList: vi.fn(async () => []),
     triggerResolve: vi.fn(),
+    invalidateConvertedCache: vi.fn(),
     isSessionSwitching: false,
     isUnresolvedLocalSession: vi.fn(() => false),
     getEffectiveSessionId: vi.fn((id: string) => id),
@@ -574,10 +596,16 @@ describe("ChatPage coverage", () => {
     chatExtensions.__resetForTests();
     capturedOptions = null;
     mockCopyText.mockClear();
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(null);
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     mockRuntimeSubmit.mockReset();
     mockRuntimeMount.mockReset();
+    mockRemoveAllMessages.mockReset();
+    mockGetLoading.mockReset().mockReturnValue(false);
+    mockGetMessages.mockReset().mockReturnValue([]);
+    mockGetSessionMessages.mockReset().mockReturnValue([]);
+    mockSetSessionMessages.mockReset();
     mockSelectedAgent.mockReturnValue("default");
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
@@ -920,7 +948,7 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("handles history clear message detection", async () => {
+  it("keeps visible messages when the backend clears context", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -928,14 +956,22 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     if (capturedOptions?.api?.responseParser) {
-      // Exercise the payloadRequestsHistoryClear / messageRequestsHistoryClear paths
-      const parsed = capturedOptions.api.responseParser(
+      capturedOptions.api.responseParser(
         JSON.stringify({
-          object: "message",
-          metadata: { clear_history: true },
+          object: "response",
+          status: "completed",
+          output: [
+            {
+              type: "message",
+              role: "assistant",
+              metadata: { context_reset: true },
+              content: [{ type: "text", text: "cleared" }],
+            },
+          ],
         }),
       );
-      expect(parsed).toBeTruthy();
+      await act(async () => {});
+      expect(mockRemoveAllMessages).not.toHaveBeenCalled();
     }
   });
 
@@ -985,6 +1021,22 @@ describe("ChatPage coverage", () => {
     if (capturedOptions?.api?.responseParser) {
       const parsed = capturedOptions.api.responseParser(
         JSON.stringify({ type: "replay_end" }),
+      );
+      expect(parsed).toBeTruthy();
+      expect(parsed.type).toBe("heartbeat");
+    }
+  });
+
+  it("responseParser maps reconnect_required to heartbeat", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    if (capturedOptions?.api?.responseParser) {
+      const parsed = capturedOptions.api.responseParser(
+        JSON.stringify({ type: "reconnect_required" }),
       );
       expect(parsed).toBeTruthy();
       expect(parsed.type).toBe("heartbeat");
@@ -1261,6 +1313,65 @@ describe("ChatPage coverage", () => {
     });
   });
 
+  it("closes and navigates after fork without awaiting sidebar refresh", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
+    const childId = "44444444-4444-4444-8444-444444444444";
+    vi.mocked(chatApi.forkChat).mockResolvedValue({ id: childId } as never);
+    const destroy = vi.fn();
+    const confirm = vi.spyOn(Modal, "confirm").mockReturnValue({
+      destroy,
+      update: vi.fn(),
+    });
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let rejectRefresh!: (reason: Error) => void;
+    const refresh = new Promise<never>((_, reject) => {
+      rejectRefresh = reject;
+    });
+    vi.mocked(sessionApi.getSessionList).mockReturnValueOnce(refresh);
+    function Harness() {
+      const location = useLocation();
+      return (
+        <>
+          <output data-testid="route">{location.pathname}</output>
+          <ChatPage />
+        </>
+      );
+    }
+    try {
+      renderWithProviders(<Harness />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+      await act(async () => {});
+      await act(async () => {
+        capturedOptions.actions.list[1].onClick({
+          data: { id: "history-response:legacy:5" },
+        });
+      });
+      expect(confirm).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await confirm.mock.calls[0][0].onOk?.();
+      });
+      expect(destroy).toHaveBeenCalledTimes(1);
+      expect(sessionApi.registerForkedChat).toHaveBeenCalledWith(
+        { id: childId },
+        expect.objectContaining({ agentId: mockSelectedAgent() }),
+      );
+      expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
+      expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+      await act(async () => rejectRefresh(new Error("sidebar unavailable")));
+      expect(screen.getByTestId("route")).toHaveTextContent(`/chat/${childId}`);
+      expect(chatApi.forkChat).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith(
+        "Failed to refresh chats after fork",
+        expect.any(Error),
+      );
+    } finally {
+      confirm.mockRestore();
+      warning.mockRestore();
+    }
+  });
+
   // ── actions list: timestamp render ─────────────────────────────────────
   it("actions list timestamp render returns element", async () => {
     renderWithProviders(<ChatPage />, {
@@ -1318,12 +1429,105 @@ describe("ChatPage coverage", () => {
   });
 
   // ── handleBeforeSubmit: SDK query override ─────────────────────────────
+  it.each([false, true])(
+    "opens contiguous history while running=%s",
+    async (running) => {
+      const { historyMessageWindow } = await import(
+        "./historyMessageWindowStore"
+      );
+      const target = { id: "first-user", role: "user", history: true };
+      vi.mocked(sessionApi.loadHistoryAtAnchor).mockResolvedValueOnce({
+        messages: [target],
+        noMore: true,
+      } as Awaited<ReturnType<typeof sessionApi.loadHistoryAtAnchor>>);
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+      await act(async () => {});
+      expect(historyMessageWindow.getSnapshot()).toBeNull();
+      const live = { id: "live-response", role: "assistant" };
+      mockGetLoading.mockReturnValue(running);
+      const foreign = { id: "other-session-response", role: "assistant" };
+      mockGetMessages.mockReturnValue([foreign]);
+      mockGetSessionMessages.mockImplementation((id: string) =>
+        id === "test-session" ? [live] : [],
+      );
+
+      const navigation = capturedOptions.theme.rightHeader.props.children.find(
+        (child: any) => typeof child?.props?.onNavigate === "function",
+      );
+      await act(async () => {
+        navigation.props.onNavigate({
+          messageId: "first-user",
+          preview: "First user",
+          createdAt: "2026-10-24T00:00:00Z",
+          anchor: "first-anchor",
+        });
+      });
+
+      expect(historyMessageWindow.getSnapshot()).toMatchObject({
+        sessionId: "test-session",
+        turnRows: [[target]],
+        canLoadOlder: false,
+        loading: false,
+      });
+      expect(sessionApi.syncVisibleHistory).toHaveBeenLastCalledWith(
+        "test-session",
+        [live],
+      );
+      const mounted = mockSetSessionMessages.mock.calls.slice(-1)[0]?.[1];
+      expect(mounted).not.toContain(foreign);
+      expect(mounted[0].id).toBe("qwenpaw-history-window-test-session");
+      expect(mounted.includes(live)).toBe(running);
+      expect(
+        Boolean(historyMessageWindow.getSnapshot()?.onReturnToLatest),
+      ).toBe(running);
+      await act(async () => {
+        historyMessageWindow.getSnapshot()?.onNavigateToUserMessage(
+          {
+            messageId: "sixth-user",
+            preview: "Sixth user",
+            createdAt: "2026-10-24T00:05:00Z",
+            anchor: "sixth-anchor",
+          },
+          "append-newer",
+        );
+      });
+      expect(sessionApi.loadHistoryAtAnchor).toHaveBeenLastCalledWith(
+        "test-session",
+        "sixth-anchor",
+        "first-user",
+        expect.any(AbortSignal),
+        "append-newer",
+        false,
+      );
+    },
+  );
+
   it("compact command uses execution.execute with current session identity", async () => {
+    const { historyMessageWindow } = await import(
+      "./historyMessageWindowStore"
+    );
+    const source = sessionApi.bindToOwner();
+    vi.mocked(sessionApi.bindToOwner).mockReturnValueOnce({
+      ...source,
+      getSession: vi.fn(async (id: string) => ({
+        id,
+        name: id,
+        messages: [{ id: "history-user", role: "user", history: true }],
+      })) as typeof source.getSession,
+    });
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
+
+    expect(historyMessageWindow.getSnapshot()?.sessionId).toBe("test-session");
+    mockRuntimeSubmit.mockImplementationOnce(() => {
+      expect(historyMessageWindow.getSnapshot()).toBeNull();
+    });
 
     fireEvent.click(screen.getByTestId("context-usage-compact"));
 
@@ -1832,54 +2036,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── responseParser: payloadRequestsHistoryClear via response.output ────
-  it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "response",
-          status: "completed",
-          output: [
-            {
-              type: "message",
-              role: "assistant",
-              metadata: { clear_history: true },
-              content: [{ type: "text", text: "cleared" }],
-            },
-          ],
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
-  // ── responseParser: nested metadata clear_history ──────────────────────
-  it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: {
-            metadata: { clear_history: true },
-          },
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
   // ── customFetch: successful fetch with full request body ───────────────
   it("customFetch sends correct request body and returns response", async () => {
     const mockResponse = {
@@ -2035,8 +2191,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: non-ok response discards last user message ────────────
-  it("customFetch discards last user message on non-ok response", async () => {
+  // ── customFetch: non-ok response passthrough ────────────────────────────
+  it("customFetch returns a non-ok response", async () => {
     const mockResponse = { ok: false, status: 500, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 
@@ -2140,7 +2296,7 @@ describe("ChatPage coverage", () => {
 
     expect(capturedOptions?.actions?.replace).toBe(false);
     expect(capturedOptions?.actions?.right).toBe(false);
-    expect(capturedOptions?.actions?.list).toHaveLength(2);
+    expect(capturedOptions?.actions?.list).toHaveLength(3);
   });
 
   // ── customToolRenderConfig ─────────────────────────────────────────────
@@ -2441,49 +2597,74 @@ describe("ChatPage coverage", () => {
     expect(true).toBe(true);
   });
 
-  // ── composition events (IME) ───────────────────────────────────────────
-  it("IME composition events are handled", async () => {
+  it("preserves IME keys without querying input history", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    // Dispatch composition events
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionstart", { bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "正在输入";
+    input.focus();
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    fireEvent.compositionStart(input);
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new CompositionEvent("compositionend", { bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("正在输入");
+    expect(sessionApi.loadUserMessageIndexPage).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input);
   });
 
-  // ── ArrowUp/ArrowDown history navigation ──────────────────────────────
-  it("ArrowUp/ArrowDown key events are handled without crash", async () => {
+  it("leaves unmatched history and multiline editing to the textarea", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }),
-      );
+    const root = await screen.findByTestId("chat-ui");
+    const sender = document.createElement("div");
+    sender.className = "sender";
+    const input = document.createElement("textarea");
+    sender.append(input);
+    root.append(sender);
+    vi.mocked(getSenderTextareaFromTarget).mockReturnValue(input);
+    input.value = "draft";
+    input.focus();
+    mockGetMessages.mockReturnValue([]);
+    vi.mocked(sessionApi.loadUserMessageIndexPage).mockClear();
+    const key = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
     });
-    act(() => {
-      document.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
-      );
+    await act(async () => {
+      input.dispatchEvent(key);
     });
-
-    expect(true).toBe(true);
+    expect(key.defaultPrevented).toBe(false);
+    expect(input.value).toBe("draft");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
+    input.value = "first\nsecond";
+    input.setSelectionRange(input.value.length, input.value.length);
+    const multiline = new KeyboardEvent("keydown", {
+      key: "ArrowUp",
+      bubbles: true,
+      cancelable: true,
+    });
+    await act(async () => {
+      input.dispatchEvent(multiline);
+    });
+    expect(multiline.defaultPrevented).toBe(false);
+    expect(input.value).toBe("first\nsecond");
+    expect(sessionApi.loadUserMessageIndexPage).toHaveBeenCalledOnce();
   });
 
   // ── Trigger rate limit banner via responseParser ───────────────────────

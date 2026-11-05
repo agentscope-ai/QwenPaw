@@ -56,8 +56,8 @@ include_memory_quiesce_timeout = {DEFAULT_MEMORY_QUIESCE_TIMEOUT}
 # restored by the conversation/memory flows, never by --include-files.
 CHECKPOINT_STATE_FILES = frozenset({"MEMORY.md"})
 CHECKPOINT_STATE_DIRS = (
+    ".qwenpaw-checkpoint/",
     "memory/",
-    "sessions/",
 )
 
 # Other QwenPaw-owned paths are runtime implementation details. Keep this
@@ -87,6 +87,7 @@ QWENPAW_RUNTIME_STATE_FILES = frozenset(
         "PROFILE.md",
         "skill.json",
         "SOUL.md",
+        "transcript_catalog.db",
         "yuanbao_sessions.json",
     },
 )
@@ -114,9 +115,11 @@ QWENPAW_RUNTIME_STATE_DIRS = (
     "missions/",
     "ralph_loops/",
     "resource/",
+    "sessions/",
     "skills/",
     "tool_result/",
     "tool_results/",
+    "transcripts/",
 )
 
 QWENPAW_STATE_SUFFIXES = (
@@ -365,8 +368,6 @@ class CheckpointPolicy:
             self.reload(force=True)
 
 
-# Characters forbidden in Windows filenames, matching SafeJSONSession.
-_UNSAFE_FILENAME_RE = re.compile(r'[\\/:*?"<>|]')
 _REF_UNSAFE_RE = re.compile(r"[\x00-\x20\x7f~^:?*\[\]\\]+")
 _REF_DOTLOCK_RE = re.compile(r"\.lock(?:/|$)")
 _WINDOWS_RESERVED_REF_BASENAMES = frozenset(
@@ -405,36 +406,6 @@ def context_channel(context: object) -> str:
     return ""
 
 
-def sanitize_filename(name: str) -> str:
-    """Replace characters illegal in Windows filenames with ``--``."""
-    normalized = unicodedata.normalize("NFC", name or "")
-    return _UNSAFE_FILENAME_RE.sub("--", normalized)
-
-
-def session_file_path(
-    workspace_dir: Path,
-    *,
-    session_id: str,
-    user_id: str,
-    channel: str,
-) -> Path:
-    """Return the QwenPaw 2.0 JSON session path for one session."""
-    if not session_id:
-        raise ValueError("session_id must not be None or empty")
-
-    save_dir = Path(workspace_dir) / "sessions"
-    safe_sid = sanitize_filename(session_id)
-    safe_uid = sanitize_filename(user_id) if user_id else ""
-    if safe_uid and safe_uid == safe_sid:
-        safe_uid = ""
-    filename = (
-        f"{safe_uid}_{safe_sid}.json" if safe_uid else f"{safe_sid}.json"
-    )
-    if channel:
-        return save_dir / sanitize_filename(channel) / filename
-    return save_dir / filename
-
-
 def session_key(*, channel: str, user_id: str, session_id: str) -> str:
     """Return a bounded, collision-resistant key for a QwenPaw session."""
     identity = [channel, user_id, session_id]
@@ -455,6 +426,21 @@ def session_key(*, channel: str, user_id: str, session_id: str) -> str:
     readable = re.sub(r"[^a-z0-9]+", "-", readable).strip("-")
     prefix = readable[:24].rstrip("-") or "session"
     return f"{prefix}-{digest}"
+
+
+def session_snapshot_path(
+    *,
+    channel: str,
+    user_id: str,
+    session_id: str,
+) -> str:
+    """Return the internal checkpoint path for one session database."""
+    key = session_key(
+        channel=channel,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    return f".qwenpaw-checkpoint/sessions/{key}.db"
 
 
 def sanitize_ref_component(value: str, *, fallback: str = "snapshot") -> str:
@@ -528,24 +514,8 @@ def _context_from_session_payload(state: dict) -> list:
     return []
 
 
-def latest_user_query(
-    workspace_dir: Path,
-    *,
-    session_id: str,
-    user_id: str,
-    channel: str,
-) -> str | None:
-    """Return the latest persisted user text for one QwenPaw 2.0 session."""
-    path = session_file_path(
-        workspace_dir,
-        session_id=session_id,
-        user_id=user_id,
-        channel=channel,
-    )
-    try:
-        state = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return None
+def latest_user_query(state: dict) -> str | None:
+    """Return the latest persisted user text from one runtime snapshot."""
     for message in reversed(_context_from_session_payload(state)):
         if not isinstance(message, dict) or message.get("role") != "user":
             continue

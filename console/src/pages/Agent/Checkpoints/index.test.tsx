@@ -97,9 +97,19 @@ vi.mock("./CheckpointGraph", () => ({
 }));
 
 vi.mock("./RestoreModal", () => ({
-  RestoreModal: ({ open }: { open: boolean }) =>
+  RestoreModal: ({
+    open,
+    onRestored,
+  }: {
+    open: boolean;
+    onRestored: () => void;
+  }) =>
     open
-      ? React.createElement("div", { "data-testid": "restore-modal" })
+      ? React.createElement(
+          "button",
+          { "data-testid": "restore-modal", onClick: onRestored },
+          "complete restore",
+        )
       : null,
 }));
 
@@ -119,6 +129,7 @@ const node = (overrides: Record<string, unknown> = {}) => ({
   session_key: "s1",
   session_id: "sess-1",
   session_title: "Session One",
+  chat_id: "chat-1",
   channel: "console",
   timestamp_ms: 1_700_000_000_000,
   parent_commit: "p0bbbbbbbbbb",
@@ -137,6 +148,7 @@ function setupDefaultMocks() {
     ],
     sessions: [
       {
+        chat_id: "chat-1",
         session_key: "s1",
         session_id: "sess-1",
         title: "Session One",
@@ -452,6 +464,8 @@ describe("CheckpointsPage", () => {
       screen.getByRole("button", { name: /checkpoints\.restore\.action/ }),
     );
     expect(screen.getByTestId("restore-modal")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("restore-modal"));
   });
 
   it("disables restore for nodes without a session", async () => {

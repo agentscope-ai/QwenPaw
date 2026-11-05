@@ -12,6 +12,7 @@ truncation.  Spec collection itself is covered by
 # pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,6 +20,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
+
+from qwenpaw.app.chats.session import DatabaseSession
+from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.constant import DEBUG_HISTORY_FILE
 
 from qwenpaw.runtime import builtin_commands as bc
 from qwenpaw.runtime._state_utils import StateProxy
@@ -92,9 +99,19 @@ def _session_ctx(
             "channel": channel,
         }
 
+    async def _reset(*, session_id, user_id, channel, agent):
+        await _save(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            agent=agent,
+        )
+        saved["reset"] = True
+
     session = SimpleNamespace(
         load_session_state=AsyncMock(side_effect=_load),
         save_session_state=AsyncMock(side_effect=_save),
+        reset_session_state=AsyncMock(side_effect=_reset),
     )
     workspace = SimpleNamespace(
         session=session,
@@ -105,7 +122,11 @@ def _session_ctx(
     )
     ctx = SimpleNamespace(
         workspace=workspace,
-        request=SimpleNamespace(user_id="user-1", channel="console"),
+        request=SimpleNamespace(
+            user_id="user-1",
+            channel="console",
+            request_context={},
+        ),
         session_id="session-1",
         agent_id="agent-1",
     )
@@ -551,6 +572,17 @@ class TestLoadAgentState:
 
 
 class TestSaveAgentState:
+    async def test_context_reset_uses_atomic_reset(self):
+        ctx, saved = _session_ctx({})
+        await bc._save_agent_state(
+            ctx,
+            AgentState(),
+            reset_context=True,
+        )
+        assert saved["reset"] is True
+        ctx.workspace.session.reset_session_state.assert_awaited_once()
+        ctx.workspace.session.save_session_state.assert_not_awaited()
+
     async def test_writes_state_mode_and_scroll(self):
         ctx, saved = _session_ctx({})
         await bc._save_agent_state(
@@ -794,7 +826,14 @@ class TestConversationAdapter:
         """
         spec = bc._make_conversation_adapter("clear")
         ctx, saved = _session_ctx(_state_payload(scroll={"evicted": 4}))
-        patcher, _double, _instance = _patch_command_handler()
+        patcher, _double, _instance = _patch_command_handler(
+            result=Msg(
+                name="assistant",
+                role="assistant",
+                content=[],
+                metadata={"context_reset": True},
+            ),
+        )
         with (
             patcher,
             patch(
@@ -1110,3 +1149,123 @@ class TestRemeApprovalContext:
         assert kwargs["agent_id"] == "default"
         assert kwargs["user_id"] == ""
         assert kwargs["session_id"] == ""
+
+
+@pytest.mark.parametrize(
+    ("command", "memory_enabled", "has_context", "reset"),
+    [
+        ("new", False, True, False),
+        ("new", True, True, True),
+        ("new", False, False, True),
+        ("clear", False, True, True),
+        ("compact_str", True, False, False),
+        ("load_history", True, True, True),
+    ],
+)
+async def test_command_outcome_controls_database_reset(
+    tmp_path,
+    command,
+    memory_enabled,
+    has_context,
+    reset,
+):
+    """Verify runtime, usage and replay across actual command outcomes."""
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    identity = dict(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+    state = (
+        AgentState.model_validate(_state_with_context())
+        if has_context
+        else AgentState()
+    )
+    scroll = {"persisted_ids": ["old-id"], "index": {"tiers": []}}
+    catalog.write_runtime_state(
+        **identity,
+        state={
+            "agent": {
+                "state": state.model_dump(mode="json"),
+                "scroll": scroll,
+            },
+        },
+        context_generation=4,
+        current_usage={"usage": {"total_tokens": 7}},
+    )
+    catalog.start_turn(**identity, turn_id="command")
+    ctx, _ = _session_ctx(workspace_dir=str(tmp_path))
+    ctx.workspace.session = session
+    ctx.workspace.memory_manager = MagicMock(enabled=memory_enabled)
+    ctx.request.request_context = {
+        bc.TRANSCRIPT_TURN_ID_CONTEXT_KEY: "command",
+        bc.TRANSCRIPT_RECORDING_READY_KEY: True,
+    }
+    config = AgentProfileConfig(
+        id="agent-1",
+        name="Test",
+        workspace_dir=str(tmp_path),
+    )
+    config.running.light_context_config.strategy = "scroll"
+    imported = Msg(
+        name="user",
+        role="user",
+        content=[TextBlock(type="text", text="loaded")],
+    )
+    (tmp_path / DEBUG_HISTORY_FILE).write_text(
+        json.dumps(imported.to_dict()) + "\n",
+    )
+    try:
+        with (
+            patch(
+                "qwenpaw.config.config.load_agent_config",
+                return_value=config,
+            ),
+            patch(
+                "qwenpaw.agents.command_handler.CommandHandler."
+                "_get_agent_config_async",
+                new=AsyncMock(return_value=config),
+            ),
+        ):
+            await bc._make_conversation_adapter(command).handler(ctx, "")
+        catalog.finish_turn(
+            session_id="session-1",
+            turn_id="command",
+            status="completed",
+        )
+        after = catalog.read_runtime_state(**identity)
+        assert after.context_generation == 4 + int(reset)
+        if reset:
+            assert "scroll" not in after.state["agent"]
+            assert after.current_usage["usage"] is None
+        else:
+            assert after.state["agent"]["scroll"] == scroll
+            assert after.current_usage == {"usage": {"total_tokens": 7}}
+        expected = (
+            [imported.model_dump(mode="json")]
+            if command == "load_history"
+            else ([] if reset else state.model_dump(mode="json")["context"])
+        )
+        assert after.state["agent"]["state"]["context"] == expected
+        path = (
+            tmp_path
+            / "transcripts"
+            / (catalog.storage_id_for(**identity) + ".db")
+        )
+        store = TranscriptStore(path)
+        try:
+            store.rebuild_projections()
+            assert store.read_runtime_state(**identity) == after
+            assert (
+                store.read_turn_context(**identity, turn_id="command")
+                is not None
+            )
+        finally:
+            store.close()
+    finally:
+        catalog.close()

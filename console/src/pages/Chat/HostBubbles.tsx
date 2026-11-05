@@ -16,7 +16,13 @@
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, { useMemo, useSyncExternalStore } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -38,6 +44,7 @@ import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
+import { stripScrollHeadlines } from "./headlineFilter";
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -71,11 +78,96 @@ import {
   subscribeChatDisplayPreference,
   type AssistantMessageDisplayPreference,
 } from "../../utils/chatDisplayPreference";
+import {
+  MeasuredMessageWindow,
+  RESPONSE_WINDOW_LIMIT,
+} from "./MeasuredMessageWindow";
+import {
+  createMessageWindowState,
+  MessageWindowStateContext,
+} from "./messageWindowState";
+
+function ResponseWindow<T>({
+  items,
+  id,
+  itemKey,
+  render,
+}: {
+  items: T[];
+  id: string;
+  itemKey: (item: T, index: number) => string;
+  render: (item: T, index: number) => React.ReactNode;
+}) {
+  return (
+    <MeasuredMessageWindow
+      cacheKey={id}
+      ids={items.map(itemKey)}
+      estimate={120}
+      maxItems={RESPONSE_WINDOW_LIMIT}
+    >
+      {(index) => render(items[index], index)}
+    </MeasuredMessageWindow>
+  );
+}
 
 function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
   return arr
     .slice()
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
+}
+
+const DeferHistoryContentContext = React.createContext(true);
+
+export function EagerHistoryContent({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <DeferHistoryContentContext.Provider value={false}>
+      {children}
+    </DeferHistoryContentContext.Provider>
+  );
+}
+
+export function DeferredHistoryContent({
+  children,
+  enabled,
+}: {
+  children: React.ReactNode;
+  enabled: boolean;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [nearViewport, setNearViewport] = useState(
+    () => !enabled || typeof IntersectionObserver === "undefined",
+  );
+
+  useEffect(() => {
+    if (!enabled || nearViewport || !rootRef.current) return undefined;
+    const root = rootRef.current.closest<HTMLElement>(
+      '[data-history-message-window="true"], ' +
+        '[class*="chat-anywhere-message-list-bubble-scroll"]',
+    );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setNearViewport(true);
+        observer.disconnect();
+      },
+      { root, rootMargin: "300px 0px" },
+    );
+    observer.observe(rootRef.current);
+    return () => observer.disconnect();
+  }, [enabled, nearViewport]);
+
+  return (
+    <div
+      ref={rootRef}
+      className={nearViewport ? undefined : styles.deferredHistoryContent}
+    >
+      {nearViewport ? children : null}
+    </div>
+  );
 }
 
 const HostMessage = React.memo(function HostMessage({
@@ -92,88 +184,138 @@ const HostMessage = React.memo(function HostMessage({
   const formatMediaURL = (url?: string) =>
     url ? replaceMediaURL?.(url) || url : url;
   const baseFontSize = useEffectiveFontSize();
+  const metadata = (
+    data as IAgentScopeRuntimeMessage & {
+      metadata?: Record<string, unknown> | null;
+    }
+  ).metadata;
+  const history = Boolean(metadata?.qwenpaw_history);
+  const deferHistoryContent = React.useContext(DeferHistoryContentContext);
 
   if (!data.content?.length) return null;
 
   return (
     <>
-      {data.content.map((item, index) => {
-        switch (item.type) {
-          case AgentScopeRuntimeContentType.TEXT:
-            return (
-              <AssistantMarkdown
-                key={index}
-                messageId={`${data.id}:${index}`}
-                content={item.text}
-                cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
-                // Native text deltas omit content.status; the message owns
-                // their lifecycle. Keep the legacy Markdown cursor separate.
-                isStreaming={
-                  (item.status ?? data.status) ===
-                  AgentScopeRuntimeRunStatus.InProgress
-                }
-              />
-            );
-          case AgentScopeRuntimeContentType.REFUSAL:
-            return (
-              <Markdown
-                key={index}
-                content={item.refusal}
-                raw
-                baseFontSize={baseFontSize}
-              />
-            );
-          case AgentScopeRuntimeContentType.IMAGE:
-            return (
-              <DefaultCards.Images
-                key={index}
-                data={[{ url: formatMediaURL(item.image_url) }]}
-              />
-            );
-          case AgentScopeRuntimeContentType.VIDEO:
-            return (
-              <DefaultCards.Videos
-                key={index}
-                data={[
-                  {
-                    poster: formatMediaURL(item.video_poster),
-                    src: formatMediaURL(item.video_url) || "",
-                  },
-                ]}
-              />
-            );
-          case AgentScopeRuntimeContentType.FILE:
-            return (
-              <DefaultCards.Files
-                key={index}
-                data={[
-                  {
-                    name: item.file_name || item.fileName || item.file_id,
-                    size: item.file_size,
-                    url: formatMediaURL(item.file_url),
-                  },
-                ]}
-                onClick={onFileCardClick}
-              />
-            );
-          case AgentScopeRuntimeContentType.AUDIO:
-            return (
-              <DownloadableAudios
-                key={index}
-                data={[
-                  { src: formatMediaURL(item.audio_url || item.data) || "" },
-                ]}
-              />
-            );
-          default:
-            return <div key={index}>{JSON.stringify(item)}</div>;
-        }
-      })}
+      <ResponseWindow
+        items={data.content}
+        id={`${data.id}:content`}
+        itemKey={(_item, index) => `${data.id}:${index}`}
+        render={(item, index) => {
+          switch (item.type) {
+            case AgentScopeRuntimeContentType.TEXT:
+              return (
+                <DeferredHistoryContent
+                  key={index}
+                  enabled={history && deferHistoryContent}
+                >
+                  {history ? (
+                    <AssistantMarkdown
+                      messageId={`${data.id}:${index}`}
+                      content={stripScrollHeadlines(item.text)}
+                      cursor={false}
+                      isStreaming={false}
+                    />
+                  ) : (
+                    <AssistantMarkdown
+                      messageId={`${data.id}:${index}`}
+                      content={item.text}
+                      cursor={
+                        item.status === AgentScopeRuntimeRunStatus.InProgress
+                      }
+                      // Native text deltas omit content.status; the message owns
+                      // their lifecycle. Keep the legacy cursor separate.
+                      isStreaming={
+                        (item.status ?? data.status) ===
+                        AgentScopeRuntimeRunStatus.InProgress
+                      }
+                    />
+                  )}
+                </DeferredHistoryContent>
+              );
+            case AgentScopeRuntimeContentType.REFUSAL:
+              return (
+                <Markdown
+                  key={index}
+                  content={item.refusal}
+                  raw
+                  baseFontSize={baseFontSize}
+                />
+              );
+            case AgentScopeRuntimeContentType.IMAGE:
+              return (
+                <DefaultCards.Images
+                  key={index}
+                  data={[{ url: formatMediaURL(item.image_url) }]}
+                />
+              );
+            case AgentScopeRuntimeContentType.VIDEO:
+              return (
+                <DefaultCards.Videos
+                  key={index}
+                  data={[
+                    {
+                      poster: formatMediaURL(item.video_poster),
+                      src: formatMediaURL(item.video_url) || "",
+                    },
+                  ]}
+                />
+              );
+            case AgentScopeRuntimeContentType.FILE:
+              return (
+                <DefaultCards.Files
+                  key={index}
+                  data={[
+                    {
+                      name: item.file_name || item.fileName || item.file_id,
+                      size: item.file_size,
+                      url: formatMediaURL(item.file_url),
+                    },
+                  ]}
+                  onClick={onFileCardClick}
+                />
+              );
+            case AgentScopeRuntimeContentType.AUDIO:
+              return (
+                <DownloadableAudios
+                  key={index}
+                  data={[
+                    { src: formatMediaURL(item.audio_url || item.data) || "" },
+                  ]}
+                />
+              );
+            default:
+              return <div key={index}>{JSON.stringify(item)}</div>;
+          }
+        }}
+      />
     </>
   );
 });
 
+const HistoryResponseMessage = React.memo(function HistoryResponseMessage({
+  item,
+}: {
+  item: IAgentScopeRuntimeMessage;
+}) {
+  return renderResponseMessageContent(item);
+});
+
 function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
+  const metadata = (
+    item as IAgentScopeRuntimeMessage & {
+      metadata?: Record<string, unknown> | null;
+    }
+  ).metadata;
+  // Durable items are immutable. Keep the overlapping rows of a moving
+  // window from re-rendering expensive tool and reasoning components.
+  return metadata?.qwenpaw_history ? (
+    <HistoryResponseMessage key={item.id} item={item} />
+  ) : (
+    renderResponseMessageContent(item)
+  );
+}
+
+function renderResponseMessageContent(item: IAgentScopeRuntimeMessage) {
   if (isToolLikeResponseMessageType(item.type)) {
     return <ResponseTool key={item.id} data={item} />;
   }
@@ -183,7 +325,31 @@ function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
     case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
       return <ResponseTool key={item.id} data={item} isApproval />;
     case AgentScopeRuntimeMessageType.REASONING:
-      return <ResponseReasoning key={item.id} data={item} />;
+      return (
+        <ResponseReasoning
+          key={item.id}
+          data={
+            item.content.length > 1
+              ? {
+                  ...item,
+                  content: [
+                    {
+                      type: AgentScopeRuntimeContentType.TEXT,
+                      status: item.status,
+                      text: item.content
+                        .filter(
+                          (part) =>
+                            part.type === AgentScopeRuntimeContentType.TEXT,
+                        )
+                        .map((part) => part.text)
+                        .join("\n\n"),
+                    },
+                  ],
+                }
+              : item
+          }
+        />
+      );
     case AgentScopeRuntimeMessageType.ERROR:
       return <ResponseError key={item.id} data={item} />;
     case AgentScopeRuntimeMessageType.HEARTBEAT:
@@ -216,6 +382,8 @@ function DefaultHostResponseCard({
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
   );
+  const canceledWithoutReply =
+    data.status === "canceled" && !data.output?.length;
   const showThinking = useSyncExternalStore(
     subscribeChatDisplayPreference,
     getShowThinkingPreference,
@@ -261,53 +429,81 @@ function DefaultHostResponseCard({
         </Flex>
       ) : null}
       {contentPrepend}
-      {messageBlocks.map((block, index) => {
-        if (block.kind === "message") {
-          return renderResponseMessage(block.message);
+      <ResponseWindow
+        items={messageBlocks}
+        id={`${messageId}:blocks`}
+        itemKey={(block, index) =>
+          block.kind === "message"
+            ? block.message.id
+            : `group:${block.messages[0]?.id ?? index}`
         }
+        render={(block, index) => {
+          if (block.kind === "message") {
+            return renderResponseMessage(block.message);
+          }
 
-        const groupStatus = getCollapsedGroupStatus(
-          data.status,
-          index === statusStepBlockIndex,
-        );
-        const presentation = getCollapsedStepPresentation(groupStatus);
-        const firstId = block.messages[0]?.id ?? index;
-        const stepCount = countCollapsedSteps(block.messages);
-        if (stepCount === 0) {
-          return (
-            <React.Fragment key={`messages-${firstId}`}>
-              {block.messages.map(renderResponseMessage)}
-            </React.Fragment>
+          const groupStatus = getCollapsedGroupStatus(
+            data.status,
+            index === statusStepBlockIndex,
           );
-        }
-        return (
-          <LazyAccordion
-            className={styles.collapsedSteps}
-            key={getCollapsedStepRenderKey(
-              firstId,
-              messageDisplayMode,
-              presentation.status,
-            )}
-            status={presentation.status}
-            title={t(presentation.titleKey, {
-              count: stepCount,
-            })}
-            defaultOpen={presentation.defaultOpen}
-            renderChildren={() => (
-              <>{block.messages.map(renderResponseMessage)}</>
-            )}
-          />
-        );
-      })}
+          const presentation = getCollapsedStepPresentation(groupStatus);
+          const firstId = block.messages[0]?.id ?? index;
+          const stepCount = countCollapsedSteps(block.messages);
+          if (stepCount === 0) {
+            return (
+              <React.Fragment key={`messages-${firstId}`}>
+                <ResponseWindow
+                  items={block.messages}
+                  id={`${messageId}:group:${firstId}`}
+                  itemKey={(item) => item.id}
+                  render={renderResponseMessage}
+                />
+              </React.Fragment>
+            );
+          }
+          return (
+            <LazyAccordion
+              stateKey={`${messageId}:group:${index}:${messageDisplayMode}`}
+              className={styles.collapsedSteps}
+              key={getCollapsedStepRenderKey(
+                firstId,
+                messageDisplayMode,
+                presentation.status,
+              )}
+              status={presentation.status}
+              title={t(presentation.titleKey, {
+                count: stepCount,
+              })}
+              defaultOpen={presentation.defaultOpen}
+              renderChildren={() => (
+                <ResponseWindow
+                  items={block.messages}
+                  id={`${messageId}:group:${firstId}`}
+                  itemKey={(item) => item.id}
+                  render={renderResponseMessage}
+                />
+              )}
+            />
+          );
+        }}
+      />
       {data.error ? <ResponseError data={data.error} /> : null}
       {!messages.length && data.status === "canceled" ? (
-        <Bubble.Interrupted title={t("chat.turnCanceled")} />
+        <Bubble.Interrupted
+          title={t(
+            canceledWithoutReply
+              ? "chat.canceledWithoutReply"
+              : "chat.turnCanceled",
+          )}
+        />
       ) : null}
       {contentAppend}
       {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
         <ResponseArtifactList messages={messages} />
       ) : null}
-      <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      {!canceledWithoutReply ? (
+        <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      ) : null}
     </>
   );
 }
@@ -465,15 +661,21 @@ export function HostResponseCard(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
+  const parentMemory = React.useContext(MessageWindowStateContext);
+  const localMemory = useRef(createMessageWindowState());
   // Tool cards cannot tell a running call from one whose turn was interrupted
   // because both lack a result message. Wrapping the whole card publishes the
   // turn state without re-rendering its body: the memoized content bails out
   // on unchanged props.
   return (
-    <ToolCallTurnBoundary
-      data={props.data as unknown as IAgentScopeRuntimeResponse}
+    <MessageWindowStateContext.Provider
+      value={parentMemory ?? localMemory.current}
     >
-      <MemoizedHostResponseCard {...props} />
-    </ToolCallTurnBoundary>
+      <ToolCallTurnBoundary
+        data={props.data as unknown as IAgentScopeRuntimeResponse}
+      >
+        <MemoizedHostResponseCard {...props} />
+      </ToolCallTurnBoundary>
+    </MessageWindowStateContext.Provider>
   );
 }

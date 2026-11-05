@@ -14,6 +14,7 @@ import {
   awaitQueueAcceptance,
   recoverSendingQueueHead,
   waitForChatIdle,
+  waitForChatStatusIdle,
 } from "./chatRunLifecycle";
 import {
   clearBackgroundAbortIfCurrent,
@@ -100,6 +101,34 @@ describe("chat scope cancellation", () => {
   });
 });
 
+describe("lightweight chat status polling", () => {
+  it("returns on idle without loading conversation history", async () => {
+    const controller = new AbortController();
+    vi.mocked(request).mockResolvedValue({ status: "idle" });
+
+    await expect(
+      waitForChatStatusIdle("chat/a", controller.signal, "agent-a"),
+    ).resolves.toBe(true);
+    expect(request).toHaveBeenCalledExactlyOnceWith("/chats/chat%2Fa/status", {
+      headers: { "X-Agent-Id": "agent-a" },
+      signal: controller.signal,
+    });
+  });
+
+  it("stops after an in-flight status request is aborted", async () => {
+    const controller = new AbortController();
+    vi.mocked(request).mockImplementation(async () => {
+      controller.abort();
+      return { status: "running" };
+    });
+
+    await expect(
+      waitForChatStatusIdle("chat-a", controller.signal, "agent-a"),
+    ).resolves.toBe(false);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
 /**
  * Execute the actual private startBackgroundQueue body, without mounting the
  * whole ChatPage or exporting test-only production APIs. TypeScript AST
@@ -133,10 +162,7 @@ const backgroundWorkerJS = ts.transpileModule(
 ).outputText;
 
 function backgroundWorkerFixture() {
-  const sessionApi = {
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
-  };
+  const sessionApi = {};
   const dependencies = {
     useMessageQueueStore,
     withBackgroundSendLock,
@@ -260,7 +286,6 @@ describe("background queue transport handoff", () => {
       ).toEqual(["sending", "pending"]);
       headers.resolve(response);
       await vi.waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
-      expect(fixture.sessionApi.discardLastUserMessage).not.toHaveBeenCalled();
       expect(
         useMessageQueueStore
           .getState()
@@ -296,7 +321,6 @@ describe("background queue transport handoff", () => {
     ]);
     expect(useMessageQueueStore.getState().getQueue(key)).toHaveLength(1);
     expect(useMessageQueueStore.getState().getRunState(key)).not.toBe("error");
-    expect(fixture.sessionApi.discardLastUserMessage).not.toHaveBeenCalled();
     // Only the original POST exists: cancellation did not issue a backend
     // stop request or dispatch the next queued item.
     expect(fetchFixture).toHaveBeenCalledTimes(1);
@@ -318,7 +342,6 @@ describe("background queue transport handoff", () => {
         .map((item) => item.status),
     ).toEqual(["failed", "pending"]);
     expect(useMessageQueueStore.getState().getRunState(key)).toBe("error");
-    expect(fixture.sessionApi.discardLastUserMessage).toHaveBeenCalledTimes(1);
     await expectReleased();
   });
 });

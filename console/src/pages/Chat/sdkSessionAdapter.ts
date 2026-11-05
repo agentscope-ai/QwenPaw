@@ -1,14 +1,16 @@
 import type { IAgentScopeRuntimeWebUISessionAPI } from "@agentscope-ai/chat";
 
+type LoadedSession = Awaited<
+  ReturnType<IAgentScopeRuntimeWebUISessionAPI["getSession"]>
+>;
+
 /** One adapter per Agent ownership epoch. The SDK remains the only history
  * loader; the host observes that load instead of racing it with another fetch.
  * Sender/queue guards read this synchronously, including before React commits. */
 export function createSdkSessionAdapter(
   source: IAgentScopeRuntimeWebUISessionAPI,
-  onSessionLoaded?: (
-    id: string,
-    session: Awaited<ReturnType<typeof source.getSession>>,
-  ) => void,
+  onSessionLoaded?: (id: string, session: LoadedSession) => void,
+  transformSession?: (id: string, session: LoadedSession) => LoadedSession,
 ) {
   const ready = new Set<string>();
   const failed = new Set<string>();
@@ -50,7 +52,10 @@ export function createSdkSessionAdapter(
       failed.delete(id);
       publish();
       try {
-        const session = await source.getSession(id);
+        const loadedSession = await source.getSession(id);
+        const session = loadedSession
+          ? transformSession?.(id, loadedSession) ?? loadedSession
+          : loadedSession;
         if (pending.get(id) === token && session) {
           // A restored route can be an opaque runtime session_id while the
           // canonical route is the Chat UUID returned as realId. One SDK load

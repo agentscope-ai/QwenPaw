@@ -31,6 +31,7 @@ def test_server_setup_keeps_runtime_mode_and_channel_host_port(
 
     monkeypatch.setenv("QWENPAW_RUNTIME_MODE", "shared")
     monkeypatch.setenv(HOST_PORT_ENV, "1111")
+    monkeypatch.delenv("QWENPAW_INTERNAL_HOST_API_HOST", raising=False)
     if runtime_id is None:
         monkeypatch.delenv("QWENPAW_RUNTIME_ID", raising=False)
     else:
@@ -48,6 +49,7 @@ def test_server_setup_keeps_runtime_mode_and_channel_host_port(
 
     assert os.environ["QWENPAW_RUNTIME_MODE"] == expected_mode
     assert os.environ[HOST_PORT_ENV] == "8765"
+    assert os.environ["QWENPAW_INTERNAL_HOST_API_HOST"] == "127.0.0.1"
     assert addresses == [("127.0.0.1", 8765)]
 
 

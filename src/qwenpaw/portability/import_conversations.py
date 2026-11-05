@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..app.chats.models import ChatSpec
-from ..agents.context.scroll.sync import import_session_history
+from agentscope.message import Msg
+
+from ..agents.context.scroll.history import HistoryStore
+from ..agents.context.scroll.serialize import msg_to_entries
+from ..app.chats.transcript_catalog import resolve_session_database_path
 from ..utils.io_utils import run_sync_io
 from ..harnesses.session import HarnessSessionBridge
 from .import_support import (
@@ -159,16 +163,49 @@ async def import_conversations(
 
 
 async def _sync_imported_history(workspace: Any, chat: ChatSpec) -> None:
-    """Publish imported history immediately and retry incomplete imports."""
-    if workspace.history_store is not None:
-        lcc = workspace.config.running.light_context_config
-        await run_sync_io(
-            import_session_history,
-            workspace.history_store,
+    """Publish imported recall in the authoritative conversation database."""
+    identity = dict(
+        session_id=chat.session_id,
+        user_id=chat.user_id,
+        channel=chat.channel,
+    )
+    state = await workspace.session.get_session_state_dict(**identity)
+    lcc = workspace.config.running.light_context_config
+    days = lcc.scroll_config.history_retention_days
+    cutoff = (
+        (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        if days > 0
+        else None
+    )
+
+    def persist() -> None:
+        path = resolve_session_database_path(
             workspace.workspace_dir,
-            workspace.agent_id,
-            chat.session_id,
-            chat.user_id,
-            chat.channel,
-            lcc.scroll_config.history_retention_days,
+            **identity,
         )
+        if path is None:
+            raise RuntimeError("Imported conversation database is missing")
+        history = HistoryStore(path)
+        try:
+            entries = []
+            for index, raw in enumerate(state["agent"]["state"]["context"]):
+                msg = Msg.model_validate(raw)
+                if cutoff and msg.created_at and msg.created_at < cutoff:
+                    continue
+                mid = msg.id or f"{chat.session_id}#row{index}"
+                for position, entry in enumerate(msg_to_entries(msg)):
+                    key = (
+                        entry.tool_call_id or f"{mid}#anon{position}"
+                        if entry.kind == "tool_result"
+                        else mid
+                    )
+                    entries.append((entry, key))
+            history.append_many(
+                session_id=chat.session_id,
+                agent_id=workspace.agent_id,
+                entries=entries,
+            )
+        finally:
+            history.close()
+
+    await run_sync_io(persist)

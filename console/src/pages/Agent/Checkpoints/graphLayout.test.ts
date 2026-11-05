@@ -22,6 +22,7 @@ const node = (
   user_id: "u",
   session_id: "s",
   session_title: "Session title",
+  chat_id: "chat-1",
 });
 
 describe("buildGraphRows", () => {

@@ -8,6 +8,7 @@ Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -600,6 +601,9 @@ class BaseChannel(ABC):
             owner=self._workspace,
             channel_id=self.channel,
             on_finished=self._workspace.chat_manager.mark_chat_finished,
+            can_start=lambda: self._workspace.chat_manager.can_start_run(
+                chat.id,
+            ),
         )
 
         if is_new:
@@ -2038,7 +2042,7 @@ class BaseChannel(ABC):
         *,
         emit_sse: bool = True,
     ) -> List[str]:
-        """Resolve, persist, and optionally emit a ``turn_usage`` SSE."""
+        """Finalize workspace usage and optionally emit its SSE view."""
         if not session_id:
             return []
         try:
@@ -2047,49 +2051,33 @@ class BaseChannel(ABC):
             turn_usage = importlib.import_module(
                 "qwenpaw.token_usage.turn_usage",
             )
-            token_usage = importlib.import_module("qwenpaw.token_usage")
-
             workspace = self._workspace
-            session = (
-                getattr(workspace, "session", None)
-                if workspace is not None
-                else None
+            finalizer = getattr(
+                workspace,
+                "finalize_turn_usage",
+                None,
             )
-            agent_id = (
-                getattr(workspace, "agent_id", "default")
-                if workspace is not None
-                else "default"
-            )
-            user_id = getattr(request, "user_id", "") or ""
-            channel = getattr(request, "channel", "") or self.channel
-            turn, ctx, agent_state = await turn_usage.resolve_turn_usage(
-                session_id=session_id,
-                agent_id=agent_id,
-                session=session,
-                user_id=user_id,
-                channel=channel,
-            )
+            if inspect.iscoroutinefunction(finalizer):
+                turn, ctx = await finalizer(  # pylint: disable=not-callable
+                    request,
+                )
+            else:
+                turn, ctx, _ = await turn_usage.resolve_turn_usage(
+                    session_id=session_id,
+                    agent_id=(
+                        getattr(workspace, "agent_id", "default")
+                        if workspace is not None
+                        else "default"
+                    ),
+                    session=None,
+                    user_id=getattr(request, "user_id", "") or "",
+                    channel=(getattr(request, "channel", "") or self.channel),
+                )
             if turn is None and ctx is None:
                 return []
             self._on_turn_usage_ready(turn, ctx)
             if turn:
                 logger.info("Usage for session %s: %s", session_id, turn)
-            if session is not None:
-                try:
-                    await token_usage.persist_turn_usage(
-                        session=session,
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
-                        turn=turn,
-                        ctx=ctx,
-                        agent_state=agent_state,
-                    )
-                except Exception:
-                    logger.warning(
-                        "turn usage persist skipped",
-                        exc_info=True,
-                    )
             if not emit_sse:
                 return []
             payload: Dict[str, Any] = {

@@ -112,6 +112,7 @@ function makeNode(overrides: Partial<CheckpointNode> = {}): CheckpointNode {
     is_head: true,
     user_id: "user-1",
     session_id: "session-1",
+    chat_id: "chat-1",
     session_title: "session-title",
     ...overrides,
   };
