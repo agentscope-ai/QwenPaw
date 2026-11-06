@@ -11,6 +11,7 @@ import pytest
 
 from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
+    _ollama_model_aliases,
     parse_ollama_num_ctx,
     resolve_ollama_context_window,
 )
@@ -291,6 +292,25 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         )
         == 32768
     )
+
+
+def test_ollama_model_aliases_registry_port_gets_latest() -> None:
+    """Tag lives in the final path segment; a port colon is not a tag."""
+    model_id = "registry.example.com:5000/team/qwen3"
+    aliases = _ollama_model_aliases(model_id)
+    assert model_id in aliases
+    assert f"{model_id}:latest" in aliases
+    assert f"{model_id}:latest".lower() in aliases
+
+    tagged = "registry.example.com:5000/team/qwen3:latest"
+    tagged_aliases = _ollama_model_aliases(tagged)
+    assert tagged in tagged_aliases
+    assert model_id in tagged_aliases
+    assert model_id.lower() in tagged_aliases
+
+    # Ordinary untagged / :latest ids still round-trip.
+    assert "qwen3:latest" in _ollama_model_aliases("qwen3")
+    assert "qwen3" in _ollama_model_aliases("qwen3:latest")
 
 
 def test_native_probe_headers_add_bearer_without_overriding() -> None:
@@ -885,6 +905,11 @@ async def test_fetch_models_malformed_parameters_does_not_abort_batch(
 
     models = await provider.fetch_models()
     by_id = {model.id: model for model in models}
+    # Malformed parameters must omit the field (not clear it).
+    assert (
+        "max_input_length_auto_detected"
+        not in by_id["bad:latest"].model_fields_set
+    )
     assert by_id["bad:latest"].max_input_length_auto_detected is None
     assert by_id["good:latest"].max_input_length_auto_detected == 8192
 
@@ -1045,6 +1070,7 @@ async def test_fetch_models_invalid_ps_still_probes_show(
     assert show_calls == ["qwen3:8b"]
     assert models[0].max_input_length_auto_detected == 8192
 
+
 @pytest.mark.asyncio
 async def test_successful_unknown_context_clears_stale_auto_detected(
     monkeypatch,
@@ -1066,7 +1092,9 @@ async def test_successful_unknown_context_clears_stale_auto_detected(
     provider.discovered_models = [
         merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
     ]
-    assert provider.discovered_models[0].max_input_length_auto_detected == 65536
+    assert (
+        provider.discovered_models[0].max_input_length_auto_detected == 65536
+    )
 
     class UnknownContextClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -1147,3 +1175,144 @@ async def test_failed_show_probe_retains_previous_auto_detected(
     )
     assert merged.max_input_length_auto_detected == 65536
 
+
+@pytest.mark.asyncio
+async def test_failed_ps_then_unknown_show_retains_previous_auto_detected(
+    monkeypatch,
+) -> None:
+    """A failed /api/ps must not clear a prior window via unknown show.
+
+    ps timeout + successful show without num_ctx used to clear 65536 back
+    to the 128k default. Clear only when both probes succeed.
+    """
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=65536,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class FailedPsUnknownShowClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            raise TimeoutError("ps timed out")
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
+
+    _patch_list_and_native(
+        monkeypatch,
+        FailedPsUnknownShowClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected == 65536
+
+
+@pytest.mark.asyncio
+async def test_malformed_parameters_retains_previous_auto_detected(
+    monkeypatch,
+) -> None:
+    """Non-string parameters must not clear a previously detected window."""
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=8192,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class MalformedParametersClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(200, {"parameters": {"num_ctx": 8192}})
+
+    _patch_list_and_native(
+        monkeypatch,
+        MalformedParametersClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected == 8192
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_registry_port_alias_matches_served_context(
+    monkeypatch,
+) -> None:
+    """registry:port/name without a tag still matches /api/ps :latest rows."""
+    provider = _make_provider()
+    model_id = "registry.example.com:5000/team/qwen3"
+
+    class RegistryPortClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": f"{model_id}:latest",
+                            "model": f"{model_id}:latest",
+                            "context_length": 32768,
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            raise AssertionError("/api/show must be skipped when /api/ps wins")
+
+    _patch_list_and_native(
+        monkeypatch,
+        RegistryPortClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 32768

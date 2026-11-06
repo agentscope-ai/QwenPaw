@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from typing import Any, List
+from typing import Any, List, NamedTuple
 
 import httpx
 from agentscope.model import ChatModelBase
@@ -65,10 +65,11 @@ def resolve_ollama_context_window(
     ``None`` so the caller leaves the model unchanged (merge keeps any
     previous auto-detected window). A dict payload with no usable
     ``num_ctx`` also returns ``None``; the caller then clears a stale
-    auto-detected value.
+    auto-detected value only when ``/api/ps`` also succeeded.
 
     A non-string ``parameters`` value is malformed, not an omitted
-    ``num_ctx``. This also returns ``None``.
+    ``num_ctx``. This also returns ``None``; the caller must treat it like
+    a failed show and retain any previous auto-detected window.
 
     GGUF ``*.context_length`` is the model's maximum supported context, not
     the window Ollama is serving. It is not used.
@@ -81,26 +82,53 @@ def resolve_ollama_context_window(
     # Do not coerce None to {} — a failed probe must stay unset.
     if not isinstance(show_payload, dict):
         return None
-    parameters = show_payload.get("parameters")
-    if parameters is not None and not isinstance(parameters, str):
+    if _show_parameters_malformed(show_payload):
         return None
-    return parse_ollama_num_ctx(parameters)
+    return parse_ollama_num_ctx(show_payload.get("parameters"))
+
+
+def _show_parameters_malformed(show_payload: dict[str, Any]) -> bool:
+    """True when ``parameters`` is present but not a Modelfile string."""
+    parameters = show_payload.get("parameters")
+    return parameters is not None and not isinstance(parameters, str)
+
+
+class _ServedContexts(NamedTuple):
+    """Outcome of an ``/api/ps`` probe.
+
+    ``ok`` is True only for a successful, structurally valid response.
+    A timeout, HTTP error, or malformed body sets ``ok`` to False with an
+    empty ``by_name`` map so callers can tell failure apart from "no
+    models currently loaded".
+    """
+
+    ok: bool
+    by_name: dict[str, int]
 
 
 def _ollama_model_aliases(model_id: str) -> set[str]:
-    """Match ids against ``/api/ps`` name/model fields (with/without tag)."""
+    """Match ids against ``/api/ps`` name/model fields (with/without tag).
+
+    The tag lives only in the final path segment. A registry host with a
+    port (``registry.example.com:5000/team/qwen3``) must still gain the
+    implicit ``:latest`` alias; the port colon is not a tag separator.
+    """
     normalized = (model_id or "").strip()
     if not normalized:
         return set()
     aliases = {normalized, normalized.lower()}
-    if ":" not in normalized:
+    _, _, leaf = normalized.rpartition("/")
+    if ":" not in leaf:
         aliases.add(f"{normalized}:latest")
         aliases.add(f"{normalized}:latest".lower())
-    else:
-        base, _, tag = normalized.partition(":")
-        if tag == "latest":
-            aliases.add(base)
-            aliases.add(base.lower())
+        return aliases
+    base_leaf, _, tag = leaf.partition(":")
+    if tag != "latest":
+        return aliases
+    prefix = normalized[: -len(leaf)] if leaf else ""
+    base = f"{prefix}{base_leaf}"
+    aliases.add(base)
+    aliases.add(base.lower())
     return aliases
 
 
@@ -227,11 +255,12 @@ class OllamaProvider(OpenAIProvider):
         metadata, so without this step every Ollama model stays at the
         128k placeholder and compaction never aligns with ``num_ctx``.
 
-        A failed ``/api/show`` leaves that model unchanged so merge can
-        keep a previous auto-detected window. A successful show that
-        omitted ``num_ctx`` (and with no served ``/api/ps`` window)
-        explicitly clears ``max_input_length_auto_detected``, so a stale
-        value from an earlier discovery is not retained.
+        A failed ``/api/show`` or malformed ``parameters`` leaves that
+        model unchanged so merge can keep a previous auto-detected
+        window. A successful show that omitted ``num_ctx`` clears
+        ``max_input_length_auto_detected`` only when ``/api/ps`` also
+        succeeded (and reported no served window). A failed ``/api/ps``
+        must not clear a prior window just because show is unknown.
 
         ``timeout`` bounds each native HTTP call and the ``/api/show``
         fan-out. Loaded ``/api/ps`` windows are applied before that
@@ -284,7 +313,7 @@ class OllamaProvider(OpenAIProvider):
             served = await self._fetch_served_contexts(client)
             need_show: list[int] = []
             for index, model in enumerate(result):
-                loaded = _with_served_context(model, served)
+                loaded = _with_served_context(model, served.by_name)
                 if loaded is not None:
                     result[index] = loaded
                 else:
@@ -305,7 +334,7 @@ class OllamaProvider(OpenAIProvider):
         self,
         client: httpx.AsyncClient,
         result: List[ModelInfo],
-        served: dict[str, int],
+        served: _ServedContexts,
         need_show: list[int],
         timeout: float,
     ) -> None:
@@ -352,23 +381,26 @@ class OllamaProvider(OpenAIProvider):
     async def _fetch_served_contexts(
         self,
         client: httpx.AsyncClient,
-    ) -> dict[str, int]:
+    ) -> _ServedContexts:
         """Map loaded model ids to their runtime ``context_length``."""
         try:
             response = await client.get(f"{self.base_url}/api/ps")
             response.raise_for_status()
             payload = response.json()
         except Exception:
-            return {}
-        # Malformed /api/ps must not abort enrichment: return {} so
-        # /api/show probes can still attach a valid num_ctx.
+            # Failure is not "no loaded models": keep ok=False so a later
+            # successful unknown show does not clear a prior window.
+            return _ServedContexts(ok=False, by_name={})
+        # Malformed /api/ps must not abort enrichment: treat as a failed
+        # probe (ok=False) so /api/show can still attach a valid num_ctx
+        # without clearing prior auto-detected values.
         if not isinstance(payload, dict):
-            return {}
+            return _ServedContexts(ok=False, by_name={})
         models = payload.get("models")
         if models is None:
             models = []
         if not isinstance(models, (list, tuple)):
-            return {}
+            return _ServedContexts(ok=False, by_name={})
         result: dict[str, int] = {}
         for row in models:
             if not isinstance(row, dict):
@@ -387,13 +419,13 @@ class OllamaProvider(OpenAIProvider):
                 if name:
                     result[name] = value
                     result[name.lower()] = value
-        return result
+        return _ServedContexts(ok=True, by_name=result)
 
     async def _enrich_model_context(
         self,
         client: httpx.AsyncClient,
         model: ModelInfo,
-        served: dict[str, int],
+        served: _ServedContexts,
         semaphore: asyncio.Semaphore | None = None,
     ) -> ModelInfo:
         """Attach one model's window. Failures leave that model unchanged."""
@@ -411,11 +443,11 @@ class OllamaProvider(OpenAIProvider):
         self,
         client: httpx.AsyncClient,
         model: ModelInfo,
-        served: dict[str, int],
+        served: _ServedContexts,
         semaphore: asyncio.Semaphore | None = None,
     ) -> ModelInfo:
         # /api/ps already has the final window; skip /api/show.
-        loaded = _with_served_context(model, served)
+        loaded = _with_served_context(model, served.by_name)
         if loaded is not None:
             return loaded
 
@@ -454,8 +486,17 @@ class OllamaProvider(OpenAIProvider):
             # so merge_discovered_model keeps any previous auto-detected
             # window instead of inventing a fallback.
             return model
-        # Successful show without usable num_ctx / served context: clear
-        # a stale auto-detected value from an earlier discovery.
+        if _show_parameters_malformed(show_payload):
+            # Malformed parameters are not "successful but unknown".
+            # Keep any previous auto-detected window.
+            return model
+        if not served.ok:
+            # /api/ps failed: do not clear a prior window just because
+            # show succeeded without num_ctx (the model may have been
+            # loaded with a served context we could not see).
+            return model
+        # Both probes succeeded and context is still unknown: clear a
+        # stale auto-detected value from an earlier discovery.
         return model.model_copy(
             update={"max_input_length_auto_detected": None},
         )
