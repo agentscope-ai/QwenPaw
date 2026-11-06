@@ -106,6 +106,8 @@ qwenpaw app
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
+Use per-channel `tool_call_format: "name_only"` or `"compact"` for a quieter tool progress trace; the default `"full"` preserves the existing display. See [Channel setup](https://qwenpaw.agentscope.io/docs/channels).
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---

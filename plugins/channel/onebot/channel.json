@@ -35,6 +35,16 @@
         "title": "Show Tool Results",
         "type": "boolean"
       },
+      "tool_call_format": {
+        "default": "full",
+        "enum": [
+          "full",
+          "name_only",
+          "compact"
+        ],
+        "title": "Tool Call Format",
+        "type": "string"
+      },
       "tool_call_max_length": {
         "default": 200,
         "minimum": 0,
@@ -171,6 +181,7 @@
     "bot_prefix",
     "show_tool_calls",
     "show_tool_results",
+    "tool_call_format",
     "tool_call_max_length",
     "tool_result_max_length",
     "show_thinking",
