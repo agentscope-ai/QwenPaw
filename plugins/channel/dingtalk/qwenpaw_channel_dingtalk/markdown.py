@@ -41,6 +41,52 @@ def ensure_list_spacing(text: str) -> str:
     return "\n".join(out)
 
 
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_TABLE_DELIMITER_RE = re.compile(r"\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?")
+
+
+def _is_table_delimiter(line: str) -> bool:
+    stripped = line.strip()
+    return (
+        "|" in stripped and _TABLE_DELIMITER_RE.fullmatch(stripped) is not None
+    )
+
+
+def ensure_table_spacing(text: str) -> str:
+    """Separate pipe tables from preceding text for DingTalk's renderer."""
+    lines = text.split("\n")
+    out = []
+    fence = ""
+
+    for i, line in enumerate(lines):
+        match = _FENCE_RE.match(line)
+        if match:
+            marker, suffix = match.groups()
+            if not fence:
+                if marker[0] != "`" or "`" not in suffix:
+                    fence = marker
+            elif (
+                marker[0] == fence[0]
+                and len(marker) >= len(fence)
+                and not suffix.strip()
+            ):
+                fence = ""
+        elif (
+            not fence
+            and not line.startswith(("    ", "\t"))
+            and i > 0
+            and "|" in line
+            and i + 1 < len(lines)
+            and not lines[i + 1].startswith(("    ", "\t"))
+            and _is_table_delimiter(lines[i + 1])
+            and lines[i - 1].strip()
+        ):
+            out.append("")
+        out.append(line)
+
+    return "\n".join(out)
+
+
 def dedent_code_blocks(text: str) -> str:
     """
     Remove unnecessary leading indentation before fenced code blocks.
@@ -100,10 +146,12 @@ def normalize_dingtalk_markdown(
     """
     Apply DingTalk Markdown normalization steps:
     1) Ensure blank lines before numbered list items
-    2) Dedent fenced code blocks
-    3) Optionally prefix code lines inside fenced blocks
+    2) Ensure blank lines before pipe tables
+    3) Dedent fenced code blocks
+    4) Optionally prefix code lines inside fenced blocks
     """
     text = ensure_list_spacing(text)
+    text = ensure_table_spacing(text)
     text = dedent_code_blocks(text)
     if code_prefix is not None:
         text = format_code_blocks(text, prefix=code_prefix)
