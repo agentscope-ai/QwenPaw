@@ -10,7 +10,7 @@ function currentAgentId() {
 }
 
 export function useTools() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +18,7 @@ export function useTools() {
   const [loadedAgent, setLoadedAgent] = useState<string | null>(null);
   const [batchLoading, setBatchLoading] = useState(false);
   const { message } = useAppMessage();
+  const lang = i18n.resolvedLanguage || i18n.language || "en";
   const requestGeneration = useRef(0);
   const loadedAgentRef = useRef<string | null>(null);
 
@@ -43,7 +44,7 @@ export function useTools() {
       setBatchLoading(false);
       setError(null);
       try {
-        const data = await api.listTools(requestedAgent);
+        const data = await api.listTools(requestedAgent, lang);
         if (!isCurrentRequest()) return;
         setTools(data);
         loadedAgentRef.current = requestedAgent;
@@ -61,7 +62,7 @@ export function useTools() {
         if (isCurrentRequest()) setLoading(false);
       }
     },
-    [message, t],
+    [lang, message, t],
   );
 
   const loadTools = useCallback(
@@ -89,7 +90,7 @@ export function useTools() {
       );
 
       try {
-        const result = await api.toggleTool(tool.name);
+        const result = await api.toggleTool(tool.name, lang);
         if (!ownsCurrentAgent(owner)) return;
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
@@ -110,7 +111,7 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [message, ownsCurrentAgent, t],
+    [lang, message, ownsCurrentAgent, t],
   );
 
   const toggleAsyncExecution = useCallback(
@@ -130,6 +131,7 @@ export function useTools() {
         const result = await api.updateAsyncExecution(
           tool.name,
           !tool.async_execution,
+          lang,
         );
         if (!ownsCurrentAgent(owner)) return;
         message.success(
@@ -154,7 +156,7 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [message, ownsCurrentAgent, t],
+    [lang, message, ownsCurrentAgent, t],
   );
 
   const enableAll = useCallback(async () => {
@@ -172,7 +174,7 @@ export function useTools() {
     setBatchLoading(true);
     try {
       const results = await Promise.all(
-        disabledTools.map((tool) => api.toggleTool(tool.name)),
+        disabledTools.map((tool) => api.toggleTool(tool.name, lang)),
       );
       if (!ownsCurrentAgent(owner)) return;
       message.success(t("tools.enableAllSuccess"));
@@ -191,7 +193,7 @@ export function useTools() {
     } finally {
       if (ownsCurrentAgent(owner)) setBatchLoading(false);
     }
-  }, [loadTools, message, ownsCurrentAgent, t, tools]);
+  }, [lang, loadTools, message, ownsCurrentAgent, t, tools]);
 
   const disableAll = useCallback(async () => {
     const owner = loadedAgentRef.current;
@@ -208,7 +210,7 @@ export function useTools() {
     setBatchLoading(true);
     try {
       const results = await Promise.all(
-        enabledTools.map((tool) => api.toggleTool(tool.name)),
+        enabledTools.map((tool) => api.toggleTool(tool.name, lang)),
       );
       if (!ownsCurrentAgent(owner)) return;
       message.success(t("tools.disableAllSuccess"));
@@ -227,7 +229,7 @@ export function useTools() {
     } finally {
       if (ownsCurrentAgent(owner)) setBatchLoading(false);
     }
-  }, [loadTools, message, ownsCurrentAgent, t, tools]);
+  }, [lang, loadTools, message, ownsCurrentAgent, t, tools]);
 
   const saveToolConfig = useCallback(
     async (
