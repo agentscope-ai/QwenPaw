@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import sys
 
@@ -62,7 +63,19 @@ def prepare_workspace_paths(record: RuntimeRecord, previous: str) -> None:
             )
         if not path.is_file():
             continue
-        original = json.loads(path.read_text(encoding="utf-8"))
-        updated = rewrite(original)
-        if updated != original:
-            write_json_atomic(path, updated)
+        try:
+            original = json.loads(path.read_text(encoding="utf-8"))
+            updated = rewrite(original)
+            if updated != original:
+                write_json_atomic(path, updated)
+        except PermissionError as exc:
+            if record.provisioner != "docker":
+                raise
+            raise PermissionError(
+                errno.EACCES,
+                "Hub cannot access Docker runtime configuration. Stop the "
+                "runtime, repair shared data ownership, and rebuild with an "
+                "updated image. See the Docker permissions section in the "
+                "Hub documentation",
+                str(path),
+            ) from exc
