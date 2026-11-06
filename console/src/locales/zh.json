@@ -2912,6 +2912,7 @@
       "ranking_version_mismatch": "评分版本待更新"
     },
     "pool": {
+      "deleteModels": "删除模型",
       "enabledCount": "模型 {{count}}",
       "modelCount": "模型 {{count}} / {{total}}",
       "enableAllConfirm": "启用全部 {{count}} 个模型？",
