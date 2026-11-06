@@ -256,6 +256,18 @@ _SINGLE_SCHEMA_KEYWORDS = frozenset(
 _ARRAY_SCHEMA_KEYWORDS = frozenset(
     {"allOf", "anyOf", "oneOf", "prefixItems"},
 )
+# Keywords whose boolean value is the keyword's own native spelling rather
+# than a standalone boolean schema.  ``false`` here is the form OpenAI
+# strict-mode tool definitions require and that compatible servers accept,
+# while ``{"not": {}}`` is rejected or silently ignored by several of them.
+_BOOLEAN_KEYWORD_VALUES = frozenset(
+    {
+        "additionalProperties",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    },
+)
 # Keywords whose value is an object whose values are schemas.
 _MAP_SCHEMA_KEYWORDS = frozenset(
     {
@@ -277,7 +289,11 @@ def _walk_schema(
     """Walk known JSON Schema child positions using *transform*."""
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        if key in _SINGLE_SCHEMA_KEYWORDS:
+        if key in _BOOLEAN_KEYWORD_VALUES and isinstance(value, bool):
+            # Keep the keyword's native boolean spelling instead of
+            # expanding it into a nested ``not`` schema.
+            result[key] = value
+        elif key in _SINGLE_SCHEMA_KEYWORDS:
             if key == "items" and isinstance(value, list):
                 result[key] = [transform(item) for item in value]
             else:
@@ -348,6 +364,12 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
     Special-cases retained:
     - ``additionalProperties: true``  → removed (JSON Schema default;
       explicit form rejected by some strict validators).
+    - ``additionalProperties`` / ``additionalItems`` /
+      ``unevaluatedProperties`` / ``unevaluatedItems`` with a boolean
+      value → kept as-is.  ``false`` is the native keyword spelling and
+      is what OpenAI strict-mode tool schemas use; rewriting it into
+      ``{"not": {}}`` makes some compatible servers drop the surrounding
+      ``properties`` map, so the model sees a zero-parameter function.
     - ``required: <bool>`` inside a property definition → removed
       (malformed; real JSON Schema uses ``required: ["field"]`` on the
       parent object).
