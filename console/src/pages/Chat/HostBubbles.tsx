@@ -101,18 +101,25 @@ const HostMessage = React.memo(function HostMessage({
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <AssistantMarkdown
+              <div
                 key={index}
-                messageId={`${data.id}:${index}`}
-                content={item.text}
-                cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
-                // Native text deltas omit content.status; the message owns
-                // their lifecycle. Keep the legacy Markdown cursor separate.
-                isStreaming={
-                  (item.status ?? data.status) ===
-                  AgentScopeRuntimeRunStatus.InProgress
+                className={styles.quoteResponse}
+                data-quote-response={
+                  data.role === "assistant" ? "true" : undefined
                 }
-              />
+              >
+                <AssistantMarkdown
+                  messageId={`${data.id}:${index}`}
+                  content={item.text}
+                  cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
+                  // Native text deltas omit content.status; the message owns
+                  // their lifecycle. Keep the legacy Markdown cursor separate.
+                  isStreaming={
+                    (item.status ?? data.status) ===
+                    AgentScopeRuntimeRunStatus.InProgress
+                  }
+                />
+              </div>
             );
           case AgentScopeRuntimeContentType.REFUSAL:
             return (

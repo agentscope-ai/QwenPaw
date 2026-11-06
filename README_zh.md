@@ -417,6 +417,8 @@ QwenPaw 内置五层核心安全防护：
 | [Agent 团队实践](https://qwenpaw.agentscope.io/docs/practice-agent-team) | 多智能体团队部署指南                         |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | 常见问题与故障排查                               |
 
+在控制台聊天中，选中助手回复并点击 **引用并追问**，即可在草稿中追加可编辑的引用内容。详见[控制台](https://qwenpaw.agentscope.io/docs/console)。
+
 在控制台中，执行 `/clear` 或成功执行 `/new` 后，重新打开聊天或刷新页面仍会显示空会话。详见[魔法命令](https://qwenpaw.agentscope.io/docs/commands)。
 
 完整文档：[qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
