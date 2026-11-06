@@ -153,7 +153,16 @@ def test_enabled_grounding_requires_global_or_override_llm() -> None:
     _check_grounding(override)
 
 
-def test_grounding_rejects_non_search_llm_unless_a_search_key_exists() -> None:
+def test_grounding_save_no_longer_gates_on_the_search_provider() -> None:
+    """Search reachability is an operational fact the connectivity test
+    measures, not a config error.
+
+    A grounding section with no Tavily/Serper key and a search model that
+    is not native-search-capable saves and degrades to "no search" at
+    runtime, instead of blocking every unrelated model update carried by
+    the same save. The retained gate is the validation model being
+    complete, which the connectivity test also exercises.
+    """
     payload = _config()
     payload["grounding"].update({"tavily_api_key": "", "serper_api_key": ""})
     payload["llm"].update(
@@ -163,10 +172,9 @@ def test_grounding_rejects_non_search_llm_unless_a_search_key_exists() -> None:
         },
     )
 
-    with pytest.raises(ValidationError, match="不支持.*原生 web_search"):
-        _check_grounding(payload)
+    _check_grounding(payload)
 
-    # A Serper key alone satisfies the search requirement.
+    # A Serper key alone still satisfies the search requirement.
     payload["grounding"]["serper_api_key"] = "serper-secret"
     payload["grounding"]["native_search_enabled"] = False
     _check_grounding(payload)

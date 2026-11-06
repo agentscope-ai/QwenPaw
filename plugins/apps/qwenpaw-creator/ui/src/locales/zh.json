@@ -325,6 +325,7 @@
     "groundingFillComplete": "请完整配置 Grounding 验证模型（Base URL、API Key、模型名称）",
     "groundingDefaultOn": "Grounding 默认开启，请完整配置验证模型，或关闭 Grounding",
     "groundingSearchNotConfigured": "Grounding 搜索未配置：请填写 Tavily API Key，或配置支持原生搜索的 Qwen/DashScope 模型",
+    "asrNoTokenPlan": "Aliyun Token Plan 不在 ASR 选项内：Creator 的语音识别输入是本地素材音频，而实测该套餐对本地音频没有可用通道（上传 401/404、Base64 内联 400，仅公网 URL 可转写）。",
     "enableGrounding": "启用 Grounding",
     "custom": "自定义",
     "protocols": {

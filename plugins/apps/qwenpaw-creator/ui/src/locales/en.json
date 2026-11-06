@@ -325,6 +325,7 @@
     "groundingFillComplete": "Please configure Grounding verify model completely (Base URL, API Key, Model Name)",
     "groundingDefaultOn": "Grounding is enabled by default. Please configure the verify model completely, or disable Grounding",
     "groundingSearchNotConfigured": "Grounding search not configured: Please fill in Tavily API Key, or configure a Qwen/DashScope model that supports native search",
+    "asrNoTokenPlan": "Aliyun Token Plan is not offered for ASR: Creator transcribes local source audio, and the plan has no working channel for local audio (measured: uploads 401/404, Base64 inline 400; only public URLs transcribe).",
     "enableGrounding": "Enable Grounding",
     "custom": "Custom",
     "protocols": {

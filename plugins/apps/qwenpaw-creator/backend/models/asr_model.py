@@ -54,6 +54,32 @@ def _endpoint(base_url: str, suffix: str) -> str:
 
 _FUN_ASR_TRANSCRIPTION_SUFFIX = "services/audio/asr/transcription"
 
+
+def asr_route(model_name: str, provider: str) -> str:
+    """The transport :func:`transcribe` uses for one configured model.
+
+    Single source of truth, shared with the connection probe in
+    :mod:`api.model_routes` so a test can never green-light a route
+    production does not call. ``provider`` only selects whisper; every
+    other decision is the model name's, exactly as in ``transcribe``.
+    """
+    if (provider or "").casefold() == "whisper":
+        return "whisper"
+    if (model_name or "").casefold().startswith(("qwen3-asr", "qwen-audio")):
+        return "qwen3-asr"
+    return "fun-asr"
+
+
+def is_qwen_audio_asr_model(model_name: str) -> bool:
+    """True for the Token Plan ASR family (``qwen-audio-3.0-asr-flash``).
+
+    It speaks the same multimodal-generation endpoint as qwen3-asr but
+    rejects ``result_format=message`` (400), answers ``output.text`` and
+    takes ``format``/``sample_rate`` instead.
+    """
+    return (model_name or "").casefold().startswith("qwen-audio")
+
+
 # Provider verdicts meaning "the audio simply contains no speech"; they
 # arrive as task/subtask failure codes but describe the footage, not an
 # infrastructure fault.
@@ -181,12 +207,48 @@ def _extract_audio_from_video(
     return output_path
 
 
+async def _asr_audio_url(
+    path: Path,
+    *,
+    api_key: str,
+    model: str,
+    media_type: str,
+) -> str:
+    """Return a URL the ASR endpoint can fetch for one local audio file.
+
+    A Token Plan key (sk-sp-) has no channel for local audio at all, each
+    alternative measured: the public dashscope upload API answers it 401,
+    the plan host serves no /api/v1/uploads (404), and the plan's
+    multimodal-generation ASR answers a Base64 data URL with an empty 400
+    while transcribing the same clip fine from a public HTTP(S) URL (200).
+    So refuse with guidance instead of sending a payload the gateway
+    rejects; public URLs pass through untouched in ``_fun_asr_file_url``.
+    """
+    if config.is_token_plan_endpoint(config.get_asr_base_url()):
+        raise ValueError(
+            "Token Plan 语音识别端点没有本地音频通道：实测其 ASR 接口接受"
+            "公网音频 URL（200）但拒绝 Base64 内联（400），且套餐没有上传"
+            "路由（公网 dashscope 上传对 sk-sp- 返回 401，plan 主机无 "
+            "/api/v1/uploads）。请把音频放到公网 HTTP(S) URL，或把 ASR 模"
+            "型切到百炼直连端点后再用本地音频。",
+        )
+    return await upload_local_file_to_dashscope_temp(
+        path,
+        api_key=api_key,
+        model_name=model,
+        media_type=media_type,
+    )
+
+
 async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
     """Return a URL Fun-ASR can fetch, uploading local media when needed.
 
     Local files go through DashScope's official model-bound temporary upload
     (48h TTL) and come back as ``oss://`` URLs which the transcription API
-    resolves via the ``X-DashScope-OssResourceResolve: enable`` header.
+    resolves via the ``X-DashScope-OssResourceResolve: enable`` header. A
+    Token Plan endpoint has no local-audio channel at all (see
+    ``_asr_audio_url``), so local clips are refused there and public URLs
+    pass through untouched.
     """
     parsed = urlparse(media_url)
     logger.info(
@@ -225,10 +287,10 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
                     audio_path.name,
                     audio_path.stat().st_size / (1024 * 1024),
                 )
-                url = await upload_local_file_to_dashscope_temp(
+                url = await _asr_audio_url(
                     audio_path,
                     api_key=api_key,
-                    model_name=model,
+                    model=model,
                     media_type="audio/mpeg",
                 )
                 logger.info("Fun-ASR: upload complete -> %s", url[:120])
@@ -242,10 +304,10 @@ async def _fun_asr_file_url(media_url: str, api_key: str, model: str) -> str:
             local_path.name,
             local_path.stat().st_size / (1024 * 1024),
         )
-        url = await upload_local_file_to_dashscope_temp(
+        url = await _asr_audio_url(
             local_path,
             api_key=api_key,
-            model_name=model,
+            model=model,
             media_type=media_type,
         )
         logger.info("Fun-ASR: upload complete -> %s", url[:120])
@@ -812,6 +874,25 @@ def _qwen3_sentences(body: Mapping[str, Any]) -> list[str]:
     return sentences
 
 
+def _qwen_audio_sentences(body: Mapping[str, Any]) -> list[str]:
+    """Transcript text from a qwen-audio-3.0-asr-flash response.
+
+    This family answers with a cumulative ``output.text`` (plus an
+    ``output.sentence`` block carrying real begin/end timings) rather than
+    the qwen3-asr ``output.choices`` chat shape, so it needs its own reader.
+    """
+    output = body.get("output") or {}
+    text = str(output.get("text") or "").strip()
+    if text:
+        return [text]
+    sentence = output.get("sentence")
+    if isinstance(sentence, Mapping):
+        sentence_text = str(sentence.get("text") or "").strip()
+        if sentence_text:
+            return [sentence_text]
+    return []
+
+
 def _spread_segments(
     sentences: list[str],
     offset_ms: int,
@@ -842,10 +923,20 @@ async def _qwen3_transcribe_url(
     model: str,
     file_url: str,
 ) -> list[str]:
-    parameters: dict[str, Any] = {"result_format": "message"}
-    language = config.get_asr_language().strip()
-    if language:
-        parameters["asr_options"] = {"language": language}
+    # qwen-audio-3.0-asr-flash (Token Plan) speaks the same multimodal
+    # endpoint but rejects result_format=message (400) and answers with
+    # output.text/output.sentence; it takes format/sample_rate instead.
+    is_qwen_audio = is_qwen_audio_asr_model(model)
+    if is_qwen_audio:
+        parameters: dict[str, Any] = {
+            "format": "wav",
+            "sample_rate": "16000",
+        }
+    else:
+        parameters = {"result_format": "message"}
+        language = config.get_asr_language().strip()
+        if language:
+            parameters["asr_options"] = {"language": language}
     payload = {
         "model": model,
         "input": {
@@ -861,6 +952,8 @@ async def _qwen3_transcribe_url(
         "X-DashScope-OssResourceResolve": "enable",
     }
     body = await _post_with_retry(client, endpoint, payload, headers=headers)
+    if is_qwen_audio:
+        return _qwen_audio_sentences(body)
     return _qwen3_sentences(body)
 
 
@@ -925,10 +1018,10 @@ async def _qwen3_asr(media_url: str) -> ASRResult:
                 offset_ms = 0
                 prev_sentences: list[str] = []
                 for chunk, plan in chunks:
-                    chunk_url = await upload_local_file_to_dashscope_temp(
+                    chunk_url = await _asr_audio_url(
                         chunk,
                         api_key=key,
-                        model_name=model,
+                        model=model,
                         media_type="audio/mpeg",
                     )
                     sentences = await _qwen3_transcribe_url(
@@ -1092,8 +1185,8 @@ async def transcribe(media_url: str) -> ASRResult:
     )
     if provider == "whisper":
         return await _whisper(media_url)
-    model = config.get_asr_model_name() or ""
-    if model.casefold().startswith("qwen3-asr"):
+    route = asr_route(config.get_asr_model_name() or "", provider)
+    if route == "qwen3-asr":
         return await _qwen3_asr(media_url)
     return await _fun_asr(media_url)
 

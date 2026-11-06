@@ -522,3 +522,159 @@ def test_deletion_is_routed_by_the_bound_model(
         assert payload["input"]["action"] == "delete_voice"
     else:
         assert payload["input"]["action"] == "delete"
+
+
+def _endpoint_recorder(recorded: list):
+    """A fake SDK synthesizer that records the endpoint bound to each call.
+
+    The real ``SpeechSynthesizer`` falls back to the process-global
+    ``dashscope.base_websocket_api_url`` when no ``url`` is passed, so the
+    recorded value is exactly the endpoint this call would connect to.
+    """
+
+    class _Recorder(_FakeSynthesizerBase):
+        def __init__(self, *, callback, url=None, **kwargs) -> None:
+            super().__init__(callback=callback, **kwargs)
+            recorded.append(url)
+
+    return _Recorder
+
+
+_PLAN_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+_PLAN_WS = "wss://token-plan.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+_DEFAULT_WS = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+
+
+def test_websocket_synthesis_binds_the_token_plan_endpoint_per_call(
+    monkeypatch,
+) -> None:
+    """Token Plan keys are rejected by the public dashscope websocket host
+    (measured 401), so the plan's own endpoint has to reach this call - bound
+    to the instance, not written into the SDK global that every other section
+    reads at construction time."""
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(
+        tts_model.config,
+        "get_tts_base_url",
+        lambda: _PLAN_BASE,
+    )
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="qwen-audio-3.0-tts-plus",
+            voice="longanhuan_v3.6",
+            text="\u4f60\u597d",
+            api_key="sk-sp-test",
+        )
+
+    assert recorded == [_PLAN_WS]
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS
+
+
+def test_a_failed_plan_probe_leaves_the_saved_bailian_endpoint_alone(
+    monkeypatch,
+) -> None:
+    """Regression: the endpoint used to be written into the SDK global, so a
+    failed ``/models/test`` probe against a Token Plan address - never saved -
+    left every later synthesis pointed at that host. The next Bailian call then
+    carried its saved key and script to the probe endpoint. Plain serial calls
+    reproduce it; no concurrency needed."""
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+
+    # 1. an unsaved probe against the plan, which fails
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="qwen-audio-3.0-tts-plus",
+            voice="longanhuan_v3.6",
+            text="\u55e8",
+            api_key="sk-sp-probe",
+            base_url=_PLAN_BASE,
+        )
+
+    # 2. the saved Bailian configuration synthesizes exactly as before
+    monkeypatch.setattr(
+        tts_model.config,
+        "get_tts_base_url",
+        lambda: "https://dashscope.aliyuncs.com/api/v1",
+    )
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="cosyvoice-v3.5-plus",
+            voice="longxiaochun",
+            text="\u4f60\u597d",
+            api_key="sk-saved-bailian",
+        )
+
+    assert recorded == [_PLAN_WS, _DEFAULT_WS]
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS
+
+
+def test_concurrent_synthesis_keeps_its_endpoints_isolated(
+    monkeypatch,
+) -> None:
+    """Two calls in flight against different bases must not see each other's
+    endpoint. Nothing mutable is shared now, and this pins that: a global
+    write would let one call's host answer the other's key."""
+    import threading
+
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+    barrier = threading.Barrier(2, timeout=5)
+
+    def synthesize(base_url: str, key: str) -> None:
+        barrier.wait()
+        with pytest.raises(ModelError):
+            tts_model._synthesize_over_websocket(
+                model="cosyvoice-v3.5-plus",
+                voice="longxiaochun",
+                text="\u4f60\u597d",
+                api_key=key,
+                base_url=base_url,
+            )
+
+    threads = [
+        threading.Thread(target=synthesize, args=(_PLAN_BASE, "sk-sp-a")),
+        threading.Thread(
+            target=synthesize,
+            args=("https://dashscope.aliyuncs.com/api/v1", "sk-bailian-b"),
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert sorted(recorded) == sorted([_PLAN_WS, _DEFAULT_WS])
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS

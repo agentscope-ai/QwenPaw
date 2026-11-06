@@ -184,6 +184,59 @@ def test_asr_qwen3_probe_uses_the_multimodal_generation_route(
     }
 
 
+def test_asr_token_plan_probe_transcribes_a_public_sample(
+    uploaded_samples,
+) -> None:
+    """A Token Plan key has no local-audio channel, so the probe transcribes
+    a public sample instead of staging one through an uploader.
+
+    Measured: public dashscope uploads answer sk-sp- 401, the plan host
+    serves no /api/v1/uploads, and a Base64 data URL answers an empty 400
+    while the same clip transcribes from a public URL (200). qwen-audio also
+    rejects ``result_format=message``, so the parameters follow the family.
+    """
+    url, headers, payload = _probe(
+        _request(
+            base_url=(
+                "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+            ),
+            model_name="qwen-audio-3.0-asr-flash",
+            protocol="Aliyun Token Plan",
+            provider="fun-asr",
+        ),
+    )
+
+    assert uploaded_samples == []
+    assert url == (
+        "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+        "/services/aigc/multimodal-generation/generation"
+    )
+    audio = payload["input"]["messages"][0]["content"][0]["audio"]
+    assert audio.startswith("https://")
+    assert payload["parameters"] == {
+        "format": "wav",
+        "sample_rate": "16000",
+    }
+    assert headers["X-DashScope-OssResourceResolve"] == "enable"
+
+
+def test_asr_provider_routes_qwen_audio_to_the_qwen3_route() -> None:
+    """The probe dispatch must match ``transcribe`` for the plan's model.
+
+    A restated copy of the dispatch missed the ``qwen-audio`` family and
+    sent the plan's only ASR model down the Fun-ASR route.
+    """
+    assert (
+        _asr_provider(
+            _request(
+                model_name="qwen-audio-3.0-asr-flash",
+                provider="fun-asr",
+            ),
+        )
+        == "qwen3-asr"
+    )
+
+
 def test_asr_whisper_probe_posts_a_real_multipart_transcription(
     uploaded_samples,
 ) -> None:
