@@ -17,7 +17,10 @@ from qwenpaw.hooks.cron.cron_hook import (
     CronMemoryIsolateHook,
     CronMemoryRestoreHook,
 )
-from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
+from qwenpaw.hooks.session.session_hook import (
+    SessionPrepareHook,
+    SessionSaveHook,
+)
 from qwenpaw.runtime.hooks import HookRegistry
 from qwenpaw.runtime.runtime import Runtime
 
@@ -63,7 +66,7 @@ async def test_runtime_keeps_old_history_on_disk(
     hooks = HookRegistry()
     for hook in [
         CronContextHook(),
-        SessionLoadHook(),
+        SessionPrepareHook(),
         CronMemoryIsolateHook(),
         CronMemoryRestoreHook(),
         SessionSaveHook(),
@@ -71,8 +74,10 @@ async def test_runtime_keeps_old_history_on_disk(
         hooks.register(hook)
     workspace = SimpleNamespace(
         session=session,
+        config=SimpleNamespace(session_persistence=True),
         plugins=SimpleNamespace(
             hook_registry=hooks,
+            session_modes={},
             modes=[],
             slash_command_registry=SimpleNamespace(
                 dispatch=AsyncMock(return_value=None),
@@ -166,7 +171,10 @@ async def test_restoration_is_not_duplicated_on_cancel(
         agent=agent,
         session_id="cron:test",
         request=SimpleNamespace(user_id="user", channel="console"),
-        workspace=SimpleNamespace(session=session),
+        workspace=SimpleNamespace(
+            session=session,
+            config=SimpleNamespace(session_persistence=True),
+        ),
     )
     await CronMemoryIsolateHook().run(ctx)
     new = message("new")
@@ -203,7 +211,10 @@ async def test_restore_failure_does_not_overwrite_session(tmp_path, cancelled):
         agent=agent,
         session_id="cron:test",
         request=SimpleNamespace(user_id="user", channel="console"),
-        workspace=SimpleNamespace(session=session),
+        workspace=SimpleNamespace(
+            session=session,
+            config=SimpleNamespace(session_persistence=True),
+        ),
         mode_state={},
     )
     await CronMemoryIsolateHook().run(ctx)

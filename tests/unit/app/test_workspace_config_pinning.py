@@ -13,6 +13,10 @@ test_channel_config/test_heartbeat reproduced exactly that loss).
 # pylint: disable=redefined-outer-name,unused-argument,protected-access
 
 from pathlib import Path
+from unittest.mock import AsyncMock
+
+from qwenpaw.app.workspace.service_manager import ServiceDescriptor
+from qwenpaw.config.runtime import RuntimeParameters
 
 import pytest
 
@@ -118,3 +122,95 @@ def test_unsaved_mutation_does_not_leak_into_other_instances(
 
     other = _pinned_workspace(isolated_agent)
     assert other.config.description == "original"
+
+
+@pytest.mark.asyncio
+async def test_session_workspace_owns_and_releases_only_its_resources(
+    isolated_agent,
+    tmp_path,
+    monkeypatch,
+):
+    """Workspace changes rebuild session services without touching peers."""
+    resources = []
+
+    def register_services(workspace):
+        for name, session_owned in (("storage", True), ("watcher", False)):
+
+            def create(owner, service_name=name):
+                resource = AsyncMock()
+                resource.directory = owner.workspace_dir
+                resources.append((service_name, resource))
+                return resource
+
+            workspace._service_manager.register(
+                ServiceDescriptor(
+                    name=name,
+                    create_service=create,
+                    stop_method="stop",
+                    session_owned=session_owned,
+                ),
+            )
+
+    async def start(workspace):
+        if workspace.workspace_dir.name == "failed":
+            raise OSError("storage unavailable")
+        workspace._config = load_agent_config(workspace.agent_id)
+        await workspace._service_manager.start_all()
+
+    async def stop(workspace, **_kwargs):
+        await workspace._service_manager.stop_all(final=True)
+
+    monkeypatch.setattr(Workspace, "_register_services", register_services)
+    monkeypatch.setattr(Workspace, "start", start)
+    monkeypatch.setattr(Workspace, "stop", stop)
+    root = Workspace("agent", str(isolated_agent))
+    await root.start()
+    parameters = RuntimeParameters(profile=root.config)
+    first = parameters.with_overrides({"workspace_dir": str(tmp_path / "a")})
+    second = parameters.with_overrides({"workspace_dir": str(tmp_path / "b")})
+    a = await root.for_session("a", first)
+    b = await root.for_session("b", second)
+    assert a is await root.for_session("a", first)
+    assert a.workspace_dir != b.workspace_dir != root.workspace_dir
+    assert [name for name, _ in resources] == [
+        "storage",
+        "watcher",
+        "storage",
+        "storage",
+    ]
+    assert a._service_manager.services["storage"].directory == tmp_path / "a"
+    failed = parameters.with_overrides(
+        {
+            "workspace_dir": str(tmp_path / "failed"),
+        },
+    )
+    with pytest.raises(OSError, match="storage unavailable"):
+        await root.for_session("a", failed)
+    assert root.session_workspace("a") is a
+    resources[2][1].stop.assert_not_awaited()
+    replacement = parameters.with_overrides(
+        {
+            "workspace_dir": str(tmp_path / "replacement"),
+        },
+    )
+    with pytest.raises(OSError, match="driver unavailable"):
+        async with root.configure_session("a", replacement) as candidate:
+            assert candidate is not a
+            assert root.session_workspace("a") is a
+            raise OSError("driver unavailable")
+    assert root.session_workspace("a") is a
+    resources[2][1].stop.assert_not_awaited()
+    resources[-1][1].stop.assert_awaited_once()
+    await root.release_session("a")
+    resources[2][1].stop.assert_awaited_once()
+    resources[3][1].stop.assert_not_awaited()
+    assert root.session_workspace("b") is b
+    assert await root.for_session("a", parameters) is root
+    assert (
+        load_agent_config("agent").workspace_dir
+        == parameters.profile.workspace_dir
+    )
+    await root.release_session("b")
+    await root.stop()
+    for _, resource in resources:
+        resource.stop.assert_awaited_once()

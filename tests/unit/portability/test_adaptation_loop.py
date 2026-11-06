@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.app.agent_context import scoped_session_id
+from qwenpaw.config.config import AgentProfileConfig, load_agent_config
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.portability.adaptation_loop import (
     _DRAINING_WORKERS,
@@ -53,6 +54,7 @@ class _Workspace:
         self.workspace_dir = root / "workspace"
         self.workspace_dir.mkdir()
         self.agent_id = "agent"
+        self.config = AgentProfileConfig(id="agent", name="Agent")
         self.plugins = SimpleNamespace(
             modes=[MissionMode()],
             tool_registry=SimpleNamespace(names=lambda: ["read_file"]),
@@ -66,6 +68,11 @@ class _Workspace:
 
     async def stream_query(self, request):
         self.request = request
+        config = load_agent_config("agent")
+        assert config.running.loop.iteration.enabled is True
+        assert config.running.loop.iteration.max_iterations >= 100
+        assert config.session_persistence is False
+        assert load_agent_config("agent").approval_level == "OFF"
         self.requests.append(request)
         self.active_queries += 1
         self.max_active_queries = max(
@@ -138,7 +145,11 @@ async def test_heartbeat_does_not_reset_mission_idle_timeout(
             yield SimpleNamespace(type="heartbeat")
             await asyncio.sleep(0.001)
 
-    workspace = SimpleNamespace(agent_id="agent", stream_query=stream_query)
+    workspace = SimpleNamespace(
+        agent_id="agent",
+        stream_query=stream_query,
+        config=AgentProfileConfig(id="agent", name="Agent"),
+    )
     monkeypatch.setattr(
         "qwenpaw.portability.adaptation_loop._HEARTBEAT_SECONDS",
         0.005,
@@ -168,7 +179,11 @@ async def test_mission_worker_has_absolute_deadline(
             yield SimpleNamespace(type="message")
             await asyncio.sleep(0.001)
 
-    workspace = SimpleNamespace(agent_id="agent", stream_query=stream_query)
+    workspace = SimpleNamespace(
+        agent_id="agent",
+        stream_query=stream_query,
+        config=AgentProfileConfig(id="agent", name="Agent"),
+    )
     monkeypatch.setattr(
         "qwenpaw.portability.adaptation_loop._HEARTBEAT_SECONDS",
         0.005,

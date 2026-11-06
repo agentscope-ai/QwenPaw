@@ -9,8 +9,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from qwenpaw.hooks.session.session_hook import SessionLoadHook, SessionSaveHook
+from qwenpaw.hooks.session.session_hook import (
+    SessionPrepareHook,
+    SessionSaveHook,
+)
+from qwenpaw.services.session_state import load_session_state
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
@@ -40,13 +43,17 @@ class _FakeSession:
 def _ctx(session: _FakeSession, *, ephemeral: bool):
     return SimpleNamespace(
         request=SimpleNamespace(
-            request_context={ACP_EPHEMERAL_META_KEY: ephemeral},
+            request_context={},
             user_id="acp_warmup",
             channel="",
         ),
-        workspace=SimpleNamespace(session=session),
+        workspace=SimpleNamespace(
+            session=session,
+            config=SimpleNamespace(session_persistence=not ephemeral),
+        ),
         agent=SimpleNamespace(state_dict=lambda: {"context": []}),
         session_id="warmup-session",
+        session_state=None,
         mode_state={},
         extras={},
     )
@@ -56,7 +63,10 @@ async def test_ephemeral_request_skips_session_load_and_save():
     session = _FakeSession()
     ctx = _ctx(session, ephemeral=True)
 
-    await SessionLoadHook().run(ctx)
+    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    if ctx.session_state:
+        ctx.mode_state.update(ctx.session_state.get("mode_state", {}))
+    await SessionPrepareHook().run(ctx)
     await SessionSaveHook().run(ctx)
 
     assert session.loaded is False
@@ -71,7 +81,10 @@ async def test_normal_request_loads_and_saves_session_state():
     }
     ctx = _ctx(session, ephemeral=False)
 
-    await SessionLoadHook().run(ctx)
+    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    if ctx.session_state:
+        ctx.mode_state.update(ctx.session_state.get("mode_state", {}))
+    await SessionPrepareHook().run(ctx)
     await SessionSaveHook().run(ctx)
 
     assert session.loaded is True
@@ -113,7 +126,8 @@ async def test_console_image_check_keeps_event_loop_responsive(monkeypatch):
         "qwenpaw.hooks.session.session_hook.repair_invalid_history_images",
         slow_repair,
     )
-    task = asyncio.create_task(SessionLoadHook().run(ctx))
+    ctx.session_state = await load_session_state(ctx, ctx.workspace.config)
+    task = asyncio.create_task(SessionPrepareHook().run(ctx))
     try:
         await asyncio.wait_for(started.wait(), timeout=1)
         assert not task.done()

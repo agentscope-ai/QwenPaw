@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from types import SimpleNamespace
@@ -11,6 +12,9 @@ from unittest.mock import patch
 
 import pytest
 
+from qwenpaw.app.agent_context import scoped_session_id
+from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.config.runtime import RuntimeParameters
 from qwenpaw.loop.gates.base import (
     StopAction,
     StopHandlerRegistration,
@@ -18,7 +22,7 @@ from qwenpaw.loop.gates.base import (
 from qwenpaw.loop.gates.handler import StopHandler
 from qwenpaw.loop.gates.rubric import QualitativeRubricGate
 from qwenpaw.loop.gates.runner import _filter_by_scope
-from qwenpaw.modes.goal.goal_mode import GoalMode, GoalSession
+from qwenpaw.modes.goal.goal_mode import GoalMode
 from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.gates import MissionGate
 from qwenpaw.modes.mission.state import write_loop_config, write_prd_json
@@ -72,16 +76,47 @@ def test_unscoped_plugin_handler_is_always_selected():
 
 @pytest.mark.asyncio
 async def test_goal_reset_removes_only_current_session():
-    """Conversation reset does not clear another goal conversation."""
+    """Concurrent goals keep separate settings, gates and lifecycle state."""
     mode = GoalMode()
-    mode._sessions["session-a"] = GoalSession(goal="first")
-    mode._sessions["session-b"] = GoalSession(goal="second")
-    ctx = SimpleNamespace(session_id="session-a")
+    ready = [asyncio.Event(), asyncio.Event()]
 
-    await mode.on_conversation_reset(ctx)
+    async def activate(index, budget):
+        parameters = RuntimeParameters(
+            profile=AgentProfileConfig(id="agent", name="Agent"),
+            overrides={
+                "running": {
+                    "loop": {
+                        "goal": {
+                            "max_tokens": budget,
+                            "max_iterations": index + 3,
+                        },
+                    },
+                },
+            },
+        )
+        ctx = SimpleNamespace(
+            session_id=f"session-{index}",
+            agent_config=parameters.config,
+        )
+        with parameters.scope(), scoped_session_id(ctx.session_id):
+            await mode.commands()[0].handler(ctx, "Finish the task")
+            await mode.on_turn_start(ctx)
+            ready[index].set()
+            await ready[1 - index].wait()
+            assert mode.active_session().max_tokens == budget
+            assert mode.active_session().max_iterations == index + 3
+        return ctx
 
-    assert "session-a" not in mode._sessions
-    assert "session-b" in mode._sessions
+    first, second = await asyncio.gather(activate(0, 100), activate(1, 200))
+    assert (
+        mode._handlers[first.session_id]
+        is not mode._handlers[second.session_id]
+    )
+    await mode.on_conversation_reset(first)
+    assert first.session_id not in mode._sessions
+    assert first.session_id not in mode._handlers
+    assert second.session_id in mode._sessions
+    assert second.session_id in mode._handlers
 
 
 @pytest.mark.asyncio
@@ -251,14 +286,16 @@ async def test_qualitative_rubric_state_is_session_isolated():
 @pytest.mark.parametrize(f"budget", [-1, 0, 100])
 async def test_goal_budget_survives_acp_usage_flush(budget):
     """Transport flush order cannot reset or double-count a goal budget."""
-    from qwenpaw.app.agent_context import scoped_session_id
     from qwenpaw.modes.goal.gates import GoalBudgetGate
     from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
     mode = GoalMode()
-    mode.default_max_tokens = budget
+    parameters = RuntimeParameters(
+        profile=AgentProfileConfig(id="agent", name="Agent"),
+        overrides={"running": {"loop": {"goal": {"max_tokens": budget}}}},
+    )
     ctx = SimpleNamespace(session_id=f"goal-budget")
-    with scoped_session_id(ctx.session_id):
+    with parameters.scope(), scoped_session_id(ctx.session_id):
         await mode.commands()[0].handler(ctx, f"Finish the task")
         session = mode.active_session()
         try:
@@ -302,8 +339,11 @@ def test_create_goal_keeps_request_session(budget):
     from qwenpaw.token_usage.counter import record_session_tokens
 
     mode = GoalMode()
-    mode.default_max_tokens = 200
-    with scoped_session_id(f"goal-tool"):
+    parameters = RuntimeParameters(
+        profile=AgentProfileConfig(id="agent", name="Agent"),
+        overrides={"running": {"loop": {"goal": {"max_tokens": 200}}}},
+    )
+    with parameters.scope(), scoped_session_id(f"goal-tool"):
         make_create_goal(mode)(f"Finish", token_budget=budget)
         assert get_current_session_id() == f"goal-tool"
         record_session_tokens(f"goal-tool", 25)

@@ -11,9 +11,11 @@ from ...loop.gates import (
     StopGate,
     StopHandler,
     StopHandlerRegistration,
+    StopHandlerResult,
 )
 from ...loop.gates.doom_loop import DoomLoopGate
 from ...loop.gates.iteration import IterationGate
+from ...loop.gates.loop_gate import LoopGate
 from ...loop.gates.rubric import QualitativeRubricGate
 from ...loop.gates.runner import clear_pending_gate_state
 from ...runtime.hooks import HookContext
@@ -26,8 +28,10 @@ logger = logging.getLogger(__name__)
 
 def resolve_max_iterations(
     running_config: "AgentsRunningConfig",
-) -> int:
-    """Resolve the effective iteration limit with legacy compatibility."""
+) -> int | None:
+    """Use the iteration gate as the default-mode budget policy."""
+    if not running_config.loop.iteration.enabled:
+        return None
     configured = running_config.loop.iteration.max_iterations
     if configured is not None:
         return configured
@@ -50,13 +54,20 @@ class DefaultMode(AgentMode):
         )
 
     def __init__(self) -> None:
-        self._handler = StopHandler()
-        self._config_key: str | None = None
+        self._handlers: dict[str, StopHandler] = {}
+        self._config_keys: dict[str, str] = {}
 
     @property
     def handler(self) -> StopHandler:
-        """Expose the mode-owned handler for runtime tests and inspection."""
-        return self._handler
+        """Return the current session's independent gate chain."""
+        sid = LoopGate._session_id()  # pylint: disable=protected-access
+        if sid not in self._handlers:
+            self._handlers[sid] = StopHandler()
+        return self._handlers[sid]
+
+    async def _check_stop(self, ctx: Any) -> StopHandlerResult:
+        """Resolve the handler in the active request's session context."""
+        return await self.handler(ctx)
 
     def setup(self, workspace: object) -> None:
         """Register an initially empty default-scoped handler."""
@@ -64,7 +75,7 @@ class DefaultMode(AgentMode):
         workspace.plugins.stop_handlers.append(
             StopHandlerRegistration(
                 plugin_id="__default_mode__",
-                handler=self._handler,
+                handler=self._check_stop,
                 priority=0,
                 name="default-stop-handler",
                 scope="default",
@@ -74,15 +85,20 @@ class DefaultMode(AgentMode):
     async def on_turn_start(self, ctx: HookContext) -> None:
         """Apply current config and prepare gates for a new user turn."""
         running_config = ctx.agent_config.running
+        sid = LoopGate._session_id()  # pylint: disable=protected-access
+        handler = self.handler
         config_key = self._make_config_key(running_config)
-        if config_key != self._config_key:
-            self._handler.replace(self._build_gates(running_config))
-            self._config_key = config_key
-        self._handler.reset_turn()
+        if config_key != self._config_keys.get(sid):
+            handler.replace(self._build_gates(running_config))
+            self._config_keys[sid] = config_key
+        handler.reset_turn()
 
     async def on_conversation_reset(self, ctx: HookContext) -> None:
         """Clear current-session gates and deferred agent decisions."""
-        self._handler.reset_session()
+        sid = LoopGate._session_id()  # pylint: disable=protected-access
+        self.handler.reset_session()
+        self._handlers.pop(sid, None)
+        self._config_keys.pop(sid, None)
         clear_pending_gate_state(ctx.agent)
 
     def is_active(self, ctx: HookContext) -> bool:  # noqa: ARG002
@@ -109,10 +125,11 @@ class DefaultMode(AgentMode):
         loop_config = running_config.loop
         gates: list[StopGate] = []
 
-        if loop_config.iteration.enabled:
+        max_iterations = resolve_max_iterations(running_config)
+        if max_iterations is not None:
             gates.append(
                 IterationGate(
-                    max_iterations=resolve_max_iterations(running_config),
+                    max_iterations=max_iterations,
                 ),
             )
         if loop_config.doom_loop.enabled:

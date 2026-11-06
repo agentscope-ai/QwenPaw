@@ -21,6 +21,7 @@ from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
 from ..providers.model_selection import request_model_override
 from ..services.session_thinking import apply_session_thinking
+from ..config.context import current_runtime_parameters
 from ..utils.io_utils import run_sync_io
 from .context.scroll.continuation_summary import (
     ContinuationSummary,
@@ -248,6 +249,9 @@ class CommandHandler(ConversationCommandHandlerMixin):
         """Apply conversation settings to a fresh, non-persistent config."""
         if config is None:
             config = await self._get_agent_config_async()
+        parameters = current_runtime_parameters.get()
+        if parameters is not None and parameters.profile.id == config.id:
+            return config
         if self._prompt_context is not None:
             config = await apply_session_thinking(self._prompt_context, config)
         return config

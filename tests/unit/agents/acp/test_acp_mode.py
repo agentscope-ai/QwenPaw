@@ -20,7 +20,8 @@ from qwenpaw.config.config import (
 )
 from qwenpaw.modes.custom_loop import load_custom_loop_modes
 from qwenpaw.modes.goal import GoalMode
-from qwenpaw.plugins.registry import PluginRegistry
+from qwenpaw.modes.mission import MissionMode
+from qwenpaw.modes.catalog import prepare_session_message
 
 from qwenpaw.agents.acp.server import QwenPawACPAgent
 
@@ -36,8 +37,24 @@ def _workspace(custom_modes=()):
         plugins=WorkspacePlugins(),
     )
     workspace.plugins.register_mode(GoalMode(), workspace)
+    workspace.plugins.register_mode(MissionMode(), workspace)
     load_custom_loop_modes(workspace)
     return workspace
+
+
+def _prepare(agent, text, session_id, workspace):
+    parameters = (
+        agent._sessions.get(session_id) or agent._session_configuration()
+    )
+    return prepare_session_message(
+        SimpleNamespace(
+            agent_config=parameters.config,
+            parameters=parameters,
+            workspace=workspace,
+            session_id=session_id,
+        ),
+        text,
+    )
 
 
 @pytest.mark.parametrize(f"method", [f"load_session", f"resume_session"])
@@ -56,8 +73,20 @@ async def test_restored_session_does_not_restart_mode(
     ):
         monkeypatch.setattr(agent, name, AsyncMock())
     await getattr(agent, method)(cwd=str(tmp_path), session_id=f"restored")
-    assert agent._apply_agent_mode(f"Continue", f"restored", _workspace()) == (
-        f"Continue"
+    workspace = _workspace()
+    assert _prepare(agent, "Continue", "restored", workspace) == "Continue"
+    parameters = agent._sessions["restored"]
+    agent._sessions["restored"] = parameters.with_overrides(
+        {"agent_mode": "mission"},
+    )
+    assert (
+        _prepare(agent, "Switch", "restored", workspace) == "/mission Switch"
+    )
+    agent._sessions["restored"] = parameters.with_overrides(
+        {"agent_mode": "goal"},
+    )
+    assert (
+        _prepare(agent, "New goal", "restored", workspace) == "/goal New goal"
     )
 
 
@@ -72,36 +101,7 @@ async def test_workspace_failure_does_not_consume_mode(monkeypatch):
     monkeypatch.setattr(agent, f"_report_prompt_error", AsyncMock())
     with pytest.raises(RequestError):
         await agent.prompt([text_block(f"Solve")], f"retry")
-    assert (
-        agent._apply_agent_mode(f"Solve", f"retry", _workspace())
-        == f"/goal Solve"
-    )
-
-
-async def test_stop_bridge_preserves_other_workspaces():
-    """Closing one ACP agent must not clear another agent or the app."""
-    registry = PluginRegistry()
-    previous = registry.get_workspace_manager()
-    app = SimpleNamespace(
-        plugins=SimpleNamespace(stop_handlers=[object()]),
-    )
-    manager = SimpleNamespace(agents={f"app": app})
-    registry.set_workspace_manager(manager)
-    first, second = QwenPawACPAgent(agent_mode=f"goal"), QwenPawACPAgent(
-        agent_mode=f"goal",
-    )
-    first._install_stop_gate_bridge(f"one", app)
-    second._install_stop_gate_bridge(f"two", app)
-    try:
-        await first._shutdown_workspace()
-        assert not registry.get_stop_handlers(f"one")
-        assert registry.get_workspace_manager() is manager
-        assert registry.get_stop_handlers(f"app") == app.plugins.stop_handlers
-        assert registry.get_stop_handlers(f"two") == app.plugins.stop_handlers
-    finally:
-        await first._shutdown_workspace()
-        await second._shutdown_workspace()
-        registry.set_workspace_manager(previous)
+    assert _prepare(agent, f"Solve", f"retry", _workspace()) == f"/goal Solve"
 
 
 async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
@@ -117,8 +117,9 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
     )
     workspace = _workspace([config])
     agent = QwenPawACPAgent(agent_mode=f"custom:quality-id")
-    with pytest.raises(RequestError):
-        agent._apply_agent_mode(
+    with pytest.raises(ValueError):
+        _prepare(
+            agent,
             f"Check the result",
             f"custom-session",
             workspace,
@@ -136,7 +137,8 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
     )
     assert selected.slash_command == f"verify"
 
-    text = agent._apply_agent_mode(
+    text = _prepare(
+        agent,
         f"Check the result",
         f"custom-session",
         workspace,
@@ -145,6 +147,7 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
     ctx = SimpleNamespace(
         session_id=f"custom-session",
         workspace=workspace,
+        mode_state={},
         input_msgs=[
             Msg(
                 name=f"user",
@@ -163,11 +166,10 @@ async def test_custom_mode_uses_shared_catalog_and_existing_dispatch(
         assert any(reg.is_active() for reg in workspace.plugins.stop_handlers)
         assert ctx.input_msgs[0].content[0].text == f"Check the result"
     assert (
-        agent._apply_agent_mode(f"Continue", ctx.session_id, workspace)
-        == f"Continue"
+        _prepare(agent, f"Continue", ctx.session_id, workspace) == f"Continue"
     )
 
-    assert agent._apply_agent_mode(f"/new", f"explicit", workspace) == f"/new"
-    assert agent._apply_agent_mode(f"Follow up", f"explicit", workspace) == (
+    assert _prepare(agent, f"/new", f"explicit", workspace) == f"/new"
+    assert _prepare(agent, f"Follow up", f"explicit", workspace) == (
         f"Follow up"
     )

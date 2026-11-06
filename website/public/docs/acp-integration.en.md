@@ -148,17 +148,15 @@ qwenpaw acp --agent-mode goal
 
 The process communicates over stdin/stdout using the ACP JSON-RPC protocol. stderr is used for logging.
 
-`--agent-mode code` enables Python tool orchestration for every request, including loaded and resumed sessions. It exposes `run_code` without adding a slash-command prefix or changing saved agent configuration. The worker follows the global `security.sandbox_enabled` setting, which defaults to `false`; enabling Code Mode does not enable the sandbox.
+`--agent-mode code` lets QwenPaw orchestrate tool calls in Python with `run_code`. It applies to new, loaded, and resumed sessions. The sandbox is controlled separately by `security.sandbox_enabled` and is disabled by default.
 
-`--agent-mode MODE_ID` selects from the same workspace loop catalog as the Console (`GET /api/loops`). Built-in IDs include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
+`--agent-mode MODE_ID` selects from the same modes available in the Console. Built-in modes include `default`, `goal`, and `mission`; configured custom modes use `custom:<id>` and plugin modes use `plugin:<name>`.
 
-For example, `--agent-mode goal` adds `/goal` to the first message of each new session. If custom mode `quality` registers `/verify`, `--agent-mode custom:quality` adds `/verify`, not `/custom:quality`. Activation goes through the existing runtime slash-command registry. Unknown, disabled, or unregistered modes return a request error instead of silently falling back.
+For example, `--agent-mode goal` adds `/goal` to the first message of each new session. If custom mode `quality` uses `/verify` as its entry command, `--agent-mode custom:quality` adds `/verify`. Selecting an unknown or unavailable mode returns an error.
 
-Messages that already start with a slash command are never modified and consume the first-message slot. Loaded or resumed sessions are not re-prefixed; this option does not add mode-state persistence. `--agent-mode default` leaves messages unchanged. Loop selection is separate from ACP permission settings.
+If the first message starts with a slash command, QwenPaw runs that command and does not add a mode command to subsequent messages. Loading or resuming a session does not automatically restart a mode. `--agent-mode default` uses the default mode. Modes and tool permissions are configured separately.
 
-Goal tokens are unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This overrides the goal default only in this ACP process and does not write agent configuration. Iteration limits still apply. An explicit `create_goal(token_budget=...)` overrides the default for that goal; omitting it inherits the default.
-
-Mode authors declare `loop_entry` on their existing `AgentMode` to select an entry command explicitly. Override `describe_loop(workspace)` for custom IDs or availability rules. HTTP and ACP collect these descriptions from registered modes; command ordering does not select the entry. Process-local `Workspace.mode_config_overrides` are read and validated by the owning mode during setup and never modify persisted agent configuration.
+The goal token budget inherits the agent settings and is unlimited by default. Use `--goal-token-budget 300000` to cap each goal; `-1` and `0` both mean unlimited. This option affects only the current ACP process and does not change saved settings. Enabled iteration limits still apply. Providing `token_budget` when creating a goal overrides the budget for that goal; omitting it uses the default.
 
 ### Supported ACP Methods
 
@@ -208,6 +206,54 @@ When a new session is created, the agent returns config options that the client 
 | Config ID | Type   | Category | Default   | Options                                                                                     |
 | --------- | ------ | -------- | --------- | ------------------------------------------------------------------------------------------- |
 | `mode`    | select | `mode`   | `default` | `default`: normal mode with Tool Guard enabled; `bypassPermissions`: skip tool guard checks |
+
+### Session Configuration Overrides
+
+ACP accepts only session settings (`SessionConfig`), including workspace and project directories, models, tool permissions, modes, and iteration limits. Unspecified values inherit the agent settings. Precedence from lowest to highest is **global defaults → saved agent settings → ACP startup settings → session settings**. Objects merge by field; arrays and other values replace earlier values. Omitted fields retain their values. Explicit `false`, `0`, and `null` values must meet the field's type and value requirements. Unknown fields or invalid values return an error.
+
+Set initial values for this ACP instance with repeatable `--config PATH=VALUE` arguments. Values accept JSON or plain strings:
+
+```bash
+qwenpaw acp \
+  --config running.loop.iteration.enabled=false \
+  --config running.shell_command_timeout=120
+```
+
+Pass `qwenpaw.config` in the `_meta` object of `session/new`, `session/load`, or `session/resume` for an individual session:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "session/new",
+  "params": {
+    "cwd": "/workspace",
+    "mcpServers": [],
+    "_meta": {
+      "qwenpaw.config": {
+        "running": {
+          "shell_command_timeout": 30,
+          "loop": {
+            "iteration": { "enabled": true, "max_iterations": 10000 }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Session settings affect only the current session. They do not change `agent.json` or affect another ACP process using the same agent. Each supplied `qwenpaw.config` replaces the previous session settings; `{}` restores the startup defaults. Loading or resuming without it preserves existing settings within the same server process. Resend settings after a server restart. Model changes through `session/set_model` also affect only the current session.
+
+Both `--config` and `qwenpaw.config` accept only session fields. Agent or global settings such as channels, service connections, memory backends, and shared request rate limits cannot be overridden. Use `--agent` to select an agent and `--workspace` or `workspace_dir` to select internal storage for the session.
+
+Existing clients can keep using `qwenpaw.project_dir` to select a project directory. It takes precedence over project directory settings in `qwenpaw.config`. Without a project directory override, new or loaded sessions use `cwd`, and resumed sessions retain their previous directory. `--workspace` selects internal agent storage separately from the project directory.
+
+With `qwenpaw.ephemeral=true` or `session_persistence=false`, QwenPaw does not load or save conversation runtime state, including when a task is cancelled. Existing `--agent-mode`, `--goal-token-budget`, and `--runtime-provider` options remain available.
+
+Sessions can select a mode with `agent_mode` and enable or disable code orchestration with `coding_mode.enabled`. Settings under `running.loop` for iteration limits, repetition detection, completion checks, goal, mission, and custom modes can also vary by session. Each session keeps its own settings and execution state.
+
+QwenPaw limits each request to 100 iterations by default. Set `running.loop.iteration.max_iterations` to any positive integer to change the limit. Set `running.loop.iteration.enabled=false` to disable it. You can still cancel tasks manually, and other enabled stopping conditions remain active. Without overrides, QwenPaw uses the agent's saved settings.
 
 ### Configuration
 

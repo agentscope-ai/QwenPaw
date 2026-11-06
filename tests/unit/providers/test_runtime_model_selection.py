@@ -11,6 +11,7 @@ import pytest
 from qwenpaw.agents import prompt
 from qwenpaw.agents.tools import view_media
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.config.runtime import RuntimeParameters
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.model_selection import (
     current_model_slot,
@@ -195,24 +196,40 @@ async def test_runtime_exposes_model_to_tools_and_cleans_up(
     outcome,
 ):
     from qwenpaw.runtime import runtime as runtime_module
-    from qwenpaw.runtime.hooks import HookResult
+    from qwenpaw.runtime.hooks import HookContext, HookResult
 
     slot = ModelSlotConfig(provider_id="session", model="vision")
     agent = SimpleNamespace(model=SimpleNamespace(model_key="session:vision"))
-    ctx = SimpleNamespace(
-        agent=None,
-        session_id="s",
-        input_msgs=[],
-        extras={},
-        error=None,
-    )
     workspace = SimpleNamespace(
         plugins=SimpleNamespace(
+            session_modes={},
             hook_registry=SimpleNamespace(
                 run=AsyncMock(return_value=HookResult()),
             ),
             slash_command_registry=SimpleNamespace(
                 dispatch=AsyncMock(return_value=None),
+            ),
+        ),
+    )
+    ctx = HookContext(
+        request=object(),
+        session_id="s",
+        agent_id="test",
+        root_session_id="s",
+        root_agent_id="test",
+        workspace_dir=None,
+        workspace=workspace,
+        app_services=None,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "resolve_runtime_parameters",
+        AsyncMock(
+            return_value=(
+                RuntimeParameters(
+                    profile=AgentProfileConfig(id="test", name="Test"),
+                ),
+                None,
             ),
         ),
     )

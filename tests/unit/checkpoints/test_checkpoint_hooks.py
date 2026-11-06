@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from qwenpaw.checkpoints.hooks import CheckpointAutoSnapshotHook
 from qwenpaw.checkpoints.runtime import RUNTIME
 from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
@@ -15,13 +14,13 @@ from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
 pytestmark = [pytest.mark.unit, pytest.mark.p1]
 
 
-def _ctx(*, persisted: bool | None, ephemeral: bool = False):
+def _ctx(*, persisted: bool | None):
     extras = {}
     if persisted is not None:
         extras[SESSION_SAVE_SUCCEEDED_KEY] = persisted
     return SimpleNamespace(
         request=SimpleNamespace(
-            request_context={ACP_EPHEMERAL_META_KEY: ephemeral},
+            request_context={},
             user_id="user",
             channel="console",
         ),
@@ -77,17 +76,12 @@ async def test_auto_snapshot_skips_slash_like_input(
 
 
 @pytest.mark.parametrize(
-    ("persisted", "ephemeral"),
-    [
-        (None, False),
-        (False, False),
-        (False, True),
-    ],
+    "persisted",
+    [None, False],
 )
-async def test_auto_snapshot_skips_unpersisted_and_ephemeral_requests(
+async def test_auto_snapshot_skips_unpersisted_requests(
     monkeypatch: pytest.MonkeyPatch,
     persisted: bool | None,
-    ephemeral: bool,
 ) -> None:
     scheduled = False
 
@@ -98,7 +92,7 @@ async def test_auto_snapshot_skips_unpersisted_and_ephemeral_requests(
     monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
 
     await CheckpointAutoSnapshotHook().run(
-        _ctx(persisted=persisted, ephemeral=ephemeral),
+        _ctx(persisted=persisted),
     )
 
     assert scheduled is False

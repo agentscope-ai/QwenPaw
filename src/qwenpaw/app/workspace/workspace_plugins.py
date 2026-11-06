@@ -41,6 +41,7 @@ class WorkspacePlugins:
     tool_registry: ToolRegistry = field(default_factory=ToolRegistry)
     prompt_manager: PromptManager = field(default_factory=PromptManager)
     modes: list["AgentMode"] = field(default_factory=list)
+    session_modes: dict[str, str] = field(default_factory=dict, repr=False)
     _pending_modes: list["AgentMode"] = field(default_factory=list, repr=False)
     stop_handlers: list["StopHandlerRegistration"] = field(
         default_factory=list,

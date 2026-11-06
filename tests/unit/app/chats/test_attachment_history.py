@@ -19,7 +19,7 @@ from qwenpaw.constant import (
     QWENPAW_CLIENT_MESSAGE_ID_KEY,
     QWENPAW_USER_CONTENT_KEY,
 )
-from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.services.session_state import StateProxy
 from qwenpaw.runtime.message_convert import _request_input_to_msgs
 from qwenpaw.schemas import ContentType, Event, FileContent, TextContent
 

@@ -2,15 +2,18 @@
 """Tests for user-editable Mission defaults."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
 
-from qwenpaw.config.config import MissionLoopModeConfig
+from qwenpaw.app.agent_context import scoped_session_id
+from qwenpaw.config.config import AgentProfileConfig, MissionLoopModeConfig
+from qwenpaw.config.runtime import RuntimeParameters
+from qwenpaw.modes.mission import MissionMode
 from qwenpaw.modes.mission.handler import (
     parse_mission_args,
-    start_mission,
 )
 from qwenpaw.modes.mission.prompts import build_master_prompt
 from qwenpaw.modes.mission.state import read_loop_config
@@ -88,17 +91,40 @@ async def test_start_mission_persists_editable_defaults(tmp_path) -> None:
         "qwenpaw.modes.mission.handler.detect_git_context",
         new=AsyncMock(return_value=git_context),
     ):
-        _, loop_dir = await start_mission(
-            task_text="Implement the approved feature",
-            project_dir=tmp_path,
-            agent_workspace_dir=tmp_path / "agent-workspace",
+        mode = MissionMode()
+        parameters = RuntimeParameters(
+            profile=AgentProfileConfig(id="agent", name="Agent"),
+            overrides={
+                "running": {
+                    "loop": {
+                        "mission": {
+                            "max_iterations": 14,
+                            "max_retries_per_story": 5,
+                            "default_verify_command": "pytest -q",
+                            "default_verification_instructions": (
+                                "Check accessibility manually."
+                            ),
+                        },
+                    },
+                },
+            },
+        )
+        ctx = SimpleNamespace(
+            workspace_dir=tmp_path / "agent-workspace",
             agent_id="agent",
             session_id="session",
-            verify_commands="pytest -q",
-            verification_instructions="Check accessibility manually.",
-            max_iterations=14,
-            max_retries_per_story=5,
+            mode_state={},
+            input_msgs=[],
         )
+        with parameters.scope(), scoped_session_id(ctx.session_id), patch(
+            "qwenpaw.config.context.get_current_project_dir",
+            return_value=tmp_path,
+        ):
+            await mode.commands()[0].handler(
+                ctx,
+                "Implement the approved feature",
+            )
+        loop_dir = tmp_path / ctx.mode_state["mission"]["loop_dir"]
 
     config = read_loop_config(loop_dir)
     assert config["max_iterations"] == 14

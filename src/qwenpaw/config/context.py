@@ -16,6 +16,13 @@ if TYPE_CHECKING:
     from agentscope.tool import Toolkit
 
     from ..services.project_directory import ResolvedProjectDir
+    from .runtime import RuntimeParameters
+
+
+current_runtime_parameters: ContextVar[RuntimeParameters | None] = ContextVar(
+    "current_runtime_parameters",
+    default=None,
+)
 
 # Context variable to store the current agent's workspace directory
 current_workspace_dir: ContextVar[Path | None] = ContextVar(

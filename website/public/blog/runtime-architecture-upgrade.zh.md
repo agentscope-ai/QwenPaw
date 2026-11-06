@@ -189,7 +189,7 @@ class HookAction(str, Enum):
 | **Model**         | `ProviderManager` + model factory                | LLM model + formatter                                    |
 | **Middlewares**   | `ToolCoordinatorMiddleware` + plugin middlewares | 洋葱模型中间件                                           |
 | **Governor**      | `ResourceGovernor`                               | 治理策略层（沙箱、权限）                                 |
-| **Session State** | `ctx.session_state`（来自 `SessionLoadHook`）    | 会话状态恢复                                             |
+| **Session State** | `ctx.session_state`（由核心会话准备阶段加载）    | 会话状态恢复                                             |
 
 关键改进：**tool 不再硬编码在 agent 类中。** 它们通过 workspace 的 `list_tools()` 获取，该方法内部使用 `ToolRegistry`（tool 通过 `@tool_descriptor` 装饰器注册）根据活跃的 mode、skill 和 feature 按请求过滤。
 
@@ -236,7 +236,7 @@ class HookBase:
     after: tuple[str, ...] = ()   # "run after these hooks"
 ```
 
-例如，`SessionLoadHook` 声明 `priority = 10`（在 `PRE_AGENT_BUILD` 中较早执行），而 `MissionStateLoadHook` 声明 `after = ("session_load",)`，确保任务状态在会话状态之后加载。
+例如，需要读取已准备好的对话历史的 `PRE_AGENT_BUILD` hook，可以声明 `after = ("session_prepare",)`，确保它在 `SessionPrepareHook` 之后执行。
 
 ### 内置 LifecycleHook
 
@@ -246,7 +246,7 @@ class HookBase:
 | -------------------------- | --------------- | -------- | ------------------------------------------------------------ |
 | `ContextVarsSetupHook`     | PRE_DISPATCH    | 10       | 注入 per-request ContextVars（workspace_dir, session_id 等） |
 | `CronContextHook`          | PRE_DISPATCH    | 5        | 标记 cron 来源请求                                           |
-| `SessionLoadHook`          | PRE_AGENT_BUILD | 10       | 从持久化存储加载 session 状态                                |
+| `SessionPrepareHook`       | PRE_AGENT_BUILD | 10       | 准备重新生成消息所需的历史，修复失效媒体引用                  |
 | `MediaProcessHook`         | PRE_EXECUTE     | 5        | 处理输入消息中的文件/媒体块                                  |
 | `CronMemoryIsolateHook`    | PRE_EXECUTE     | 10       | 快照并清空 agent 上下文（cron 隔离）                         |
 | `LangfuseTraceHook`        | PRE_EXECUTE     | 12       | 开启 Langfuse root trace span                                |
@@ -500,16 +500,11 @@ class ServiceDescriptor:
 
 **Phase 1 + Fixed 1 — 请求规范化与命令分发**
 
-LifecycleHook 注入 per-request 上下文变量（workspace_dir、session_id 等）。随后 `SlashCommandRegistry` 尝试匹配用户消息——"先帮我检查……" 不是 slash 命令，`skip_agent` 保持 `False`，继续进入 agent 构建流程。
+核心会话准备阶段先加载已保存的状态，再解析运行配置，包括 Mission 锁定的项目目录。LifecycleHook 发布已解析的上下文变量（workspace_dir、session_id 等）。随后 `SlashCommandRegistry` 尝试匹配用户消息——"先帮我检查……" 不是 slash 命令，`skip_agent` 保持 `False`，继续进入 agent 构建流程。
 
-**Phase 3 · PRE_AGENT_BUILD — ModeGatedHook + 拓扑排序实战**
+**Phase 3 · PRE_AGENT_BUILD — 准备对话历史**
 
-这里体现了新架构的两个核心设计：
-
-- `SessionLoadHook`（LifecycleHook）先加载 session 状态和对话历史
-- `MissionStateLoadHook`（**ModeGatedHook**, `after=("session_load",)`）随后加载任务状态
-
-关键点：`MissionStateLoadHook` 声明了 `after=("session_load",)`，HookRegistry 的**拓扑排序**确保它一定在 SessionLoadHook 之后执行。同时，因为它是 ModeGatedHook，Mission Mode 未激活时会被**自动跳过**——开发者无需写任何 if/else。
+`SessionPrepareHook` 为重新生成消息准备已加载的历史，并修复失效的媒体引用。已保存的模式状态此时已在 `ctx.mode_state` 中，Mission 和 Builder 消费同一份解析后的会话配置。
 
 **Fixed 2 · AgentBuilder — 三个注册表联动**
 

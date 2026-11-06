@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """Session load/save lifecycle hooks.
 
-Loads persisted session state into ``ctx.session_state`` (PRE_AGENT_BUILD)
-so the builder can inject it into the newly-constructed agent. Saves
+Prepares the loaded session history before agent construction and saves
 agent state back to session storage after the response completes.
 """
 
@@ -13,8 +12,7 @@ import logging
 
 from ..base import LifecycleHook
 from ..cron.cron_hook import restore_cron_context
-from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
-from ...runtime._state_utils import StateProxy
+from ...services.session_state import StateProxy
 from ...runtime.console_turn_state import (
     prepare_console_regeneration,
     repair_invalid_history_images,
@@ -27,59 +25,14 @@ from .signals import SESSION_SAVE_SUCCEEDED_KEY
 logger = logging.getLogger(__name__)
 
 
-def _is_ephemeral_request(ctx: HookContext) -> bool:
-    request = ctx.request
-    request_context = getattr(request, "request_context", None)
-    if isinstance(request_context, dict):
-        value = request_context.get(ACP_EPHEMERAL_META_KEY)
-        if value is True:
-            return True
-        if isinstance(value, str) and value.lower() in {"1", "true", "yes"}:
-            return True
-    return False
-
-
-class SessionLoadHook(LifecycleHook):
-    """Load persisted session state before agent construction."""
+class SessionPrepareHook(LifecycleHook):
+    """Prepare persisted history loaded by the core session resolver."""
 
     phase = Phase.PRE_AGENT_BUILD
-    name = "session_load"
+    name = "session_prepare"
     priority = 10
 
     async def run(self, ctx: HookContext) -> HookResult:
-        if _is_ephemeral_request(ctx):
-            return HookResult()
-        if ctx.workspace is None:
-            return HookResult()
-        session = getattr(ctx.workspace, "session", None)
-        if session is None:
-            return HookResult()
-        try:
-            request = ctx.request
-            user_id = getattr(request, "user_id", "") or ctx.session_id
-            channel = getattr(request, "channel", "") or ""
-
-            proxy = StateProxy()
-            await session.load_session_state(
-                session_id=ctx.session_id,
-                user_id=user_id,
-                channel=channel,
-                agent=proxy,
-            )
-            if proxy.data:
-                ctx.session_state = proxy.data
-                mode_state = proxy.data.get("mode_state")
-                if isinstance(mode_state, dict):
-                    loaded_mode_state = dict(mode_state)
-                    loaded_mode_state.update(ctx.mode_state)
-                    ctx.mode_state = loaded_mode_state
-        except KeyError as e:
-            logger.debug(
-                "session_load: skipped (schema mismatch): %s",
-                e,
-            )
-        except Exception:
-            logger.debug("session_load: failed", exc_info=True)
         if ctx.session_state:
             prepare_console_regeneration(ctx.session_state, ctx.request)
             if getattr(ctx.request, "channel", None) == "console":
@@ -99,9 +52,9 @@ class SessionSaveHook(LifecycleHook):
 
     async def run(self, ctx: HookContext) -> HookResult:
         ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = False
-        if _is_ephemeral_request(ctx):
-            return HookResult()
         if ctx.workspace is None or ctx.agent is None:
+            return HookResult()
+        if not ctx.workspace.config.session_persistence:
             return HookResult()
         session = getattr(ctx.workspace, "session", None)
         if session is None:
@@ -128,4 +81,4 @@ class SessionSaveHook(LifecycleHook):
         return HookResult()
 
 
-__all__ = ["SessionLoadHook", "SessionSaveHook"]
+__all__ = ["SessionPrepareHook", "SessionSaveHook"]

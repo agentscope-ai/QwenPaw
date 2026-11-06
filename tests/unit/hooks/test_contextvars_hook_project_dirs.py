@@ -13,7 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from qwenpaw.hooks.request_setup import contextvars_hook as cvh
+from qwenpaw.services import session_config as cvh
 
 
 # ---------------------------------------------------------------------------
@@ -128,14 +128,14 @@ class TestTrustedRequestProjectDir:
         ctx = {"project_dir": 123}
         assert cvh._trusted_request_project_dir(ctx) is None
 
-    def test_acp_meta_key_takes_priority(self):
+    def test_acp_wire_metadata_is_normalized_before_runtime(self):
         from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 
         ctx = {
             ACP_PROJECT_DIR_META_KEY: "/acp/proj",
             "project_dir": "/other",
         }
-        assert cvh._trusted_request_project_dir(ctx) == "/acp/proj"
+        assert cvh._trusted_request_project_dir(ctx) == "/other"
 
 
 # ---------------------------------------------------------------------------
@@ -221,16 +221,6 @@ class TestPendingProjectDirs:
 # ---------------------------------------------------------------------------
 # _project_dirs_unavailable_msg
 # ---------------------------------------------------------------------------
-
-
-class TestProjectDirsUnavailableMsg:
-    def test_returns_system_message(self):
-        msg = cvh._project_dirs_unavailable_msg()
-        assert msg.role == "system"
-        assert msg.name == "system"
-        text = msg.content[0].text
-        assert "project directories could not be read" in text
-        assert "turn was stopped" in text
 
 
 def test_resolve_turn_inherits_agent_default_directory_list(tmp_path):

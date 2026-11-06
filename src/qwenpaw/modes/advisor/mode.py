@@ -14,7 +14,7 @@ from ..base import AgentMode, find_active_explicit_mode
 from ...app.agent_context import get_current_session_id
 from ...runtime.hooks import HookBase, HookContext
 from ...runtime.slash_command_registry import CommandSpec
-from ..goal.helpers import rewrite_user_msg
+from ...runtime.message_convert import rewrite_user_msg
 from .config import is_enabled, resolve_agent_config
 from .middleware import (
     AdvisorMiddleware,
