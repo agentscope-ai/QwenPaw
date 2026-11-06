@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 import selectors
 import socket
@@ -10,6 +11,8 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
 
 _HANDSHAKE_LIMIT = 1024
 _CONNECT_TIMEOUT_SECONDS = 10.0
@@ -29,6 +32,7 @@ def _read_line(connection: socket.socket) -> str:
 
 def _relay(left: socket.socket, right: socket.socket) -> None:
     selector = selectors.DefaultSelector()
+    forwarded = 0
     try:
         selector.register(left, selectors.EVENT_READ)
         selector.register(right, selectors.EVENT_READ)
@@ -39,10 +43,12 @@ def _relay(left: socket.socket, right: socket.socket) -> None:
                 payload = source.recv(65536)
                 if not payload:
                     return
+                forwarded += len(payload)
                 target.sendall(payload)
-    except OSError:
-        return
+    except OSError as exc:
+        logger.debug("Tunnel relay aborted after %d bytes: %s", forwarded, exc)
     finally:
+        logger.debug("Tunnel relay closed after %d bytes", forwarded)
         selector.close()
         left.close()
         right.close()
@@ -127,6 +133,11 @@ class WindowsReverseTunnelBroker:
             with self._lock:
                 control = self._control
                 if control is None:
+                    logger.debug(
+                        "Tunnel public connection %s dropped: "
+                        "runtime control channel is not connected",
+                        connection_id,
+                    )
                     client.close()
                     continue
                 self._pending[connection_id] = (
@@ -135,7 +146,16 @@ class WindowsReverseTunnelBroker:
                 )
                 try:
                     control.sendall(f"OPEN {connection_id}\n".encode("ascii"))
+                    logger.debug(
+                        "Tunnel public connection %s opened to runtime",
+                        connection_id,
+                    )
                 except OSError:
+                    logger.debug(
+                        "Tunnel public connection %s failed: control "
+                        "channel write error",
+                        connection_id,
+                    )
                     if connection_id in self._pending:
                         del self._pending[connection_id]
                     self._control = None
@@ -166,6 +186,7 @@ class WindowsReverseTunnelBroker:
             connection.close()
             return
         if handshake[0] == "CONTROL" and len(handshake) == 2:
+            logger.debug("Tunnel runtime control channel connected")
             with self._lock:
                 previous = self._control
                 self._control = connection
@@ -184,9 +205,14 @@ class WindowsReverseTunnelBroker:
             if pending is not None:
                 del self._pending[handshake[2]]
         if pending is None:
+            logger.debug(
+                "Tunnel data connection %s has no pending client",
+                handshake[2],
+            )
             connection.close()
             return
         client = pending[0]
+        logger.debug("Tunnel data connection %s paired", handshake[2])
         self._start_thread(
             lambda: _relay(client, connection),
             f"qwenpaw-tunnel-{handshake[2][:8]}",
@@ -265,12 +291,23 @@ def _open_data_tunnel(
             )
             host.settimeout(None)
             target.settimeout(None)
+            logger.debug(
+                "Tunnel data connection %s connected to target port %s",
+                connection_id,
+                target_port,
+            )
             host.sendall(
                 f"DATA {token} {connection_id}\n".encode("ascii"),
             )
             _relay(host, target)
             return
-        except OSError:
+        except OSError as exc:
+            logger.debug(
+                "Tunnel data connection %s to target port %s failed: %s",
+                connection_id,
+                target_port,
+                exc,
+            )
             if host is not None:
                 host.close()
             if target is not None:
