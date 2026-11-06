@@ -7,6 +7,8 @@ This module provides utilities for:
 - Managing download directories
 - Reading text files with encoding fallback for cross-platform compatibility
 """
+
+import codecs
 import os
 import mimetypes
 import base64
@@ -16,7 +18,7 @@ import subprocess
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
@@ -39,41 +41,335 @@ def single_line_log_value(value: object) -> str:
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
+def _normalize_newlines(content: str) -> str:
+    """Fold ``\\r\\n`` and lone ``\\r`` to ``\\n``."""
+    return content.replace("\r\n", "\n").replace("\r", "\n")
+
+
+# utf-8-sig strips this prefix. A lossy ``utf-8`` decode would keep U+FEFF
+# and a later edit could write a second BOM.
+_UTF8_BOM = b"\xef\xbb\xbf"
+
+
+def _mostly_utf8_replacement_ok(bad: int, good: int) -> bool:
+    """True when lossy UTF-8 replacements are sparse enough to keep.
+
+    No floor of two replacements: that mislabels short GBK (``A张``) and
+    CP1252 (``Café``) as mostly UTF-8. Require at least four valid
+    characters, and at most one replacement unless the text is long enough
+    for a sparse ratio. Callers still reject a sparse replacement that
+    never produced a real non-ASCII character (``name=锘``, ``Cafés``).
+    """
+    if good < 4:
+        return False
+    return bad <= max(1, good // 50)
+
+
+def _lossy_ratio_ok(bad: int, good: int, *, bom: bool) -> bool:
+    """Sparse-replacement check. A BOM is evidence even for a short payload."""
+    if bad > max(1, good // 50):
+        return False
+    if bom:
+        return True
+    return _mostly_utf8_replacement_ok(bad, good)
+
+
+def _lossy_text_stats(text: str) -> tuple[int, int, bool]:
+    """Return ``(bad, good, saw_non_ascii)`` for one lossy UTF-8 piece."""
+    bad = text.count("\ufffd")
+    good = len(text) - bad
+    saw_non_ascii = any(ord(ch) > 127 and ch != "\ufffd" for ch in text)
+    return bad, good, saw_non_ascii
+
+
+def _lossy_utf8_kept(
+    *,
+    bom: bool,
+    bad: int,
+    good: int,
+    saw_non_ascii: bool,
+) -> bool:
+    """True when lossy UTF-8 should win before any legacy encoding.
+
+    A leading BOM, or a non-ASCII character that really decoded, means the
+    bytes are UTF-8 with a dirty spot (``姓名: 张三`` + ``\\xff``,
+    ``BOM + hello + \\xff``). Legacy text whose only non-ASCII bytes became
+    U+FFFD (``name=锘``, ``Cafés``) is not kept.
+    """
+    if not _lossy_ratio_ok(bad, good, bom=bom):
+        return False
+    return bom or saw_non_ascii
+
+
+def _lossy_utf8_text(data: bytes) -> str:
+    """Lossy UTF-8 with a leading BOM removed and newlines folded."""
+    return _normalize_newlines(data.decode("utf-8-sig", errors="replace"))
+
+
+def _decode_mostly_utf8_lossy(data: bytes) -> str | None:
+    """Return lossy UTF-8 when it should win before GBK/CP1252.
+
+    Uses ``utf-8-sig`` so ``b"\\xef\\xbb\\xbfhello\\xff"`` is ``hello`` plus
+    one replacement, not a leftover U+FEFF. Returns None when the bytes
+    should fall through to a strict legacy decode.
+    """
+    raw = data.decode("utf-8-sig", errors="replace")
+    bad, good, saw_non_ascii = _lossy_text_stats(raw)
+    bom = data.startswith(_UTF8_BOM)
+    # Strict GBK must beat incidental leftovers (``如不`` → one CJK + one
+    # replacement). Dirty UTF-8 with several real ideographs still wins.
+    if (
+        not bom
+        and _strict_decodes(data, "gbk")
+        and not _lossy_has_convincing_cjk(raw)
+    ):
+        saw_non_ascii = False
+    if not _lossy_utf8_kept(
+        bom=bom,
+        bad=bad,
+        good=good,
+        saw_non_ascii=saw_non_ascii,
+    ):
+        return None
+    return _normalize_newlines(raw)
+
+
+def _is_ascii_letter_byte(value: int) -> bool:
+    """True for a single A-Z / a-z byte."""
+    return (0x41 <= value <= 0x5A) or (0x61 <= value <= 0x7A)
+
+
+def _feed_gbk_pair_trails(
+    data: bytes,
+    other: int,
+    letters: int,
+    unpaired_ascii: int,
+    pending_lead: int | None,
+) -> tuple[int, int, int, int | None]:
+    """Count GBK pairs and unpaired ASCII letters across chunks.
+
+    A pair is a lead in 0x81-0xFE and a trail in 0x40-0x7E or 0x80-0xFE.
+    Letter trails count only when the lead is a CP1252 accented letter
+    (0xC0-0xFF): ``Cafés`` pairs ``é`` with ``s``. Leads in 0x81-0xBF
+    with an ASCII-letter trail (``name=檔``,
+    ``\\x99\\x74\\x8c\\x48``) count as *other* so GBK keeps priority.
+    Unpaired ASCII letters are those not consumed as a trail.
+    """
+    if pending_lead is not None:
+        data = bytes((pending_lead,)) + data
+        pending_lead = None
+    index = 0
+    size = len(data)
+    while index < size:
+        lead = data[index]
+        if lead < 0x81 or lead > 0xFE:
+            if _is_ascii_letter_byte(lead):
+                unpaired_ascii += 1
+            index += 1
+            continue
+        if index + 1 >= size:
+            return other, letters, unpaired_ascii, lead
+        trail = data[index + 1]
+        if not (0x40 <= trail <= 0x7E or 0x80 <= trail <= 0xFE):
+            index += 1
+            continue
+        if _is_ascii_letter_byte(trail) and lead >= 0xC0:
+            # Western CP1252 letter lead (é, ö, …) + ASCII trail.
+            letters += 1
+        else:
+            # GBK/symbol lead (0x81-0xBF) even when the trail is a letter.
+            other += 1
+        index += 2
+    return other, letters, unpaired_ascii, None
+
+
+def _gbk_pair_trail_kinds(data: bytes) -> tuple[int, int, int]:
+    """Return other trails, letter trails, and unpaired ASCII letters."""
+    other, letters, unpaired, _pending = _feed_gbk_pair_trails(
+        data,
+        0,
+        0,
+        0,
+        None,
+    )
+    return other, letters, unpaired
+
+
+class _FallbackSignals(NamedTuple):
+    """Facts used once strict UTF-8 has failed."""
+
+    bom: bool
+    bad: int
+    good: int
+    saw_non_ascii: bool
+    other_trails: int
+    letter_trails: int
+    unpaired_ascii_letters: int
+    gbk_ok: bool
+    cp1252_ok: bool
+
+
+def _choose_fallback_decoding(
+    signals: _FallbackSignals,
+) -> tuple[str, bool] | None:
+    """Pick ``(encoding, lossy)`` after strict UTF-8 failed.
+
+    ``None`` means Latin-1. Lossy UTF-8 wins when a BOM survived, or when
+    a real non-ASCII character survived after GBK-aware filtering.
+    Incidental leftovers inside valid GBK — one CJK such as ``如不`` →
+    U+7CBB, or non-CJK such as ``这不`` → U+2CBB — do not count; dirty
+    UTF-8 with several ideographs still wins. Otherwise a
+    strict legacy decode wins. CP1252 beats GBK only when every GBK pair
+    ate an ASCII letter *from a CP1252 accented lead* (0xC0+) and there
+    are *more* unpaired ASCII letters than such pairs (``Cafés``). A
+    single ambiguous pattern such as ``A\xc0A`` (valid GBK ``A繟``) keeps
+    GBK. GBK leads below 0xC0 with a letter trail (``name=檔``,
+    ``\x99\x74\x8c\x48``) count as *other*, so GBK keeps priority over
+    CP1252. A dirty lead that CP1252 rejects (``hello\x81world``) still
+    yields lossy UTF-8 when the ratio looks mostly UTF-8, instead of
+    inventing a CJK character.
+    """
+    ratio_ok = _lossy_ratio_ok(
+        signals.bad,
+        signals.good,
+        bom=signals.bom,
+    )
+    # Require stricter Western evidence than a lone A\xc0A-style pair
+    # that is also valid GBK.
+    suspicious = (
+        signals.letter_trails > 0
+        and signals.other_trails == 0
+        and signals.unpaired_ascii_letters > signals.letter_trails
+    )
+    dirty_gbk_pair = (
+        signals.gbk_ok
+        and not signals.cp1252_ok
+        and signals.unpaired_ascii_letters > 0
+        and (signals.letter_trails > 0 or signals.other_trails > 0)
+    )
+    if ratio_ok and (signals.bom or signals.saw_non_ascii):
+        return ("utf-8-sig", True)
+    if signals.cp1252_ok and suspicious:
+        return ("cp1252", False)
+    # Dirty lead: GBK paired an ASCII letter into CJK but CP1252 rejected
+    # the bytes — keep sparse lossy UTF-8 (``hello\x81world``).
+    if ratio_ok and dirty_gbk_pair:
+        return ("utf-8-sig", True)
+    if signals.gbk_ok and not (suspicious and ratio_ok):
+        return ("gbk", False)
+    if signals.cp1252_ok:
+        return ("cp1252", False)
+    if ratio_ok:
+        return ("utf-8-sig", True)
+    return None
+
+
+def _lossy_has_convincing_cjk(text: str) -> bool:
+    """True when lossy UTF-8 kept more CJK ideographs than replacements.
+
+    Dirty UTF-8 (``姓名`` + one bad byte) keeps several ideographs and one
+    ``U+FFFD``. GBK leftovers such as ``如不`` / ``其经`` produce only one
+    incidental CJK beside a replacement and must not count as UTF-8
+    evidence. Non-CJK leftovers (``这不`` → U+2CBB) never match.
+    """
+    bad = text.count("�")
+    cjk = sum(1 for ch in text if 0x4E00 <= ord(ch) <= 0x9FFF)
+    return cjk > bad
+
+
+def _signals_for_bytes(
+    data: bytes,
+    *,
+    gbk_ok: bool,
+    cp1252_ok: bool,
+    truncated: bool = False,
+) -> _FallbackSignals:
+    """Build fallback signals from one byte string.
+
+    When *truncated* is true, lossy UTF-8 stats use ``final=False`` so a
+    multibyte character cut by ``max_bytes`` is not counted as invalid.
+    """
+    if truncated:
+        decoder = codecs.getincrementaldecoder("utf-8-sig")(
+            errors="replace",
+        )
+        raw = decoder.decode(data, final=False)
+    else:
+        raw = data.decode("utf-8-sig", errors="replace")
+    bad, good, saw_non_ascii = _lossy_text_stats(raw)
+    bom = data.startswith(_UTF8_BOM)
+    # Valid GBK whose bytes accidentally form UTF-8 must fall through to
+    # GBK, not lossy UTF-8. Clear saw_non_ascii unless lossy kept more
+    # CJK ideographs than replacements (dirty UTF-8 such as ``姓名`` +
+    # ``\xff``). A single incidental CJK (``如不`` → U+7CBB) or a non-CJK
+    # leftover (``这不`` → U+2CBB) must not win.
+    if gbk_ok and not bom and not _lossy_has_convincing_cjk(raw):
+        saw_non_ascii = False
+    other, letters, unpaired = _gbk_pair_trail_kinds(data)
+    return _FallbackSignals(
+        bom=bom,
+        bad=bad,
+        good=good,
+        saw_non_ascii=saw_non_ascii,
+        other_trails=other,
+        letter_trails=letters,
+        unpaired_ascii_letters=unpaired,
+        gbk_ok=gbk_ok,
+        cp1252_ok=cp1252_ok,
+    )
+
+
+def _strict_decodes(data: bytes, encoding: str) -> bool:
+    try:
+        data.decode(encoding)
+    except (UnicodeDecodeError, LookupError):
+        return False
+    return True
+
+
 def decode_text_bytes_with_encoding_fallback(
     data: bytes,
     *,
     file_name: object = "<bytes>",
 ) -> str:
     """Decode bytes with the historical fallback and newline behavior."""
-    encodings_to_try = [
-        "utf-8-sig",
-        "utf-8",
-        "gbk",
-        "cp936",
-        "cp1252",
-        "latin-1",
-    ]
-    for encoding in encodings_to_try:
+    for encoding in ("utf-8-sig", "utf-8"):
         try:
-            content = data.decode(encoding)
-            if encoding not in ("utf-8", "utf-8-sig"):
-                logger.debug(
-                    "File %s read with encoding: %s",
-                    single_line_log_value(file_name),
-                    encoding,
-                )
-            return content.replace("\r\n", "\n").replace("\r", "\n")
+            return _normalize_newlines(data.decode(encoding))
         except (UnicodeDecodeError, LookupError):
             continue
 
-    # latin-1 can decode every byte sequence, so this is defensive only.
-    content = data.decode("utf-8", errors="replace")
-    logger.warning(
-        "File %s read with UTF-8 errors='replace' fallback, "
-        "some characters may be corrupted",
-        single_line_log_value(file_name),
+    choice = _choose_fallback_decoding(
+        _signals_for_bytes(
+            data,
+            gbk_ok=_strict_decodes(data, "gbk"),
+            cp1252_ok=_strict_decodes(data, "cp1252"),
+        ),
     )
-    return content.replace("\r\n", "\n").replace("\r", "\n")
+    if choice is None:
+        content = data.decode("latin-1")
+        logger.debug(
+            "File %s read with encoding: %s",
+            single_line_log_value(file_name),
+            "latin-1",
+        )
+        return _normalize_newlines(content)
+
+    encoding, lossy = choice
+    if lossy:
+        logger.debug(
+            "File %s read with lossy UTF-8 (mostly valid)",
+            single_line_log_value(file_name),
+        )
+        return _lossy_utf8_text(data)
+
+    content = data.decode(encoding)
+    logger.debug(
+        "File %s read with encoding: %s",
+        single_line_log_value(file_name),
+        encoding,
+    )
+    return _normalize_newlines(content)
 
 
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
@@ -84,13 +380,13 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     different platforms, especially addressing the common issue where Windows
     Notepad saves files in GBK encoding while most editors use UTF-8.
 
-    Tries common encodings in order:
-    1. UTF-8 with BOM (Windows Notepad with "UTF-8" option) - tried first
-       to handle BOM correctly
-    2. UTF-8 (default, most common on macOS/Linux)
-    3. GBK/CP936 (Windows Notepad default for Chinese)
-    4. CP1252/Latin-1 (Windows Notepad default for Western languages)
-    5. UTF-8 with errors='replace' as final fallback
+    Strict UTF-8 (BOM, then plain) is tried first. Lossy UTF-8 is kept
+    when a sparse replacement still leaves a real non-ASCII character,
+    or when a leading BOM is present. Otherwise GBK/CP936 is tried,
+    except CP1252 wins when every GBK pair would consume an ASCII
+    letter and another ASCII letter is left unpaired (``Cafés``).
+    Pure GBK whose trails happen to be letters stays GBK. Latin-1
+    covers any remaining byte sequence.
 
     Args:
         file_path: Path to the file to read (Path object or string)

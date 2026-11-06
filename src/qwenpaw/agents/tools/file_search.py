@@ -4,13 +4,16 @@
 """File search tools: grep (content search) and glob (file discovery)."""
 
 import asyncio
+import codecs
 import fnmatch
+import io
+import logging
 import os
 import re
 import threading
 from collections import deque
 from pathlib import Path
-from typing import Optional
+from typing import BinaryIO, Iterator, Optional
 
 from agentscope.message import TextBlock
 from agentscope.tool import ToolChunk
@@ -19,6 +22,18 @@ from agentscope.message import ToolResultState
 from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
+from .utils import _decode_capped_text_snapshot
+from ..utils.file_handling import (
+    _FallbackSignals,
+    _UTF8_BOM,
+    _choose_fallback_decoding,
+    _feed_gbk_pair_trails,
+    _lossy_has_convincing_cjk,
+    _lossy_text_stats,
+    single_line_log_value,
+)
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -96,7 +111,14 @@ _SKIP_DIRS = frozenset(
 )
 
 _MAX_MATCHES = 200
+# Directory scans skip files above this size. An explicit file is not capped.
 _MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+# Reads stay in chunks so a large explicit file is never loaded at once.
+_GREP_READ_CHUNK = 64 * 1024
+# Strict UTF-8 is probed before the shared fallback choice.
+_GREP_UTF8_ENCODINGS = ("utf-8-sig", "utf-8")
+# Omitted ``max_bytes`` means the directory cap. ``None`` means no cap.
+_GREP_MAX_BYTES_DEFAULT = object()
 _MAX_CONTEXT_LINES = 5
 _MAX_OUTPUT_CHARS = 50_000  # ~50 KB
 _MAX_FILES_SCANNED = 10_000
@@ -381,6 +403,421 @@ def _output_context_for_hit(
 # ---------------------------------------------------------------------------
 
 
+class _GrepCancelled(Exception):
+    """Raised when *cancel* is set while a file is still being read."""
+
+
+def _file_exceeds_grep_limit(path: Path) -> bool:
+    """Return True when *path* is larger than the directory grep cap.
+
+    Directory walks skip these files. An explicit single-file search
+    streams the whole file and does not treat this as truncation.
+    Unreadable paths are treated as oversize so a directory walk skips
+    them instead of failing the search.
+    """
+    try:
+        return path.stat().st_size > _MAX_FILE_SIZE
+    except OSError:
+        return True
+
+
+class _GrepChunkReader:
+    """Chunked binary read with a byte cap and cancellation.
+
+    ``hit_eof`` is set once iteration finishes. A cap that lands before
+    EOF leaves it false; the extra probe byte is not yielded.
+    """
+
+    def __init__(self) -> None:
+        self.hit_eof = False
+
+    def iter_chunks(
+        self,
+        raw: BinaryIO,
+        cancel: threading.Event,
+        max_bytes: int | None,
+    ) -> Iterator[bytes]:
+        """Yield pieces of at most ``_GREP_READ_CHUNK`` bytes."""
+        read_total = 0
+        while max_bytes is None or read_total < max_bytes:
+            if cancel.is_set():
+                raise _GrepCancelled()
+            if max_bytes is None:
+                want = _GREP_READ_CHUNK
+            else:
+                want = min(_GREP_READ_CHUNK, max_bytes - read_total)
+            chunk = raw.read(want)
+            if not chunk:
+                self.hit_eof = True
+                return
+            read_total += len(chunk)
+            yield chunk
+            if len(chunk) < want:
+                self.hit_eof = True
+                return
+        if cancel.is_set():
+            raise _GrepCancelled()
+        if not raw.read(1):
+            self.hit_eof = True
+
+
+def _split_normalized_text(pending: str, text: str) -> tuple[list[str], str]:
+    """Split *text* on ``\\n`` only, keeping a partial trailing line.
+
+    ``\\r`` / ``\\r\\n`` are already translated to ``\\n`` by
+    ``io.IncrementalNewlineDecoder``. ``str.splitlines`` is not used: it
+    also breaks on vertical tab, form feed, and Unicode line separators,
+    which text-mode iteration did not.
+    """
+    if not text:
+        return [], pending
+    pending += text
+    if "\n" not in pending:
+        return [], pending
+    parts = pending.split("\n")
+    tail = parts.pop()
+    return [part + "\n" for part in parts], tail
+
+
+def _iter_decoded_grep_lines(
+    raw: BinaryIO,
+    encoding: str,
+    cancel: threading.Event,
+    max_bytes: int | None,
+) -> Iterator[str]:
+    """Yield lines from *raw* without holding the file as one string.
+
+    ``max_bytes`` is the cap; ``None`` reads until EOF. Pieces are at most
+    ``_GREP_READ_CHUNK`` and *cancel* is checked between them. When the
+    cap is hit with bytes still left, the trailing incomplete character
+    is dropped instead of failing the encoding. At real EOF, bytes still
+    buffered (an incomplete UTF-8 BOM does not raise on its own) reject
+    this encoding.
+    """
+    decoder = io.IncrementalNewlineDecoder(
+        codecs.getincrementaldecoder(encoding)(),
+        translate=True,
+    )
+    pending = ""
+    reader = _GrepChunkReader()
+    for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+        lines, pending = _split_normalized_text(
+            pending,
+            decoder.decode(chunk, final=False),
+        )
+        yield from lines
+
+    lines, pending = _split_normalized_text(
+        pending,
+        decoder.decode(b"", final=reader.hit_eof),
+    )
+    yield from lines
+    buffered, flag = decoder.getstate()
+    if reader.hit_eof:
+        # utf-8-sig keeps an incomplete BOM and does not raise on final.
+        # A non-empty byte buffer is not the pending-CR flag (bit 0, which
+        # does not occupy the buffer). Reject the encoding so the ladder
+        # matches the strict shared helper. Capped reads stay final=False
+        # and keep the dropped trailing character.
+        if buffered:
+            raise UnicodeDecodeError(
+                encoding,
+                buffered,
+                0,
+                len(buffered),
+                "incomplete multibyte sequence",
+            )
+    elif flag & 1:
+        # Bit 0 is IncrementalNewlineDecoder's pending-CR flag. The capped
+        # snapshot ends on that CR, so normalize it the same way a full
+        # decode would (``\\r`` → ``\\n``).
+        pending += "\n"
+    if pending:
+        yield pending
+
+
+class _GrepStrictProbe:
+    """Incremental strict decode that rejects a leftover byte buffer.
+
+    ``utf-8-sig`` keeps an incomplete BOM without raising. A non-empty
+    buffer after ``final=True`` is still a failed strict decode.
+    """
+
+    def __init__(self, encoding: str) -> None:
+        self.decoder = codecs.getincrementaldecoder(encoding)()
+        self.ok = True
+
+    def feed(self, chunk: bytes, *, final: bool) -> None:
+        """Feed one chunk. Further input is ignored after a failure."""
+        if not self.ok:
+            return
+        try:
+            self.decoder.decode(chunk, final=final)
+        except UnicodeDecodeError:
+            self.ok = False
+            return
+        if final and self.decoder.getstate()[0]:
+            self.ok = False
+
+
+def _stream_strict_utf8_probes(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int | None,
+) -> tuple[dict[str, _GrepStrictProbe], bytes]:
+    """Feed only strict UTF-8 probes and keep a BOM prefix.
+
+    Reads in ``_GREP_READ_CHUNK`` pieces and stops once every probe has
+    failed. The prefix is the leading bytes (at most the UTF-8 BOM) for
+    a later fallback decision. This pass does not run GBK pair trails,
+    GBK/CP1252 probes, or the lossy UTF-8 ratio.
+    """
+    probes = {
+        encoding: _GrepStrictProbe(encoding)
+        for encoding in _GREP_UTF8_ENCODINGS
+    }
+    prefix = b""
+    with open(path, "rb") as raw:
+        reader = _GrepChunkReader()
+        for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+            if len(prefix) < len(_UTF8_BOM):
+                prefix += chunk[: len(_UTF8_BOM) - len(prefix)]
+            for probe in probes.values():
+                probe.feed(chunk, final=False)
+            if not any(probe.ok for probe in probes.values()):
+                return probes, prefix
+        if reader.hit_eof:
+            for probe in probes.values():
+                probe.feed(b"", final=True)
+    return probes, prefix
+
+
+def _select_grep_fallback_decoding(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int | None,
+    *,
+    bom: bool,
+) -> tuple[str, bool]:
+    """Pick a legacy or lossy encoding after strict UTF-8 failed.
+
+    Second streaming pass over the same cap. Chunks stay bounded and
+    *cancel* is checked between them, so an unlimited file is not loaded
+    into one buffer. ``bom`` is the prefix flag from the UTF-8 pass.
+    """
+    probes = {
+        encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")
+    }
+    lossy = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
+    bad = 0
+    good = 0
+    saw_non_ascii = False
+    lossy_parts: list[str] = []
+    other = 0
+    letters = 0
+    unpaired = 0
+    pending_lead: int | None = None
+
+    with open(path, "rb") as raw:
+        reader = _GrepChunkReader()
+        for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+            other, letters, unpaired, pending_lead = _feed_gbk_pair_trails(
+                chunk,
+                other,
+                letters,
+                unpaired,
+                pending_lead,
+            )
+            for probe in probes.values():
+                probe.feed(chunk, final=False)
+            text = lossy.decode(chunk, final=False)
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
+            lossy_parts.append(text)
+        if reader.hit_eof:
+            for probe in probes.values():
+                probe.feed(b"", final=True)
+            text = lossy.decode(b"", final=True)
+            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
+            bad += piece_bad
+            good += piece_good
+            saw_non_ascii = saw_non_ascii or piece_saw
+            lossy_parts.append(text)
+
+    # Mirror _signals_for_bytes: incidental GBK leftovers (``如不``) must
+    # not beat a clean GBK decode; dirty UTF-8 with several ideographs can.
+    if (
+        probes["gbk"].ok
+        and not bom
+        and not _lossy_has_convincing_cjk("".join(lossy_parts))
+    ):
+        saw_non_ascii = False
+
+    choice = _choose_fallback_decoding(
+        _FallbackSignals(
+            bom=bom,
+            bad=bad,
+            good=good,
+            saw_non_ascii=saw_non_ascii,
+            other_trails=other,
+            letter_trails=letters,
+            unpaired_ascii_letters=unpaired,
+            gbk_ok=probes["gbk"].ok,
+            cp1252_ok=probes["cp1252"].ok,
+        ),
+    )
+    if choice is None:
+        return "latin-1", False
+    return choice
+
+
+def _select_grep_decoding(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int | None,
+) -> tuple[str, bool]:
+    """Return ``(encoding, lossy)`` for a streaming grep read.
+
+    ``max_bytes is None`` reads the whole file. A cap uses that prefix
+    and finalizes decoders only at real EOF, matching
+    ``decode_text_bytes_with_encoding_fallback`` on the same bytes.
+
+    Valid UTF-8 returns after one strict pass. GBK pair trails, the
+    GBK/CP1252 probes, and the lossy ratio run in a second pass, and
+    only when every strict UTF-8 probe has failed.
+    """
+    probes, prefix = _stream_strict_utf8_probes(path, cancel, max_bytes)
+    for encoding in _GREP_UTF8_ENCODINGS:
+        if probes[encoding].ok:
+            return encoding, False
+    return _select_grep_fallback_decoding(
+        path,
+        cancel,
+        max_bytes,
+        bom=prefix.startswith(_UTF8_BOM),
+    )
+
+
+def _iter_decoded_grep_lines_lossy(
+    raw: BinaryIO,
+    cancel: threading.Event,
+    max_bytes: int | None,
+) -> Iterator[str]:
+    """Yield lines with UTF-8-SIG ``errors='replace'``.
+
+    ``max_bytes`` is the cap; ``None`` reads until EOF. ``utf-8-sig``
+    drops a leading BOM so a dirty byte after it cannot leave U+FEFF
+    in the match text.
+    """
+    decoder = io.IncrementalNewlineDecoder(
+        codecs.getincrementaldecoder("utf-8-sig")(errors="replace"),
+        translate=True,
+    )
+    pending = ""
+    reader = _GrepChunkReader()
+    for chunk in reader.iter_chunks(raw, cancel, max_bytes):
+        lines, pending = _split_normalized_text(
+            pending,
+            decoder.decode(chunk, final=False),
+        )
+        yield from lines
+
+    lines, pending = _split_normalized_text(
+        pending,
+        decoder.decode(b"", final=reader.hit_eof),
+    )
+    yield from lines
+    _buffered, flag = decoder.getstate()
+    if (not reader.hit_eof) and (flag & 1):
+        pending += "\n"
+    if pending:
+        yield pending
+
+
+def _read_capped_grep_snapshot(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: int,
+) -> tuple[bytes, bool]:
+    """Read at most *max_bytes*, returning ``(data, hit_eof)``.
+
+    *cancel* is checked between chunks. The extra probe byte that
+    distinguishes EOF from a longer file is not part of *data*.
+    """
+    chunks: list[bytes] = []
+    with open(path, "rb") as raw:
+        reader = _GrepChunkReader()
+        chunks.extend(reader.iter_chunks(raw, cancel, max_bytes))
+        hit_eof = reader.hit_eof
+    return b"".join(chunks), hit_eof
+
+
+def _iter_snapshot_lines(text: str) -> Iterator[str]:
+    """Yield ``\\n``-terminated lines from already-normalized text.
+
+    Matches ``_split_normalized_text`` and ``io.StringIO``: only ``\\n``
+    breaks a line, and a final partial line has no extra newline.
+    """
+    lines, pending = _split_normalized_text("", text)
+    yield from lines
+    if pending:
+        yield pending
+
+
+def _iter_grep_lines(
+    path: Path,
+    cancel: threading.Event,
+    max_bytes: object = _GREP_MAX_BYTES_DEFAULT,
+) -> Iterator[str]:
+    """Yield text lines using the shared utf-8 → gbk/cp1252 choice.
+
+    Omitted *max_bytes* uses ``_MAX_FILE_SIZE`` (directory scans). ``None``
+    streams an explicit file with no byte cap. A cap reads that prefix
+    once, decodes it with the shared helpers, and splits the text. An
+    unlimited UTF-8 file is streamed twice (choose, then yield). A
+    non-UTF-8 file uses one more pass for the legacy fallback. None of
+    these passes holds the whole file.
+    """
+    limit: int | None
+    if max_bytes is _GREP_MAX_BYTES_DEFAULT:
+        limit = _MAX_FILE_SIZE
+    elif max_bytes is None or isinstance(max_bytes, int):
+        limit = max_bytes
+    else:
+        raise TypeError("max_bytes must be an int or None")
+
+    if limit is not None:
+        snapshot, hit_eof = _read_capped_grep_snapshot(path, cancel, limit)
+        text = _decode_capped_text_snapshot(
+            snapshot,
+            file_name=path,
+            truncated=not hit_eof,
+        )
+        yield from _iter_snapshot_lines(text)
+        return
+
+    chosen, lossy_utf8 = _select_grep_decoding(path, cancel, None)
+    if lossy_utf8:
+        logger.debug(
+            "File %s read with lossy UTF-8 (mostly valid)",
+            single_line_log_value(path),
+        )
+    elif chosen not in ("utf-8", "utf-8-sig"):
+        logger.debug(
+            "File %s read with encoding: %s",
+            single_line_log_value(path),
+            chosen,
+        )
+
+    with open(path, "rb") as raw:
+        if lossy_utf8:
+            yield from _iter_decoded_grep_lines_lossy(raw, cancel, None)
+        else:
+            yield from _iter_decoded_grep_lines(raw, chosen, cancel, None)
+
+
 def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-locals,too-many-statements
     search_root: Path,
     regex: "re.Pattern[str]",
@@ -452,102 +889,109 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
         hit_indices: list[int] = []
 
         try:
-            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                line_no = 0
-                for line in f:
-                    if line_no % 1000 == 0 and cancel.is_set():
-                        status = "timeout"
-                        break
-
-                    line_no = line_no + 1
-                    line_content = line.rstrip("\n").rstrip("\r")
-                    is_match = bool(regex.search(line_content))
-
-                    sliding_window.append((line_no, line_content))
-                    if is_match:
-                        hit_indices.append(len(sliding_window) - 1)
-
-                    if len(sliding_window) == window_size:
-                        # Process hits that are before the middle of the window.
-                        # These hits have collected their full context (context_lines after).
-                        while hit_indices and hit_indices[0] < middle_idx:
-                            hit_line = sliding_window[hit_indices.pop(0)][0]
-                            success, total_chars = _output_context_for_hit(
-                                hit_line,
-                                sliding_window,
-                                display_path,
-                                context_lines,
-                                matches,
-                                total_chars,
-                                show_file=show_file,
-                                single_file=single_file,
-                                headers_emitted=headers_emitted,
-                            )
-                            if not success:
-                                status = (
-                                    f"truncated: match limit ({_MAX_MATCHES})"
-                                    if len(matches) >= _MAX_MATCHES
-                                    else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-                                )
-                                break
-
-                        if status != "ok":
-                            break
-                        # Process the middle position hit if any.
-                        # At this point, the hit has context_lines before and after.
-                        if hit_indices and hit_indices[0] == middle_idx:
-                            hit_line = sliding_window[hit_indices.pop(0)][0]
-                            success, total_chars = _output_context_for_hit(
-                                hit_line,
-                                sliding_window,
-                                display_path,
-                                context_lines,
-                                matches,
-                                total_chars,
-                                show_file=show_file,
-                                single_file=single_file,
-                                headers_emitted=headers_emitted,
-                            )
-                            if not success:
-                                status = (
-                                    f"truncated: match limit ({_MAX_MATCHES})"
-                                    if len(matches) >= _MAX_MATCHES
-                                    else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-                                )
-                                break
-                        # Slide the window forward by removing the oldest line.
-                        # Adjust remaining hit indices to match new positions.
-                        sliding_window.popleft()
-                        hit_indices = [i - 1 for i in hit_indices if i > 0]
-
-                if status != "ok":
+            # Directory walks skip files above 2 MB. An explicit file is
+            # streamed in full so a match past that cap is not missed.
+            if not single_file and _file_exceeds_grep_limit(file_path):
+                continue
+            line_no = 0
+            max_bytes = None if single_file else _MAX_FILE_SIZE
+            for line in _iter_grep_lines(file_path, cancel, max_bytes):
+                if line_no % 1000 == 0 and cancel.is_set():
+                    status = "timeout"
                     break
 
-                # Process any remaining hits in the buffer after EOF.
-                # These are hits that never became the middle of a full window
-                # (e.g., hits near file start or end).
-                for hit_idx in hit_indices:
-                    hit_line_no = sliding_window[hit_idx][0]
-                    success, total_chars = _output_context_for_hit(
-                        hit_line_no,
-                        sliding_window,
-                        display_path,
-                        context_lines,
-                        matches,
-                        total_chars,
-                        show_file=show_file,
-                        single_file=single_file,
-                        headers_emitted=headers_emitted,
-                    )
-                    if not success:
-                        status = (
-                            f"truncated: match limit ({_MAX_MATCHES})"
-                            if len(matches) >= _MAX_MATCHES
-                            else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-                        )
-                        break
+                line_no = line_no + 1
+                line_content = line.rstrip("\n").rstrip("\r")
+                is_match = bool(regex.search(line_content))
 
-        except OSError:
+                sliding_window.append((line_no, line_content))
+                if is_match:
+                    hit_indices.append(len(sliding_window) - 1)
+
+                if len(sliding_window) == window_size:
+                    # Process hits that are before the middle of the window.
+                    # These hits have collected their full context (context_lines after).
+                    while hit_indices and hit_indices[0] < middle_idx:
+                        hit_line = sliding_window[hit_indices.pop(0)][0]
+                        success, total_chars = _output_context_for_hit(
+                            hit_line,
+                            sliding_window,
+                            display_path,
+                            context_lines,
+                            matches,
+                            total_chars,
+                            show_file=show_file,
+                            single_file=single_file,
+                            headers_emitted=headers_emitted,
+                        )
+                        if not success:
+                            status = (
+                                f"truncated: match limit ({_MAX_MATCHES})"
+                                if len(matches) >= _MAX_MATCHES
+                                else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
+                            )
+                            break
+
+                    if status != "ok":
+                        break
+                    # Process the middle position hit if any.
+                    # At this point, the hit has context_lines before and after.
+                    if hit_indices and hit_indices[0] == middle_idx:
+                        hit_line = sliding_window[hit_indices.pop(0)][0]
+                        success, total_chars = _output_context_for_hit(
+                            hit_line,
+                            sliding_window,
+                            display_path,
+                            context_lines,
+                            matches,
+                            total_chars,
+                            show_file=show_file,
+                            single_file=single_file,
+                            headers_emitted=headers_emitted,
+                        )
+                        if not success:
+                            status = (
+                                f"truncated: match limit ({_MAX_MATCHES})"
+                                if len(matches) >= _MAX_MATCHES
+                                else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
+                            )
+                            break
+                    # Slide the window forward by removing the oldest line.
+                    # Adjust remaining hit indices to match new positions.
+                    sliding_window.popleft()
+                    hit_indices = [i - 1 for i in hit_indices if i > 0]
+
+            if status != "ok":
+                break
+
+            # Process any remaining hits in the buffer after EOF.
+            # These are hits that never became the middle of a full window
+            # (e.g., hits near file start or end).
+            for hit_idx in hit_indices:
+                hit_line_no = sliding_window[hit_idx][0]
+                success, total_chars = _output_context_for_hit(
+                    hit_line_no,
+                    sliding_window,
+                    display_path,
+                    context_lines,
+                    matches,
+                    total_chars,
+                    show_file=show_file,
+                    single_file=single_file,
+                    headers_emitted=headers_emitted,
+                )
+                if not success:
+                    status = (
+                        f"truncated: match limit ({_MAX_MATCHES})"
+                        if len(matches) >= _MAX_MATCHES
+                        else f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
+                    )
+                    break
+
+        except _GrepCancelled:
+            status = "timeout"
+            break
+        except (OSError, UnicodeDecodeError):
             continue
 
         if status != "ok":
