@@ -351,3 +351,124 @@ def test_persisted_false_thinking_budget_is_reset_on_load():
     assert migrate_provider_snapshot(data) is True
     loaded = OpenAIProvider.model_validate(data)
     assert loaded.models[0].thinking_budget is None
+
+
+@pytest.mark.parametrize("bad_string", ["1.", "1000.", "1.0e3"])
+def test_persisted_non_pydantic_numeric_string_scalar_is_reset(bad_string):
+    # Strings such as "1." parse as floats in Python, but Pydantic
+    # rejects them for int fields. The migration used to accept them
+    # via float(), keep the value, and the provider then still failed
+    # validation on load.
+    data = make_persisted_snapshot()
+    data["models"][0]["thinking_budget"] = bad_string
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget is None
+
+
+def test_persisted_trailing_dot_max_input_length_restores_default():
+    data = make_persisted_snapshot()
+    data["models"][0]["max_input_length"] = "1000."
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    assert "max_input_length" not in data["models"][0]
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW
+
+
+@pytest.mark.parametrize(
+    "bad_range",
+    [["1.", "9000"], ["1000.", 9000], ["1e3", "9000"], ["1.0e3", 9000]],
+)
+def test_persisted_non_pydantic_string_range_is_dropped_on_load(bad_range):
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget_range"] = bad_range
+    with pytest.raises(ValidationError):
+        OpenAIProvider.model_validate(data)
+    assert migrate_provider_snapshot(data) is True
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget_range is None
+
+
+def test_persisted_decimal_string_values_are_preserved_on_load():
+    # "100.0" is accepted by Pydantic for int fields, so the
+    # tightened coercion must keep accepting it.
+    data = make_persisted_snapshot(thinking_budget_range=[100, 9000])
+    data["models"][0]["thinking_budget"] = "100.0"
+    data["models"][0]["thinking_budget_range"] = ["100.0", "9000.0"]
+    assert migrate_provider_snapshot(data) is False
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].thinking_budget == 100
+    assert loaded.models[0].thinking_budget_range == [100, 9000]
+
+
+def test_update_model_config_atomic_when_thinking_budget_invalid():
+    # The reviewer's example: a valid max_input_length in the same
+    # call as an invalid thinking_budget must not be applied when
+    # the call raises.
+    provider = make_provider()
+    model = provider.models[0]
+    original_max = model.max_input_length
+    with pytest.raises(ValueError, match="thinking_budget"):
+        provider.update_model_config(
+            "m1",
+            {"max_input_length": 64000, "thinking_budget": 0},
+        )
+    assert model.max_input_length == original_max
+    assert model.max_input_length_configured is False
+    assert model.config_overrides == []
+    assert model.thinking_budget is None
+
+
+def test_update_model_config_atomic_when_max_input_length_invalid():
+    provider = make_provider()
+    model = provider.models[0]
+    with pytest.raises(ValueError, match="max_input_length"):
+        provider.update_model_config(
+            "m1",
+            {
+                "model_type": "decision",
+                "supports_image": True,
+                "template_id": "tpl-1",
+                "generate_kwargs": {"temperature": 0.1},
+                "max_input_length": 500,
+            },
+        )
+    assert model.model_type == "chat"
+    assert model.supports_image is None
+    assert model.template_id is None
+    assert model.generate_kwargs == {}
+    assert model.config_overrides == []
+
+
+def test_update_model_config_atomic_when_bool_field_invalid():
+    provider = make_provider()
+    model = provider.models[0]
+    with pytest.raises(ValueError, match="supports_image"):
+        provider.update_model_config(
+            "m1",
+            {"model_type": "decision", "supports_image": "yes"},
+        )
+    assert model.model_type == "chat"
+    assert model.supports_image is None
+    assert model.config_overrides == []
+
+
+def test_update_model_config_atomic_when_thinking_control_invalid():
+    provider = make_provider()
+    model = provider.models[0]
+    with pytest.raises(ValidationError):
+        provider.update_model_config(
+            "m1",
+            {
+                "model_type": "decision",
+                # A budget control without its range is invalid.
+                "thinking_control": {"kind": "budget"},
+            },
+        )
+    assert model.model_type == "chat"
+    assert model.thinking_control is None
+    assert model.config_overrides == []

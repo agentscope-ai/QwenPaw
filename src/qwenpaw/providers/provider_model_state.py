@@ -4,6 +4,8 @@
 import logging
 from typing import Any
 
+from pydantic import TypeAdapter, ValidationError
+
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 from .thinking import ThinkingControl
@@ -67,34 +69,23 @@ def _migrate_legacy_model_output_limit(
     model["generate_kwargs"] = generate_kwargs
 
 
+_LOOSE_INT_ADAPTER = TypeAdapter(int)
+
+
 def _coerce_loose_int(value: Any) -> int | None:
     """Return *value* as an int the way Pydantic would, else None.
 
-    Mirrors Pydantic's lax int parsing: real ints, bools (coerced to
-    0/1), integral floats and numeric strings (``"100"``, ``"100.0"``)
-    convert; fractional floats and non-numeric values do not.
+    Delegates to Pydantic's own lax int coercion, so the migration
+    accepts exactly what model validation on load would accept:
+    real ints, bools (coerced to 0/1), integral floats and numeric
+    strings (``"100"``, ``"100.0"``) convert, while strings Python's
+    ``float()`` would accept but Pydantic rejects (``"1."``,
+    ``"1e3"``, ``"1.0e3"``) do not.
     """
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value) if value.is_integer() else None
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        try:
-            return int(text)
-        except ValueError:
-            pass
-        if "." in text:
-            try:
-                number = float(text)
-            except ValueError:
-                return None
-            return int(number) if number.is_integer() else None
-    return None
+    try:
+        return _LOOSE_INT_ADAPTER.validate_python(value)
+    except ValidationError:
+        return None
 
 
 def _coerce_range_ints(value: Any) -> list[int] | None:
