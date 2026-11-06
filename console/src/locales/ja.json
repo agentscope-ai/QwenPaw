@@ -1689,7 +1689,9 @@
     "requiredField": "{{field}}を入力してください",
     "portRange": "ポートは1〜65535で指定してください",
     "developmentMode": "開発（pyVoIP）",
-    "productionMode": "本番（LiveKit）"
+    "productionMode": "本番（LiveKit）",
+    "customFieldJsonArray": "有効な JSON 配列を入力してください。",
+    "customFieldJsonObject": "有効な JSON オブジェクトを入力してください。"
   },
   "sessions": {
     "title": "セッション",

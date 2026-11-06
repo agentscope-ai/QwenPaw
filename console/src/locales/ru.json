@@ -1691,7 +1691,9 @@
     "requiredField": "Введите {{field}}",
     "portRange": "Порт должен быть от 1 до 65535",
     "developmentMode": "Разработка (pyVoIP)",
-    "productionMode": "Эксплуатация (LiveKit)"
+    "productionMode": "Эксплуатация (LiveKit)",
+    "customFieldJsonArray": "Введите корректный JSON-массив.",
+    "customFieldJsonObject": "Введите корректный JSON-объект."
   },
   "sessions": {
     "title": "Сессии",
