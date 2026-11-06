@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from qwenpaw.app.crons.executor import CronExecutor
+from qwenpaw.app.crons.executor import (
+    CronExecutor,
+    _cron_run_session_prefix,
+)
 from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
@@ -363,3 +367,145 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
             channel_manager=AsyncMock(),
         ).execute(job)
     assert not workspace.requests
+
+
+@pytest.mark.asyncio
+async def test_per_run_session_job_gets_distinct_session_per_run(
+    monkeypatch,
+):
+    workspace = _Workspace()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.side_effect = [
+        SimpleNamespace(id="chat-1"),
+        SimpleNamespace(id="chat-2"),
+    ]
+    workspace.chat_manager.list_chats = AsyncMock(return_value=[])
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="job-1")
+    job.runtime.share_session = False
+    job.runtime.per_run_session = True
+
+    _patch_trace_storage(monkeypatch)
+
+    executor = CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    )
+    first = await executor.execute(job)
+    second = await executor.execute(job)
+
+    first_session = workspace.requests[0]["session_id"]
+    second_session = workspace.requests[1]["session_id"]
+    assert first_session != second_session
+    assert first_session == first["session_id"]
+    assert second_session == second["session_id"]
+    expected_prefix = _cron_run_session_prefix(
+        target_session_id="console:u1",
+        job_id="job-1",
+    )
+    assert first_session.startswith(expected_prefix)
+    assert second_session.startswith(expected_prefix)
+    assert workspace.requests[0]["session_source"] == "cron"
+
+    chat_calls = workspace.chat_manager.get_or_create_chat.await_args_list
+    assert [call.kwargs["session_id"] for call in chat_calls] == [
+        first_session,
+        second_session,
+    ]
+    # Run chats carry a timestamp so operators can tell runs apart.
+    assert all("·" in call.kwargs["name"] for call in chat_calls)
+
+
+@pytest.mark.asyncio
+async def test_per_run_session_trims_old_run_chats(monkeypatch, tmp_path):
+    workspace = _Workspace()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="chat-new",
+    )
+    workspace.chat_manager.delete_chats = AsyncMock(return_value=True)
+    prefix = _cron_run_session_prefix(
+        target_session_id="console:u1",
+        job_id="job-1",
+    )
+    now = datetime.now(timezone.utc)
+
+    def _run_chat(idx: int):
+        return SimpleNamespace(
+            id=f"chat-{idx}",
+            session_id=f"{prefix}run-{idx}",
+            user_id="u1",
+            channel="console",
+            created_at=now - timedelta(minutes=idx),
+        )
+
+    # Retention default is 50; pin it low so the trim is exercisable.
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.executor._CRON_PER_RUN_CHAT_KEEP",
+        3,
+    )
+    run_chats = [_run_chat(i) for i in range(5)]
+    unrelated = SimpleNamespace(
+        id="chat-other",
+        session_id="console:u1",
+        user_id="u1",
+        channel="console",
+        created_at=now,
+    )
+    workspace.chat_manager.list_chats = AsyncMock(
+        return_value=run_chats + [unrelated],
+    )
+    removed_files: list[str] = []
+    workspace.session = SimpleNamespace(
+        delete_session_file=lambda session_id, user_id, channel: (
+            removed_files.append(session_id) or True
+        ),
+    )
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="job-1")
+    job.runtime.share_session = False
+    job.runtime.per_run_session = True
+
+    _patch_trace_storage(monkeypatch)
+
+    executor = CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    )
+    await executor.execute(job)
+
+    workspace.chat_manager.delete_chats.assert_awaited_once()
+    stale_ids = workspace.chat_manager.delete_chats.await_args.args[0]
+    # Newest `keep=3` run chats survive; oldest 2 are removed.
+    assert sorted(stale_ids) == ["chat-3", "chat-4"]
+    assert sorted(removed_files) == [
+        f"{prefix}run-3",
+        f"{prefix}run-4",
+    ]
+    # Unrelated chats are never touched.
+    assert "console:u1" not in removed_files
+
+
+@pytest.mark.asyncio
+async def test_legacy_job_sessions_are_not_trimmed(monkeypatch):
+    workspace = _Workspace()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="chat-1",
+    )
+    workspace.chat_manager.list_chats = AsyncMock(return_value=[])
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="job-1")
+    job.runtime.share_session = False
+
+    _patch_trace_storage(monkeypatch)
+
+    executor = CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    )
+    await executor.execute(job)
+
+    # Legacy per-job chat flow must not invoke run-chat housekeeping.
+    workspace.chat_manager.list_chats.assert_not_awaited()
+    workspace.chat_manager.delete_chats.assert_not_awaited()

@@ -169,6 +169,18 @@ class JobRuntimeSpec(BaseModel):
             "chat for this job."
         ),
     )
+    per_run_session: bool = Field(
+        default=False,
+        description=(
+            "If True, every execution runs in its own dedicated session "
+            "(``cron:{target}:job:{job}:run:{run}``) so context loading and "
+            "persisted history stay bounded to a single run. High-frequency "
+            "jobs otherwise accumulate every run's conversation in one "
+            "per-job session without bound. Only applies when "
+            "share_session is False; old run chats beyond the retention "
+            "window are trimmed after each execution."
+        ),
+    )
     tool_safety: bool = Field(
         default=False,
         description=(
