@@ -319,3 +319,32 @@
     - "^\\s*#"
   description: "Command uses Zsh-specific builtins that can bypass security checks"
   remediation: "Block Zsh module/builtin commands. These provide raw file I/O, network, and execution capabilities that bypass normal permission checks."
+
+# ── Inline Office COM Automation ─────────────────────────────────────
+# PowerPoint/Excel/Word/Outlook are single-instance COM servers: attaching
+# to "PowerPoint.Application" binds to the *user's* running app, so a
+# Quit() on that object closes the user's document, not a private
+# automation instance. The agent only reaches this path by improvising
+# shell COM (New-Object -ComObject / GetActiveObject / CreateObject /
+# win32com Dispatch), which matches no other rule and therefore falls
+# through to SANDBOX_FALLBACK — and ResourceGovernor rewrites that to
+# ALLOW whenever the sandbox is off. Flagging the construction itself
+# keeps the decision on the approval path instead of the unsandboxed one.
+- id: TOOL_CMD_OFFICE_COM_AUTOMATION
+  tools: [execute_shell_command]
+  params: [command]
+  category: resource_abuse
+  severity: CRITICAL
+  patterns:
+    # Construction verb followed by a single-instance Office server, e.g.
+    # New-Object -ComObject PowerPoint.Application
+    # [Activator]::CreateInstance([Type]::GetTypeFromProgID("Word.Application"))
+    # win32com.client.Dispatch("Excel.Application")
+    - "(?:New-Object|GetActiveObject|GetObject|CreateObject|CreateInstance|GetTypeFromProgID|Dispatch|DispatchEx)\\b[\\s\\S]{0,200}?\\b(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b"
+    # Same pairing in the other order, for the split
+    # "$t = GetTypeFromProgID(...); CreateInstance($t)" spelling.
+    - "\\b(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b[\\s\\S]{0,200}?(?:New-Object|GetActiveObject|GetObject|CreateObject|CreateInstance|GetTypeFromProgID|Dispatch|DispatchEx)\\b"
+    # Quit() on an attached Office server terminates the user's open app.
+    - "\\b(?:PowerPoint|Excel|Word|Outlook)\\.Application\\b[\\s\\S]{0,240}?\\.\\s*Quit\\s*\\("
+  description: "Command attaches to a running Office COM server (PowerPoint/Excel/Word/Outlook), which can terminate the user's open application"
+  remediation: "Block inline Office COM automation. Agents must not drive the user's running Office applications from the shell; Close() only private instances the agent created itself."

@@ -703,6 +703,72 @@ class TestRuleBasedToolGuardianInit:
 class TestRuleBasedToolGuardianGuard:
     """Tests for RuleBasedToolGuardian.guard."""
 
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "New-Object -ComObject PowerPoint.Application",
+            "$ppt = New-Object -ComObject PowerPoint.Application; $ppt.Quit()",
+            'powershell -c "(New-Object -ComObject Excel.Application).Quit()"',
+            '$t=[Type]::GetTypeFromProgID("Word.Application"); '
+            "[Activator]::CreateInstance($t)",
+            'win32com.client.Dispatch("Outlook.Application").Quit()',
+            '$w = GetActiveObject("Word.Application"); $w.Quit()',
+        ],
+    )
+    def test_guard_bundled_office_com_rule(
+        self,
+        mock_config_rules,
+        mock_workspace_root,
+        command,
+    ):
+        """The bundled Office COM rule fires on the real rules directory.
+
+        These servers are single-instance, so attaching to them binds to
+        the user's running application and ``Quit()`` closes it.
+        """
+        guardian = RuleBasedToolGuardian()
+        findings = [
+            f
+            for f in guardian.guard(
+                "execute_shell_command",
+                {"command": command},
+            )
+            if f.rule_id == "TOOL_CMD_OFFICE_COM_AUTOMATION"
+        ]
+
+        assert len(findings) == 1
+        assert findings[0].severity == GuardSeverity.CRITICAL
+        assert findings[0].category == GuardThreatCategory.RESOURCE_ABUSE
+        assert findings[0].param_name == "command"
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "echo hello",
+            "python render_deck.py --out deck.pptx",
+            "git commit -m 'document Word.Application'",
+            "echo 'PowerPoint.Application is a COM server'",
+        ],
+    )
+    def test_guard_bundled_office_com_rule_ignores_benign(
+        self,
+        mock_config_rules,
+        mock_workspace_root,
+        command,
+    ):
+        """Naming an Office server is not the same as attaching to one."""
+        guardian = RuleBasedToolGuardian()
+        findings = [
+            f
+            for f in guardian.guard(
+                "execute_shell_command",
+                {"command": command},
+            )
+            if f.rule_id == "TOOL_CMD_OFFICE_COM_AUTOMATION"
+        ]
+
+        assert not findings
+
     def test_guard_matching_rule(
         self,
         tmp_path,
