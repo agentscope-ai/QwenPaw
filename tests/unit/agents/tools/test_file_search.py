@@ -895,7 +895,7 @@ def test_walk_and_grep_matches_gbk_file(temp_dir):
     """GBK/CP936 files must remain searchable for Chinese queries."""
     target = temp_dir / "note.txt"
     target.write_bytes(
-        ("姓名: 张三" + chr(10) + "地址: 上海" + chr(10)).encode("gbk")
+        ("姓名: 张三" + chr(10) + "地址: 上海" + chr(10)).encode("gbk"),
     )
 
     regex = _compile_search_pattern("张三", is_regex=False, flags=0)
