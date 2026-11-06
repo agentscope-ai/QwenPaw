@@ -204,25 +204,31 @@ def _choose_fallback_decoding(
 ) -> tuple[str, bool] | None:
     """Pick ``(encoding, lossy)`` after strict UTF-8 failed.
 
-    ``None`` means Latin-1. Lossy UTF-8 wins when a real non-ASCII
-    character or a BOM survived a sparse replacement. Otherwise a strict
-    legacy decode wins. CP1252 beats GBK only when every GBK pair ate an
-    ASCII letter *from a CP1252 accented lead* (0xC0+) and at least one
-    ASCII letter was left unpaired (``Cafés``). GBK leads below 0xC0
-    with a letter trail (``name=檔``, ``\x99\x74\x8c\x48``) count as
-    *other*, so GBK keeps priority over CP1252. A dirty lead that CP1252
-    rejects (``hello\x81world``) still yields lossy UTF-8 when the ratio
-    looks mostly UTF-8, instead of inventing a CJK character.
+    ``None`` means Latin-1. Lossy UTF-8 wins when a BOM survived, or when
+    a real non-ASCII character survived after GBK-aware filtering
+    (incidental non-CJK leftovers such as ``name=这不`` → U+2CBB do not
+    count; dirty UTF-8 with CJK ideographs still wins). Otherwise a
+    strict legacy decode wins. CP1252 beats GBK only when every GBK pair
+    ate an ASCII letter *from a CP1252 accented lead* (0xC0+) and there
+    are *more* unpaired ASCII letters than such pairs (``Cafés``). A
+    single ambiguous pattern such as ``A\xc0A`` (valid GBK ``A繟``) keeps
+    GBK. GBK leads below 0xC0 with a letter trail (``name=檔``,
+    ``\x99\x74\x8c\x48``) count as *other*, so GBK keeps priority over
+    CP1252. A dirty lead that CP1252 rejects (``hello\x81world``) still
+    yields lossy UTF-8 when the ratio looks mostly UTF-8, instead of
+    inventing a CJK character.
     """
     ratio_ok = _lossy_ratio_ok(
         signals.bad,
         signals.good,
         bom=signals.bom,
     )
+    # Require stricter Western evidence than a lone A\xc0A-style pair
+    # that is also valid GBK.
     suspicious = (
         signals.letter_trails > 0
         and signals.other_trails == 0
-        and signals.unpaired_ascii_letters > 0
+        and signals.unpaired_ascii_letters > signals.letter_trails
     )
     dirty_gbk_pair = (
         signals.gbk_ok
@@ -257,6 +263,15 @@ def _lossy_saw_three_byte_char(text: str) -> bool:
     return any(ord(ch) >= 0x800 and ch != "�" for ch in text)
 
 
+def _lossy_has_cjk_ideograph(text: str) -> bool:
+    """True when lossy UTF-8 kept a CJK Unified Ideograph.
+
+    Used to tell dirty UTF-8 (``姓名`` + one bad byte) from GBK bytes that
+    only happen to form a non-CJK 3-byte sequence (``name=这不`` → U+2CBB).
+    """
+    return any(0x4E00 <= ord(ch) <= 0x9FFF for ch in text)
+
+
 def _signals_for_bytes(
     data: bytes,
     *,
@@ -278,9 +293,11 @@ def _signals_for_bytes(
         raw = data.decode("utf-8-sig", errors="replace")
     bad, good, saw_non_ascii = _lossy_text_stats(raw)
     bom = data.startswith(_UTF8_BOM)
-    # Valid GBK whose bytes accidentally form a short UTF-8 sequence
-    # (``name=一锘``) must fall through to GBK, not lossy UTF-8.
-    if gbk_ok and not bom and not _lossy_saw_three_byte_char(raw):
+    # Valid GBK whose bytes accidentally form UTF-8 must fall through to
+    # GBK, not lossy UTF-8. Clear saw_non_ascii unless lossy kept a real
+    # CJK ideograph (dirty UTF-8 such as ``姓名`` + ``\xff``). A lone
+    # non-CJK 3-byte leftover (``name=这不`` → U+2CBB) must not win.
+    if gbk_ok and not bom and not _lossy_has_cjk_ideograph(raw):
         saw_non_ascii = False
     other, letters, unpaired = _gbk_pair_trail_kinds(data)
     return _FallbackSignals(

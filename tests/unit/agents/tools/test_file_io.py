@@ -463,6 +463,20 @@ def test_decode_gbk_not_overridden_by_accidental_utf8():
     assert decode_text_bytes_with_encoding_fallback(raw) == "name=一锘"
 
 
+
+def test_decode_gbk_zhebu_not_lossy_utf8():
+    """GBK ``name=这不`` must not keep incidental three-byte lossy UTF-8."""
+    raw = "name=这不".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=这不"
+
+
+def test_decode_gbk_axc0a_not_cp1252():
+    """Ambiguous ``A\\xc0A`` is valid GBK ``A繟``, not CP1252 ``AÀA``."""
+    raw = b"A\xc0A"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "A繟"
+    assert decode_text_bytes_with_encoding_fallback(raw) != "AÀA"
+
+
 def test_decode_capped_utf8_partial_char_keeps_prefix():
     """A max_bytes cut mid-character must not inflate invalids into Latin-1."""
     base = "姓名: 张三\n".encode("utf-8") + b"\xff"
