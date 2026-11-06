@@ -276,6 +276,107 @@ class TestCheckMultimodalSupport:
         side_effect=RuntimeError("no agent override"),
     )
     @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_chatgpt_discovery_preserves_explicit_image_opt_out(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents import prompt
+        from qwenpaw.providers.chatgpt_provider import ChatGPTProvider
+        from qwenpaw.providers.model_info import ModelInfo
+
+        active = MagicMock(provider_id="chatgpt", model="gpt-5.4")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=False,
+            supports_multimodal=False,
+            config_overrides=["supports_image"],
+        )
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        provider = ChatGPTProvider(
+            id="chatgpt",
+            name="ChatGPT",
+            extra_models=[raw_model],
+            discovered_models=[discovered_model],
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        model_info, _ = prompt._get_active_model_info()
+
+        assert model_info.supports_image is False
+        assert _check_multimodal_support("image") is False
+        assert prompt.get_active_model_supports_multimodal() is False
+        assert prompt.get_model_supports_image() is False
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_explicit_multimodal_opt_out_blocks_discovered_image(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents import prompt
+        from qwenpaw.providers.model_info import ModelInfo
+        from qwenpaw.providers.openai_provider import OpenAIProvider
+
+        active = MagicMock(provider_id="custom", model="custom-vision")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=False,
+            config_overrides=["supports_multimodal"],
+        )
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        provider = OpenAIProvider(
+            id="custom",
+            name="Custom",
+            extra_models=[raw_model],
+            discovered_models=[discovered_model],
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        model_info, _ = prompt._get_active_model_info()
+
+        assert model_info.supports_image is True
+        assert model_info.supports_multimodal is False
+        assert _check_multimodal_support("image") is False
+        assert prompt.get_active_model_supports_multimodal() is False
+        assert prompt.get_model_supports_image() is False
+        current_model = MagicMock(model_key="custom:custom-vision")
+        assert prompt.get_model_supports_image(current_model) is False
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
     def test_active_probe_settled_text_only_stays_text_only(
         self,
         _agent_id,

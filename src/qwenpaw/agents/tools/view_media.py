@@ -578,29 +578,26 @@ async def _probe_multimodal_if_needed(
 def _check_multimodal_support(media_type: str = "image") -> bool:
     """Check whether the active model supports the given media type (sync).
 
-    For ``image``: a configured supports_image override takes precedence;
-    otherwise returns True when supports_image or supports_multimodal is
-    explicitly True. For ``video``: returns True only when supports_video
-    is explicitly True.
+    Modality-specific overrides take precedence, and an explicit multimodal
+    opt-out blocks discovered modality support. Otherwise, images require
+    supports_image or supports_multimodal, while videos require
+    supports_video explicitly.
 
     Returns False for unknown (None) or explicitly unsupported (False).
     The tool is still *registered*; the async probe path handles the
     probe-on-demand logic.
     """
     try:
-        from ..prompt import _get_active_model_info
+        from ..prompt import _explicit_media_override, _get_active_model_info
 
         model_info, _ = _get_active_model_info()
         if model_info is None:
             return True
+        explicit = _explicit_media_override(model_info, media_type)
+        if explicit is not None:
+            return explicit
         if media_type == "video":
             return model_info.supports_video is True
-        if "supports_image" in getattr(
-            model_info,
-            "config_overrides",
-            [],
-        ):
-            return model_info.supports_image is True
         # image: True if supports_image or the combined supports_multimodal
         return (
             model_info.supports_image is True

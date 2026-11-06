@@ -457,11 +457,26 @@ def _get_active_model_info(agent_config=None):
         return None, None
 
 
+def _explicit_media_override(model_info, media_type="image"):
+    """Return explicit media support, prioritizing modality-specific flags."""
+    overrides = getattr(model_info, "config_overrides", [])
+    capability = f"supports_{media_type}"
+    if capability in overrides:
+        return getattr(model_info, capability) is True
+    if (
+        "supports_multimodal" in overrides
+        and model_info.supports_multimodal is False
+    ):
+        return False
+    return None
+
+
 def get_active_model_supports_multimodal() -> bool:
     """Check if the current active model supports multimodal input.
 
-    Defaults to True when model info is unavailable or the
-    capability has not been probed yet, so that unknown models
+    Explicit image settings and multimodal opt-outs take precedence over
+    discovered capabilities. Defaults to True when model info is unavailable
+    or the capability has not been probed yet, so that unknown models
     fail-open (sending an image to a text-only model yields a
     recoverable API error, but stripping images from a
     multimodal model silently breaks functionality).
@@ -469,6 +484,9 @@ def get_active_model_supports_multimodal() -> bool:
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return True
+    explicit = _explicit_media_override(model_info)
+    if explicit is not None:
+        return explicit
     if model_info.supports_image or model_info.supports_video:
         return True
     return model_info.supports_multimodal is not False
@@ -480,13 +498,17 @@ def get_model_supports_image(current_model: Any = None) -> bool:
     QwenPaw model wrappers expose ``provider_id:model`` through
     ``model_key``. When no request-local model is supplied, use the configured
     active model. Visual Compact requires explicit image support; generic
-    multimodal support and unknown metadata are not sufficient.
+    multimodal support and unknown metadata are not sufficient. Explicit
+    image settings and multimodal opt-outs take precedence over discovery.
     """
     if current_model is None:
         model_info, _ = _get_active_model_info()
-        return bool(
-            model_info is not None and model_info.supports_image is True,
-        )
+        if model_info is None:
+            return False
+        explicit = _explicit_media_override(model_info)
+        if explicit is not None:
+            return explicit
+        return model_info.supports_image is True
     try:
         model_key = getattr(current_model, "model_key", None)
         provider_id = ""
@@ -520,6 +542,9 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                     None,
                 )
                 if model_info is not None:
+                    explicit = _explicit_media_override(model_info)
+                    if explicit is not None:
+                        return explicit
                     return model_info.supports_image is True
     except Exception:
         pass
