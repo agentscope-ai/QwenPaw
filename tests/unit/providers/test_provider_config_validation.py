@@ -23,6 +23,7 @@ from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.provider_discovery import apply_discovery_metadata
 from qwenpaw.providers.provider_model_state import migrate_provider_snapshot
 
 
@@ -318,6 +319,118 @@ def test_persisted_invalid_max_input_length_clears_configured_flag():
     assert loaded.models[0].max_input_length == DEFAULT_CONTEXT_WINDOW
     assert loaded.models[0].max_input_length_configured is False
     assert loaded.models[0].config_overrides == ["thinking_budget"]
+
+
+def test_persisted_invalid_max_output_length_clears_override_and_source():
+    # Resetting the value is not enough on its own: the snapshot also
+    # carries the field's config_overrides entry and its provenance
+    # metadata. Left in place, discovery keeps treating the field as a
+    # user override (max_output_length_source == "user" blocks every
+    # max_output_length* field) and never refills it from the API.
+    data = make_persisted_snapshot()
+    model = data["models"][0]
+    model["max_output_length"] = 0
+    model["max_output_length_source"] = "user"
+    model["max_output_length_updated_at"] = "2025-01-01T00:00:00+00:00"
+    model["config_overrides"] = [
+        "max_output_length",
+        "max_output_length_source",
+        "thinking_budget",
+    ]
+    assert migrate_provider_snapshot(data) is True
+    assert model["max_output_length"] is None
+    assert model["max_output_length_source"] == "unknown"
+    assert model["max_output_length_updated_at"] is None
+    assert model["config_overrides"] == ["thinking_budget"]
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].max_output_length is None
+    assert loaded.models[0].max_output_length_source == "unknown"
+    assert loaded.models[0].max_output_length_updated_at is None
+    assert loaded.models[0].config_overrides == ["thinking_budget"]
+
+
+def test_persisted_invalid_input_token_limit_clears_override_and_source():
+    # Same stale-provenance problem on the other sourced scalar: the
+    # value resets to None while input_token_limit_source stays "api"
+    # and the override entry keeps discovery from refilling the field.
+    data = make_persisted_snapshot()
+    model = data["models"][0]
+    model["input_token_limit"] = 0
+    model["input_token_limit_source"] = "api"
+    model["config_overrides"] = [
+        "input_token_limit",
+        "input_token_limit_source",
+        "thinking_budget",
+    ]
+    assert migrate_provider_snapshot(data) is True
+    assert model["input_token_limit"] is None
+    assert model["input_token_limit_source"] == "unknown"
+    assert model["config_overrides"] == ["thinking_budget"]
+    loaded = OpenAIProvider.model_validate(data)
+    assert loaded.models[0].input_token_limit is None
+    assert loaded.models[0].input_token_limit_source == "unknown"
+    assert loaded.models[0].config_overrides == ["thinking_budget"]
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("thinking_budget", 0),
+        ("max_input_length_auto_detected", 500),
+    ],
+)
+def test_persisted_invalid_scalar_without_source_clears_override_entry(
+    field,
+    bad_value,
+):
+    # thinking_budget and max_input_length_auto_detected carry no
+    # source/timestamp metadata in ModelInfo; only their
+    # config_overrides entry needs clearing when they are reset.
+    data = make_persisted_snapshot()
+    model = data["models"][0]
+    model[field] = bad_value
+    model["config_overrides"] = [field, "model_type"]
+    assert migrate_provider_snapshot(data) is True
+    assert model[field] is None
+    assert model["config_overrides"] == ["model_type"]
+    loaded = OpenAIProvider.model_validate(data)
+    assert getattr(loaded.models[0], field) is None
+    assert loaded.models[0].config_overrides == ["model_type"]
+
+
+def test_migrated_model_accepts_discovery_metadata():
+    # The reviewer's scenario end to end: after the migration resets
+    # the sourced scalars, a fresh discovery pass must be able to
+    # refill them instead of skipping them as user overrides.
+    data = make_persisted_snapshot()
+    model = data["models"][0]
+    model["max_output_length"] = 0
+    model["max_output_length_source"] = "user"
+    model["max_output_length_updated_at"] = "2025-01-01T00:00:00+00:00"
+    model["input_token_limit"] = 0
+    model["input_token_limit_source"] = "api"
+    model["config_overrides"] = ["max_output_length", "input_token_limit"]
+    assert migrate_provider_snapshot(data) is True
+    provider = OpenAIProvider.model_validate(data)
+    configured = provider.models[0]
+    assert configured.max_output_length is None
+    assert configured.input_token_limit is None
+
+    fetched = ModelInfo(
+        id="m1",
+        name="Model 1",
+        max_output_length=8192,
+        input_token_limit=200000,
+        input_token_limit_source="api",
+    )
+    apply_discovery_metadata(provider, [fetched], "2026-11-06T00:00:00+00:00")
+    assert configured.max_output_length == 8192
+    assert configured.max_output_length_source == "api"
+    assert (
+        configured.max_output_length_updated_at == "2026-11-06T00:00:00+00:00"
+    )
+    assert configured.input_token_limit == 200000
+    assert configured.input_token_limit_source == "api"
 
 
 def test_persisted_bool_thinking_budget_follows_pydantic_coercion():

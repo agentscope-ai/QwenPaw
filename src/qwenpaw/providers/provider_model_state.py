@@ -166,6 +166,47 @@ _MODEL_SCALAR_MINIMUMS = (
 )
 
 
+# Provenance metadata carried alongside a bounded scalar, restored to
+# the ``ModelInfo`` defaults when the scalar itself is reset. Fields
+# not listed here (``thinking_budget``,
+# ``max_input_length_auto_detected``) have no source/timestamp fields
+# in ``ModelInfo``; only their ``config_overrides`` entry is cleared.
+_SCALAR_METADATA_DEFAULTS: dict[str, dict[str, Any]] = {
+    "max_output_length": {
+        "max_output_length_source": "unknown",
+        "max_output_length_updated_at": None,
+    },
+    "input_token_limit": {
+        "input_token_limit_source": "unknown",
+    },
+}
+
+
+def _clear_scalar_override(model: dict[str, Any], field: str) -> None:
+    """Clear the explicit-override markers of a reset scalar field.
+
+    Resetting the value is not enough on its own: the snapshot also
+    carries the field's ``config_overrides`` entries and its provenance
+    metadata. Left in place, discovery keeps skipping the field — a
+    surviving ``max_output_length_source == "user"`` blocks every
+    ``max_output_length*`` field, and an ``input_token_limit_source``
+    of ``"api"`` would keep describing a value that is now ``None`` —
+    so freshly reported API values could never refill it. The metadata
+    is restored to the ``ModelInfo`` defaults, mirroring the write
+    path's clear operation for ``max_input_length``.
+    """
+    metadata = _SCALAR_METADATA_DEFAULTS.get(field, {})
+    overrides = model.get("config_overrides")
+    if isinstance(overrides, list):
+        stale = {field, *metadata}
+        model["config_overrides"] = [
+            name for name in overrides if name not in stale
+        ]
+    for name, default in metadata.items():
+        if name in model:
+            model[name] = default
+
+
 def _clear_max_input_length_override(model: dict[str, Any]) -> None:
     """Clear the explicit-override markers for ``max_input_length``.
 
@@ -206,6 +247,7 @@ def _migrate_legacy_model_scalars(model: dict[str, Any]) -> bool:
         if optional:
             model[field] = None
             outcome = "dropping the value"
+            _clear_scalar_override(model, field)
         else:
             model.pop(field)
             outcome = "restoring the field default"
