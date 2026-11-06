@@ -1842,7 +1842,14 @@ class IsolatedChannelProxy(BaseChannel):
     async def _response_policy(self, to_handle, meta):
         route = await self._route(to_handle, meta)
         cached = meta.get("_response_policy")
-        if cached is not None and cached[0] == route:
+        # A serialized copy (e.g. round-tripped through JSON for a runtime
+        # tool) is not a policy; only reuse a live route/DTO pair.
+        if (
+            isinstance(cached, tuple)
+            and len(cached) == 2
+            and cached[0] == route
+            and isinstance(cached[1], ResponsePolicy)
+        ):
             return cached[1]
         value = await self.channel_process.call(
             "channel.response.describe",
