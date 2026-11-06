@@ -852,6 +852,48 @@ describe("installed SDK activation after route ownership resolution", () => {
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
   it.each(["/clear", "/new"])(
+    "refreshes a running %s preload before the cache expires",
+    async (command) => {
+      const localId = "1700000000000-reset";
+      fixture.records[0].session_id = localId;
+      fixture.records.push(record(B));
+      sessionApi.preferredChatId = localId;
+      await sessionApi.getSessionList();
+      sessionApi.setLastUserMessage(
+        [A, localId],
+        command,
+        undefined,
+        "reset-command",
+      );
+      fixture.history.mockResolvedValue({ status: "running", messages: [] });
+      const preloaded = await sessionApi.preloadSession(localId);
+      expect(preloaded.realId).toBe(A);
+      expect(preloaded.session.generating).toBe(true);
+      expect(JSON.stringify(preloaded.session.messages)).toContain(command);
+
+      fixture.history.mockResolvedValue({ status: "idle", messages: [] });
+      const host = mountHost(fixture);
+      await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
+      expect(host.current().messages.getMessages()).toEqual([]);
+      for (const id of [A, localId]) {
+        expect(
+          localStorage.getItem(`qwenpaw_pending_user_msg_${id}`),
+        ).toBeNull();
+      }
+
+      await act(async () => host.current().navigate(`/chat/${B}`));
+      await waitFor(() => expect(host.adapter.isReady(B)).toBe(true));
+      await act(async () => host.current().navigate(`/chat/${A}`));
+      await waitFor(() => {
+        expect(host.current().sessions.currentSessionId).toBe(A);
+        expect(host.adapter.isReady(A)).toBe(true);
+      });
+      expect(host.current().messages.getMessages()).toEqual([]);
+      expect(fixture.transport).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["/clear", "/new"])(
     "keeps cleared history empty after %s across navigation and remount",
     async (command) => {
       fixture.records.push(record(B));

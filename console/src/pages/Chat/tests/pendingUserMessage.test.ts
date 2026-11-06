@@ -209,6 +209,119 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
   });
 
+  it.each([
+    ["/clear", "1700000000000"],
+    ["/clear", "chat-a"],
+    ["/new", "1700000000000"],
+    ["/new", "chat-a"],
+  ])(
+    "reconciles a running %s preload when returning through %s",
+    async (command, revisitId) => {
+      const localId = "1700000000000";
+      seedSessionList(localId, "runtime-a");
+      testApi.sessionList[0].realId = "chat-a";
+      testApi.sessionList.push({ id: "chat-b", sessionId: "runtime-b" });
+      sessionApi.setLastUserMessage(
+        [localId, "chat-a"],
+        command,
+        undefined,
+        "reset-command",
+      );
+      let history = { messages: [], status: "running" } as ChatHistory;
+      const getChat = await mockGetChat(history);
+      getChat.mockImplementation(async (id) =>
+        id === "chat-a"
+          ? history
+          : ({ messages: [], status: "idle" } as ChatHistory),
+      );
+
+      const preloaded = await sessionApi.preloadSession(localId);
+      expect(userCardTexts(preloaded.session)).toEqual([command]);
+      history = { messages: [], status: "idle" } as ChatHistory;
+      await sessionApi.getSession("chat-b");
+      const reopened = await sessionApi.getSession(revisitId);
+
+      expect((reopened as RuntimeSession).messages).toEqual([]);
+      for (const id of [localId, "chat-a"]) {
+        expect(localStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
+        expect(sessionStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
+      }
+    },
+  );
+
+  it.each(["1700000000000", "chat-a"])(
+    "invalidates an earlier preload when a reset is submitted through %s",
+    async (revisitId) => {
+      const localId = "1700000000000";
+      seedSessionList(localId, "runtime-a");
+      testApi.sessionList[0].realId = "chat-a";
+      const getChat = await mockGetChat({
+        messages: [
+          userMsg("old-user", "old question"),
+          assistantMsg("old-reply", "old answer"),
+        ],
+        status: "idle",
+      } as ChatHistory);
+      await sessionApi.preloadSession(localId);
+
+      sessionApi.setLastUserMessage(
+        [localId, "chat-a"],
+        "/clear",
+        undefined,
+        "reset-command",
+      );
+      getChat.mockResolvedValue({
+        messages: [],
+        status: "idle",
+      } as ChatHistory);
+      const reopened = await sessionApi.getSession(revisitId);
+
+      expect((reopened as RuntimeSession).messages).toEqual([]);
+      expect(localStorage.getItem(`${STORAGE_PREFIX}${localId}`)).toBeNull();
+      expect(localStorage.getItem(`${STORAGE_PREFIX}chat-a`)).toBeNull();
+    },
+  );
+
+  it.each(["running", "idle"])(
+    "preserves an unconfirmed attachment after preloading %s history",
+    async (status) => {
+      seedSessionList("chat-attachment");
+      sessionApi.setLastUserMessage(
+        "chat-attachment",
+        "review this file",
+        [{ type: "file", file_url: "report.pdf", file_name: "report.pdf" }],
+        "file-command",
+      );
+      const getChat = await mockGetChat({
+        messages: [],
+        status,
+      } as ChatHistory);
+      await sessionApi.preloadSession("chat-attachment");
+      const reopened = await sessionApi.getSession("chat-attachment");
+      expect(lastUserCardContent(reopened)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ file_name: "report.pdf" }),
+        ]),
+      );
+      expect(
+        localStorage.getItem(`${STORAGE_PREFIX}chat-attachment`),
+      ).not.toBeNull();
+
+      getChat.mockResolvedValue({
+        messages: [
+          userMsg("file-user", "review this file", "file-command"),
+          assistantMsg("file-reply", "reviewed"),
+        ],
+        status: "idle",
+      } as ChatHistory);
+      const completed = await sessionApi.getSession("chat-attachment");
+      expect(userCardTexts(completed)).toEqual(["review this file"]);
+      expect(
+        localStorage.getItem(`${STORAGE_PREFIX}chat-attachment`),
+      ).toBeNull();
+    },
+  );
+
   it.each(["/clear", "/new"])(
     "retains %s while the command is still running",
     async (command) => {
