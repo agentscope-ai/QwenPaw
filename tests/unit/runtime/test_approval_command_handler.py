@@ -4,7 +4,7 @@
 Covers _severity_emoji, handle() action dispatch, and the
 approve/deny/list/cancel branches (empty queue, not-found, permission
 guard, success, cross-session hint), which the first approval backfill
-pass left uncovered.
+pass left uncovered, and the reply language (agent/channel ``language``).
 """
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
@@ -24,11 +24,11 @@ from qwenpaw.security.tool_guard.approval import (
 )
 
 
-def _context(args=None):
+def _context(args=None, channel=None, workspace=None):
     return ControlContext(
-        workspace=SimpleNamespace(),
+        workspace=workspace if workspace is not None else SimpleNamespace(),
         payload=None,
-        channel=None,
+        channel=channel,
         session_id="sess-1",
         user_id="u1",
         agent_id="agent-a",
@@ -463,3 +463,143 @@ class TestShorthandHandlers:
         assert result == "denied"
         assert captured["args"]["action"] == "deny"
         assert captured["args"]["request_id"] == "req-7"
+
+
+# ---------------------------------------------------------------------------
+# Reply language
+# ---------------------------------------------------------------------------
+
+
+def _channel(language):
+    return SimpleNamespace(channel="console", _language=language)
+
+
+class TestReplyLanguage:
+    async def test_english_channel_gets_english_approval(
+        self,
+        handler,
+        mock_service,
+    ):
+        pending = _pending()
+        mock_service.get_request.return_value = pending
+        mock_service.resolve_request.return_value = pending
+        ctx = _context(
+            {"action": "approve", "request_id": "req-0001"},
+            channel=_channel("en"),
+        )
+        result = await handler.handle(ctx)
+        assert result == (
+            "✅ **Tool approved**\n\n"
+            "- Tool: `Bash`\n"
+            "- Request ID: `req-0001`\n"
+            "- Status: executing..."
+        )
+
+    async def test_chinese_channel_keeps_chinese_approval(
+        self,
+        handler,
+        mock_service,
+    ):
+        pending = _pending()
+        mock_service.get_request.return_value = pending
+        mock_service.resolve_request.return_value = pending
+        ctx = _context(
+            {"action": "approve", "request_id": "req-0001"},
+            channel=_channel("zh"),
+        )
+        result = await handler.handle(ctx)
+        assert result == (
+            "✅ **工具已批准**\n\n"
+            "- 工具: `Bash`\n"
+            "- 请求 ID: `req-0001`\n"
+            "- 状态: 正在执行..."
+        )
+
+    async def test_language_falls_back_to_agent_config(
+        self,
+        handler,
+        mock_service,
+    ):
+        ctx = _context(
+            {"action": "approve"},
+            workspace=SimpleNamespace(config=SimpleNamespace(language="en")),
+        )
+        result = await handler.handle(ctx)
+        assert "No pending approvals" in result
+
+    async def test_unbundled_language_falls_back_to_english(
+        self,
+        handler,
+        mock_service,
+    ):
+        ctx = _context({"action": "list"}, channel=_channel("ja"))
+        result = await handler.handle(ctx)
+        assert "No pending approvals" in result
+
+    async def test_unknown_language_keeps_chinese_default(
+        self,
+        handler,
+        mock_service,
+    ):
+        result = await handler.handle(_context({"action": "approve"}))
+        assert "无待审批工具" in result
+
+    async def test_english_default_deny_reason(self, handler, mock_service):
+        pending = _pending()
+        mock_service.get_request.return_value = pending
+        mock_service.resolve_request.return_value = pending
+        ctx = _context(
+            {"action": "deny", "request_id": "r"},
+            channel=_channel("en"),
+        )
+        result = await handler.handle(ctx)
+        assert "Tool denied" in result
+        assert "Reason: Denied by user" in result
+        assert "用户拒绝" not in result
+
+    async def test_english_list_and_cross_session_hint(
+        self,
+        handler,
+        mock_service,
+    ):
+        mock_service.get_pending_by_root_session.return_value = [
+            _pending(),
+            _pending(
+                request_id="req-0002",
+                session_id="sess-child",
+                root_session_id="sess-1",
+            ),
+        ]
+        ctx = _context({"action": "list"}, channel=_channel("en"))
+        result = await handler.handle(ctx)
+        assert "Pending approvals" in result
+        assert "Sub-session: `sess-chi`" in result
+        assert "5s ago" in result
+
+    async def test_english_cancel_and_usage(self, handler, mock_service):
+        en = _channel("en")
+        missing = await handler.handle(_context({"action": "cancel"}, en))
+        assert "Missing argument" in missing
+        usage = await handler.handle(_context({"action": "bogus"}, en))
+        assert usage.startswith("**Usage: /approval**")
+
+    @pytest.mark.parametrize("language", ["en", "zh"])
+    def test_bundles_have_same_keys_and_placeholders(self, language):
+        import string
+
+        from qwenpaw.runtime.commands.control.approval_i18n import (
+            _APPROVAL_I18N,
+        )
+
+        def fields(template):
+            return {
+                name
+                for _, name, _, _ in string.Formatter().parse(template)
+                if name
+            }
+
+        reference = _APPROVAL_I18N["zh"]
+        bundle = _APPROVAL_I18N[language]
+        assert bundle.keys() == reference.keys()
+        for key, template in bundle.items():
+            assert fields(template) == fields(reference[key]), key
