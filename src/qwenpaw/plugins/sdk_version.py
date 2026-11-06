@@ -7,7 +7,10 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-SDK_VERSION = "1.0.0"
+# TODO: Maintainers must review and approve the SDK version for the new CLI,
+# extension and dependency capabilities before release. Keep API since metadata,
+# template manifests, author examples and tests aligned with that decision.
+SDK_VERSION = "1.1.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",
@@ -28,6 +31,9 @@ SDK_CAPABILITIES = frozenset(
         "events",
         "apps",
         "channels",
+        "cli",
+        "extensions",
+        "dependencies",
     },
 )
 

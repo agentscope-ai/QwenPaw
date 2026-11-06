@@ -58,6 +58,27 @@ class ChannelRuntime:
     initial_state = "connecting"
     failed_state = "failed"
 
+    def requirements(self, boot, packet):
+        """Read pinned declarations before dependency observation or imports."""
+        from .shared import SharedChannelDescriptor
+
+        root = Path(packet["code_root"])
+        if boot._hash_code_root(root) != packet["source_revision"]:
+            raise boot.BootstrapError(
+                "SOURCE_REVISION_MISMATCH",
+                "source mismatch",
+            )
+        path = boot._absolute_existing_file(
+            packet["descriptor_path"],
+            "descriptor_path",
+        )
+        if not path.is_relative_to(root):
+            raise boot.BootstrapError(
+                "DESCRIPTOR_OUTSIDE_CODE_ROOT",
+                "descriptor outside root",
+            )
+        return SharedChannelDescriptor.load(path).read_requirements(root, path)
+
     def identity(self, packet):
         from .models import IdentityParams
 
@@ -316,14 +337,7 @@ class ChannelRuntime:
         self._capabilities = descriptor.capabilities
         if descriptor.channel_key != identity.channel_key:
             raise boot.BootstrapError("IDENTITY_MISMATCH", "identity mismatch")
-        requirements = (path.parent / descriptor.requirements_file).resolve(
-            strict=True,
-        )
-        if not requirements.is_relative_to(root):
-            raise boot.BootstrapError(
-                "DEPENDENCY_PATH_INVALID",
-                "requirements outside root",
-            )
+        requirements = descriptor.read_requirements(root, path)
         source = boot._entrypoint_source(root, descriptor.entrypoint)
         hello = RunnerProtocolHost(
             packet["source_revision"],
@@ -332,7 +346,8 @@ class ChannelRuntime:
             instance_id=identity.instance_id,
             generation=identity.generation,
             qwenpaw_version=packet["qwenpaw_version"],
-            requirements_path=requirements,
+            requirements_path=None,
+            requirements=requirements,
             capabilities=descriptor.capabilities,
             versions=packet.get("dependency_versions"),
         )

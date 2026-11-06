@@ -1308,6 +1308,61 @@ async def test_host_observation_reuses_only_scoped_raw_inputs(
         assert reads["METADATA"] == reads["RECORD"] == 3
 
 
+@pytest.mark.asyncio
+async def test_host_record_matches_follow_scoped_queries(tmp_path):
+    from importlib.metadata import PathDistribution
+    from pathlib import PurePosixPath
+    from qwenpaw.plugins.install_lock import (
+        environment_observation,
+        observation_inputs,
+        observation_write,
+    )
+    from qwenpaw.plugins.python_backend import _files_for_loaded_origins
+
+    site = tmp_path / "site"
+    info = site / "sample-1.0.dist-info"
+    info.mkdir(parents=True)
+    for filename in ("first.py", "second.py"):
+        (site / filename).touch()
+    record = info / "RECORD"
+    record.write_text("first.py,,\nsecond.py,,\n", encoding="utf-8")
+    distribution = PathDistribution(info)
+    origins = {"first.py"}
+
+    def matches():
+        return _files_for_loaded_origins(
+            distribution,
+            origins,
+            metadata_path=str(info),
+            record_reads=observation_inputs().setdefault("records", {}),
+        )
+
+    async with environment_observation((site,)):
+        first = matches()
+        assert first == [PurePosixPath("first.py")]
+        first.clear()
+        assert matches() == [PurePosixPath("first.py")]
+        origins.clear()
+        origins.add("second.py")
+        assert matches() == [PurePosixPath("second.py")]
+        assert matches() == [PurePosixPath("second.py")]
+        with observation_write():
+            record.write_text("first.py,,\n", encoding="utf-8")
+        assert matches() == []
+
+    record.write_text(
+        "second.py,,\nunrelated.py,,not-a-size\n",
+        encoding="utf-8",
+    )
+    async with environment_observation((site,)):
+        with pytest.raises(ValueError):
+            matches()
+
+    record.write_text("second.py,,\n", encoding="utf-8")
+    async with environment_observation((site,)):
+        assert matches() == [PurePosixPath("second.py")]
+
+
 def test_host_dependency_record_retains_loaded_ownership(tmp_path):
     import os
     import sys

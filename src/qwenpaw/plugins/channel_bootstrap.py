@@ -263,8 +263,8 @@ def plugin_runtime_site(runtime_root: Path, runtime=None) -> Path:
     return target / "site"
 
 
-def resolve_default_channel_runtime(*, provision=True):
-    """Select runtime policy; provisioning also reads channel send policy."""
+def resolve_default_channel_runtime(*, provision=True, load_send_policy=True):
+    """Select dependency runtime and optionally the channel send policy."""
     from ..__version__ import __version__
     from ..config.utils import get_config_path, _read_config_data
     from .install_lock import (
@@ -293,7 +293,7 @@ def resolve_default_channel_runtime(*, provision=True):
     config_path = get_config_path()
     data = (
         _read_config_data(config_path)
-        if provision and config_path.exists()
+        if provision and load_send_policy and config_path.exists()
         else {}
     )
     send_timeouts = (data or {}).get("channel_send_timeouts", {})

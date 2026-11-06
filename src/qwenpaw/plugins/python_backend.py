@@ -31,6 +31,10 @@ from .module_isolation import (
     sweep_bare_tree_modules,
     unregister_namespace,
 )
+from .dependency_requirements import (
+    host_requirements,
+    resolve_optional_dependencies,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +58,34 @@ def _read_source_identity(description):
     import json
 
     manifest_path = description.source_path / "plugin.json"
+    has_manifest = manifest_path.is_file()
     if (
-        manifest_path.is_file()
+        has_manifest
         and PluginManifest.model_validate(
             json.loads(manifest_path.read_text(encoding="utf-8")),
         )
         != description.manifest
     ):
         raise dependency_error("DEPENDENCY_ORIGIN_INVALID")
-    if description.requirements_path is not None:
-        parsed = parse_requirements_file(description.requirements_path)
+    # Metadata-only audit descriptions have no source declarations to compare.
+    if description.requirements_path is not None or has_manifest:
+        file_requirements = []
+        if description.requirements_path is not None:
+            parsed = parse_requirements_file(description.requirements_path)
+            file_requirements = [
+                str(item) for item in parsed.requirements
+            ] + parsed.unsupported
         current = tuple(
             dict.fromkeys(
-                [str(item) for item in parsed.requirements]
-                + parsed.unsupported
+                file_requirements
                 + manifest_requirements(
                     description.manifest.model_dump(mode="json"),
+                )
+                + list(
+                    resolve_optional_dependencies(
+                        description.manifest.optional_dependencies,
+                        description.required_extras,
+                    ),
                 ),
             ),
         )
@@ -112,18 +128,16 @@ def _files_for_loaded_origins(
     metadata_path=None,
     record_reads=None,
 ):
-    """Validate fresh RECORD rows, then stat only loaded-origin candidates."""
+    """Validate all RECORD rows, retaining only this query's loaded origins."""
     from .execution.dependencies import _read_record
 
     record = _read_record(distribution, metadata_path, record_reads)
     if not record:
         return distribution.files
-    key = ("host_paths", metadata_path)
-    if (
-        record_reads is None
-        or metadata_path is None
-        or key not in record_reads
-    ):
+    origins = frozenset(origins)
+    key = ("host_matches", metadata_path)
+    cached = record_reads.get(key) if record_reads is not None else None
+    if cached is None or cached[0] != origins:
         paths = []
         for row in csv.reader(record.splitlines()):
             if not 1 <= len(row) <= 3:
@@ -134,21 +148,18 @@ def _files_for_loaded_origins(
             # Retain unusual anchor semantics without a Path per ordinary row.
             if path.startswith("//") or "\\" in path or ":" in path:
                 path = str(PurePosixPath(path))
-            paths.append((os.path.normcase(os.path.normpath(path)), path))
+            if os.path.normcase(os.path.normpath(path)) in origins:
+                paths.append(PurePosixPath(path))
+        paths = tuple(paths)
         if record_reads is not None and metadata_path is not None:
-            record_reads[key] = tuple(paths)
+            record_reads[key] = (origins, paths)
     else:
-        paths = record_reads[key]
-    candidates = [
-        PurePosixPath(path) for name, path in paths if name in origins
-    ]
+        paths = cached[1]
     if sys.version_info < (3, 12):
-        return candidates
+        return list(paths)
     # Validate every row before checking candidates, and check all candidates
     # so a later matching-origin error cannot be hidden by an earlier match.
-    return [
-        path for path in candidates if distribution.locate_file(path).exists()
-    ]
+    return [path for path in paths if distribution.locate_file(path).exists()]
 
 
 def _host_paths(cwd):
@@ -584,6 +595,11 @@ def _observe_host_dependencies(
         observe_dependencies,
     )
 
+    # TODO: Build the package-to-file lookup during installation and reuse it
+    # here. First ensure each process's dependency files stay unchanged. Today,
+    # the shared installation directory can change, so this scan is needed to
+    # detect updates that would replace or hide a package already loaded by
+    # the host. See PluginLoader._dependency_environment for the update plan.
     embedded_owners = dict(_embedded_owners or {})
     record_reads = (
         inventory.setdefault("records", {}) if inventory is not None else {}
@@ -628,17 +644,19 @@ def _observe_host_dependencies(
         root = Path(row["metadata_path"]).parent
         distribution = PathDistribution(Path(row["metadata_path"]))
         if root not in relative_modules:
-            indexed = relative_modules[root] = {}
+            indexed = {}
             for module_name, path in loaded.items():
                 for origin in _relative_module_origins(
                     (path, resolved[str(path)]),
                     root,
                 ):
                     indexed.setdefault(origin, set()).add(module_name)
-        indexed = relative_modules[root]
+            # Every distribution in this root shares one immutable query.
+            relative_modules[root] = (indexed, frozenset(indexed))
+        indexed, origins = relative_modules[root]
         files = _files_for_loaded_origins(
             distribution,
-            indexed,
+            origins,
             metadata_path=row["metadata_path"],
             record_reads=record_reads,
         )
@@ -951,10 +969,21 @@ class PythonBackend:
         from .dependency_gate import (
             manifest_requirements,
             parse_requirements_file,
+            ParsedRequirements,
         )
 
-        requirements_path = Path(source_path) / "requirements.txt"
-        parsed = parse_requirements_file(requirements_path)
+        # A descriptor's legacy requirements file belongs to its worker.
+        # Common Python registration has its own manifest dependencies.
+        requirements_path = (
+            None
+            if manifest.entry.descriptor
+            else Path(source_path) / "requirements.txt"
+        )
+        parsed = (
+            parse_requirements_file(requirements_path)
+            if requirements_path is not None
+            else ParsedRequirements()
+        )
         return PluginDescription(
             manifest,
             Path(source_path),
@@ -967,6 +996,21 @@ class PythonBackend:
                     + manifest_requirements(manifest.model_dump(mode="json")),
                 ),
             ),
+        )
+
+    def describe_requirements(self, source_path, manifest, requires):
+        """Select optional requirements without importing their consumers."""
+        description = self.describe(source_path, manifest)
+        optional = resolve_optional_dependencies(
+            manifest.optional_dependencies,
+            requires,
+        )
+        return replace(
+            description,
+            requirements=tuple(
+                dict.fromkeys((*description.requirements, *optional)),
+            ),
+            required_extras=tuple(requires),
         )
 
     @staticmethod
@@ -1026,11 +1070,29 @@ class PythonBackend:
         if owns_dependency_env:
             from .dependency_gate import SharedDependencyError
 
+            additional = (
+                host_requirements(description.manifest.model_dump(mode="json"))
+                if allow_install
+                and getattr(
+                    description.manifest,
+                    "optional_dependencies",
+                    None,
+                )
+                else ()
+            )
+            requirements = (
+                description.requirements
+                if description.requirements_path is None
+                else None
+            )
+
             try:
                 decision = await self.services.ensure_dependencies(
                     description.source_path,
                     description.manifest.id,
                     allow_install=allow_install,
+                    requirements=requirements,
+                    additional_requirements=additional,
                 )
             except SharedDependencyError as exc:
                 if (
