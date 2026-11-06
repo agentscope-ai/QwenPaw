@@ -207,6 +207,11 @@ class DependencyUsageRegistry:
                         ),
                     )
             self._revision += 1
+        # Nothing references this token's host evidence once its declaration
+        # is gone. Retaining it kept an unusable capture blocking every later
+        # audit for the lifetime of the process, even across a reload.
+        if self._host.pop(token, None) is not None:
+            self._revision += 1
 
     def has_declaration(self, token, *, plugin_id=None) -> bool:
         """Check the exact admission without substituting a newer token."""
@@ -344,12 +349,11 @@ class DependencyUsageRegistry:
                 snapshot=snapshot,
                 read_admitted=False,
                 read_context=None,
-                environment=(
-                    DependencyEnvironment.from_snapshot(snapshot)
-                    if observed
-                    and (previous is None or previous.environment is not None)
-                    else None
-                ),
+                # An unknown observation keeps the last consistent capture, so
+                # its environment has to come from that capture instead of
+                # being dropped: the retained snapshot is what later audits
+                # pin against a fresh read.
+                environment=DependencyEnvironment.from_snapshot(snapshot),
             ),
         )
         self._revision += 1
