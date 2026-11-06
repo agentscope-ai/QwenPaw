@@ -19,6 +19,10 @@ const hoisted = vi.hoisted(() => ({
   reloadPawApp: vi.fn(),
   routeSnapshot: vi.fn(),
   removePluginAppState: vi.fn(),
+  warning: vi.fn(),
+  error: vi.fn(),
+  success: vi.fn(),
+  uploadPlugin: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -31,14 +35,57 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/components/PageHeader", () => ({
-  PageHeader: ({ current }: { current: string }) => <div>{current}</div>,
+  // Transparent to `extra`: MarketplaceHeader forwards the page header
+  // actions (install button) through it.
+  PageHeader: ({
+    current,
+    extra,
+  }: {
+    current: string;
+    extra?: import("react").ReactNode;
+  }) => (
+    <div>
+      {current}
+      {extra}
+    </div>
+  ),
 }));
 
 vi.mock("@/hooks/useAppMessage", () => ({
   useAppMessage: () => ({
-    message: { loading: vi.fn(), success: vi.fn(), error: vi.fn() },
+    message: {
+      loading: vi.fn(),
+      success: hoisted.success,
+      error: hoisted.error,
+      warning: hoisted.warning,
+    },
   }),
 }));
+
+vi.mock("antd", async () => {
+  const actual = await vi.importActual<typeof import("antd")>("antd");
+  // rc-dialog defers children until an open animation that never runs in
+  // jsdom; render the install dialog synchronously so the URL-install flow
+  // below can drive its real Form + Input.
+  const ReactModule = await import("react");
+  const ModalStub = Object.assign(
+    (props: { open?: boolean; title?: unknown; children?: unknown }) => {
+      if (!props.open) return null;
+      return ReactModule.createElement(
+        "div",
+        { role: "dialog" },
+        ReactModule.createElement(
+          "div",
+          { "data-testid": "modal-title" },
+          props.title as never,
+        ),
+        props.children as never,
+      );
+    },
+    { confirm: vi.fn(), info: vi.fn() },
+  );
+  return { ...actual, Modal: ModalStub };
+});
 
 vi.mock("@/api/modules/pawapp", () => ({
   pawappApi: {
@@ -72,6 +119,7 @@ vi.mock("@/api/modules/pluginMarket", async () => {
 
 vi.mock("@/api/modules/plugin", () => ({
   installPlugin: hoisted.installPlugin,
+  uploadPlugin: hoisted.uploadPlugin,
 }));
 
 function LocationProbe() {
@@ -139,6 +187,10 @@ describe("AppCenterPage", () => {
     hoisted.reloadPawApp.mockReset();
     hoisted.routeSnapshot.mockReset();
     hoisted.removePluginAppState.mockReset();
+    hoisted.warning.mockReset();
+    hoisted.error.mockReset();
+    hoisted.success.mockReset();
+    hoisted.uploadPlugin.mockReset();
     hoisted.routeSnapshot.mockReturnValue([]);
     hoisted.loadPawApp.mockResolvedValue(undefined);
     hoisted.reloadPawApp.mockResolvedValue(undefined);
@@ -148,6 +200,131 @@ describe("AppCenterPage", () => {
     });
     hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
     window.history.replaceState({}, "", "/market");
+  });
+
+  it("opens the app-flavoured install modal from the header button", async () => {
+    renderPage();
+    expect(await screen.findByText("alpha-app")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "appCenter.installApp" }),
+    );
+
+    expect(
+      await screen.findByText("appCenter.installAppTitle"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("appCenter.installAppHint")).toBeInTheDocument();
+  });
+
+  it("loads a URL-installed package that resolves to a PawApp", async () => {
+    hoisted.installPlugin.mockResolvedValue({
+      id: "gamma-app",
+      name: "gamma",
+    });
+    hoisted.listApps
+      .mockResolvedValueOnce({ apps: [makeApp("alpha-app")], total: 1 })
+      .mockResolvedValue({
+        apps: [makeApp("alpha-app"), makeApp("gamma-app")],
+        total: 2,
+      });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "appCenter.installApp" }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("pluginManager.urlPlaceholder"),
+      { target: { value: "https://x/gamma.zip" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginManager.installFromUrl" }),
+    );
+
+    await waitFor(() =>
+      expect(hoisted.installPlugin).toHaveBeenCalledWith("https://x/gamma.zip"),
+    );
+    await waitFor(() =>
+      expect(hoisted.loadPawApp).toHaveBeenCalledWith("gamma-app"),
+    );
+    expect(hoisted.warning).not.toHaveBeenCalled();
+    // Apps stay put on the App Center page.
+    expect(screen.getByTestId("location").textContent).toBe("/market");
+  });
+
+  it("warns and jumps to the plugins tab when the installed package is not an app", async () => {
+    hoisted.installPlugin.mockResolvedValue({
+      id: "plain-plugin",
+      name: "plain",
+    });
+    hoisted.listApps.mockResolvedValue({
+      apps: [makeApp("alpha-app")],
+      total: 1,
+    });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "appCenter.installApp" }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("pluginManager.urlPlaceholder"),
+      { target: { value: "https://x/plain.zip" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginManager.installFromUrl" }),
+    );
+
+    await waitFor(() => expect(hoisted.warning).toHaveBeenCalledTimes(1));
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+    expect(hoisted.reloadPawApp).not.toHaveBeenCalled();
+    // Plain plugins land on the Plugins tab (installed sub-tab default).
+    await waitFor(() =>
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/market?tab=plugins",
+      ),
+    );
+  });
+
+  it("does not report install failure when the post-install listing fails", async () => {
+    hoisted.installPlugin.mockResolvedValue({
+      id: "gamma-app",
+      name: "gamma",
+    });
+    // Mount fetch resolves; the post-install verification listing rejects;
+    // the best-effort refresh afterwards resolves again.
+    hoisted.listApps
+      .mockResolvedValueOnce({ apps: [makeApp("alpha-app")], total: 1 })
+      .mockRejectedValueOnce(new Error("network blip"))
+      .mockResolvedValue({
+        apps: [makeApp("alpha-app"), makeApp("gamma-app")],
+        total: 2,
+      });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "appCenter.installApp" }),
+    );
+    fireEvent.change(
+      screen.getByPlaceholderText("pluginManager.urlPlaceholder"),
+      { target: { value: "https://x/gamma.zip" } },
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "pluginManager.installFromUrl" }),
+    );
+
+    await waitFor(() =>
+      expect(hoisted.installPlugin).toHaveBeenCalledWith("https://x/gamma.zip"),
+    );
+    // Install succeeded: success toast fired, a refresh warning is shown,
+    // but never an error toast and no forced navigation away from Apps.
+    await waitFor(() =>
+      expect(hoisted.warning).toHaveBeenCalledWith(
+        "appCenter.installedRefreshFailed",
+      ),
+    );
+    expect(hoisted.success).toHaveBeenCalledWith(
+      "pluginManager.installSuccess: gamma",
+    );
+    expect(hoisted.error).not.toHaveBeenCalled();
+    expect(hoisted.loadPawApp).not.toHaveBeenCalled();
+    expect(hoisted.reloadPawApp).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location").textContent).toBe("/market");
   });
 
   it("renders installed apps by default without mounting external views", async () => {

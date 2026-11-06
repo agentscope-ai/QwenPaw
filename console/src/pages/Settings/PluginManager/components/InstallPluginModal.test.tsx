@@ -381,4 +381,14 @@ describe("InstallPluginModal", () => {
       screen.getByPlaceholderText("pluginManager.urlPlaceholder"),
     ).toBeInTheDocument();
   });
+
+  it("re-titles the dialog and shows the app hint in app variant", () => {
+    renderModal({ variant: "app" });
+
+    expect(screen.getByText("appCenter.installAppTitle")).toBeInTheDocument();
+    expect(screen.getByText("appCenter.installAppHint")).toBeInTheDocument();
+    expect(
+      screen.queryByText("pluginManager.installTitle"),
+    ).not.toBeInTheDocument();
+  });
 });
