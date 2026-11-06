@@ -2777,14 +2777,22 @@ def _install_model_formatter(
     model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
+    from .prompt import _explicit_media_override
+
+    supports_multimodal = True
+    if model_info is not None:
+        explicit = _explicit_media_override(model_info)
+        if explicit is not None:
+            supports_multimodal = explicit
+        else:
+            supports_multimodal = (
+                bool(model_info.supports_image or model_info.supports_video)
+                or model_info.supports_multimodal is not False
+            )
     formatter = _create_formatter_instance(
         model,
         provider_id=provider_id,
-        supports_multimodal=(
-            model_info is None
-            or bool(model_info.supports_image or model_info.supports_video)
-            or model_info.supports_multimodal is not False
-        ),
+        supports_multimodal=supports_multimodal,
     )
     model.formatter = formatter
     return formatter

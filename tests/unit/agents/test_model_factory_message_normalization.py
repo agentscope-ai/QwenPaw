@@ -119,6 +119,48 @@ def _png_bytes(size: tuple[int, int], *, compress_level: int = 6) -> bytes:
     return output.getvalue()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "model_info",
+    [
+        model_factory.ModelInfo(
+            id="custom-vision",
+            name="custom-vision",
+            supports_image=True,
+            supports_multimodal=False,
+            config_overrides=["supports_multimodal"],
+        ),
+        model_factory.ModelInfo(
+            id="custom-vision",
+            name="custom-vision",
+            supports_image=False,
+            supports_multimodal=True,
+            config_overrides=["supports_image"],
+        ),
+    ],
+)
+async def test_formatter_honors_explicit_media_opt_outs(model_info) -> None:
+    """Explicit media opt-outs remove images from the final wire payload."""
+    model = SimpleNamespace(formatter=_CappingOpenAIFormatter())
+    formatter = model_factory._install_model_formatter(
+        model,
+        model_info=model_info,
+    )
+    message = Msg(
+        name="user",
+        role="user",
+        content=[
+            TextBlock(text="keep this"),
+            _base64_data_block("image/png", _png_bytes((1, 1))),
+        ],
+    )
+
+    wire = await formatter.format([message])
+
+    assert "image_url" not in json.dumps(wire)
+    assert "keep this" in json.dumps(wire)
+
+
 def _mock_remote_media(monkeypatch, content: bytes, *, headers=None):
     client_type = httpx.AsyncClient
     transport = httpx.MockTransport(

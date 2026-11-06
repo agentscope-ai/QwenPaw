@@ -222,7 +222,10 @@ class TestCheckMultimodalSupport:
         _agent_config,
         get_instance,
     ):
-        from qwenpaw.agents.prompt import _get_active_model_info
+        from qwenpaw.agents.prompt import (
+            _get_active_model_info,
+            get_model_supports_image,
+        )
         from qwenpaw.providers.model_info import ModelInfo
         from qwenpaw.providers.openai_provider import OpenAIProvider
 
@@ -261,6 +264,13 @@ class TestCheckMultimodalSupport:
 
             assert model_info.supports_image is expected_image_support
             assert model_name == active.model
+            current_model = MagicMock(
+                model_key=f"{active.provider_id}:{active.model}",
+            )
+            assert (
+                get_model_supports_image(current_model)
+                is expected_image_support
+            )
             with patch(
                 "qwenpaw.agents.prompt._get_active_model_info",
                 return_value=(model_info, model_name),

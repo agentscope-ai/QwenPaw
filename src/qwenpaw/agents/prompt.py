@@ -542,6 +542,16 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                     None,
                 )
                 if model_info is not None:
+                    try:
+                        model_info = provider.model_capabilities(model_info)
+                    except Exception:
+                        logger.warning(
+                            "Failed to resolve capabilities for request-local "
+                            "model %s/%s; using configured metadata",
+                            provider_id,
+                            model_name,
+                            exc_info=True,
+                        )
                     explicit = _explicit_media_override(model_info)
                     if explicit is not None:
                         return explicit
