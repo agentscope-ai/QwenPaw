@@ -407,7 +407,7 @@ QwenPaw 内置五层核心安全防护：
 | [魔法命令](https://qwenpaw.agentscope.io/docs/commands)              | 无需等待 AI 理解即可控制对话状态                 |
 | [心跳](https://qwenpaw.agentscope.io/docs/heartbeat)                 | 定时自检与摘要                                   |
 | [Cron / 定时任务](https://qwenpaw.agentscope.io/docs/cron)           | 定时任务与自动化                                 |
-| [多智能体](https://qwenpaw.agentscope.io/docs/multi-agent)           | 创建多个智能体并启用协作                         |
+| [多智能体](https://qwenpaw.agentscope.io/docs/multi-agent)           | 管理智能体、编辑默认智能体并启用协作                         |
 | [安全](https://qwenpaw.agentscope.io/docs/security)                    | Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy |
 | [备份与恢复](https://qwenpaw.agentscope.io/docs/backup)              | 数据备份与恢复                                   |
 | [配置与工作目录](https://qwenpaw.agentscope.io/docs/config)          | 工作目录与配置文件                               |

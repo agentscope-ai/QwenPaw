@@ -69,6 +69,7 @@ vi.mock("./components/AgentBackendFields", () => ({
 describe("agent skill creation workflow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.agent.id = "existing-agent";
     mocks.getAgent.mockResolvedValue(mocks.agent);
     mocks.createAgent.mockResolvedValue({ id: "new-agent" });
     mocks.updateAgent.mockResolvedValue(mocks.agent);
@@ -127,38 +128,46 @@ describe("agent skill creation workflow", () => {
     expect(mocks.downloadSkillPoolSkill).not.toHaveBeenCalled();
   });
 
-  it("hides skills and updates only agent configuration when editing", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<AgentsPage />);
-    await user.click(screen.getByRole("button", { name: "common.edit" }));
-    await screen.findByText("agent.editTitle");
+  it.each(["existing-agent", "default"])(
+    "hides skills and updates only %s configuration when editing",
+    async (agentId) => {
+      mocks.agent.id = agentId;
+      const user = userEvent.setup();
+      renderWithProviders(<AgentsPage />);
+      await user.click(screen.getByRole("button", { name: "common.edit" }));
+      await screen.findByText("agent.editTitle");
 
-    expect(
-      screen.queryByText("agent.addSkillsToAgent"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("agent.initialSkills")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "agent.selectAll" }),
-    ).not.toBeInTheDocument();
-    expect(mocks.listSkillPoolSkills).not.toHaveBeenCalled();
-    expect(mocks.listSkills).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("agent.id")).toBeDisabled();
+      expect(screen.getByLabelText("agent.id")).toHaveValue(agentId);
+      expect(screen.getByLabelText("agent.workspace")).toBeDisabled();
 
-    await user.clear(screen.getByLabelText("agent.name"));
-    await user.type(screen.getByLabelText("agent.name"), "Updated Agent");
-    await user.click(screen.getByRole("button", { name: "common.save" }));
+      expect(
+        screen.queryByText("agent.addSkillsToAgent"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("agent.initialSkills")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "agent.selectAll" }),
+      ).not.toBeInTheDocument();
+      expect(mocks.listSkillPoolSkills).not.toHaveBeenCalled();
+      expect(mocks.listSkills).not.toHaveBeenCalled();
 
-    await waitFor(() => {
-      expect(mocks.updateAgent).toHaveBeenCalledWith(
-        "existing-agent",
-        expect.objectContaining({ name: "Updated Agent" }),
+      await user.clear(screen.getByLabelText("agent.name"));
+      await user.type(screen.getByLabelText("agent.name"), "Updated Agent");
+      await user.click(screen.getByRole("button", { name: "common.save" }));
+
+      await waitFor(() => {
+        expect(mocks.updateAgent).toHaveBeenCalledWith(
+          agentId,
+          expect.objectContaining({ id: agentId, name: "Updated Agent" }),
+        );
+      });
+      expect(mocks.updateAgent.mock.calls[0][1]).not.toHaveProperty(
+        "skill_names",
       );
-    });
-    expect(mocks.updateAgent.mock.calls[0][1]).not.toHaveProperty(
-      "skill_names",
-    );
-    expect(mocks.downloadSkillPoolSkill).not.toHaveBeenCalled();
-    expect(mocks.createAgent).not.toHaveBeenCalled();
-  });
+      expect(mocks.downloadSkillPoolSkill).not.toHaveBeenCalled();
+      expect(mocks.createAgent).not.toHaveBeenCalled();
+    },
+  );
 
   it("keeps skill controls out of the detail preview", async () => {
     const user = userEvent.setup();
