@@ -414,7 +414,7 @@ async def _usage_observation_roots(usage, token, sites, install_target=None):
 
 
 @asynccontextmanager
-async def _shared_observation(targets, *, timeout=300.0):
+async def _shared_observation(targets, *, timeout=None):
     from .install_lock import environment_observation, ObservationRootsChanged
 
     try:
@@ -1014,7 +1014,7 @@ async def prepare_shared_dependencies(
     admission_token=None,
     install_target: Path | None = None,
     wheels=(),
-    lock_timeout: float = 300.0,
+    lock_timeout: float | None = None,
     expected_snapshot=None,
     wheel_tags=None,
     installer_python=None,

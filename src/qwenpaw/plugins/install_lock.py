@@ -19,12 +19,13 @@ rather than the mere existence of a lock file.
 
 from __future__ import annotations
 
-import contextlib
 import asyncio
+import contextlib
 import errno
 import logging
 import os
 import time
+import threading
 from weakref import WeakKeyDictionary
 from pathlib import Path
 from typing import Iterator
@@ -64,6 +65,7 @@ async def async_lock(lock, *, on_acquired=None):
     """
     import sys
     from ..utils.io_utils import run_sync_io
+    from .dependency_process import install_cancel
 
     acquisition = asyncio.create_task(run_sync_io(lock.__enter__))
     cancelled = False
@@ -72,6 +74,9 @@ async def async_lock(lock, *, on_acquired=None):
             await asyncio.shield(acquisition)
         except asyncio.CancelledError:
             cancelled = True
+            cancel = install_cancel.get()
+            if cancel is not None:
+                cancel.set()
         except BaseException:
             break
     if cancelled:
@@ -126,7 +131,7 @@ class ObservationRootsChanged(RuntimeError):
 
 
 @contextlib.asynccontextmanager
-async def environment_observation(targets, *, timeout=300.0):
+async def environment_observation(targets, *, timeout=None):
     """Read and admit under ordered process and OS exclusion.
 
     Only the current task can reuse its live scope, and only for covered
@@ -247,9 +252,14 @@ def environment_install_lock_path(target: Path) -> Path:
 def plugin_install_lock(
     lock_path: Path,
     *,
-    timeout: float = 300.0,
+    timeout: float | None = None,
+    cancel: threading.Event | None = None,
 ) -> Iterator[bool]:
     """Yield True only while holding exclusion; acquisition fails closed."""
+    from .dependency_process import install_cancel, install_timeout
+
+    cancel = cancel if cancel is not None else install_cancel.get()
+    timeout = install_timeout.get() if timeout is None else timeout
     lock_path = Path(lock_path)
     suffix = ".dependencies.lock"
     environment_lock = lock_path.name.startswith(
@@ -275,18 +285,22 @@ def plugin_install_lock(
     try:
         try:
             while True:
+                if cancel is not None and cancel.is_set():
+                    raise asyncio.CancelledError
                 os.lseek(fd, 0, os.SEEK_SET)
                 acquired = _acquire_os_lock(fd)
                 if acquired:
                     break
                 if time.monotonic() >= deadline:
                     raise InstallLockError("INSTALL_LOCK_UNAVAILABLE")
-                time.sleep(
-                    min(
-                        _RETRY_INTERVAL_SECONDS,
-                        max(0, deadline - time.monotonic()),
-                    ),
+                delay = min(
+                    _RETRY_INTERVAL_SECONDS,
+                    max(0, deadline - time.monotonic()),
                 )
+                if cancel is None:
+                    time.sleep(delay)
+                else:
+                    cancel.wait(delay)
         except OSError as exc:
             raise InstallLockError("INSTALL_LOCK_UNAVAILABLE") from exc
         if environment_lock:

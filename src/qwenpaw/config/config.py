@@ -2689,11 +2689,7 @@ class AgentsConfig(BaseModel):
         ),
     )
 
-    transcription_provider_type: Literal[
-        "disabled",
-        "whisper_api",
-        "local_whisper",
-    ] = Field(
+    transcription_provider_type: str = Field(
         default="disabled",
         description=(
             "Transcription backend. "

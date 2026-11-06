@@ -55,6 +55,11 @@ host does not migrate them automatically. Historical exports of `PluginApi`,
 `PluginLoader`, `PluginRegistry`, and `PluginLifecycle` remain for compatibility.
 New SDK plugins must not depend on those exports or underscore-prefixed internals.
 
+SDK and legacy plugins share the framework's dependency checks, installation, and
+post-install verification. The `sdk` declaration does not select a separate dependency
+installer or protection policy. See [Dependency Management](#dependency-management)
+for the shared installation rules and timeout configuration.
+
 ## Write a tool
 
 Save this as `hello-sdk/main.py`:
@@ -2185,15 +2190,26 @@ install dependencies.
 Directly declared requirements that conflict with protected host packages are refused;
 restart the backend and prepare the dependency environment first. SDK plugins report
 this as `SDKRestartRequiredError`. After acquiring the installation lock, the framework
-rechecks whether requirements are satisfied, then uses the shared pip / uv flow
-if dependencies are still missing. Desktop
-builds use the bundled Python interpreter and shared plugin dependency directory.
+rechecks whether requirements are satisfied. Missing dependencies are prepared as
+wheels with pip, constrained by the observed installed versions, then validated
+and published through the shared dependency gate. Desktop builds use the bundled
+Python interpreter and shared plugin dependency directory.
 The plugin loads only after its requirements pass post-install verification.
 
-The framework does not audit the entire environment for duplicate package versions,
-pin all installed versions, or preview the complete installation plan. It does not
-guarantee that replacements caused by transitive dependencies will be blocked, and
-does not provide atomic rollback of the shared dependency environment.
+The shared gate audits dependency evidence and permits validated additions;
+incompatible replacements require explicit environment maintenance. This does not
+provide general atomic rollback of the shared dependency environment.
+
+Both SDK and legacy plugins can set `meta.dependency_install_timeout` to control the
+installation timeout and the time limit for waiting for the installation lock.
+The value is in seconds, from 300 to 3600, with a default of 300. Local Whisper sets
+it to 1800 seconds to allow time for large package downloads.
+
+When the backend shuts down or an installation request is cancelled, the framework
+stops waiting for the installation lock or terminates the running dependency
+installer. It releases the lock after installation has stopped. After restarting,
+users can explicitly install or repair again; already written shared dependencies
+are not rolled back.
 
 #### Using Custom PyPI Index
 
@@ -2202,7 +2218,7 @@ does not provide atomic rollback of the shared dependency environment.
 my-package>=1.0.0
 ```
 
-Use `--index-url URL` or `--index-url=URL` on its own line. pip / uv receives the
+Use `--index-url URL` or `--index-url=URL` on its own line. pip receives the
 index setting; package version and host-package checks still apply. Other options,
 nested `-r` files, extras, and direct URL requirements are not supported yet.
 Index settings belong only in `requirements.txt`. Each manifest dependency must

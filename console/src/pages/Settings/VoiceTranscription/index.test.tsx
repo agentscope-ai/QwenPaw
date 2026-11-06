@@ -34,6 +34,7 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 vi.mock("../../../api", () => ({ default: api }));
 
 import VoiceTranscriptionPage from ".";
+import { MemoryRouter } from "react-router-dom";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -75,7 +76,11 @@ describe("VoiceTranscriptionPage initial load", () => {
       whisper_installed: true,
     });
 
-    render(<VoiceTranscriptionPage />);
+    render(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
 
     const retry = await screen.findByRole("button", { name: "common.retry" });
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -148,7 +153,11 @@ describe("VoiceTranscriptionPage initial load", () => {
       })
       .mockReturnValueOnce(bWhisper.promise);
 
-    const { rerender } = render(<VoiceTranscriptionPage />);
+    const { rerender } = render(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
     expect(
       await screen.findByRole("radio", {
         name: "voiceTranscription.modeAuto",
@@ -156,7 +165,11 @@ describe("VoiceTranscriptionPage initial load", () => {
     ).toBeChecked();
 
     app.selectedAgent = "agent-b";
-    rerender(<VoiceTranscriptionPage />);
+    rerender(
+      <MemoryRouter>
+        <VoiceTranscriptionPage />
+      </MemoryRouter>,
+    );
 
     expect(
       screen.queryByRole("radiogroup", {

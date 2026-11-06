@@ -357,9 +357,11 @@ def test_install_includes_every_declared_dependency(
     install_case(tmp_path, source, expected)
 
 
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_satisfied_and_marker_excluded_manifest_does_not_install(
     tmp_path,
     installer,
+    sdk,
 ):
     source = package(
         tmp_path,
@@ -367,30 +369,71 @@ async def test_satisfied_and_marker_excluded_manifest_does_not_install(
             f"packaging=={version('packaging')}",
             "b01-probe-never; python_version<'2'",
         ],
+        sdk=sdk,
     )
     async with PluginTestHost(tmp_path / "host") as host:
         assert (await host.install(source)).ok
     assert installer == []
 
 
+@pytest.mark.parametrize("sdk", [False, True])
+@pytest.mark.parametrize(
+    ("requirement", "needs_restart"),
+    [("httpx==0.0.1", True), ("httpx[http2]", False)],
+)
+async def test_reload_dependency_rejection_reports_common_restart_decision(
+    tmp_path,
+    installer,
+    sdk,
+    requirement,
+    needs_restart,
+):
+    source = package(tmp_path, sdk=sdk)
+    incoming_root = tmp_path / "incoming"
+    incoming_root.mkdir()
+    incoming = package(incoming_root, requirements=requirement, sdk=sdk)
+    (incoming / "main.py").write_text(
+        "raise AssertionError('Rejected plugin must not execute')\n",
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        assert (await host.install(source)).ok
+        loader = host._loader
+        previous = loader.get_loaded_plugin("extension-contract")
+        instance = loader.lifecycle.get_instance("extension-contract")
+        generation = instance.generation
+        report = await loader.lifecycle.reload(
+            "extension-contract",
+            new_source=incoming,
+            allow_install=True,
+        )
+        assert not report.ok and report.unchanged
+        assert report.needs_restart is needs_restart
+        assert "httpx" in " ".join(report.errors)
+        assert loader.get_loaded_plugin("extension-contract") is previous
+        assert loader.lifecycle.get_instance("extension-contract") is instance
+        assert instance.activated and instance.generation == generation
+    assert installer == []
+
+
 @pytest.mark.parametrize("dependency", ["httpx==0.0.1", "uvicorn==0.0.1"])
 @pytest.mark.parametrize("origin", ["manifest", "requirements"])
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_manifest_cannot_replace_protected_host_distribution(
     tmp_path,
     installer,
     dependency,
     origin,
+    sdk,
 ):
     source = package(
         tmp_path,
         [dependency] if origin == "manifest" else [],
         dependency if origin == "requirements" else None,
+        sdk=sdk,
     )
     async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(
-            SDKRestartRequiredError,
-            match="Restart the backend",
-        ):
+        error = SDKRestartRequiredError if sdk else SDKError
+        with pytest.raises(error, match="Restart the backend"):
             await host.install(source)
         corrected = tmp_path / "corrected"
         corrected.mkdir()
@@ -440,11 +483,13 @@ async def test_both_constraints_apply_when_same_package_is_declared_twice(
     assert installer == []
 
 
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_boot_checks_manifest_without_installing_or_mutating_source(
     tmp_path,
     installer,
+    sdk,
 ):
-    source = package(tmp_path, ["b01-probe-missing==1.0"])
+    source = package(tmp_path, ["b01-probe-missing==1.0"], sdk=sdk)
     before = {p.name: p.read_bytes() for p in source.iterdir()}
     source.chmod(0o555)
     try:
@@ -477,8 +522,9 @@ async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
     assert installer == []
 
 
-def test_repair_installs_manifest_dependency_after_boot_failure(tmp_path):
-    source = package(tmp_path, ["b01-probe-repair==1.0"])
+@pytest.mark.parametrize("sdk", [False, True])
+def test_repair_installs_manifest_dependency_after_boot_failure(tmp_path, sdk):
+    source = package(tmp_path, ["b01-probe-repair==1.0"], sdk=sdk)
     install_case(tmp_path, source, {"b01-probe-repair"}, repair=True)
 
 
