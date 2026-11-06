@@ -344,13 +344,13 @@ export function useSkillsPage() {
       if (conflicts.length === 0) break;
       const newRenames = await showConflictRenameModal(
         conflicts
-          .filter((c): c is { skill_name: string; suggested_name: string } =>
-            Boolean(c.skill_name && c.suggested_name),
-          )
+          .filter((c) => Boolean(c.skill_name && c.suggested_name))
           .map((c) => ({
-            key: c.skill_name,
-            label: c.skill_name,
+            key: c.source_rel_path || c.skill_name,
+            label: c.source_rel_path || c.skill_name,
             suggested_name: c.suggested_name,
+            source_rel_path: c.source_rel_path,
+            destination_rel_path: c.destination_rel_path,
           })),
       );
       if (!isCurrentOperation()) return;

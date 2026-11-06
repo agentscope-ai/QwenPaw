@@ -16,6 +16,7 @@ export interface SkillSpec {
   tags?: string[];
   last_updated?: string;
   emoji?: string;
+  rel_path?: string;
 }
 
 export interface SkillDetail extends SkillSpec {
@@ -38,6 +39,7 @@ export interface PoolSkillSpec {
   source: string;
   external?: boolean;
   external_path?: string;
+  rel_path?: string;
   sync_status?: SkillSyncStatus | "";
   tags?: string[];
   last_updated?: string;

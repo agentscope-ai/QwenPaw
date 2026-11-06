@@ -202,3 +202,47 @@ async def test_skill_cleanup_requires_inventory_ownership(
         assert entries["my-search"]["source"] == "plugin:demo"
         assert entries["my-search"]["enabled"] is False
         assert entries["my-search"]["channels"] == ["qq"]
+
+
+def test_nested_plugin_skill_is_discovered_and_installed(skills):
+    (skills.source / "cat").mkdir()
+    (skills.source / "my-search").rename(
+        skills.source / "cat/my-search",
+    )
+
+    install(skills)
+
+    dest = skills.workspace / "skills/cat/my-search"
+    assert (dest / "SKILL.md").exists()
+    entry = read_entry(skills)
+    assert entry["rel_path"] == "cat/my-search"
+    assert entry["source"] == "plugin:demo"
+    assert entry["enabled"] is True
+    assert entry["channels"] == ["console"]
+
+
+def test_nested_plugin_does_not_reset_user_copy_at_other_path(skills):
+    user_dir = skills.workspace / "skills/research/my-search"
+    user_dir.mkdir(parents=True)
+    (user_dir / "SKILL.md").write_text(
+        "---\nname: my-search\ndescription: User search\n---\n"
+        "User version\n",
+        encoding="utf-8",
+    )
+    set_user_state(skills)
+    (skills.source / "cat").mkdir()
+    (skills.source / "my-search").rename(
+        skills.source / "cat/my-search",
+    )
+
+    install(skills)
+
+    entry = read_entry(skills)
+    assert entry["rel_path"] == "research/my-search"
+    assert entry["source"] == "custom"
+    assert entry["enabled"] is False
+    assert entry["channels"] == ["qq"]
+    assert "User version" in (user_dir / "SKILL.md").read_text(
+        encoding="utf-8",
+    )
+    assert not (skills.workspace / "skills/cat/my-search").exists()
