@@ -17,6 +17,10 @@ from qwenpaw.agents.command_handler import (
 )
 from qwenpaw.agents.memory.dummy import NoopMemoryManager
 from qwenpaw.agents.middlewares import auto_memory_turn_state
+from qwenpaw.constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    RUNTIME_CONTEXT_MESSAGE_TAG,
+)
 from qwenpaw.runtime.envelope import Envelope
 
 
@@ -102,6 +106,45 @@ async def test_process_clear_returns_clear_history_metadata() -> None:
     msg = await handler.handle_command("/clear")
 
     assert msg.metadata == {"clear_history": True, "clear_plan": True}
+
+
+@pytest.mark.asyncio
+async def test_commands_filter_runtime_context_messages() -> None:
+    agent = _make_agent()
+    current = Msg(
+        name="system",
+        role="user",
+        content=[TextBlock(type="text", text="current dynamic context")],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG},
+    )
+    legacy = Msg(
+        name="system",
+        role="user",
+        content=[TextBlock(type="text", text="legacy dynamic context")],
+    )
+    agent.state.context = [
+        current,
+        legacy,
+        _msg("user", "real question"),
+        _msg("assistant", "real answer"),
+    ]
+    handler = CommandHandler(agent_name="QwenPaw", agent=agent)
+    capture = AsyncMock(
+        return_value=Msg(
+            name="QwenPaw",
+            role="assistant",
+            content=[TextBlock(type="text", text="ok")],
+        ),
+    )
+    handler._process_history = capture
+
+    await handler.handle_command("/history")
+
+    messages = capture.await_args.args[0]
+    assert [message.get_text_content() for message in messages] == [
+        "real question",
+        "real answer",
+    ]
 
 
 @pytest.mark.asyncio

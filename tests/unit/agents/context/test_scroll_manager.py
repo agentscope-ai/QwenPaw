@@ -39,6 +39,7 @@ from qwenpaw.constant import (
     AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     LOOP_CONTINUATION_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
+    RUNTIME_CONTEXT_MESSAGE_TAG,
     SCROLL_MEMORY_MESSAGE_TAG,
 )
 from qwenpaw.utils.tool_call_extra import (
@@ -408,6 +409,32 @@ def test_auto_memory_search_message_not_persisted(store: HistoryStore):
     ).fetchall()
     assert [(r["kind"], r["name"], r["content"]) for r in rows] == [
         ("context_msg", None, "what was the deploy plan?"),
+    ]
+
+
+def test_runtime_context_messages_not_persisted(store: HistoryStore):
+    """Request-local context must be filtered before Scroll write-through."""
+    mgr = make_manager(store)
+    current = Msg(
+        name="system",
+        role="user",
+        content=[TextBlock(type="text", text="current dynamic context")],
+        metadata={QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG},
+    )
+    legacy = Msg(
+        name="system",
+        role="user",
+        content=[TextBlock(type="text", text="legacy dynamic context")],
+    )
+    agent = FakeAgent([current, legacy, user("real question")])
+
+    mgr._persist_new(agent)
+
+    rows = store._conn.execute(
+        "SELECT kind, name, content FROM conversation_history ORDER BY seq",
+    ).fetchall()
+    assert [(r["kind"], r["name"], r["content"]) for r in rows] == [
+        ("context_msg", None, "real question"),
     ]
 
 
