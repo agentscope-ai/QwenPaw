@@ -36,10 +36,26 @@ def install_fallback_notice_sink() -> dict[str, Any]:
     return sink
 
 
+def get_model_identity(model: ChatModelBase) -> tuple[str, str]:
+    """Resolve identity for retry, fallback, and token-recording wrappers."""
+    key = str(getattr(model, "model_key", "") or "")
+    name = str(getattr(model, "model", "unknown") or "unknown")
+    if ":" not in key:
+        provider_id = str(getattr(model, "_provider_id", "") or "")
+        return provider_id, key or name
+    provider_id, model_id = key.split(":", maxsplit=1)
+    return provider_id, model_id
+
+
 class FallbackChatModel(ChatModelBase):
     """Try configured models in order before any response becomes visible."""
 
-    def __init__(self, models: list[ChatModelBase]) -> None:
+    def __init__(
+        self,
+        models: list[ChatModelBase],
+        *,
+        fallback_on_any_error: bool = False,
+    ) -> None:
         if not models:
             raise ValueError("FallbackChatModel requires at least one model")
         primary = models[0]
@@ -62,8 +78,31 @@ class FallbackChatModel(ChatModelBase):
             context_size=getattr(primary, "context_size", 32_768),
         )
         self._models = models
+        self._fallback_on_any_error = fallback_on_any_error
         self._thinking_omit_ids: set[str] = set()
         self._activate_model(primary)
+
+    def without_models(
+        self,
+        identities: set[tuple[str, str]],
+    ) -> ChatModelBase | None:
+        """Copy a fallback tree without excluded models, retaining policies."""
+        candidates = []
+        for model in self._models:
+            if isinstance(model, FallbackChatModel):
+                candidate = model.without_models(identities)
+                if candidate is not None:
+                    candidates.append(candidate)
+            elif get_model_identity(model) not in identities:
+                candidates.append(model)
+        if not candidates:
+            return None
+        if len(candidates) == 1:
+            return candidates[0]
+        return FallbackChatModel(
+            candidates,
+            fallback_on_any_error=self._fallback_on_any_error,
+        )
 
     @property
     def _active_model(self) -> ChatModelBase:
@@ -336,7 +375,11 @@ class FallbackChatModel(ChatModelBase):
         # engages at all.  Once the chain is running, a broken candidate
         # (revoked key, deleted model, ...) must not mask the healthy
         # candidates behind it, so its own error never stops the walk.
-        return index > 0 or is_fallback_eligible(exc)
+        return (
+            self._fallback_on_any_error
+            or index > 0
+            or is_fallback_eligible(exc)
+        )
 
     def _record_fallback(
         self,
@@ -354,24 +397,13 @@ class FallbackChatModel(ChatModelBase):
         return event
 
     @staticmethod
-    def _model_identity(model: ChatModelBase) -> tuple[str, str]:
-        key = str(getattr(model, "model_key", "") or "")
-        name = str(getattr(model, "model", "unknown") or "unknown")
-        if ":" not in key:
-            provider_id = str(getattr(model, "_provider_id", "") or "")
-            return provider_id, key or name
-        provider_id, model_id = key.split(":", maxsplit=1)
-        return provider_id, model_id
-
-    @classmethod
     def _fallback_event(
-        cls,
         current: ChatModelBase,
         following: ChatModelBase,
         exc: Exception,
     ) -> dict[str, str]:
-        from_provider_id, from_model_id = cls._model_identity(current)
-        to_provider_id, to_model_id = cls._model_identity(following)
+        from_provider_id, from_model_id = get_model_identity(current)
+        to_provider_id, to_model_id = get_model_identity(following)
         return {
             "type": "model_fallback",
             "from_provider_id": from_provider_id,
@@ -381,9 +413,9 @@ class FallbackChatModel(ChatModelBase):
             "reason_kind": classify_model_error(exc).kind,
         }
 
-    @classmethod
-    def _actual_model_dict(cls, active_model: ChatModelBase) -> dict[str, Any]:
-        provider_id, model_id = cls._model_identity(active_model)
+    @staticmethod
+    def _actual_model_dict(active_model: ChatModelBase) -> dict[str, Any]:
+        provider_id, model_id = get_model_identity(active_model)
         return {
             "provider_id": provider_id,
             "model_id": model_id,
@@ -403,9 +435,15 @@ class FallbackChatModel(ChatModelBase):
         if not events and active_model is None:
             return response
         metadata = dict(getattr(response, "metadata", None) or {})
+        nested = isinstance(active_model, FallbackChatModel)
         if events:
-            metadata["qwenpaw_model_fallbacks"] = list(events)
-        if active_model is not None:
+            inner_events = (
+                metadata.get("qwenpaw_model_fallbacks", []) if nested else []
+            )
+            metadata["qwenpaw_model_fallbacks"] = [*events, *inner_events]
+        if active_model is not None and not (
+            nested and "qwenpaw_actual_model" in metadata
+        ):
             metadata[
                 "qwenpaw_actual_model"
             ] = FallbackChatModel._actual_model_dict(active_model)
