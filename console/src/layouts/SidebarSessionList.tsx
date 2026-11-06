@@ -62,6 +62,11 @@ import type { ChatGroup } from "../api/types/chat";
 import { useAppMessage } from "../hooks/useAppMessage";
 import { useSessionAttention } from "../hooks/useSessionAttention";
 import { useAgentStore } from "../stores/agentStore";
+import { useConversationSearch } from "./useConversationSearch";
+import {
+  ConversationSearchControls,
+  ConversationSearchResults,
+} from "./ConversationSearch";
 import styles from "./sidebarSessionList.module.less";
 
 /**
@@ -97,7 +102,7 @@ type FlatRow =
 /**
  * A header-delimited section of the session list: date buckets in
  * date mode, chat groups in source mode, one flat recency list in
- * none mode, and the flat match list while searching.
+ * none mode. Search results use their own list with message snippets.
  */
 interface ListSection {
   header: FlatRow | null;
@@ -262,13 +267,21 @@ const VirtualRow = React.memo(function VirtualRow({
   );
 });
 
+export interface SidebarSessionNavigationOptions {
+  /** Search results already carry a canonical backend Chat UUID. */
+  canonical?: boolean;
+}
+
 export interface SidebarSessionListProps {
   defaultSearchOpen?: boolean;
   hideNewTask?: boolean;
   /** Called when user clicks "New Chat". Provided by parent (Sidebar) which has navigate(). */
   onNewChat?: () => void;
   /** Called when user clicks a session. Provided by parent for direct navigation. */
-  onSessionClick?: (sessionId: string) => void;
+  onSessionClick?: (
+    sessionId: string,
+    options?: SidebarSessionNavigationOptions,
+  ) => void;
 }
 
 export default function SidebarSessionList({
@@ -283,7 +296,8 @@ export default function SidebarSessionList({
   const location = useLocation();
   const currentSessionId = getSessionIdFromPath(location.pathname) ?? undefined;
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const search = useConversationSearch(selectedAgent);
+  const { query: searchQuery, setQuery: setSearchQuery } = search;
   const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isSessionDragging, setIsSessionDragging] = useState(false);
   /** Sectioning mode — persisted and synced across mounted lists. */
@@ -328,7 +342,6 @@ export default function SidebarSessionList({
   } = useChatGroups(true);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const searchInputRef = useRef<InputRef>(null);
   const groupInputRef = useRef<InputRef>(null);
   const visibleChatGroups = useMemo(
     () =>
@@ -352,13 +365,17 @@ export default function SidebarSessionList({
    * fall back to DOM event for backward compat when used standalone.
    */
   const onSessionClick = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, options?: SidebarSessionNavigationOptions) => {
       if (onSessionClickProp) {
-        onSessionClickProp(sessionId);
+        if (options?.canonical) onSessionClickProp(sessionId, options);
+        else onSessionClickProp(sessionId);
       } else {
         window.dispatchEvent(
           new CustomEvent("qwenpaw:sidebar-select-session", {
-            detail: { sessionId },
+            detail: {
+              sessionId,
+              ...(options?.canonical ? { canonical: true } : {}),
+            },
           }),
         );
       }
@@ -499,16 +516,7 @@ export default function SidebarSessionList({
     setSearchQuery("");
     setCreatingGroup(true);
     window.setTimeout(() => groupInputRef.current?.focus(), 0);
-  }, []);
-
-  // Filter sessions by search query
-  const filteredSessions = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return sortedSessions;
-    return sortedSessions.filter((s) =>
-      (s.name || "New Chat").toLowerCase().includes(q),
-    );
-  }, [sortedSessions, searchQuery]);
+  }, [setSearchQuery]);
 
   const groups = useMemo(
     () =>
@@ -523,17 +531,7 @@ export default function SidebarSessionList({
    * histories cheap.
    */
   const sections = useMemo<ListSection[]>(() => {
-    if (searchQuery.trim()) {
-      if (filteredSessions.length === 0) return [];
-      return [
-        {
-          header: null,
-          sessions: filteredSessions,
-          groupId: null,
-          collapsed: false,
-        },
-      ];
-    }
+    if (searchQuery.trim()) return [];
     if (groupMode === "date") {
       // Three tiers (today / this week / earlier); pinned conversations
       // float to the top of their tier. Empty tiers render nothing.
@@ -605,7 +603,6 @@ export default function SidebarSessionList({
   }, [
     collapsedDateGroups,
     collapsedGroups,
-    filteredSessions,
     groupMode,
     groups,
     isSessionDragging,
@@ -821,6 +818,7 @@ export default function SidebarSessionList({
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      toggleDateGroup,
       visibleChatGroups,
       renameGroup,
       pinGroup,
@@ -944,17 +942,9 @@ export default function SidebarSessionList({
         {!historyCollapsed && (
           <div className={styles.searchContainer}>
             {!creatingGroup && (
-              <Input
-                ref={searchInputRef}
-                size="small"
-                allowClear
-                placeholder={t(
-                  "chat.sessionPanel.searchConversations",
-                  "Search…",
-                )}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={styles.searchInput}
+              <ConversationSearchControls
+                search={search}
+                inputClassName={styles.searchInput}
               />
             )}
             {creatingGroup && (
@@ -978,53 +968,65 @@ export default function SidebarSessionList({
       {/* Session list */}
       {!historyCollapsed && (
         <div className={styles.scroll} ref={listWrapperRef}>
-          {loading && sortedSessions.length === 0 && (
-            <div className={styles.loadingState}>
-              <Spin size="small" />
-            </div>
-          )}
-          {!loading && sortedSessions.length === 0 && (
-            <div className={styles.emptyState}>
-              {t("chat.sessionPanel.noConversations", "No conversations")}
-            </div>
-          )}
-          {!loading && sortedSessions.length > 0 && flatRows.length === 0 && (
-            <div className={styles.emptyState}>
-              {t(
-                "chat.sessionPanel.noMatchingConversations",
-                "No matching conversations",
-              )}
-            </div>
-          )}
-
-          {flatRows.length > 0 && listHeight > 0 && (
-            <SessionGroupDndProvider
-              onMove={handleDragMove}
-              onDragStateChange={setIsSessionDragging}
-            >
-              {stickyGroupRow && (
-                <div className={styles.stickyGroupHeader}>
-                  <GroupHeaderContent
-                    row={stickyGroupRow}
-                    data={virtualListData}
-                  />
+          {search.active ? (
+            <ConversationSearchResults
+              search={search}
+              currentSessionId={currentSessionId}
+              onSelect={(chatId) => onSessionClick(chatId, { canonical: true })}
+            />
+          ) : (
+            <>
+              {loading && sortedSessions.length === 0 && (
+                <div className={styles.loadingState}>
+                  <Spin size="small" />
                 </div>
               )}
-              <VariableSizeList
-                ref={listRef}
-                height={listHeight}
-                width="100%"
-                itemCount={flatRows.length}
-                itemSize={getRowHeight}
-                itemData={virtualListData}
-                overscanCount={10}
-                onItemsRendered={({ visibleStartIndex: nextIndex }) =>
-                  setVisibleStartIndex(nextIndex)
-                }
-              >
-                {VirtualRow}
-              </VariableSizeList>
-            </SessionGroupDndProvider>
+              {!loading && sortedSessions.length === 0 && (
+                <div className={styles.emptyState}>
+                  {t("chat.sessionPanel.noConversations", "No conversations")}
+                </div>
+              )}
+              {!loading &&
+                sortedSessions.length > 0 &&
+                flatRows.length === 0 && (
+                  <div className={styles.emptyState}>
+                    {t(
+                      "chat.sessionPanel.noMatchingConversations",
+                      "No matching conversations",
+                    )}
+                  </div>
+                )}
+
+              {flatRows.length > 0 && listHeight > 0 && (
+                <SessionGroupDndProvider
+                  onMove={handleDragMove}
+                  onDragStateChange={setIsSessionDragging}
+                >
+                  {stickyGroupRow && (
+                    <div className={styles.stickyGroupHeader}>
+                      <GroupHeaderContent
+                        row={stickyGroupRow}
+                        data={virtualListData}
+                      />
+                    </div>
+                  )}
+                  <VariableSizeList
+                    ref={listRef}
+                    height={listHeight}
+                    width="100%"
+                    itemCount={flatRows.length}
+                    itemSize={getRowHeight}
+                    itemData={virtualListData}
+                    overscanCount={10}
+                    onItemsRendered={({ visibleStartIndex: nextIndex }) =>
+                      setVisibleStartIndex(nextIndex)
+                    }
+                  >
+                    {VirtualRow}
+                  </VariableSizeList>
+                </SessionGroupDndProvider>
+              )}
+            </>
           )}
         </div>
       )}

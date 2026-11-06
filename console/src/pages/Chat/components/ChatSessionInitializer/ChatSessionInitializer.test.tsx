@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
 import { useSessionListStore } from "@/stores/sessionListStore";
 import ChatSessionInitializer from "./index";
+import sessionApi from "../../sessionApi";
 
 const {
   mockCreateSession,
@@ -49,9 +50,11 @@ const NEW_SESSION_ID = "1787000000000-abcdefg";
 
 function NavigationHarness() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   return (
     <>
+      <output data-testid="current-path">{location.pathname}</output>
       <button onClick={() => navigate("/chat")}>New chat</button>
       <button onClick={() => navigate(`/chat/${HISTORY_SESSION_ID}`)}>
         History session
@@ -142,6 +145,26 @@ describe("ChatSessionInitializer", () => {
     });
 
     expect(mockSetCurrentSessionId).not.toHaveBeenCalled();
+  });
+
+  it("opens canonical search results without resolving a conflicting SDK alias", () => {
+    const chatId = "55555555-cccc-4ccc-8ccc-555555555555";
+    mockSessionState.sessions = [{ id: chatId, realId: "different-chat" }];
+    renderWithProviders(<NavigationHarness />);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("qwenpaw:sidebar-select-session", {
+          detail: { sessionId: chatId, canonical: true },
+        }),
+      );
+    });
+
+    expect(screen.getByTestId("current-path")).toHaveTextContent(
+      `/chat/${chatId}`,
+    );
+    expect(sessionApi.getEffectiveSessionId).not.toHaveBeenCalled();
+    expect(sessionApi.preloadSession).not.toHaveBeenCalled();
   });
 
   it("does not re-select while a session switch is in progress (#4987)", async () => {
