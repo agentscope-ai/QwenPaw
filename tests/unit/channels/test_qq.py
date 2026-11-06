@@ -247,6 +247,20 @@ async def test_image_upload_then_native_media_reply(native_driver):
             "group-A",
         ),
         (
+            "GROUP_MESSAGE_CREATE",
+            {"member_openid": "actor-A"},
+            {"group_openid": "group-A"},
+            "qq:group:group-A",
+            "group-A",
+        ),
+        (
+            "GROUP_MESSAGE_CREATE",
+            {"id": "actor-A"},
+            {"group_openid": "group-A"},
+            "qq:group:group-A",
+            "group-A",
+        ),
+        (
             "AT_MESSAGE_CREATE",
             {"id": "actor-A"},
             {"channel_id": "channel-A", "guild_id": "guild-A"},
@@ -294,7 +308,12 @@ async def test_native_events_map_sender_and_conversation(
         "id": conversation,
         "type": (
             "group"
-            if event in {"GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"}
+            if event
+            in {
+                "GROUP_AT_MESSAGE_CREATE",
+                "GROUP_MESSAGE_CREATE",
+                "AT_MESSAGE_CREATE",
+            }
             else "dm"
         ),
         "thread_id": None,

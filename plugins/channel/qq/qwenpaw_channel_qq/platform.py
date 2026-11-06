@@ -64,6 +64,11 @@ _MESSAGE_EVENT_SPECS = {
         ("member_openid", "id"),
         ("group_openid",),
     ),
+    "GROUP_MESSAGE_CREATE": (
+        "group",
+        ("member_openid", "id"),
+        ("group_openid",),
+    ),
     "AT_MESSAGE_CREATE": (
         "guild",
         ("id", "username"),
