@@ -99,6 +99,7 @@ def _tool_output_event(call_id: str):
 
 async def _agent_with_stream(monkeypatch, stream):
     agent = QwenPawACPAgent(agent_id="default")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _RecordingConn()
     agent.on_connect(conn)
 
@@ -417,6 +418,7 @@ async def test_harness_terminal_preserves_output_and_status(
         AsyncMock(return_value=SimpleNamespace(run_turn=run_turn)),
     )
     agent = QwenPawACPAgent(agent_id=f"default")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _RecordingConn()
     agent.on_connect(conn)
     session_id = f"harness-review"

@@ -23,16 +23,60 @@ class _CredentialAuth(httpx.Auth):
     def __init__(self, context, resolver, binding, headers):
         self.context, self.resolver, self.binding = context, resolver, binding
         self._header_names = set(headers)
+        self._snapshot = dict(headers)
+        self._confirmed = False
+        self._termination = None
+
+    def prepare_termination(self, url, session_id):
+        """Lease only this transport's existing session for its final DELETE."""
+        if session_id:
+            self._termination = (
+                httpx.URL(url),
+                session_id,
+                dict(self._snapshot),
+            )
+
+    def finish_termination(self):
+        self._termination = None
+        self._snapshot.clear()
+        self._confirmed = False
 
     async def async_auth_flow(self, request):
-        credentials = await self.resolver.resolve(self.context)
-        headers = resolve_binding(self.binding, credentials)
-        headers.update(implicit_auth_headers(credentials, headers))
-        for key in self._header_names:
+        target = self._termination
+        terminating = (
+            target is not None
+            and request.method == "DELETE"
+            and request.url == target[0]
+            and request.headers.get("mcp-session-id") == target[1]
+        )
+        if terminating:
+            # Transport identity belongs to the SDK, never to auth bindings.
+            reserved = {"mcp-session-id", "mcp-protocol-version"}
+            headers = {
+                key: value
+                for key, value in target[2].items()
+                if key.lower() not in reserved
+            }
+            names = {
+                key
+                for key in self._header_names
+                if key.lower() not in reserved
+            }
+        else:
+            credentials = await self.resolver.resolve(self.context)
+            headers = resolve_binding(self.binding, credentials)
+            headers.update(implicit_auth_headers(credentials, headers))
+            names = self._header_names
+            if not self._confirmed:
+                self._snapshot = dict(headers)
+        for key in names:
             request.headers.pop(key, None)
         request.headers.update(headers)
         self._header_names.update(headers)
-        yield request
+        response = yield request
+        if not terminating and 200 <= response.status_code < 300:
+            self._snapshot = dict(headers)
+            self._confirmed = True
 
 
 def validate(source):

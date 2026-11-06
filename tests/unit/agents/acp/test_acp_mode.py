@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for ACP ``--agent-mode`` first-message prefixing."""
+
 # pylint: disable=protected-access,unused-argument
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ async def test_restored_session_does_not_restart_mode(
 ):
     agent = QwenPawACPAgent(agent_mode=f"goal")
     for name in (
+        "_require_mcp",
         f"_cancel_active_prompt",
         f"_cancel_pending_approvals",
         f"_remove_session_mcp",
@@ -68,6 +70,7 @@ async def test_workspace_failure_does_not_consume_mode(monkeypatch):
     async def fail():
         raise OSError(f"Temporary workspace failure")
 
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     monkeypatch.setattr(agent, f"_ensure_workspace", fail)
     monkeypatch.setattr(agent, f"_report_prompt_error", AsyncMock())
     with pytest.raises(RequestError):

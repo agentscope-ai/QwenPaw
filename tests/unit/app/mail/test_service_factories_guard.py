@@ -131,7 +131,11 @@ def test_mail_and_acp_history_prepare_mcp_without_loading_workspace(
     assert decision.status == expected
 
 
-def test_mail_monitor_is_not_created_without_mcp(tmp_path):
+def test_mail_monitor_is_not_created_without_mcp(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda **_kwargs: False,
+    )
     monitor, published = _create_monitor(_fake_workspace("qwenpaw", tmp_path))
     assert monitor is None
     assert not published

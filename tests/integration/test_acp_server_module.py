@@ -16,6 +16,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_plain_acp_session_requires_mcp_before_session_creation(
     monkeypatch,
+    tmp_path,
 ):
     from unittest.mock import AsyncMock
     from acp import RequestError, text_block
@@ -25,28 +26,34 @@ async def test_plain_acp_session_requires_mcp_before_session_creation(
     async def unavailable(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr(
-        feature_gate,
-        "is_mcp_ready",
-        lambda *args, **kwargs: False,
-    )
-    monkeypatch.setattr(feature_gate, "prepare_mcp_for_use", unavailable)
-    agent = QwenPawACPAgent(agent_id="default")
-    with pytest.raises(RequestError) as failure:
-        await agent.new_session(cwd="/task", mcp_servers=[])
-    assert failure.value.data["code"] == "mcp_plugin_unavailable"
-    assert agent._sessions == {}
-    # A session created while MCP was available cannot bypass later revocation.
-    agent._sessions["existing"] = {}
-    start = AsyncMock(side_effect=AssertionError("ACP must stay blocked"))
-    monkeypatch.setattr(agent, "_ensure_workspace", start)
-    monkeypatch.setattr(agent, "_bridge_approval_requests", AsyncMock())
-    with pytest.raises(RequestError) as turn_failure:
-        await agent.prompt([text_block("hello")], "existing")
-    assert turn_failure.value.data["code"] == "mcp_plugin_unavailable"
-    start.assert_not_awaited()
-    assert not agent._prompt_tasks and not agent._cancel_events
-    await agent._shutdown_workspace()
+    from qwenpaw.plugins.testing import PluginTestHost
+
+    async with PluginTestHost(tmp_path / "host"):
+        monkeypatch.setattr(feature_gate, "prepare_mcp_for_use", unavailable)
+        agent = QwenPawACPAgent(agent_id="default")
+        try:
+            with pytest.raises(RequestError) as failure:
+                await agent.new_session(cwd="/task", mcp_servers=[])
+            assert failure.value.data["code"] == "mcp_plugin_unavailable"
+            assert agent._sessions == {}
+            # A session created while MCP was available cannot bypass later revocation.
+            agent._sessions["existing"] = {}
+            start = AsyncMock(
+                side_effect=AssertionError("ACP must stay blocked"),
+            )
+            monkeypatch.setattr(agent, "_ensure_workspace", start)
+            monkeypatch.setattr(
+                agent,
+                "_bridge_approval_requests",
+                AsyncMock(),
+            )
+            with pytest.raises(RequestError) as turn_failure:
+                await agent.prompt([text_block("hello")], "existing")
+            assert turn_failure.value.data["code"] == "mcp_plugin_unavailable"
+            start.assert_not_awaited()
+            assert not agent._prompt_tasks and not agent._cancel_events
+        finally:
+            await agent._shutdown_workspace()
 
 
 @pytest.mark.integration

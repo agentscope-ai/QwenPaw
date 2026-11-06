@@ -196,6 +196,9 @@ class _TestACPAgent(QwenPawACPAgent):
         super().__init__(agent_id="default")
         self._fake_workspace = workspace
 
+    async def _require_mcp(self) -> None:
+        """These domain tests assume admission, without initializing plugins."""
+
     async def _ensure_workspace(self) -> _FakeWorkspace:
         self._workspace = self._fake_workspace
         return self._fake_workspace
@@ -214,6 +217,7 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
         cwd=str(tmp_path),
         mcp_servers=[_stdio_server()],
     )
+    assert agent._mcp_loader is None
     scope_id = acp_mcp_scope_id(response.session_id)
 
     assert workspace.driver_manager.replacements[0][0] == scope_id

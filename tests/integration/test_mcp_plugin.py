@@ -86,6 +86,20 @@ async def echo(host, key="echo", text="hello"):
     assert any(block.text == text for block in result.content)
 
 
+async def assert_sessions_terminated(endpoint):
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            endpoint["url"].removesuffix("/mcp") + "/sessions",
+        )
+    sessions = response.json()
+    assert sessions, "The peer must have observed a successful handshake"
+    assert all(row["terminated"] for row in sessions)
+    assert all(
+        row["delete"] == {"status": 200, "auth_matches": True}
+        for row in sessions
+    )
+
+
 @pytest.mark.parametrize("transport", ["stdio", "sse", "streamable_http"])
 async def test_mcp_connect_discover_call_and_reconnect(tmp_path, transport):
     async with local_peer(tmp_path, transport) as endpoint:
@@ -125,6 +139,8 @@ async def test_mcp_connect_discover_call_and_reconnect(tmp_path, transport):
                 await host.open_driver(source)
                 await echo(host, text="reconnected")
             await host.close_driver("echo")
+            if transport == "streamable_http":
+                await assert_sessions_terminated(endpoint)
 
 
 # Keep the representative management/authentication journey in one scenario.
@@ -248,5 +264,6 @@ async def test_qwenpaw_mcp_management_and_authentication(tmp_path):
                 "authorized"
             ] is False
             await host.close_driver("echo")
+            await assert_sessions_terminated(endpoint)
             await api("DELETE", "/echo")
             assert (await api("GET", "")).json() == []

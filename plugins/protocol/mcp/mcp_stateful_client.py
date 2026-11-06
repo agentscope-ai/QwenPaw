@@ -1116,9 +1116,18 @@ class HttpStatefulClient(_MCPClientMixin):
                 **self.client_kwargs,
             )
             await stack.enter_async_context(http_client)
+            auth = self.client_kwargs.get("auth")
+            prepare = getattr(auth, "prepare_termination", None)
+            finish = getattr(auth, "finish_termination", None)
+            if prepare is not None and finish is not None:
+                stack.callback(finish)
             context = await stack.enter_async_context(
                 streamable_http_client(url=self.url, http_client=http_client),
             )
+            if prepare is not None and finish is not None:
+                # Evaluate after ClientSession exits, when the final session
+                # ID is known. This also covers failed opens and reconnects.
+                stack.callback(lambda: prepare(self.url, context[2]()))
         else:
             context = await stack.enter_async_context(
                 sse_client(

@@ -56,6 +56,10 @@ class _FaultWorkspace:
             await asyncio.sleep(60)
 
 
+async def _require_mcp(self):
+    """The fault harness assumes admission without initializing plugins."""
+
+
 async def _ensure_workspace(self):
     return _FaultWorkspace()
 
@@ -88,6 +92,7 @@ async def _shutdown_workspace(self):
         pathlib.Path(marker).write_text("shutdown", encoding="utf-8")
 
 
+server.QwenPawACPAgent._require_mcp = _require_mcp
 server.QwenPawACPAgent._ensure_workspace = _ensure_workspace
 server.QwenPawACPAgent._advertise_commands = _advertise_commands
 server.QwenPawACPAgent._bridge_approval_requests = _bridge_approval_requests
