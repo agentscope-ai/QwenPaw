@@ -720,10 +720,17 @@ def observe_dependencies(
     if _record_reads is None and _inventory is not None:
         _record_reads = _inventory.setdefault("records", {})
     if packet.get("mode", "audit") != "audit":
+        from .runtime import _requirements
+
+        requirements = (
+            packet["_requirements"]
+            if "_requirements" in packet
+            else _requirements(packet.get("requirements_path"))
+        )
         view, _ = read_dependency_inventory(
             packet["code_root"],
             packet["_audit_sites"],
-            packet.get("_requirements", ()),
+            requirements,
         )
         import logging
 

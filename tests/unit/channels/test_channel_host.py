@@ -331,6 +331,116 @@ def test_runner_hello_requires_shared_identity():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["run", "probe"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["missing-child", "version-warning", "missing-extra"],
+)
+async def test_channel_worker_checks_declared_dependency_closure(
+    host,
+    caplog,
+    mode,
+    scenario,
+):
+    import logging
+    from dataclasses import replace
+    from qwenpaw.__version__ import __version__
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.channel_adapter import describe_channel
+
+    source = host.artifact(sdk=True)
+    selected = "[feature]" if scenario == "missing-extra" else ""
+    minimum = "2" if scenario == "version-warning" else "1"
+    (source / "requirements.txt").write_text(
+        f"sample-shared-sdk{selected}>={minimum}\n",
+    )
+    (host.site / "sample_shared_sdk.py").write_text(
+        "def __getattr__(name):\n"
+        "    if name != 'VALUE':\n"
+        "        raise AttributeError(name)\n"
+        "    import qwenpaw_closure_child\n"
+        "    return qwenpaw_closure_child.VALUE\n",
+    )
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info"
+    metadata.mkdir()
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: sample-shared-sdk\nVersion: 1.0\n"
+        f"Requires-Dist: qwenpaw-closure-child>={minimum}\n"
+        "Requires-Dist: qwenpaw-closure-extra; extra == 'feature'\n"
+        "Requires-Dist: qwenpaw-closure-inactive; python_version < '0'\n",
+    )
+    if scenario != "missing-child":
+        (host.site / "qwenpaw_closure_child.py").write_text(
+            "VALUE = 'offline-sdk'\n",
+        )
+        metadata = host.site / "qwenpaw_closure_child-1.0.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: qwenpaw-closure-child\n"
+            "Version: 1.0\n",
+        )
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads((source / "plugin.json").read_text()),
+        ),
+    )
+    prepared = description.prepare_proxy_config(
+        {"enabled": True, "use_sdk": True},
+    )
+    proxy = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=Path(__file__).resolve().parents[3] / "src",
+        dependency_paths=(host.site,),
+        instance_id="closure",
+        generation=1,
+        qwenpaw_version=__version__,
+        prepared_config=prepared,
+    )
+    spec = replace(proxy._launch_spec, workspace_id="test-workspace")
+    process = ChannelProcess()
+    for operation in ("get", "put"):
+        process.register_method(
+            "host.state." + operation,
+            lambda params, _request: {"value": params.value},
+        )
+    caplog.set_level(logging.WARNING, logger="qwenpaw.plugins.worker")
+    start = process.start if mode == "run" else process.probe
+    try:
+        if scenario != "version-warning":
+            with pytest.raises(process.error_type) as rejected:
+                await start(spec)
+            assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+            assert process.observed_hello is None
+            assert process.health_snapshot()["platform_state"] != "connected"
+            assert not rows(host.ledger, "connected")
+        else:
+            await start(spec)
+            assert process.observed_hello is not None
+            if mode == "run":
+                await eventually(lambda: bool(rows(host.ledger, "connected")))
+                value = await process.call("sample.identity", {})
+                assert value["sdk"] == "offline-sdk"
+            else:
+                assert not rows(host.ledger, "connected")
+            for name in ("sample-shared-sdk", "qwenpaw-closure-child"):
+                await eventually(
+                    lambda: any(
+                        "Dependency warning:" in record.message
+                        and name in record.message
+                        and "attempting load" in record.message
+                        for record in caplog.records
+                    ),
+                )
+    finally:
+        stopped = await process.stop()
+        assert stopped.exited and not stopped.residual
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["run", "audit", "probe", "manage"])
 async def test_execution_preparation_yields_and_consumes_session_snapshot(
     host,
