@@ -457,7 +457,15 @@ class MatrixStateStore:
         self.crypto_dir = directory / "crypto_store"
         self.database_name = database_name
 
-    def save_auth(self, token, user_id, device_id):
+    def save_auth(
+        self,
+        token,
+        user_id,
+        device_id,
+        *,
+        credential_scope=None,
+        password_fingerprint="",
+    ):
         if (
             not self.directory
             or self.owner["user_id"] != user_id
@@ -470,6 +478,8 @@ class MatrixStateStore:
                 "access_token": token,
                 "user_id": user_id,
                 "device_id": device_id,
+                "credential_scope": credential_scope,
+                "password_fingerprint": password_fingerprint,
             },
         )
 
