@@ -403,6 +403,21 @@ class _ModuleReturnTrapChecker(ast.NodeVisitor):
                     "the wrapper"
                 ),
             )
+        tail = _ModuleReturnFinder()
+        for statement in node.finalbody:
+            tail.visit(statement)
+        if tail.found:
+            raise BrowserError(
+                category=ErrorCategory.FATAL,
+                cause=ErrorCause.API_MISUSE,
+                suggested_action=(
+                    "Move the module-level return outside the finally block."
+                ),
+                reason=(
+                    "module-level return inside try/finally discards the "
+                    "error the wrapper is reporting"
+                ),
+            )
         self.generic_visit(node)
 
 
