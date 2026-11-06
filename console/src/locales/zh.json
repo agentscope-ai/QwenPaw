@@ -4131,6 +4131,7 @@
     "system": "跟随系统"
   },
   "chat": {
+    "quoteFollowUp": "引用并追问",
     "longTextPaste": {
       "title": "粘贴长文本",
       "asText": "粘贴为文本",
