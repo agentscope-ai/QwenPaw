@@ -241,3 +241,63 @@ async def test_new_message_rejects_active_run(
         "use a different session_id."
     )
     assert console_workspace.console_channel.stream_calls == []
+
+
+def test_spawn_chat_persists_tool_skill_whitelists(
+    client,
+    console_workspace,
+):
+    """Foreground spawn (POST /console/chat) persists whitelists in meta.
+
+    The spawn lineage itself (``source = "subagent"``,
+    ``parent_session_id``, ``root_session_id``) is persisted as
+    first-class ``ChatSpec`` fields by ``_chat_registration_fields``;
+    this pins the meta merge that records the tool/skill whitelists.
+    The background task endpoint is covered in
+    ``test_console_chat_task.py``.
+    """
+
+    async def _safe_stream(payload):
+        yield 'data: {"type": "message", "output": []}\n\n'
+
+    console_workspace.console_channel.stream_one = _safe_stream
+    chat = MagicMock(name="ChatSpec")
+    chat.id = "chat-spawn"
+    chat.name = "New Chat"
+    chat.meta = {}
+    console_workspace.chat_manager.get_or_create_chat = AsyncMock(
+        return_value=chat,
+    )
+    update_meta = AsyncMock(return_value=chat)
+    console_workspace.chat_manager.update_meta = update_meta
+
+    response = client.post(
+        "/api/console/chat",
+        json={
+            "session_id": "sub-ab12cd34",
+            "user_id": "default",
+            "channel": "console",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "run"}],
+                },
+            ],
+            "request_context": {
+                "_spawn_subagent": True,
+                "root_session_id": "session:root",
+                "parent_session_id": "session:root",
+                "subagent_allowed_tools": ["read_file"],
+                "subagent_skills": ["docx"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    update_meta.assert_awaited_once_with(
+        "chat-spawn",
+        {
+            "subagent_allowed_tools": ["read_file"],
+            "subagent_skills": ["docx"],
+        },
+    )
