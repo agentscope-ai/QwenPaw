@@ -533,3 +533,14 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     finally:
         client.close()
         _shutdown_app(process, log_thread)
+
+
+@pytest.fixture(scope="module")
+# Pytest injects the existing fixture under its public name.
+# pylint: disable-next=redefined-outer-name
+def installed_mcp_plugin(app_server: AppServer) -> None:
+    """Explicitly install MCP for modules testing its available runtime."""
+    response = app_server.api_request("POST", "/api/mcp-plugin/install")
+    assert response.status_code == 200, app_server.logs_tail()
+    state = response.json()
+    assert state["status"] == "active", state

@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+pytestmark = pytest.mark.usefixtures("installed_mcp_plugin")
+
 
 @pytest.mark.integration
 @pytest.mark.p0

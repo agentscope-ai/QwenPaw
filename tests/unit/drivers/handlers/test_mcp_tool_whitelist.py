@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 # pylint: disable=protected-access
 """MCP per-tool whitelist: discovery tags, assembly filters, invoke rejects."""
 
@@ -22,25 +24,35 @@ from qwenpaw.drivers.capabilities import (
     mcp_tool_whitelist,
 )
 from qwenpaw.drivers.contracts import DriverCard
-from qwenpaw.drivers.credentials.providers import NoneProvider
-from qwenpaw.drivers.handlers.mcp import (
-    MCPDriverHandler,
-    _mcp_tool_to_capability,
+from tests.integration.driver_mcp_fakes import (
+    FakeStdIOClient,
+    Tool,
+    mcp_runtime_host as _mcp_runtime_host,
+    patch_mcp_runtime_clients,
+    sdk_mcp_manager,
 )
 
-
-def _tool(name: str) -> SimpleNamespace:
-    return SimpleNamespace(name=name, description="", inputSchema={})
+mcp_runtime_host = _mcp_runtime_host
 
 
-def _handler(tools_config: Any) -> MCPDriverHandler:
-    card = DriverCard(
-        name="fs",
-        protocol="mcp",
-        endpoint={"transport": "stdio", "command": "true"},
-        config={"tools": tools_config},
+async def _handler(tools_config, host, tmp_path, monkeypatch, *, names=None):
+    patch_mcp_runtime_clients(monkeypatch)
+
+    async def tools(_self):
+        return [Tool(name) for name in (names or ["read", "write"])]
+
+    monkeypatch.setattr(FakeStdIOClient, "list_tools", tools)
+    manager = await sdk_mcp_manager(host, tmp_path)
+    await manager.upsert_driver(
+        DriverCard(
+            name="fs",
+            protocol="mcp",
+            endpoint={"transport": "stdio", "command": "true"},
+            config={"tools": tools_config},
+            policy={"default_effect": "allow"},
+        ),
     )
-    return MCPDriverHandler(card, NoneProvider())
+    return manager._handlers["fs"]  # test-only cache/metadata observation
 
 
 @pytest.mark.parametrize(
@@ -70,26 +82,39 @@ def test_mcp_tool_is_enabled(
         ([], False),
     ],
 )
-def test_mcp_capability_enabled_from_whitelist(
+async def test_mcp_capability_enabled_from_whitelist(
     whitelist: list[str] | None,
     expected: bool,
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
 ) -> None:
-    capability = _mcp_tool_to_capability(
-        "fs",
-        _tool("read"),
-        whitelist=mcp_tool_whitelist(whitelist),
+    handler = await _handler(
+        whitelist,
+        mcp_runtime_host,
+        tmp_path,
+        monkeypatch,
+        names=["read"],
     )
+    capability = (await handler.list_capabilities())[0]
     assert capability.name == "read"
     assert capability.enabled is expected
     assert capability.exposure.as_tool is True
 
 
-def test_mcp_prefixed_tool_name_uses_raw_whitelist_key() -> None:
-    capability = _mcp_tool_to_capability(
-        "fs",
-        _tool("mcp__fs__read"),
-        whitelist=mcp_tool_whitelist(["read"]),
+async def test_mcp_prefixed_tool_name_uses_raw_whitelist_key(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    handler = await _handler(
+        ["read"],
+        mcp_runtime_host,
+        tmp_path,
+        monkeypatch,
+        names=["mcp__fs__read"],
     )
+    capability = (await handler.list_capabilities())[0]
     assert capability.name == "read"
     assert capability.enabled is True
 
@@ -152,13 +177,12 @@ async def test_build_driver_agent_tools_missing_enabled_stays_open() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_capabilities_reads_card_config_tools() -> None:
-    handler = _handler(["read"])
-
-    async def _list_tools() -> list[SimpleNamespace]:
-        return [_tool("read"), _tool("write")]
-
-    handler.list_tools = _list_tools  # type: ignore[method-assign]
+async def test_list_capabilities_reads_card_config_tools(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    handler = await _handler(["read"], mcp_runtime_host, tmp_path, monkeypatch)
     capabilities = await handler.list_capabilities()
     assert {item.name: item.enabled for item in capabilities} == {
         "read": True,
@@ -167,17 +191,16 @@ async def test_list_capabilities_reads_card_config_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_runtime_metadata_clears_capability_cache() -> None:
-    handler = _handler(["read"])
-
-    async def _list_tools() -> list[SimpleNamespace]:
-        return [_tool("read"), _tool("write")]
-
-    handler.list_tools = _list_tools  # type: ignore[method-assign]
+async def test_sync_runtime_metadata_clears_capability_cache(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    handler = await _handler(["read"], mcp_runtime_host, tmp_path, monkeypatch)
     await handler.list_capabilities()
-    assert handler._capability_cache is not None
+    assert handler.capabilities is not None
 
-    handler.sync_runtime_metadata(
+    await handler.manager.card_store.save(
         DriverCard(
             name="fs",
             protocol="mcp",
@@ -185,7 +208,8 @@ async def test_sync_runtime_metadata_clears_capability_cache() -> None:
             config={"tools": ["read", "write"]},
         ),
     )
-    assert handler._capability_cache is None
+    await handler.manager.refresh_driver("fs")
+    assert handler.capabilities is None
     capabilities = await handler.list_capabilities()
     assert {item.name: item.enabled for item in capabilities} == {
         "read": True,
@@ -194,13 +218,12 @@ async def test_sync_runtime_metadata_clears_capability_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_capabilities_disabled_tools_omitted_from_toolkit() -> None:
-    handler = _handler(["read"])
-
-    async def _list_tools() -> list[SimpleNamespace]:
-        return [_tool("read"), _tool("write")]
-
-    handler.list_tools = _list_tools  # type: ignore[method-assign]
+async def test_list_capabilities_disabled_tools_omitted_from_toolkit(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    handler = await _handler(["read"], mcp_runtime_host, tmp_path, monkeypatch)
     capabilities = await handler.list_capabilities()
 
     class _Manager:
@@ -218,13 +241,12 @@ async def test_list_capabilities_disabled_tools_omitted_from_toolkit() -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_capabilities_non_list_whitelist_is_open() -> None:
-    handler = _handler("read")
-
-    async def _list_tools() -> list[SimpleNamespace]:
-        return [_tool("read"), _tool("write")]
-
-    handler.list_tools = _list_tools  # type: ignore[method-assign]
+async def test_list_capabilities_non_list_whitelist_is_open(
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
+) -> None:
+    handler = await _handler("read", mcp_runtime_host, tmp_path, monkeypatch)
     capabilities = await handler.list_capabilities()
     assert all(item.enabled for item in capabilities)
 
@@ -242,8 +264,16 @@ async def test_invoke_capability_whitelist_contract(
     tools_config: list[str],
     tool_name: str,
     disabled: bool,
+    tmp_path,
+    monkeypatch,
+    mcp_runtime_host,
 ) -> None:
-    handler = _handler(tools_config)
+    handler = await _handler(
+        tools_config,
+        mcp_runtime_host,
+        tmp_path,
+        monkeypatch,
+    )
     result = await handler.invoke_capability(
         DriverInvocation(
             capability_id=format_capability_id(

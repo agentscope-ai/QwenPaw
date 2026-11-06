@@ -310,6 +310,11 @@ async def toggle_tool(
     # Save agent config
     save_agent_config(workspace.agent_id, agent_config)
 
+    if tool_name == "delegate_external_agent" and tool_config.enabled:
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, workspace.agent_id)
+
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, workspace.agent_id)
 

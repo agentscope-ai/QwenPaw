@@ -81,6 +81,15 @@ vi.mock("antd", () => ({
   }) => <>{items.find((item) => item.key === activeKey)?.children}</>,
 }));
 vi.mock("./useMCP", () => ({ useMCP: mocks.useMCP }));
+vi.mock("./useMCPPlugin", () => ({
+  useMCPPlugin: () => ({
+    state: { status: "active", diagnostics: [] },
+    busy: false,
+    error: "",
+    activate: vi.fn(),
+    refresh: vi.fn(),
+  }),
+}));
 vi.mock("@/components/PageHeader", () => ({
   PageHeader: ({
     current,
@@ -134,7 +143,11 @@ vi.mock("./components", () => ({
   ),
 }));
 
-import MCPPage from ".";
+import MCPPageBase from ".";
+
+function MCPPage() {
+  return <MCPPageBase managementAvailable managementMounted />;
+}
 
 const client: MCPClientInfo = {
   key: "client-1",

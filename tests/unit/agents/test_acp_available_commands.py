@@ -10,6 +10,8 @@ session is created so clients (e.g. the paw TUI) can offer autocompletion.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -170,7 +172,18 @@ async def test_registered_help_text_command_is_executed_and_advertised():
     assert by_name["demo_cmd"] == "Demo command for ACP advertise regression"
 
 
-async def test_new_session_advertises_commands():
+@pytest.fixture
+async def mcp_host(tmp_path):
+    from qwenpaw.plugins.testing import PluginTestHost
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(
+            Path(__file__).resolve().parents[3] / "plugins/protocol/mcp",
+        )
+        yield host
+
+
+async def test_new_session_advertises_commands(mcp_host):
     agent = QwenPawACPAgent(agent_id="default")
     conn = _FakeConn()
     agent.on_connect(conn)
@@ -193,7 +206,7 @@ async def test_new_session_advertises_commands():
         await agent._shutdown_workspace()
 
 
-async def test_load_session_advertises_commands():
+async def test_load_session_advertises_commands(mcp_host):
     agent = QwenPawACPAgent(agent_id="default")
     conn = _FakeConn()
     agent.on_connect(conn)
@@ -210,8 +223,10 @@ async def test_load_session_advertises_commands():
         await agent._shutdown_workspace()
 
 
-async def test_new_session_reports_agent_id_in_meta():
+async def test_new_session_reports_agent_id_in_meta(monkeypatch):
     agent = QwenPawACPAgent(agent_id="my-agent")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     conn = _FakeConn()
     agent.on_connect(conn)
 
@@ -230,6 +245,7 @@ async def test_prompt_passes_resolved_agent_id_to_runtime(monkeypatch):
                 yield None
 
     agent = QwenPawACPAgent(agent_id="my-agent")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _FakeConn()
     workspace = _FakeWorkspace()
     agent.on_connect(conn)

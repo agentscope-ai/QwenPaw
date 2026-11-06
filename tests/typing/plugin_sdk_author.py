@@ -4,7 +4,9 @@
 from pathlib import Path
 from typing import AsyncGenerator, assert_type
 
+from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
+from qwenpaw.plugins.drivers import DriverContext, DriverRequestContext
 from qwenpaw.plugins.events import ChatEvent
 from qwenpaw.plugins.providers import ModelChunk
 from qwenpaw.plugins.testing import PluginTestHost, TestModel
@@ -147,3 +149,132 @@ async def async_storage(call: ToolContext) -> None:
     await call.storage.awrite_json("state.json", {"count": 1})
     await call.storage.adelete("state.json")
     assert_type(await call.media.awrite("result.txt", b"result"), Attachment)
+
+
+async def driver_contract(
+    plugin: "PluginContext",
+    app: AppContext,
+    context: "DriverContext",
+    request: "DriverRequestContext",
+) -> None:
+    from collections.abc import Mapping
+    from contextlib import AbstractAsyncContextManager
+    from qwenpaw.plugins.drivers import (
+        DriverCallResult,
+        DriverCapabilitySpec,
+        DriverConnection,
+        DriverCredential,
+        DriverCredentialAccess,
+        DriverProtocolSpec,
+        DriverSource,
+    )
+    from qwenpaw.plugins.events import JSONValue
+    from qwenpaw.plugins.resources import Registration
+
+    class Connection:
+        async def open(self) -> None:
+            pass
+
+        async def discover(
+            self,
+            request: "DriverRequestContext",
+        ) -> tuple[DriverCapabilitySpec, ...]:
+            assert_type(request.workspace_id, str)
+            return (
+                DriverCapabilitySpec(
+                    name="echo",
+                    description="Echo",
+                    input_schema={},
+                ),
+            )
+
+        async def invoke(
+            self,
+            name: str,
+            arguments: Mapping[str, JSONValue],
+            request: "DriverRequestContext",
+        ) -> DriverCallResult:
+            assert_type(name, str)
+            assert_type(request.session_id, str)
+            return DriverCallResult(structured_content=arguments)
+
+        async def close(self) -> None:
+            pass
+
+    def validate(source: DriverSource) -> None:
+        assert_type(source.endpoint, Mapping[str, JSONValue])
+        assert_type(source.config, Mapping[str, JSONValue])
+
+    def create(
+        context: "DriverContext",
+        source: DriverSource,
+    ) -> DriverConnection:
+        assert_type(context.source_id, str)
+        assert_type(source.protocol, str)
+        return Connection()
+
+    spec = DriverProtocolSpec(
+        protocol="example",
+        validate=validate,
+        create=create,
+    )
+    registration = assert_type(
+        plugin.register_driver_protocol(spec),
+        Registration,
+    )
+    connection = assert_type(
+        spec.create(context, context.source),
+        DriverConnection,
+    )
+    await connection.open()
+    capabilities = assert_type(
+        await connection.discover(request),
+        tuple[DriverCapabilitySpec, ...],
+    )
+    result = assert_type(
+        await connection.invoke(capabilities[0].name, {}, request),
+        DriverCallResult,
+    )
+    assert_type(result.structured_content, JSONValue)
+    assert_type(request.workspace_instance_id, str)
+    assert_type(request.user_id, str)
+    assert_type(request.channel, str)
+    assert_type(request.deadline, float | None)
+    assert_type(request.cancelled, bool)
+    request.check_cancelled()
+    assert_type(context.plugin_id, str)
+    assert_type(context.generation, int)
+    assert_type(context.workspace_id, str)
+    assert_type(context.workspace_instance_id, str)
+    assert_type(context.source_id, str)
+    assert_type(context.source_revision, int)
+    assert_type(context.session_scope, str)
+    assert_type(context.credentials, DriverCredentialAccess)
+    assert_type(context.credentials.aliases, tuple[str, ...])
+    assert_type(
+        await context.credentials.resolve_runtime("oauth"),
+        Mapping[str, JSONValue],
+    )
+    assert_type(await context.subprocess_environment(), Mapping[str, str])
+    credential = assert_type(
+        await context.credentials.resolve("oauth"),
+        DriverCredential,
+    )
+    assert_type(credential.revision, int)
+    assert_type(credential.public, Mapping[str, JSONValue])
+    assert_type(credential.secrets, Mapping[str, JSONValue])
+    await context.credentials.update(
+        "oauth",
+        expected_revision=credential.revision,
+        public={"scope": "tools"},
+        secrets={"token": "author-test-token"},
+    )
+    context.invalidate_capabilities()
+    scope = assert_type(
+        app.driver_source("example", "configured-source"),
+        AbstractAsyncContextManager["DriverContext"],
+    )
+    async with scope as managed:
+        assert_type(managed, DriverContext)
+    await connection.close()
+    await registration.close()

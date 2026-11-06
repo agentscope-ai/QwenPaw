@@ -85,9 +85,13 @@ class AsyncDriverCardStore:
         """Load one DriverCard from a concrete path."""
         return await asyncio.to_thread(load_card, path)
 
-    async def list_paths(self) -> list[Path]:
+    async def list_paths(self, *, protocols=None) -> list[Path]:
         """Return sorted protocol-scoped DriverCard YAML paths."""
-        return await asyncio.to_thread(list_card_paths, self._cards_dir)
+        return await asyncio.to_thread(
+            list_card_paths,
+            self._cards_dir,
+            protocols=protocols,
+        )
 
     async def save(self, card: DriverCard) -> Path:
         """Persist one DriverCard and remove stale same-name card files."""
@@ -105,9 +109,13 @@ class AsyncDriverCardStore:
         """Return the first stored DriverCard path for a name, if any."""
         return await asyncio.to_thread(self._stored_path_sync, name)
 
-    async def snapshot(self) -> dict[str, tuple[str, float]]:
+    async def snapshot(
+        self,
+        *,
+        protocols=None,
+    ) -> dict[str, tuple[str, float]]:
         """Return a lightweight snapshot for change detection."""
-        return await asyncio.to_thread(self._snapshot_sync)
+        return await asyncio.to_thread(self._snapshot_sync, protocols)
 
     def _load_sync(self, name: str, protocol: str) -> DriverCard:
         path = self.path_for(name, protocol=protocol)
@@ -137,10 +145,10 @@ class AsyncDriverCardStore:
             return paths[0]
         return None
 
-    def _snapshot_sync(self) -> dict[str, tuple[str, float]]:
+    def _snapshot_sync(self, protocols=None) -> dict[str, tuple[str, float]]:
         snapshot: dict[str, tuple[str, float]] = {}
         paths_by_name: dict[str, str] = {}
-        for path in list_card_paths(self._cards_dir):
+        for path in list_card_paths(self._cards_dir, protocols=protocols):
             try:
                 mtime = path.stat().st_mtime
             except FileNotFoundError:
@@ -234,15 +242,21 @@ def dump_card(card: DriverCard, path: Path) -> None:
         ) from exc
 
 
-def list_card_paths(cards_dir: Path) -> list[Path]:
+def list_card_paths(cards_dir: Path, *, protocols=None) -> list[Path]:
     """Return sorted protocol-scoped DriverCard YAML paths."""
     if not cards_dir.is_dir():
         return []
     paths = []
-    for path in cards_dir.rglob("*"):
-        if not _is_visible_card_file(cards_dir, path):
-            continue
-        paths.append(path)
+    roots = (
+        [cards_dir / _protocol_path(protocol) for protocol in protocols]
+        if protocols is not None
+        else [cards_dir]
+    )
+    for root in roots:
+        _ensure_path_under(cards_dir, root)
+        for path in root.rglob("*"):
+            if _is_visible_card_file(cards_dir, path):
+                paths.append(path)
     return sorted(
         paths,
         key=lambda item: item.relative_to(cards_dir).as_posix(),

@@ -1,3 +1,4 @@
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import { useRef, useState } from "react";
 import { Alert, Button, Modal, Space } from "antd";
 import { useRequest } from "ahooks";
@@ -12,6 +13,7 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 export function MailProcessingPauses() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const [mcpRecovery, setMcpRecovery] = useState<string | null>(null);
   const [selected, setSelected] = useState<MailProcessingPause | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -35,7 +37,13 @@ export function MailProcessingPauses() {
         selected.pause_id,
       );
       message.success(t("inbox.mailProcessingResumed"));
-    } catch {
+    } catch (failure) {
+      if (
+        failure instanceof Error &&
+        failure.message.includes("mcp_plugin_unavailable")
+      ) {
+        setMcpRecovery(selected.agent_id);
+      }
       message.error(t("inbox.mailProcessingResumeFailed"));
     } finally {
       setSelected(null);
@@ -47,6 +55,9 @@ export function MailProcessingPauses() {
 
   return (
     <>
+      {mcpRecovery && (
+        <MCPFeatureStatus key={mcpRecovery} agentId={mcpRecovery} />
+      )}
       <Space direction="vertical" style={{ width: "100%" }}>
         {error && (
           <Alert

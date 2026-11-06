@@ -33,6 +33,7 @@ interface MCPClientCardProps {
   onUpdate: (key: string, updates: MCPClientUpdate) => Promise<boolean>;
   onUpdatePolicy: (key: string, policy: MCPAccessPolicy) => Promise<boolean>;
   onRefresh?: () => Promise<void>;
+  readOnly?: boolean;
 }
 
 export const MCPClientCard = React.memo(function MCPClientCard({
@@ -42,6 +43,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   onUpdate,
   onUpdatePolicy,
   onRefresh,
+  readOnly = false,
 }: MCPClientCardProps) {
   const { t } = useTranslation();
   const surfaceId = useId();
@@ -81,6 +83,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   };
 
   const { schedule: scheduleJson, requestClose } = useAutoSave(async () => {
+    if (readOnly) return false;
     const parsed = readConnection(editedJson);
     if (!parsed || connectionError(parsed)) return false;
     const updates = { ...parsed };
@@ -91,6 +94,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
   return (
     <>
       <ServiceCard
+        disabled={readOnly}
         surfaceId={surfaceId}
         name={client.name}
         description={client.description}
@@ -101,12 +105,14 @@ export const MCPClientCard = React.memo(function MCPClientCard({
           <>
             <span>{clientType}</span>
             <span>{client.transport}</span>
+            {readOnly && <span>{t("mcp.readOnly")}</span>}
           </>
         }
         actions={
           <>
             <Tooltip title={t("mcp.tools")}>
               <Button
+                disabled={readOnly}
                 type="text"
                 aria-label={t("mcp.tools")}
                 icon={<ToolOutlined size={16} />}
@@ -116,6 +122,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             {isRemote && (
               <Tooltip title={t("mcp.oauth.manage")}>
                 <Button
+                  disabled={readOnly}
                   type="text"
                   aria-label={t("mcp.oauth.manage")}
                   onClick={() => setOauthModalOpen(true)}
@@ -133,6 +140,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
             )}
             <Tooltip title={t("common.delete")}>
               <Button
+                disabled={readOnly}
                 type="text"
                 danger
                 aria-label={t("common.delete")}
@@ -144,112 +152,116 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         }
       />
 
-      <Modal
-        title={t("common.confirm")}
-        open={deleteModalOpen}
-        onOk={confirmDelete}
-        onCancel={() => setDeleteModalOpen(false)}
-        okText={t("common.confirm")}
-        cancelText={t("common.close")}
-        okButtonProps={{ danger: true }}
-      >
-        <p>{t("mcp.deleteConfirm")}</p>
-      </Modal>
+      {!readOnly && (
+        <>
+          <Modal
+            title={t("common.confirm")}
+            open={deleteModalOpen}
+            onOk={confirmDelete}
+            onCancel={() => setDeleteModalOpen(false)}
+            okText={t("common.confirm")}
+            cancelText={t("common.close")}
+            okButtonProps={{ danger: true }}
+          >
+            <p>{t("mcp.deleteConfirm")}</p>
+          </Modal>
 
-      <Modal
-        surfaceId={surfaceId}
-        styles={{
-          body: {
-            maxHeight: "min(68dvh, 640px)",
-            overflowY: "auto",
-            padding: "2px",
-          },
-        }}
-        title={`${client.name} · ${t("common.configure")}`}
-        open={jsonModalOpen}
-        onCancel={() => void requestClose(() => setJsonModalOpen(false))}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button
-              onClick={() => {
-                void requestClose(() => setJsonModalOpen(false));
+          <Modal
+            surfaceId={surfaceId}
+            styles={{
+              body: {
+                maxHeight: "min(68dvh, 640px)",
+                overflowY: "auto",
+                padding: "2px",
+              },
+            }}
+            title={`${client.name} · ${t("common.configure")}`}
+            open={jsonModalOpen}
+            onCancel={() => void requestClose(() => setJsonModalOpen(false))}
+            footer={
+              <div style={{ textAlign: "right" }}>
+                <Button
+                  onClick={() => {
+                    void requestClose(() => setJsonModalOpen(false));
+                  }}
+                  style={{ marginRight: 8 }}
+                >
+                  {t("common.close")}
+                </Button>
+              </div>
+            }
+            width={700}
+          >
+            <MCPConnectionEditor
+              value={editedJson}
+              onChange={(next) => {
+                setEditedJson(next);
+                scheduleJson();
               }}
-              style={{ marginRight: 8 }}
-            >
-              {t("common.close")}
-            </Button>
-          </div>
-        }
-        width={700}
-      >
-        <MCPConnectionEditor
-          value={editedJson}
-          onChange={(next) => {
-            setEditedJson(next);
-            scheduleJson();
-          }}
-        />
-      </Modal>
+            />
+          </Modal>
 
-      <MCPAccessModal
-        client={client}
-        open={accessModalOpen}
-        onClose={() => setAccessModalOpen(false)}
-        onSave={(policy) => onUpdatePolicy(client.key, policy)}
-      />
+          <MCPAccessModal
+            client={client}
+            open={accessModalOpen}
+            onClose={() => setAccessModalOpen(false)}
+            onSave={(policy) => onUpdatePolicy(client.key, policy)}
+          />
 
-      {/* Dedicated OAuth modal — opened only via the Authorize button */}
-      <Modal
-        title={
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {isOauthAuthorized ? (
-              <ShieldCheck
-                size={16}
-                style={{ color: "var(--app-success-text)" }}
-              />
-            ) : isOauthExpired ? (
-              <ShieldAlert
-                size={16}
-                style={{ color: "var(--app-warning-text)" }}
-              />
-            ) : (
-              <ShieldX
-                size={16}
-                style={{ color: "var(--app-text-tertiary)" }}
-              />
-            )}
-            {`${client.name} — ${t("mcp.oauth.manage")}`}
-          </div>
-        }
-        open={oauthModalOpen}
-        onCancel={() => setOauthModalOpen(false)}
-        footer={
-          <div style={{ textAlign: "right" }}>
-            <Button onClick={() => setOauthModalOpen(false)}>
-              {t("common.close")}
-            </Button>
-          </div>
-        }
-        width={560}
-      >
-        <MCPOAuthSection
-          url={client.url}
-          clientKey={client.key}
-          oauthEnabled
-          currentOAuthStatus={oauthStatus}
-          clientId={oauthClientId}
-          scope={oauthScope}
-          authEndpoint={oauthAuthEndpoint}
-          tokenEndpoint={oauthTokenEndpoint}
-          onClientIdChange={setOauthClientId}
-          onScopeChange={setOauthScope}
-          onAuthEndpointChange={setOauthAuthEndpoint}
-          onTokenEndpointChange={setOauthTokenEndpoint}
-          onAuthChanged={() => {
-            onRefresh?.();
-          }}
-        />
-      </Modal>
+          {/* Dedicated OAuth modal — opened only via the Authorize button */}
+          <Modal
+            title={
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {isOauthAuthorized ? (
+                  <ShieldCheck
+                    size={16}
+                    style={{ color: "var(--app-success-text)" }}
+                  />
+                ) : isOauthExpired ? (
+                  <ShieldAlert
+                    size={16}
+                    style={{ color: "var(--app-warning-text)" }}
+                  />
+                ) : (
+                  <ShieldX
+                    size={16}
+                    style={{ color: "var(--app-text-tertiary)" }}
+                  />
+                )}
+                {`${client.name} — ${t("mcp.oauth.manage")}`}
+              </div>
+            }
+            open={oauthModalOpen}
+            onCancel={() => setOauthModalOpen(false)}
+            footer={
+              <div style={{ textAlign: "right" }}>
+                <Button onClick={() => setOauthModalOpen(false)}>
+                  {t("common.close")}
+                </Button>
+              </div>
+            }
+            width={560}
+          >
+            <MCPOAuthSection
+              url={client.url}
+              clientKey={client.key}
+              oauthEnabled
+              currentOAuthStatus={oauthStatus}
+              clientId={oauthClientId}
+              scope={oauthScope}
+              authEndpoint={oauthAuthEndpoint}
+              tokenEndpoint={oauthTokenEndpoint}
+              onClientIdChange={setOauthClientId}
+              onScopeChange={setOauthScope}
+              onAuthEndpointChange={setOauthAuthEndpoint}
+              onTokenEndpointChange={setOauthTokenEndpoint}
+              onAuthChanged={() => {
+                onRefresh?.();
+              }}
+            />
+          </Modal>
+        </>
+      )}
     </>
   );
 });

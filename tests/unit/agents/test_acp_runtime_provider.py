@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
 
 import pytest
@@ -245,6 +246,7 @@ async def test_runtime_provider_forces_model_override(monkeypatch):
         agent_id="default",
         runtime_provider=_config(),
     )
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     agent.on_connect(_FakeConn())
     monkeypatch.setattr(
         "qwenpaw.agents.acp.server.ProviderManager.get_instance",
@@ -292,11 +294,13 @@ async def test_runtime_provider_is_advertised_as_current_model(monkeypatch):
     ]
 
 
-async def test_runtime_provider_rejects_other_model():
+async def test_runtime_provider_rejects_other_model(monkeypatch):
     agent = QwenPawACPAgent(
         agent_id="default",
         runtime_provider=_config(),
     )
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
+    monkeypatch.setattr(agent, "_advertise_commands", AsyncMock())
     response = await agent.new_session(cwd="/task")
 
     with pytest.raises(RequestError) as exc_info:
@@ -327,6 +331,7 @@ async def test_runtime_failure_is_an_acp_request_error(monkeypatch):
         agent_id="default",
         runtime_provider=_config(),
     )
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _FakeConn()
     agent.on_connect(conn)
 
@@ -368,6 +373,7 @@ async def test_cancel_stops_active_prompt(monkeypatch):
         agent_id="default",
         runtime_provider=_config(),
     )
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     agent.on_connect(_FakeConn())
 
     async def _fake_workspace():

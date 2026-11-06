@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """High-level ACP service built on the official Python SDK."""
+
 from __future__ import annotations
 
 import asyncio
@@ -67,8 +68,9 @@ class _Conversation:
 
 
 class ACPService:
-    def __init__(self, *, config: ACPConfig):
+    def __init__(self, *, config: ACPConfig, agent_id: str | None = None):
         self.config = config
+        self.agent_id = agent_id
         self._lock = asyncio.Lock()
         self._sessions: dict[tuple[str, str], _Conversation] = {}
 
@@ -83,6 +85,9 @@ class ACPService:
         restart: bool = False,
         require_existing: bool = False,
     ) -> dict[str, Any]:
+        from ...app.mcp.feature_gate import require_mcp_ready
+
+        require_mcp_ready(self.agent_id)
         if restart:
             await self.close_chat_session(chat_id=chat_id, agent=agent)
 
@@ -93,6 +98,7 @@ class ACPService:
             require_existing=require_existing,
         )
         async with conversation.turn_lock:
+            require_mcp_ready(self.agent_id)
             if conversation.client.pending_permission is not None:
                 raise ACPSessionError(
                     "Session "
@@ -130,6 +136,9 @@ class ACPService:
         option_id: str,
         on_message: MessageHandler,
     ) -> dict[str, Any]:
+        from ...app.mcp.feature_gate import require_mcp_ready
+
+        require_mcp_ready(self.agent_id)
         conversation = await self._find_session_by_acp_id(acp_session_id)
         if conversation is None:
             raise ACPSessionError(f"Session not found: {acp_session_id}")
@@ -289,6 +298,9 @@ class ACPService:
         cwd: str,
         agent_config: ACPAgentConfig,
     ) -> _Conversation:
+        from ...app.mcp.feature_gate import require_mcp_ready
+
+        require_mcp_ready(self.agent_id)
         client = ACPHostedClient(
             agent_name=agent,
             agent_config=agent_config,
@@ -457,7 +469,7 @@ def get_acp_service(agent_id: str | None = None) -> ACPService | None:
 
 def init_acp_service(agent_id: str, config: ACPConfig) -> ACPService:
     previous_service = _acp_services.get(agent_id)
-    _acp_services[agent_id] = ACPService(config=config)
+    _acp_services[agent_id] = ACPService(config=config, agent_id=agent_id)
     if previous_service is not None:
         try:
             loop = asyncio.get_running_loop()

@@ -196,6 +196,9 @@ class _TestACPAgent(QwenPawACPAgent):
         super().__init__(agent_id="default")
         self._fake_workspace = workspace
 
+    async def _require_mcp(self) -> None:
+        """These domain tests assume admission, without initializing plugins."""
+
     async def _ensure_workspace(self) -> _FakeWorkspace:
         self._workspace = self._fake_workspace
         return self._fake_workspace
@@ -214,6 +217,7 @@ async def test_acp_session_mcp_lifecycle_and_request_scope(tmp_path) -> None:
         cwd=str(tmp_path),
         mcp_servers=[_stdio_server()],
     )
+    assert agent._mcp_loader is None
     scope_id = acp_mcp_scope_id(response.session_id)
 
     assert workspace.driver_manager.replacements[0][0] == scope_id
@@ -282,6 +286,9 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
             self.card = card
             self.name = card.name
 
+        async def init(self) -> None:
+            pass
+
         async def shutdown(self) -> None:
             if self.card.endpoint["cwd"] == str(old_cwd):
                 teardown_started.set()
@@ -291,10 +298,7 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
                 await allow_close.wait()
                 close_finished.set()
 
-    async def build_handler(card):
-        return _BlockingHandler(card)
-
-    monkeypatch.setattr(manager, "_build_and_init_handler", build_handler)
+    monkeypatch.setattr(manager, "_build_handler", _BlockingHandler)
     workspace = _FakeWorkspace()
     workspace.driver_manager = manager
     agent = _TestACPAgent(workspace)

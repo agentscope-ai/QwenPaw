@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 from pathlib import Path
 
 import pytest
@@ -6,7 +8,12 @@ import pytest
 from qwenpaw.app.workspace import Workspace
 from qwenpaw.drivers.contracts import DriverCard
 from qwenpaw.drivers.storage import card_path, dump_card
-from tests.integration.driver_mcp_fakes import patch_mcp_runtime_clients
+from tests.integration.driver_mcp_fakes import (
+    mcp_runtime_host as _mcp_runtime_host,
+    patch_mcp_runtime_clients,
+)
+
+mcp_runtime_host = _mcp_runtime_host
 
 
 def _mcp_card(name: str) -> DriverCard:
@@ -17,10 +24,12 @@ def _mcp_card(name: str) -> DriverCard:
     )
 
 
-async def _start_driver_service(workspace: Workspace):
+async def _start_driver_service(workspace: Workspace, host):
     # pylint: disable=protected-access
+    host._workspaces[workspace.agent_id] = workspace
     descriptor = workspace._service_manager.descriptors["driver_manager"]
     await workspace._service_manager._start_service(descriptor)
+    host.test_driver_managers.append(workspace.driver_manager)
     return workspace.driver_manager
 
 
@@ -35,6 +44,7 @@ async def _active_driver_names(manager) -> list[str]:
 async def test_driver_manager_uses_per_workspace_storage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     workspace_one = Workspace("agent-one", str(tmp_path / "one"))
@@ -56,8 +66,8 @@ async def test_driver_manager_uses_per_workspace_storage(
         ),
     )
 
-    manager_one = await _start_driver_service(workspace_one)
-    manager_two = await _start_driver_service(workspace_two)
+    manager_one = await _start_driver_service(workspace_one, mcp_runtime_host)
+    manager_two = await _start_driver_service(workspace_two, mcp_runtime_host)
 
     assert await _active_driver_names(manager_one) == ["driver-one"]
     assert await _active_driver_names(manager_two) == ["driver-two"]

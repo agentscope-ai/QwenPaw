@@ -39,8 +39,17 @@ from qwenpaw.app.mail.monitor import (
 )
 from qwenpaw.utils.io_utils import run_sync_io
 
-
 _HAN_RE = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+
+@pytest.fixture(autouse=True)
+def _available_mcp(monkeypatch):
+    """Mail domain tests run against a healthy host; no external plugin I/O."""
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: True,
+    )
+
 
 # ── test doubles ─────────────────────────────────────────────────────
 
@@ -242,6 +251,23 @@ async def _run_pipeline(
         uid,
         envelope,
     )
+
+
+def test_unavailable_mcp_does_not_consume_mail_or_execute_rules(
+    tmp_path,
+    monkeypatch,
+):
+    service, workspace = _service(tmp_path, mode="agent_all")
+    service._last_uid = 4
+    connection = FakeImapConn(b"5")
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: False,
+    )
+    service._check_new_messages(connection)
+    assert service._last_uid == 4
+    assert connection.calls == []
+    assert workspace.queries == []
 
 
 # ── rule matching ─────────────────────────────────────────────────────

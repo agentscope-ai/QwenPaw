@@ -1038,7 +1038,11 @@ class PluginLifecycle:
         interrupt_tasks: bool = False,
     ) -> Any:
         """Persist an enable only after the bound definition activates."""
-        from .settings import persist_plugin_settings, runtime_config
+        from .settings import (
+            persist_plugin_settings,
+            runtime_config,
+            clear_plugin_intent,
+        )
         from .execution_backend import probes_before_activation
         from ..config.utils import load_config
         from ..utils.io_utils import run_sync_io
@@ -1073,6 +1077,12 @@ class PluginLifecycle:
                     plugin_id,
                     enabled=True,
                 )
+                await run_sync_io(
+                    clear_plugin_intent,
+                    plugin_id,
+                    plugins_dir=self._loader.plugin_dirs[0],
+                )
+                self._loader.startup_blocked_plugins.discard(plugin_id)
                 return record
             source = (
                 record.source_path
@@ -1117,20 +1127,34 @@ class PluginLifecycle:
                 )
                 if not report.quiescent:
                     return report
-            record = await self._loader._load_plugin_unlocked(
-                manifest,
-                source,
-                {**config, "enabled": True},
-                activate=True,
-                backend_binding=binding,
-                prepared=True,
-            )
+            blocked = plugin_id in self._loader.startup_blocked_plugins
+            self._loader.startup_blocked_plugins.discard(plugin_id)
+            try:
+                record = await self._loader._load_plugin_unlocked(
+                    manifest,
+                    source,
+                    {**config, "enabled": True},
+                    activate=True,
+                    backend_binding=binding,
+                    prepared=True,
+                )
+            except BaseException:
+                if blocked:
+                    self._loader.startup_blocked_plugins.add(plugin_id)
+                raise
             if record.status == "active" and record.enabled:
                 await run_sync_io(
                     persist_plugin_settings,
                     plugin_id,
                     enabled=True,
                 )
+                await run_sync_io(
+                    clear_plugin_intent,
+                    plugin_id,
+                    plugins_dir=self._loader.plugin_dirs[0],
+                )
+            elif blocked:
+                self._loader.startup_blocked_plugins.add(plugin_id)
             return record
 
     async def unload_all(self, mode: UnloadMode) -> list[UnloadReport]:

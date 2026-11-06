@@ -31,17 +31,22 @@ class DriverConfigWatcher:
         driver_manager: "DriverManager",
         cards_dir: Path,
         poll_interval: float = DEFAULT_POLL_INTERVAL,
+        *,
+        protocols: frozenset[str] | None = None,
     ) -> None:
         self._driver_manager = driver_manager
         self._card_store: AsyncDriverCardStore = driver_manager.card_store
         self._cards_dir = cards_dir
         self._poll_interval = poll_interval
+        self._protocols = protocols
         self._task: Optional[asyncio.Task] = None
         self._last_snapshot: dict[str, tuple[str, float]] = {}
 
     async def start(self) -> None:
         """Take an initial snapshot and start the polling task."""
-        self._last_snapshot = await self._card_store.snapshot()
+        if self._task is not None:
+            return
+        self._last_snapshot = await self._snapshot()
         self._task = asyncio.create_task(
             self._poll_loop(),
             name="driver_config_watcher",
@@ -64,6 +69,11 @@ class DriverConfigWatcher:
         self._task = None
         logger.info("DriverConfigWatcher stopped")
 
+    async def _snapshot(self):
+        if self._protocols is None:
+            return await self._card_store.snapshot()
+        return await self._card_store.snapshot(protocols=self._protocols)
+
     async def _poll_loop(self) -> None:
         while True:
             try:
@@ -76,7 +86,7 @@ class DriverConfigWatcher:
                 )
 
     async def _check_once(self) -> None:
-        current = await self._card_store.snapshot()
+        current = await self._snapshot()
         if current == self._last_snapshot:
             return
 

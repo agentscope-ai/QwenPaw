@@ -8,7 +8,14 @@ const hoisted = vi.hoisted(() => {
     error: vi.fn(),
     warning: vi.fn(),
   };
-  const agentState = { selectedAgent: "agent-1", agents: [] };
+  const agentState = {
+    selectedAgent: "agent-1",
+    agents: [] as Array<{
+      id: string;
+      backend?: string;
+      backend_capabilities?: { provider_mcp_discovery?: boolean };
+    }>,
+  };
   const apiMocks = {
     listMCPClients: vi.fn(),
     createMCPClient: vi.fn(),
@@ -20,7 +27,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite loadClients loop via useEffect.
   const stableT = (k: string) => k;
-  return { messageMock, agentState, apiMocks, stableT };
+  return { discover: vi.fn(), messageMock, agentState, apiMocks, stableT };
 });
 
 vi.mock("../../../api", () => ({
@@ -40,6 +47,10 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: hoisted.stableT }),
+}));
+
+vi.mock("../../../api/modules/harness", () => ({
+  harnessApi: { listMCP: hoisted.discover },
 }));
 
 import { useMCP } from "./useMCP";
