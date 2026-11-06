@@ -5,7 +5,11 @@ from __future__ import annotations
 import pytest
 
 import qwenpaw.utils.system_info as system_info_module
-from qwenpaw.utils.system_info import get_system_info, get_vram_size_gb
+from qwenpaw.utils.system_info import (
+    get_architecture,
+    get_system_info,
+    get_vram_size_gb,
+)
 
 _NVIDIA_SMI_HEADER = (
     "NVIDIA-SMI 560.94    Driver Version: 560.94    CUDA Version: 12.6\n"
@@ -124,3 +128,47 @@ def test_get_vram_size_gb_ignores_unparsable_lines(
     )
 
     assert get_vram_size_gb() == 8.0
+
+
+def test_get_architecture_uses_windows_env_when_machine_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(
+        system_info_module,
+        "get_os_name",
+        lambda: "windows",
+    )
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+    monkeypatch.delenv("PROCESSOR_ARCHITEW6432", raising=False)
+
+    assert get_architecture() == "x64"
+
+
+def test_get_architecture_prefers_wow64_native_architecture(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(
+        system_info_module,
+        "get_os_name",
+        lambda: "windows",
+    )
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+    monkeypatch.setenv("PROCESSOR_ARCHITEW6432", "ARM64")
+
+    assert get_architecture() == "arm64"
+
+
+def test_get_architecture_does_not_guess_outside_windows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(system_info_module.platform, "machine", lambda: "")
+    monkeypatch.setattr(
+        system_info_module,
+        "get_os_name",
+        lambda: "linux",
+    )
+    monkeypatch.setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+
+    assert get_architecture() == ""
