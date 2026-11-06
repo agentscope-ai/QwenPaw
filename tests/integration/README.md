@@ -11,6 +11,12 @@ external services required.
 
 ## Running
 
+Before starting pytest workers, install the host and CloudPaw dependencies together. Lifecycle tests use separate workspaces but share the Python environment; they must not install missing packages while other tests are running.
+
+```bash
+python -m pip install -e ".[dev,test,full]" -r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"
+```
+
 ```bash
 # Full suite (~3 minutes)
 make test-integration

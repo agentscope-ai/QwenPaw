@@ -375,6 +375,7 @@ class TestNoneSandboxReporting:
             result = asyncio.run(sandbox.execute("echo ok"))
 
         assert result.exit_code == 0
+        create_process.assert_called_once()
         assert (
             create_process.call_args.kwargs["stdin"]
             is asyncio.subprocess.DEVNULL

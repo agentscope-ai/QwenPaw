@@ -37,6 +37,33 @@ def _zip_bytes(entries: dict[str, str]) -> bytes:
     return buffer.getvalue()
 
 
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        ("DEPENDENCY_UNSATISFIED", "requirements"),
+        ("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED", "environment"),
+        ("DEPENDENCY_REPAIR_REQUIRED", "repair"),
+    ],
+)
+def test_dependency_refusal_instructions_match_failure_stage(code, expected):
+    from qwenpaw.app.routers.plugins import dependency_http_error
+    from qwenpaw.plugins.dependency_gate import (
+        GateDecision,
+        SharedDependencyError,
+    )
+
+    response = dependency_http_error(
+        SharedDependencyError(
+            GateDecision(False, False, reason=code, reason_code=code),
+        ),
+    )
+    assert response.status_code == 409
+    assert response.detail["code"] == code
+    assert expected in response.detail["instructions"][0].lower()
+    if code != "DEPENDENCY_UNSATISFIED":
+        assert "requirements" not in response.detail["instructions"][0].lower()
+
+
 # ---------------------------------------------------------------------------
 # _safe_extract_zip
 # ---------------------------------------------------------------------------

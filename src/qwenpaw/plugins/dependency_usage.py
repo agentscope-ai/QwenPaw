@@ -6,11 +6,12 @@ from __future__ import annotations
 from copy import deepcopy
 import asyncio
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Mapping
+from uuid import uuid4
 
-from .execution.dependencies import DependencySnapshot
+from .execution.dependencies import DependencyReadEvidence, DependencySnapshot
 from .ownership import RuntimeLease, RuntimeOwners
 
 admission_context: ContextVar[tuple | None] = ContextVar(
@@ -64,8 +65,35 @@ class DependencyDeclaration:
     environment: DependencyEnvironment | None
 
 
+@dataclass(frozen=True, eq=False)
 class DeclarationToken:
     """Opaque identity for one admission, even for identical declarations."""
+
+    identity: str = field(default_factory=lambda: uuid4().hex)
+
+    def __deepcopy__(self, memo):
+        # Copying a view must never mint another admission identity.
+        return self
+
+
+@dataclass(frozen=True)
+class HostModuleFact:
+    """First file witness for an in-memory module; no live module references."""
+
+    name: str
+    module_id: int
+    origin: str
+    locations: tuple[str, ...]
+    file_witness: tuple
+    provider: tuple | None = None
+    namespace: bool = False
+
+
+@dataclass(frozen=True)
+class HostModuleProgress:
+    paths: tuple[str, ...]
+    roots: tuple[str, ...]
+    facts: tuple[HostModuleFact, ...]
 
 
 @dataclass(frozen=True)
@@ -79,6 +107,12 @@ class DependencyUse(DependencyDeclaration):
     pending: bool = True
     read_admitted: bool = False
     read_context: object | None = None
+    host_modules: tuple[HostModuleFact, ...] = ()
+    declaration_token: DeclarationToken | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -106,18 +140,6 @@ def _merge_host_distributions(old, fresh):
     return merged
 
 
-@dataclass(frozen=True)
-class _HostObservationProgress:
-    """Detached unfinished sources and their contemporaneous proof."""
-
-    code_root: str
-    paths: tuple[str, ...]
-    roots: tuple[str, ...]
-    sources: tuple[tuple[str, str, tuple[str, ...]], ...]
-    snapshot: DependencySnapshot
-    provenance: tuple
-
-
 class DependencyUsageRegistry:
     """Store only evidence; query exact leases for current runtime custody."""
 
@@ -131,7 +153,7 @@ class DependencyUsageRegistry:
         self._host: dict[DeclarationToken, DependencyUse] = {}
         self._host_progress: dict[
             DeclarationToken,
-            _HostObservationProgress,
+            HostModuleProgress,
         ] = {}
         self._leases: tuple[RuntimeLease, ...] = ()
         self._revision = 0
@@ -155,6 +177,7 @@ class DependencyUsageRegistry:
                 ),
                 declaration.environment,
                 pending=pending,
+                declaration_token=token,
             ),
         )
         self._revision += 1
@@ -208,6 +231,10 @@ class DependencyUsageRegistry:
                     )
             self._revision += 1
 
+    def declaration(self, token):
+        """Detach the exact token's metadata before asynchronous collection."""
+        return deepcopy(self._declarations.get(token))
+
     def has_declaration(self, token, *, plugin_id=None) -> bool:
         """Check the exact admission without substituting a newer token."""
         declaration = self._declarations.get(token)
@@ -253,12 +280,13 @@ class DependencyUsageRegistry:
         ):
             raise ValueError("DEPENDENCY_DECLARATION_MISMATCH")
         if token in self._declarations:
+            reading = isinstance(snapshot, DependencyReadEvidence)
             self._declarations[token] = deepcopy(
                 replace(
                     self._declarations[token],
                     environment=DependencyEnvironment.from_snapshot(snapshot),
-                    snapshot=snapshot,
-                    read_admitted=False,
+                    snapshot=None if reading else snapshot,
+                    read_admitted=reading,
                     read_context=None,
                     pending=self._declarations[token].pending or pending,
                 ),
@@ -271,13 +299,14 @@ class DependencyUsageRegistry:
         if lease not in self._bindings:
             raise ValueError("DEPENDENCY_LEASE_UNBOUND")
         token, use = self._bindings[lease]
+        reading = isinstance(snapshot, DependencyReadEvidence)
         self._bindings[lease] = (
             token,
             deepcopy(
                 replace(
                     use,
-                    snapshot=snapshot,
-                    read_admitted=False,
+                    snapshot=None if reading else snapshot,
+                    read_admitted=reading,
                     read_context=None,
                     environment=DependencyEnvironment.from_snapshot(snapshot),
                 ),
@@ -342,6 +371,9 @@ class DependencyUsageRegistry:
                 active=True,
                 origin="host",
                 snapshot=snapshot,
+                host_modules=(
+                    previous.host_modules if previous is not None else ()
+                ),
                 read_admitted=False,
                 read_context=None,
                 environment=(
@@ -353,6 +385,61 @@ class DependencyUsageRegistry:
             ),
         )
         self._revision += 1
+
+    def record_host_modules(
+        self,
+        token,
+        facts,
+        environment,
+        *,
+        declaration=None,
+    ):
+        """Append history even if the admission was withdrawn during collection."""
+        declaration = (
+            declaration
+            or self._declarations.get(token)
+            or self._host.get(token)
+        )
+        if declaration is None:
+            raise ValueError("DEPENDENCY_DECLARATION_MISMATCH")
+        old = self._host.get(token)
+        retained = {fact: fact for fact in old.host_modules} if old else {}
+        retained.update((fact, fact) for fact in facts)
+        if not retained:
+            return
+        if old is not None:
+            environment = (
+                replace(
+                    environment,
+                    sites=tuple(
+                        dict.fromkeys(
+                            (*old.environment.sites, *environment.sites),
+                        ),
+                    ),
+                )
+                if old.environment is not None and environment is not None
+                else None
+            )
+        self._host[token] = replace(
+            declaration,
+            active=True,
+            origin="host",
+            snapshot=None,
+            read_context=None,
+            read_admitted=False,
+            environment=deepcopy(environment),
+            host_modules=tuple(retained.values()),
+        )
+        self._revision += 1
+
+    def host_modules(self):
+        return tuple(
+            dict.fromkeys(
+                fact
+                for use in self._host.values()
+                for fact in use.host_modules
+            ),
+        )
 
     def pending_host_observations(self):
         return tuple(self._host_progress.items())
@@ -367,29 +454,11 @@ class DependencyUsageRegistry:
             self._host_progress[token] = progress
             self._revision += 1
 
-    def replace_host_observation(self, token, progress, replacement):
-        """Keep an unfinished batch when cancellation settles its worker."""
-        if self._host_progress.get(token) is not progress:
-            return False
-        self._host_progress[token] = replacement
-        self._revision += 1
-        return True
-
-    def finish_host_observation(
-        self,
-        token,
-        progress,
-        snapshot,
-        *,
-        replacement=None,
-    ):
-        """Publish only the exact unfinished observation still owned here."""
+    def finish_host_module_observation(self, token, progress, environment):
         if self._host_progress.get(token) is not progress:
             return False
         del self._host_progress[token]
-        self.observe_host(token, snapshot)
-        if replacement is not None:
-            self._host_progress[token] = replacement
+        self.record_host_modules(token, progress.facts, environment)
         return True
 
     def capture_admissions(self, leases):
@@ -450,9 +519,11 @@ class DependencyUsageRegistry:
             for token, use in self._declarations.items()
             if use.pending or token is admission_token
         ] + [
-            replace(use, environment=None)
-            if token in self._host_progress
-            else use
+            (
+                replace(use, environment=None)
+                if token in self._host_progress
+                else use
+            )
             for token, use in self._host.items()
         ]
         for lease in leases:

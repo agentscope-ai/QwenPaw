@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from typing import Any, Mapping
 
 from packaging.markers import default_environment
-from packaging.requirements import InvalidRequirement, Requirement
+from packaging.requirements import Requirement
 from packaging.tags import sys_tags
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
@@ -41,23 +41,12 @@ class PluginContext:
 def _requirements(path: str | Path | None) -> tuple[str, ...]:
     if path is None:
         return ()
-    values = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        line = line.split(" #", 1)[0].strip()
-        if not line or line.startswith("#"):
-            continue
-        try:
-            requirement = Requirement(line)
-        except InvalidRequirement:
-            raise ProtocolValidationError(
-                "invalid dependency declaration",
-            ) from None
-        if requirement.url or requirement.extras:
-            raise ProtocolValidationError(
-                "plain distribution requirements required",
-            )
-        values.append(str(requirement))
-    return tuple(sorted(set(values)))
+    from ..dependency_gate import parse_requirements_file
+
+    parsed = parse_requirements_file(Path(path))
+    if parsed.unsupported:
+        raise ProtocolValidationError("unsupported dependency declaration")
+    return tuple(sorted({str(req) for req in parsed.requirements}))
 
 
 def _dependencies(
@@ -97,17 +86,18 @@ def _dependencies(
                 )
             except (InvalidVersion, TypeError):
                 satisfied = False
-            if not satisfied:
-                raise ProtocolValidationError(
-                    "shared dependency unavailable",
-                    reason_code="DEPENDENCY_UNSATISFIED",
-                )
         rows.append(
             {
                 "requirement": value,
                 "name": name,
                 "installed_version": installed,
-                "status": "skipped" if skipped else "satisfied",
+                "status": (
+                    "skipped"
+                    if skipped
+                    else "satisfied"
+                    if satisfied
+                    else "warning"
+                ),
             },
         )
     return rows
