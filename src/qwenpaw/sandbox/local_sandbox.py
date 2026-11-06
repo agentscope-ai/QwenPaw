@@ -213,21 +213,23 @@ class NoneSandbox(LocalSandbox):
 
         start = time.monotonic()
         try:
-            # cmd.exe parses a command string, not C-runtime argv quoting.
-            # Passing it through exec would backslash-escape embedded quotes
-            # (e.g. a script path containing spaces) a second time.
             if (
                 sys.platform == "win32"
                 and _shell_basename(shell) in _CMD_NAMES
             ):
-                create_process = asyncio.create_subprocess_shell
-                args, shell_options = (cmd,), {"executable": shell}
+                # Windows exec serializes argv with list2cmdline, escaping
+                # embedded quotes with backslashes. cmd.exe needs raw shell
+                # text; subprocess_shell supplies its /c wrapper directly.
+                spawn = asyncio.create_subprocess_shell
+                args = (cmd,)
+                options = {"executable": shell}
             else:
-                create_process = asyncio.create_subprocess_exec
-                args, shell_options = _shell_argv(shell, cmd), {}
-            self._process = await create_process(
+                spawn = asyncio.create_subprocess_exec
+                args = tuple(_shell_argv(shell, cmd))
+                options = {}
+            self._process = await spawn(
                 *args,
-                **shell_options,
+                **options,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,

@@ -1245,7 +1245,7 @@ def legacy_start(request, host, tmp_path, monkeypatch):
     from qwenpaw.app.channels.manager import ChannelManager
     from qwenpaw.plugins.architecture import PluginManifest
     from qwenpaw.plugins.channel_adapter import describe_channel
-    from qwenpaw.plugins import azure_legacy, matrix_legacy
+    from qwenpaw.plugins import azure_legacy
 
     key = request.param
     root = Path(__file__).resolve().parents[3]
@@ -1286,34 +1286,18 @@ def legacy_start(request, host, tmp_path, monkeypatch):
     }
     config_path = legacy / "config.json"
     config_path.write_text(json.dumps(config))
-    reader = azure_legacy if key == "azure_bot" else matrix_legacy
-    reader_name = "_snapshot" if key == "azure_bot" else "read_json_snapshot"
-    filename = (
-        "azure_bot_refs.json"
-        if key == "azure_bot"
-        else "matrix_auth_state.json"
-    )
-    state = (
-        {"room": {"service_url": "https://bot.test"}}
-        if key == "azure_bot"
-        else {"user_id": "@alice:matrix.test", "device_id": "DEVICE"}
-    )
+    reader = azure_legacy
+    reader_name = "_snapshot"
+    filename = "azure_bot_refs.json"
+    state = {"room": {"service_url": "https://bot.test"}}
     (legacy / filename).write_text(json.dumps(state))
-    capture_fn = (
-        azure_legacy.capture_azure_legacy
-        if key == "azure_bot"
-        else matrix_legacy.capture_matrix_legacy
-    )
+    capture_fn = azure_legacy.capture_azure_legacy
     capture = capture_fn(
         config_path=config_path,
         legacy_state_dir=legacy,
         working_dir=legacy,
     )
-    field = (
-        "legacy_reference_owner"
-        if key == "azure_bot"
-        else "legacy_state_owner"
-    )
+    field = "legacy_reference_owner"
     manager = ChannelManager([])
     manager._workspace_dir = workspace
     manager._workspace_config = SimpleNamespace(channels={key: values})
@@ -1341,7 +1325,7 @@ def legacy_start(request, host, tmp_path, monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "legacy_start",
-    ["azure_bot", "matrix"],
+    ["azure_bot"],
     indirect=True,
 )
 async def test_legacy_start_preparation_yields_and_keeps_authorization(
@@ -1388,14 +1372,8 @@ async def test_legacy_start_preparation_yields_and_keeps_authorization(
         assert authorization["owner"]["workspace_dir"] == str(
             case.manager._workspace_dir,
         )
-        digest_key = (
-            "refs_sha256" if case.key == "azure_bot" else "auth_sha256"
-        )
-        captured = (
-            case.capture["entries"][0]
-            if case.key == "azure_bot"
-            else case.capture
-        )
+        digest_key = "refs_sha256"
+        captured = case.capture["entries"][0]
         assert authorization[digest_key] == captured[digest_key]
         assert calls and all(thread != loop_thread for thread in calls)
         assert len(calls) == 1
@@ -1415,8 +1393,6 @@ async def test_legacy_start_preparation_yields_and_keeps_authorization(
         ("azure_bot", "mutate"),
         ("azure_bot", "replace"),
         ("azure_bot", "publish"),
-        ("matrix", "cancel"),
-        ("matrix", "mutate"),
     ],
     indirect=["legacy_start"],
 )

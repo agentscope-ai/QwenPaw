@@ -3070,6 +3070,10 @@
         "name": "動画を確認",
         "description": "モデルが分析できるよう動画を読み込みます。"
       },
+      "view_audio": {
+        "name": "音声を確認",
+        "description": "モデルが文字起こしや分析できるよう音声を読み込みます。"
+      },
       "enhance_and_generate_image": {
         "name": "プロンプトを改善して画像を生成",
         "description": "画像のプロンプトを調整し、画像を生成します。"

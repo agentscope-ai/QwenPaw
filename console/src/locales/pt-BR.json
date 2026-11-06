@@ -3324,6 +3324,10 @@
         "name": "Visualizar vídeos",
         "description": "Carregue vídeos para o modelo analisar."
       },
+      "view_audio": {
+        "name": "Ouvir áudio",
+        "description": "Carregue áudio para o modelo transcrever ou analisar."
+      },
       "enhance_and_generate_image": {
         "name": "Aprimorar e gerar imagens",
         "description": "Refine o prompt de imagem e gere o resultado."

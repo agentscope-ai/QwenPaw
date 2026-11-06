@@ -2182,6 +2182,10 @@
         "name": "Lihat video",
         "description": "Muat video untuk dianalisis model."
       },
+      "view_audio": {
+        "name": "Dengarkan audio",
+        "description": "Muat audio untuk ditranskripsi atau dianalisis model."
+      },
       "enhance_and_generate_image": {
         "name": "Sempurnakan dan buat gambar",
         "description": "Perbaiki prompt gambar lalu hasilkan gambarnya."

@@ -361,18 +361,21 @@ class TestNoneSandboxReporting:
         proc.returncode = 0
         proc.communicate = AsyncMock(return_value=(b"ok", b""))
 
-        with patch(
-            "qwenpaw.sandbox.local_sandbox.asyncio.create_subprocess_exec",
-            new=AsyncMock(return_value=proc),
-        ) as create_exec, patch(
-            "qwenpaw.sandbox.local_sandbox.asyncio.create_subprocess_shell",
-            new=AsyncMock(return_value=proc),
-        ) as create_shell:
+        create_process = AsyncMock(return_value=proc)
+        with (
+            patch(
+                "qwenpaw.sandbox.local_sandbox.asyncio.create_subprocess_exec",
+                new=create_process,
+            ),
+            patch(
+                "qwenpaw.sandbox.local_sandbox.asyncio.create_subprocess_shell",
+                new=create_process,
+            ),
+        ):
             result = asyncio.run(sandbox.execute("echo ok"))
 
         assert result.exit_code == 0
-        assert create_exec.call_count + create_shell.call_count == 1
-        create_process = create_shell if create_shell.called else create_exec
+        create_process.assert_called_once()
         assert (
             create_process.call_args.kwargs["stdin"]
             is asyncio.subprocess.DEVNULL
