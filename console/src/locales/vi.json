@@ -2050,6 +2050,10 @@
         "name": "Xem video",
         "description": "Tải video để mô hình phân tích."
       },
+      "view_audio": {
+        "name": "Nghe âm thanh",
+        "description": "Tải âm thanh để mô hình phiên âm hoặc phân tích."
+      },
       "enhance_and_generate_image": {
         "name": "Cải thiện và tạo hình ảnh",
         "description": "Tinh chỉnh câu lệnh tạo ảnh rồi tạo kết quả."
