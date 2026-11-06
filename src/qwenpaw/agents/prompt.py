@@ -434,12 +434,23 @@ def _get_active_model_info(agent_config=None):
                     model_info = provider.model_capabilities(m)
                 except Exception:
                     logger.warning(
-                        "Failed to resolve capabilities for active model %s/%s",
+                        "Failed to resolve capabilities for active model %s/%s; "
+                        "using configured metadata",
                         active.provider_id,
                         active.model,
                         exc_info=True,
                     )
-                    return None, None
+                    model_info = m
+                logger.debug(
+                    "Active model capabilities %s/%s: "
+                    "image=%s video=%s multimodal=%s provenance=%s",
+                    active.provider_id,
+                    active.model,
+                    model_info.supports_image,
+                    model_info.supports_video,
+                    model_info.supports_multimodal,
+                    model_info.capability_provenance,
+                )
                 return model_info, active.model
         return None, None
     except Exception:

@@ -578,9 +578,10 @@ async def _probe_multimodal_if_needed(
 def _check_multimodal_support(media_type: str = "image") -> bool:
     """Check whether the active model supports the given media type (sync).
 
-    For ``image``: returns True when supports_image or supports_multimodal
+    For ``image``: a configured supports_image override takes precedence;
+    otherwise returns True when supports_image or supports_multimodal is
+    explicitly True. For ``video``: returns True only when supports_video
     is explicitly True.
-    For ``video``: returns True only when supports_video is explicitly True.
 
     Returns False for unknown (None) or explicitly unsupported (False).
     The tool is still *registered*; the async probe path handles the
@@ -594,6 +595,12 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
             return True
         if media_type == "video":
             return model_info.supports_video is True
+        if "supports_image" in getattr(
+            model_info,
+            "config_overrides",
+            [],
+        ):
+            return model_info.supports_image is True
         # image: True if supports_image or the combined supports_multimodal
         return (
             model_info.supports_image is True
