@@ -2,6 +2,16 @@ import { getApiUrl, clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+}
+
 function getErrorMessageFromBody(
   text: string,
   contentType: string,
@@ -164,7 +174,7 @@ export async function request<T = unknown>(
           ? `${errorMessage} - ${text}`
           : `Request failed: ${response.status} ${response.statusText}`;
 
-        throw new Error(finalMessage);
+        throw new ApiError(response.status, finalMessage);
       }
 
       if (response.status === 204) {

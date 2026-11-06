@@ -162,6 +162,82 @@ describe("compact approval controls", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("offers decision mode when configured without requiring the former session switch", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    const view = renderWithProviders(
+      <ApprovalLevelToggle
+        decisionModelConfigured={false}
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="decision-gate"
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    );
+    const mode = await screen.findByText("JEV");
+    await user.hover(mode);
+    expect(
+      await screen.findByText(
+        "agentConfig.toolExecutionLevel.jevRequiresDecision",
+      ),
+    ).toBeInTheDocument();
+    await user.click(mode);
+    expect(localStorage.getItem("approval_level-decision-gate")).toBeNull();
+    expect(changed).not.toHaveBeenCalledWith("JEV");
+
+    view.rerender(
+      <ApprovalLevelToggle
+        decisionModelConfigured
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="decision-gate"
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "agentConfig.toolExecutionLevelTitle",
+      }),
+    );
+    await user.click(await screen.findByText("JEV"));
+    expect(localStorage.getItem("approval_level-decision-gate")).toBe("JEV");
+    expect(changed).toHaveBeenCalledWith("JEV");
+  });
+
+  it("uses manual approval when the configured decision model is unavailable", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-unavailable-decision", "JEV");
+    renderWithProviders(
+      <ApprovalLevelToggle
+        decisionModelConfigured={false}
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="unavailable-decision"
+      />,
+    );
+    expect(localStorage.getItem("approval_level-unavailable-decision")).toBe(
+      "JEV",
+    );
+    expect(changed).toHaveBeenLastCalledWith("STRICT");
+  });
+
+  it("preserves a saved decision mode while its setting is unknown", () => {
+    const changed = vi.fn();
+    localStorage.setItem("approval_level-pending-decision", "JEV");
+    renderWithProviders(
+      <ApprovalLevelToggle
+        onChange={changed}
+        runningConfigApprovalLevel="AUTO"
+        sessionId="pending-decision"
+      />,
+    );
+    expect(localStorage.getItem("approval_level-pending-decision")).toBe("JEV");
+    expect(changed).toHaveBeenLastCalledWith("JEV");
+  });
+
   it("uses a bottom drawer for harness approval on mobile", async () => {
     mockUseIsMobile.mockReturnValue(true);
     const user = userEvent.setup();

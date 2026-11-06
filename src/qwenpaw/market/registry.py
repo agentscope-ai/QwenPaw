@@ -106,6 +106,20 @@ class MarketRegistry:
         with self._lock:
             self._unloading.discard(owner)
 
+    def unregister(self, key: str, *, expected: MarketProvider) -> bool:
+        """Revoke precisely one contribution without removing its siblings."""
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None or entry.provider is not expected:
+                return False
+            if self._active.get(entry.owner, 0):
+                raise MarketProviderBusyError(
+                    f"Hub plugin {entry.owner!r} is in use; "
+                    "please retry later",
+                )
+            del self._entries[key]
+            return True
+
     def unregister_owner(self, owner: str) -> None:
         with self._lock:
             self.begin_unload(owner)

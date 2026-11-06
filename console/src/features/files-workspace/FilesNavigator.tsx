@@ -28,7 +28,17 @@ import {
   RefreshCw,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  memo,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEventHandler,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { UploadConflictError, workspaceApi } from "../../api/modules/workspace";
 import {
@@ -40,6 +50,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
+import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import {
   isProjectRoot,
   projectRootPath,
@@ -77,6 +88,9 @@ interface DirectoryNodeProps {
   revision: number;
   expandedPaths: ReadonlySet<string>;
   onToggle: (path: string) => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
 }
 
 interface ProfileFileRowProps {
@@ -85,12 +99,76 @@ interface ProfileFileRowProps {
   selected: boolean;
   onSelect: () => void;
   onToggle: () => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
+}
+
+interface WorkspaceFileRowProps {
+  entry: DirectoryEntry;
+  level: number;
+  paddingInlineStart?: number;
+  root: WorkspaceRoot;
+  selected: boolean;
+  tabbable: boolean;
+  onSelect: (target: FileTarget) => void;
+  onTreeItemFocus: (path: string) => void;
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
 
 /** Switcher entry that opens the binding panel instead of changing the root. */
 const MANAGE_DIRS_KEY = "__manage_project_dirs__";
+
+function treeItemAttributes(
+  path: string,
+  level: number,
+  selected: boolean,
+  activePath: string | null,
+  defaultPath: string | undefined,
+  onFocusPath: (path: string) => void,
+) {
+  const onFocus: FocusEventHandler<HTMLButtonElement> = () => onFocusPath(path);
+  return {
+    role: "treeitem" as const,
+    "aria-level": level,
+    "aria-selected": selected,
+    "data-tree-path": path,
+    tabIndex: (activePath ?? defaultPath) === path ? 0 : -1,
+    onFocus,
+  };
+}
+
+const WorkspaceFileRow = memo(function WorkspaceFileRow({
+  entry,
+  level,
+  paddingInlineStart,
+  root,
+  selected,
+  tabbable,
+  onSelect,
+  onTreeItemFocus,
+}: WorkspaceFileRowProps) {
+  return (
+    <button
+      type="button"
+      className={`${styles.treeRow} ${selected ? styles.treeRowSelected : ""}`}
+      style={
+        paddingInlineStart === undefined ? undefined : { paddingInlineStart }
+      }
+      onClick={() => onSelect({ source: "workspace", path: entry.path, root })}
+      role="treeitem"
+      aria-level={level}
+      aria-selected={selected}
+      data-tree-path={entry.path}
+      tabIndex={tabbable ? 0 : -1}
+      onFocus={() => onTreeItemFocus(entry.path)}
+    >
+      <FileGlyph name={entry.name} />
+      <span>{entry.name}</span>
+    </button>
+  );
+});
 
 /** Last path segment, for the short display name of a directory. */
 function basenameOf(path: string): string {
@@ -104,6 +182,9 @@ function ProfileFileRow({
   selected,
   onSelect,
   onToggle,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: ProfileFileRowProps) {
   const { t } = useTranslation();
   const {
@@ -129,7 +210,19 @@ function ProfileFileRow({
         transition,
       }}
     >
-      <button type="button" className={styles.profileOpen} onClick={onSelect}>
+      <button
+        type="button"
+        className={styles.profileOpen}
+        onClick={onSelect}
+        {...treeItemAttributes(
+          entry.path,
+          1,
+          selected,
+          activeTreeItemPath,
+          defaultTreeItemPath,
+          onTreeItemFocus,
+        )}
+      >
         {enabled && (
           <span
             className={styles.dragHandle}
@@ -168,6 +261,9 @@ function DirectoryNode({
   revision,
   expandedPaths,
   onToggle,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const expanded = expandedPaths.has(entry.path);
@@ -196,6 +292,14 @@ function DirectoryNode({
         style={{ paddingInlineStart: 12 + depth * 16 }}
         onClick={() => onToggle(entry.path)}
         aria-expanded={expanded}
+        {...treeItemAttributes(
+          entry.path,
+          depth + 1,
+          entry.path === selectedPath,
+          activeTreeItemPath,
+          defaultTreeItemPath,
+          onTreeItemFocus,
+        )}
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
@@ -218,22 +322,24 @@ function DirectoryNode({
               revision={revision}
               expandedPaths={expandedPaths}
               onToggle={onToggle}
+              activeTreeItemPath={activeTreeItemPath}
+              defaultTreeItemPath={defaultTreeItemPath}
+              onTreeItemFocus={onTreeItemFocus}
             />
           ) : (
-            <button
-              type="button"
+            <WorkspaceFileRow
               key={child.path}
-              className={`${styles.treeRow} ${
-                child.path === selectedPath ? styles.treeRowSelected : ""
-              }`}
-              style={{ paddingInlineStart: 29 + (depth + 1) * 16 }}
-              onClick={() =>
-                onSelect({ source: "workspace", path: child.path, root })
+              entry={child}
+              level={depth + 2}
+              paddingInlineStart={29 + (depth + 1) * 16}
+              root={root}
+              selected={child.path === selectedPath}
+              tabbable={
+                (activeTreeItemPath ?? defaultTreeItemPath) === child.path
               }
-            >
-              <FileGlyph name={child.name} />
-              <span>{child.name}</span>
-            </button>
+              onSelect={onSelect}
+              onTreeItemFocus={onTreeItemFocus}
+            />
           ),
         )}
       {expanded && hasMore && (
@@ -276,6 +382,9 @@ function MemoryDirectoryNode({
   source,
   activeGraphRoot,
   onShowGraph,
+  activeTreeItemPath,
+  defaultTreeItemPath,
+  onTreeItemFocus,
 }: {
   entry: MemoryTreeEntry;
   selectedPath: string;
@@ -284,6 +393,9 @@ function MemoryDirectoryNode({
   source: "daily" | "digest";
   activeGraphRoot: MemoryGraphRoot | null;
   onShowGraph: (root: MemoryGraphRoot) => void;
+  activeTreeItemPath: string | null;
+  defaultTreeItemPath?: string;
+  onTreeItemFocus: (path: string) => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -309,6 +421,14 @@ function MemoryDirectoryNode({
           style={{ paddingInlineStart: 12 + depth * 16 }}
           onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
+          {...treeItemAttributes(
+            entry.path,
+            depth + 1,
+            entry.path === selectedPath,
+            activeTreeItemPath,
+            defaultTreeItemPath,
+            onTreeItemFocus,
+          )}
         >
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           {expanded ? <FolderOpen size={15} /> : <Folder size={15} />}
@@ -340,6 +460,9 @@ function MemoryDirectoryNode({
               source={source}
               activeGraphRoot={activeGraphRoot}
               onShowGraph={onShowGraph}
+              activeTreeItemPath={activeTreeItemPath}
+              defaultTreeItemPath={defaultTreeItemPath}
+              onTreeItemFocus={onTreeItemFocus}
             />
           ) : (
             <button
@@ -355,6 +478,14 @@ function MemoryDirectoryNode({
                   path: child.path,
                 })
               }
+              {...treeItemAttributes(
+                child.path,
+                depth + 2,
+                child.path === selectedPath,
+                activeTreeItemPath,
+                defaultTreeItemPath,
+                onTreeItemFocus,
+              )}
             >
               <FileGlyph name={child.name} />
               <span>{child.name}</span>
@@ -371,6 +502,9 @@ interface FilesNavigatorProps {
   activeMemoryGraphRoot: MemoryGraphRoot | null;
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
+  memoryTagsActive?: boolean;
+  memoryTagsPanel?: ReactNode;
+  onShowMemoryTags?: () => void;
   scope: FilesWorkspaceScope;
 }
 
@@ -380,6 +514,9 @@ export default function FilesNavigator({
   activeMemoryGraphRoot,
   onShowMemoryGraph,
   onShowFiles,
+  memoryTagsActive = false,
+  memoryTagsPanel,
+  onShowMemoryTags,
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
@@ -411,10 +548,15 @@ export default function FilesNavigator({
   const [profilePickerOpen, setProfilePickerOpen] = useState(false);
   const [profileSearch, setProfileSearch] = useState("");
   const [source, setSource] = useState<NavigatorSource>("workspace");
+  const activeSource = memoryTagsActive ? "tags" : source;
+  const [activeTreeItemPath, setActiveTreeItemPath] = useState<string | null>(
+    null,
+  );
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const [directoryRevision, setDirectoryRevision] = useState(0);
+  const directoryIdentitySeq = useRef(0);
   const [expansion, setExpansion] = useState<
     Record<string, ReadonlySet<string>>
   >({});
@@ -425,13 +567,16 @@ export default function FilesNavigator({
     workspaceRoot,
   ]);
   const expandedPaths = expansion[directoryIdentity] ?? new Set<string>();
-  const toggleDirectory = (path: string) =>
-    setExpansion((current) => {
-      const paths = new Set(current[directoryIdentity]);
-      if (paths.has(path)) paths.delete(path);
-      else paths.add(path);
-      return { ...current, [directoryIdentity]: paths };
-    });
+  const toggleDirectory = useCallback(
+    (path: string) =>
+      setExpansion((current) => {
+        const paths = new Set(current[directoryIdentity]);
+        if (paths.has(path)) paths.delete(path);
+        else paths.add(path);
+        return { ...current, [directoryIdentity]: paths };
+      }),
+    [directoryIdentity],
+  );
   const {
     entries,
     hasMore,
@@ -456,6 +601,7 @@ export default function FilesNavigator({
   // Opens the binding panel from the switcher's "manage directories" item.
   const [managingDirs, setManagingDirs] = useState(false);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -660,12 +806,14 @@ export default function FilesNavigator({
   }, [allProfileFiles, managedProfileNames, profileSearch]);
 
   const loadDirectoryIdentity = useCallback(async () => {
+    const seq = ++directoryIdentitySeq.current;
     const agentInfo = await projectDirectoryApi.get();
     const effectiveProject = projectDirOverride
       ? projectDirOverride
       : chatId
       ? (await chatProjectDirectoryApi.get(chatId)).project_dir
       : agentInfo.path;
+    if (seq !== directoryIdentitySeq.current) return;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
     if (scopeKind !== "session") {
@@ -675,11 +823,12 @@ export default function FilesNavigator({
     }
     try {
       const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      if (seq !== directoryIdentitySeq.current) return;
       setBoundDirs(snapshot.dirs);
     } catch {
       // Fall back to the single directory above rather than blanking the
       // switcher: the tree itself is still perfectly usable.
-      setBoundDirs([]);
+      if (seq === directoryIdentitySeq.current) setBoundDirs([]);
     }
   }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
@@ -732,6 +881,22 @@ export default function FilesNavigator({
   useEffect(() => {
     void Promise.all([loadDirectoryIdentity(), loadProfile()]);
   }, [loadDirectoryIdentity, loadProfile]);
+
+  useEffect(() => {
+    const sequence = directoryIdentitySeq;
+    const unsubscribe = listenForProjectDirectoryChanges(
+      (changedScopeKey, options) => {
+        if (changedScopeKey !== scopeKey || !options.preserveTabs) return;
+        // Refresh data without unmounting the open directory editor.
+        setDirectoryRevision((current) => current + 1);
+        void loadDirectoryIdentity();
+      },
+    );
+    return () => {
+      unsubscribe();
+      sequence.current++;
+    };
+  }, [loadDirectoryIdentity, scopeKey]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -826,6 +991,101 @@ export default function FilesNavigator({
     if (source === "workspace") return entries;
     return [];
   }, [dailyFiles, digestFiles, entries, profileFiles, source]);
+  const defaultTreeItemPath = displayEntries[0]?.path;
+
+  useEffect(() => {
+    const tree = treeRef.current;
+    if (!tree) return;
+    const restoreVisibleTreeItem = () => {
+      const items = Array.from(
+        tree.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+      );
+      setActiveTreeItemPath((current) => {
+        if (!current) return current;
+        if (items.some((item) => item.dataset.treePath === current)) {
+          return current;
+        }
+        return items[0]?.dataset.treePath ?? null;
+      });
+    };
+    restoreVisibleTreeItem();
+    const observer = new MutationObserver(restoreVisibleTreeItem);
+    observer.observe(tree, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  const handleTreeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!(event.target instanceof HTMLElement)) return;
+    const currentItem = event.target.closest<HTMLElement>('[role="treeitem"]');
+    if (!currentItem || !event.currentTarget.contains(currentItem)) return;
+    const items = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]'),
+    );
+    const currentIndex = items.indexOf(currentItem);
+    if (currentIndex < 0) return;
+    const focusItem = (item: HTMLElement | undefined) => {
+      if (!item) return;
+      item.focus();
+    };
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusItem(items[currentIndex + 1]);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusItem(items[currentIndex - 1]);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusItem(items[0]);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusItem(items[items.length - 1]);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      const expanded = currentItem.getAttribute("aria-expanded");
+      if (expanded === "false") {
+        event.preventDefault();
+        currentItem.click();
+        return;
+      }
+      if (expanded === "true") {
+        const level = Number(currentItem.getAttribute("aria-level"));
+        const nextItem = items[currentIndex + 1];
+        if (Number(nextItem?.getAttribute("aria-level")) > level) {
+          event.preventDefault();
+          focusItem(nextItem);
+        }
+      }
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      if (currentItem.getAttribute("aria-expanded") === "true") {
+        event.preventDefault();
+        currentItem.click();
+        return;
+      }
+      const level = Number(currentItem.getAttribute("aria-level"));
+      for (let index = currentIndex - 1; index >= 0; index -= 1) {
+        if (Number(items[index].getAttribute("aria-level")) < level) {
+          event.preventDefault();
+          focusItem(items[index]);
+          break;
+        }
+      }
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      currentItem.click();
+    }
+  };
 
   return (
     <aside
@@ -894,6 +1154,7 @@ export default function FilesNavigator({
                     // Only the viewed root changes — open editor tabs keep the
                     // root they were opened from, so nothing is invalidated and
                     // no unsaved-changes confirmation is owed here.
+                    setActiveTreeItemPath(null);
                     setWorkspaceRoot(key as WorkspaceRoot);
                   },
                 }}
@@ -920,7 +1181,7 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
-            {source === "workspace" && (
+            {source === "workspace" && !memoryTagsActive && (
               <button
                 type="button"
                 className={styles.iconButton}
@@ -950,27 +1211,39 @@ export default function FilesNavigator({
         />
       </header>
       <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={source === item}
-              key={item}
-              className={`${styles.sourceTab} ${
-                source === item ? styles.sourceTabActive : ""
-              }`}
-              data-source={item}
-              onClick={() => {
-                setSource(item);
-                onShowFiles();
-              }}
-            >
-              {t(`files.${item}`)}
-            </button>
-          ),
-        )}
+        {(
+          [
+            "workspace",
+            "profile",
+            "daily",
+            "digest",
+            ...(memoryTagsPanel ? ["tags"] : []),
+          ] as (NavigatorSource | "tags")[]
+        ).map((item) => (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeSource === item}
+            key={item}
+            className={`${styles.sourceTab} ${
+              activeSource === item ? styles.sourceTabActive : ""
+            }`}
+            data-source={item}
+            onClick={() => {
+              setActiveTreeItemPath(null);
+              if (item === "tags") {
+                onShowMemoryTags?.();
+                return;
+              }
+              setSource(item);
+              onShowFiles();
+            }}
+          >
+            {t(item === "tags" ? "files.memoryTagsLabel" : `files.${item}`)}
+          </button>
+        ))}
       </div>
+      {memoryTagsActive && memoryTagsPanel}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -980,7 +1253,14 @@ export default function FilesNavigator({
           items={enabledFiles}
           strategy={verticalListSortingStrategy}
         >
-          <div className={styles.tree} role="tree" aria-busy={navigatorLoading}>
+          <div
+            ref={treeRef}
+            className={styles.tree}
+            hidden={memoryTagsActive}
+            role="tree"
+            aria-busy={navigatorLoading}
+            onKeyDown={handleTreeKeyDown}
+          >
             {source === "profile" && (
               <button
                 type="button"
@@ -1010,6 +1290,9 @@ export default function FilesNavigator({
                         source={source}
                         activeGraphRoot={activeMemoryGraphRoot}
                         onShowGraph={onShowMemoryGraph}
+                        activeTreeItemPath={activeTreeItemPath}
+                        defaultTreeItemPath={defaultTreeItemPath}
+                        onTreeItemFocus={setActiveTreeItemPath}
                       />
                     );
                   }
@@ -1027,6 +1310,9 @@ export default function FilesNavigator({
                       revision={directoryRevision}
                       expandedPaths={expandedPaths}
                       onToggle={toggleDirectory}
+                      activeTreeItemPath={activeTreeItemPath}
+                      defaultTreeItemPath={defaultTreeItemPath}
+                      onTreeItemFocus={setActiveTreeItemPath}
                     />
                   );
                 }
@@ -1043,6 +1329,26 @@ export default function FilesNavigator({
                         onSelect({ source: "profile", path: entry.path })
                       }
                       onToggle={() => void toggleProfileFile(entry.path)}
+                      activeTreeItemPath={activeTreeItemPath}
+                      defaultTreeItemPath={defaultTreeItemPath}
+                      onTreeItemFocus={setActiveTreeItemPath}
+                    />
+                  );
+                }
+                if (source === "workspace") {
+                  return (
+                    <WorkspaceFileRow
+                      key={entry.path}
+                      entry={entry}
+                      level={1}
+                      root={workspaceRoot}
+                      selected={entry.path === selectedPath}
+                      tabbable={
+                        (activeTreeItemPath ?? defaultTreeItemPath) ===
+                        entry.path
+                      }
+                      onSelect={onSelect}
+                      onTreeItemFocus={setActiveTreeItemPath}
                     />
                   );
                 }
@@ -1057,10 +1363,17 @@ export default function FilesNavigator({
                       onSelect({
                         source,
                         path: entry.path,
-                        root:
-                          source === "workspace" ? workspaceRoot : undefined,
+                        root: undefined,
                       })
                     }
+                    {...treeItemAttributes(
+                      entry.path,
+                      1,
+                      entry.path === selectedPath,
+                      activeTreeItemPath,
+                      defaultTreeItemPath,
+                      setActiveTreeItemPath,
+                    )}
                   >
                     <FileGlyph name={entry.name} />
                     <span>{entry.name}</span>

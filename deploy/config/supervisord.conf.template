@@ -4,6 +4,16 @@ logfile=/var/log/supervisord.log
 pidfile=/var/log/supervisord.pid
 nodaemon=true
 
+[unix_http_server]
+file=/run/qwenpaw-supervisor.sock
+chmod=0600
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory=supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix:///run/qwenpaw-supervisor.sock
+
 [program:dbus]
 command=/bin/sh -c "rm -f /run/dbus/pid; mkdir -p /run/dbus; exec /usr/bin/dbus-daemon --system --nofork"
 autostart=true

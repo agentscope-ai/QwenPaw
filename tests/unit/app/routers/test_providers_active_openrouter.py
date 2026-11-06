@@ -21,12 +21,17 @@ from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers.openrouter_provider import OpenRouterProvider
 from qwenpaw.providers.provider import (
     ExtendedModelInfo,
+    ModelInfo,
+    Provider,
     ProviderInfo,
 )
 
 
 def _make_manager() -> MagicMock:
-    return MagicMock(name="ProviderManager")
+    return MagicMock(
+        name="ProviderManager",
+        default_models={"chat": None, "decision": None},
+    )
 
 
 def _openrouter_provider() -> OpenRouterProvider:
@@ -69,22 +74,25 @@ class TestValidateModelSlot:
 
     def test_model_missing_raises_400(self) -> None:
         manager = _make_manager()
-        provider = MagicMock()
-        provider.has_model.return_value = False
+        provider = OpenRouterProvider(id="p", name="P")
         manager.get_provider.return_value = provider
         with pytest.raises(HTTPException) as exc_info:
             providers_mod._validate_model_slot(manager, "p", "m")
         assert exc_info.value.status_code == 400
-        assert "not found in provider" in exc_info.value.detail
+        assert "p/m" in exc_info.value.detail
+        assert "not found" in exc_info.value.detail
 
     def test_unavailable_model_raises_400(self) -> None:
         manager = _make_manager()
-        provider = MagicMock()
-        provider.has_model.return_value = True
-        provider.get_model_info.return_value = SimpleNamespace(
-            availability_status="permission_denied",
-            availability_message="no access",
-        )
+        provider = OpenRouterProvider(id="p", name="P")
+        provider.models = [
+            ModelInfo(
+                id="m",
+                name="M",
+                availability_status="permission_denied",
+                availability_message="no access",
+            ),
+        ]
         manager.get_provider.return_value = provider
         with pytest.raises(HTTPException) as exc_info:
             providers_mod._validate_model_slot(manager, "p", "m")
@@ -93,12 +101,15 @@ class TestValidateModelSlot:
 
     def test_unavailable_model_falls_back_to_status_text(self) -> None:
         manager = _make_manager()
-        provider = MagicMock()
-        provider.has_model.return_value = True
-        provider.get_model_info.return_value = SimpleNamespace(
-            availability_status="model_not_found",
-            availability_message=None,
-        )
+        provider = OpenRouterProvider(id="p", name="P")
+        provider.models = [
+            ModelInfo(
+                id="m",
+                name="M",
+                availability_status="model_not_found",
+                availability_message=None,
+            ),
+        ]
         manager.get_provider.return_value = provider
         with pytest.raises(HTTPException) as exc_info:
             providers_mod._validate_model_slot(manager, "p", "m")
@@ -106,22 +117,24 @@ class TestValidateModelSlot:
 
     def test_valid_slot_passes(self) -> None:
         manager = _make_manager()
-        provider = MagicMock()
-        provider.has_model.return_value = True
-        provider.get_model_info.return_value = SimpleNamespace(
-            availability_status="available",
-            availability_message=None,
-        )
+        provider = OpenRouterProvider(id="p", name="P")
+        provider.models = [
+            ModelInfo(
+                id="m",
+                name="M",
+                availability_status="available",
+                availability_message=None,
+            ),
+        ]
         manager.get_provider.return_value = provider
         providers_mod._validate_model_slot(manager, "p", "m")
 
-    def test_missing_model_info_passes(self) -> None:
+    def test_provider_validation_is_used(self) -> None:
         manager = _make_manager()
-        provider = MagicMock()
-        provider.has_model.return_value = True
-        provider.get_model_info.return_value = None
+        provider = MagicMock(spec=Provider)
         manager.get_provider.return_value = provider
         providers_mod._validate_model_slot(manager, "p", "m")
+        provider.validate_model_selection.assert_called_once_with("m", "chat")
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +488,7 @@ class TestGetActiveModels:
     def _manager_with_global(self, slot: ModelSlotConfig | None) -> MagicMock:
         manager = _make_manager()
         manager.get_active_model.return_value = slot
+        manager.default_models["chat"] = slot
         provider = MagicMock()
         provider.get_context_size.return_value = 4096
         manager.get_provider.return_value = provider
@@ -632,11 +646,12 @@ class TestSetActiveModel:
             provider_id="p",
             model="m",
         )
+        manager.default_models["chat"] = manager.get_active_model.return_value
         return manager
 
     async def test_global_scope_provider_not_found_maps_to_404(self) -> None:
         manager = self._manager()
-        manager.activate_model = AsyncMock(
+        manager.set_default_model = AsyncMock(
             side_effect=ValueError("Provider 'x' not found"),
         )
         body = providers_mod.ModelSlotRequest(
@@ -654,7 +669,7 @@ class TestSetActiveModel:
 
     async def test_global_scope_other_error_maps_to_400(self) -> None:
         manager = self._manager()
-        manager.activate_model = AsyncMock(
+        manager.set_default_model = AsyncMock(
             side_effect=RuntimeError("bad slot"),
         )
         body = providers_mod.ModelSlotRequest(
@@ -675,7 +690,7 @@ class TestSetActiveModel:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = self._manager()
-        manager.activate_model = AsyncMock()
+        manager.set_default_model = AsyncMock()
         workspace = SimpleNamespace(agent_id="agent-1")
         monkeypatch.setattr(
             providers_mod,
@@ -722,7 +737,7 @@ class TestSetActiveModel:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = self._manager()
-        manager.activate_model = AsyncMock()
+        manager.set_default_model = AsyncMock()
         workspace = SimpleNamespace(agent_id="agent-1")
         monkeypatch.setattr(
             providers_mod,
@@ -766,7 +781,7 @@ class TestSetActiveModel:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         manager = self._manager()
-        manager.activate_model = AsyncMock()
+        manager.set_default_model = AsyncMock()
         monkeypatch.setattr(
             providers_mod,
             "get_agent_for_request",

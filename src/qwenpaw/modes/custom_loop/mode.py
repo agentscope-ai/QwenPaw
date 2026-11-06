@@ -11,6 +11,7 @@ from ...loop.compiler import compile_loop_mode
 from ...loop.gates import StopHandler, StopHandlerRegistration
 from ...runtime.hooks import HookContext
 from ...runtime.slash_command_registry import CommandSpec
+from ..catalog import LoopModeInfo
 from ..base import AgentMode
 from ..base import find_active_explicit_mode
 
@@ -75,6 +76,18 @@ class DeclarativeLoopMode(AgentMode):
         self.name = f"custom:{config.id}"
         self._activation_store = activation_store
         self._handler: StopHandler = compile_loop_mode(config)
+
+    def describe_loop(self, workspace: object) -> LoopModeInfo | None:
+        """Describe the registered custom pipeline, not just saved config."""
+        if not self.config.enabled:
+            return None
+        return LoopModeInfo(
+            id=self.name,
+            name=self.config.name,
+            slash_command=self.config.slash_command,
+            description=self.config.description,
+            source=f"custom",
+        )
 
     @property
     def handler(self) -> StopHandler:

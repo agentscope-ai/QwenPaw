@@ -3,6 +3,7 @@
 
 Separated from goal_mode.py for maintainability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,17 +14,28 @@ from agentscope.message import Msg, TextBlock
 logger = logging.getLogger(__name__)
 
 
-def rewrite_user_msg(ctx: Any, text: str) -> None:
-    """Replace last user message content with *text*."""
+def rewrite_user_msg(
+    ctx: Any,
+    text: str,
+    *,
+    preserve_non_text: bool = False,
+) -> None:
+    """Replace the command text in the last user message.
+
+    Optionally keep non-text blocks such as images attached to the task.
+    """
     msgs = getattr(ctx, "input_msgs", None)
     if not msgs:
         return
     last = msgs[-1]
     if not isinstance(last, Msg):
         return
-    last.content = [
-        TextBlock(type="text", text=text),
-    ]
+    attachments = (
+        [block for block in last.content if not isinstance(block, TextBlock)]
+        if preserve_non_text
+        else []
+    )
+    last.content = [TextBlock(type="text", text=text), *attachments]
 
 
 def register_goal_tools_governance() -> None:

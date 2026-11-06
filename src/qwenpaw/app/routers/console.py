@@ -32,16 +32,19 @@ from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
+    decision_model_configured,
     session_model,
     session_preference,
     thinking_view,
 )
-from ...config.config import ModelSlotConfig
+from ...config.config import ModelSlotConfig, load_agent_config
+from ...utils.io_utils import run_sync_io
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
+from ..notification_store import snapshot as notification_snapshot
 from ..utils import check_upload_size
 
 logger = logging.getLogger(__name__)
@@ -104,6 +107,11 @@ def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
+
+
+def _safe_log_token(value: str) -> str:
+    """Neutralize CR/LF so untrusted IDs cannot forge log lines (CWE-117)."""
+    return value.replace("\r", "\\r").replace("\n", "\\n")
 
 
 def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
@@ -213,6 +221,16 @@ async def _persist_pending_project_dirs(
         chat,
         request_context,
     )
+    if str(request_context.get("approval_level", "")).upper() == "JEV":
+        config = await run_sync_io(load_agent_config, workspace.agent_id)
+        configured = await run_sync_io(
+            decision_model_configured,
+            config,
+        )
+        if not configured:
+            # A requested decision review must not become automatic execution
+            # when the model is unavailable.
+            request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)
@@ -389,6 +407,7 @@ def _empty_sse_response() -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -520,6 +539,7 @@ async def post_console_chat(
                     chat_id=chat.id,
                     user_message=first_text,
                     placeholder_name=name,
+                    request=native_payload,
                 ),
             )
 
@@ -543,6 +563,7 @@ async def post_console_chat(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -556,6 +577,13 @@ async def post_console_chat_stop(
     request: Request,
     chat_id: str = Query(..., description="Chat id (ChatSpec.id) to stop"),
     cancel_reason: CancelReason = Query(default=CancelReason.USER),
+    initiator: str = Query(
+        default="",
+        description=(
+            "Session that initiated the stop (e.g. the caller session of a "
+            "cancelled chat_with_agent). Used for cancel traceability."
+        ),
+    ),
 ) -> dict:
     """Stop the running chat and its foreground tool calls."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
@@ -609,8 +637,15 @@ async def post_console_chat_stop(
     )
     stopped = run_stopped or tool_cancelled > 0
 
-    logger.debug(
-        "[STOP API] stop completed: stopped=%s run_stopped=%s tools=%s",
+    # One INFO audit line so a cancelled session can be traced back to WHO
+    # stopped it and WHY (user stop / upstream timeout cascade / shutdown),
+    # without enabling DEBUG (GH-8252).
+    logger.info(
+        "[STOP API] chat stop: chat_id=%s reason=%s initiator=%s "
+        "stopped=%s run_stopped=%s tools_cancelled=%s",
+        _safe_log_token(resolved_chat_id),
+        cancel_reason.value,
+        _safe_log_token(initiator) or "-",
         stopped,
         run_stopped,
         tool_cancelled,
@@ -770,7 +805,11 @@ async def get_push_messages(
         for p in all_pending
     ]
 
-    return {"messages": messages, "pending_approvals": approvals_data}
+    return {
+        f"messages": messages,
+        f"pending_approvals": approvals_data,
+        f"notification_events": notification_snapshot(),
+    }
 
 
 @router.get("/inbox/events")
@@ -782,6 +821,7 @@ async def get_inbox_events(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
+    event_id: str | None = Query(None),
 ):
     from ..inbox_store import query_events
 
@@ -795,6 +835,7 @@ async def get_inbox_events(
         status=status,
         agent_id=agent_id,
         unread_only=unread_only,
+        event_id=event_id,
     )
     return {
         "events": events,

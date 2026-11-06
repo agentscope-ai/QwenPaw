@@ -1476,3 +1476,61 @@ def test_ground_prompt_context_falls_back_to_text_search_when_lens_degrades(
         source.get("provider") == "tavily"
         for source in result["visual_sources"]
     )
+
+
+def test_visual_verification_names_the_protocol_of_the_credential_it_borrows(
+    monkeypatch,
+):
+    """Overriding the key without its protocol misdecides two things at once.
+
+    The wire format of the request and the upload identity of the crop both
+    belong to the credential, not to the VLM slot: the verifier replaced three
+    fields and left the fourth to the VLM section.
+    """
+
+    seen: dict = {}
+
+    async def record_vlm(content, **kwargs):
+        del content
+        seen.update(kwargs)
+        raise RuntimeError("captured the overrides")
+
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_model_api_key",
+        lambda: "sk-token-plan",
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_model_base_url",
+        lambda: "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_model_name",
+        lambda: "qwen3-vl-plus",
+    )
+    monkeypatch.setattr(
+        verification.model_config,
+        "get_web_grounding_model_protocol",
+        lambda: "Aliyun Token Plan",
+    )
+    monkeypatch.setattr(verification.vlm_model, "chat_completion", record_vlm)
+    _patch_media_part(monkeypatch)
+    sources = [
+        {
+            "index": 1,
+            "local_url": "file:///tmp/reference.jpg",
+            "vlm_image_url": "file:///tmp/reference.jpg",
+        },
+    ]
+
+    asyncio.run(
+        verification.verify_visual_grounding_with_vlm(
+            "fictional athlete",
+            sources,
+        ),
+    )
+
+    assert seen["api_key_override"] == "sk-token-plan"
+    assert seen["protocol_override"] == "Aliyun Token Plan"

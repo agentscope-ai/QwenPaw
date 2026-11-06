@@ -679,20 +679,21 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 
 ### qwenpaw skills
 
-| Usage                                  | Positional arguments                                        | Options                                                                                                                                                                                                                         |
-| -------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw skills list`                  | None                                                        | `--agent-id ID` (default `default`) or `--pool`; workspaces support `--status all\|enabled\|disabled` (default `all`), while the Pool does not support status filtering                                                         |
-| `qwenpaw skills config`                | None                                                        | `--agent-id ID` (default `default`); workspace only                                                                                                                                                                             |
-| `qwenpaw skills enable SKILL_NAME...`  | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                                                                             |
-| `qwenpaw skills disable SKILL_NAME...` | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                                                                             |
-| `qwenpaw skills info SKILL_NAME`       | One exact skill name                                        | `--agent-id ID` (default `default`) or `--pool`                                                                                                                                                                                 |
-| `qwenpaw skills install BUNDLE_URL`    | A skill URL from a supported source                         | `--pool` imports to the Pool; `--agent-id ID` installs into that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool; `--enable/--no-enable` is workspace-only (enabled by default) |
-| `qwenpaw skills uninstall SKILL_NAME`  | One exact skill name                                        | `--pool` removes it from the Pool; `--agent-id ID` removes it from that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool                                                         |
-| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default` for names) or `--pool`; `--base-url URL` for command checks                                                                                                                                  |
+| Usage                                  | Positional arguments                                        | Options                                                                                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwenpaw skills list`                  | None                                                        | `--agent-id ID` (default `default`) or `--pool`; workspaces support `--status all\|enabled\|disabled` (default `all`), while the Pool does not support status filtering |
+| `qwenpaw skills config`                | None                                                        | `--agent-id ID` (default `default`); workspace only                                                                                                                     |
+| `qwenpaw skills enable SKILL_NAME...`  | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                     |
+| `qwenpaw skills disable SKILL_NAME...` | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                     |
+| `qwenpaw skills info SKILL_NAME`       | One exact skill name                                        | `--agent-id ID` (default `default`) or `--pool`                                                                                                                         |
+| `qwenpaw skills install LOCATION`      | A supported skill URL or local skill directory              | `--pool` (default for URLs), `--agent-id ID`, or `--workspace PATH` (local directories only); `--enable/--no-enable` is workspace-only (default enabled); `--json`      |
+| `qwenpaw skills uninstall SKILL_NAME`  | One exact skill name                                        | `--pool` removes it from the Pool; `--agent-id ID` removes it from that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool |
+| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default` for names), `--pool`, or `--workspace PATH`; `--base-url URL` for agent command checks; `--json` returns structured output           |
 
 ```bash
 qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # Import into the local skill pool
 qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # Import directly into a specific agent workspace
+qwenpaw skills install ./my_skill --agent-id abc123  # Import a locally authored or unpacked skill
 qwenpaw skills uninstall skill-creator --pool  # Remove from the local skill pool
 qwenpaw skills uninstall skill-creator --agent-id abc123  # Remove from a specific agent workspace
 qwenpaw skills list --status enabled      # Show only enabled skills for the default agent
@@ -714,7 +715,23 @@ qwenpaw skills test ./my_skill
 
 # Also check target MCP configuration and command names
 qwenpaw skills test ./my_skill --agent-id abc123
+
+# Machine-readable checks using an explicit workspace
+qwenpaw skills test ./my_skill --workspace /path/to/workspace --json
 ```
+
+`install` downloads a skill from a URL, or copies and registers a local directory
+in the workspace. Local installs never overwrite existing skills and require
+`--agent-id` or `--workspace`; these options and `--pool` are mutually exclusive.
+
+`test` checks package format, security, and declared dependencies without
+executing the skill. `test` and `install` support `--json`; results include
+`ok`, and failures return a nonzero exit code.
+
+Security checks, including make-skill publication, follow
+`security.skill_scanner.mode`: `block` rejects unsafe results, `warn` warns
+and allows continuing, and `off` skips scanning. `QWENPAW_SKILL_SCAN_MODE`
+overrides this setting.
 
 In the `skills config` checkbox, type a contiguous substring to narrow the
 choices immediately instead of stepping through them one by one. Use ↑/↓ to

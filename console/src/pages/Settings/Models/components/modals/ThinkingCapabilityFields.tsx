@@ -112,6 +112,10 @@ export function ThinkingCapabilityFields({
                         onChange({
                           ...value,
                           budget_min: next,
+                          budget_max:
+                            value.budget_max != null && value.budget_max < next
+                              ? next
+                              : value.budget_max,
                           budget_default: undefined,
                         });
                     }}
@@ -128,7 +132,7 @@ export function ThinkingCapabilityFields({
                       if (next !== null)
                         onChange({
                           ...value,
-                          budget_max: next,
+                          budget_max: Math.max(value.budget_min ?? 1, next),
                           budget_default: undefined,
                         });
                     }}

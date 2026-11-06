@@ -1,0 +1,7 @@
+# Mattermost official channel
+
+This schema v2 plugin uses the selected shared interpreter. Only its worker imports platform SDKs; the host owns Agent execution, ACL and queue admission. Install or repair dependencies explicitly through the plugin manager. Configuration remains under `channels.mattermost`; installing and disabling the plugin never removes user configuration or business files.
+
+Mattermost authenticates REST identity and the WebSocket challenge before reporting connected. DM, mentions and optionally followed threads keep existing session/root behavior, ordered first context, attachment filenames and 4000-character chunks. Typing begins only during authorized response preparation and is owned by its response handle. Native streaming and approval cards are unsupported. Proactive DM targets remain supported; thread root-to-channel lookup has no persistent legacy mapping, so restart recovery of proactive thread targets is not promised. REST rejection is failed; possible partial/uncertain posting is unknown.
+
+Stop fences callbacks, awaits owned work and closes platform resources. A graceful close failure is reported with its resource evidence. The shared supervisor may reclaim the worker by confirmed process-tree termination and records `forced/exited`; an unconfirmed residual retains ownership and fences replacement startup until a successful retry. Private bundled source ZIPs still occupy the host package; dependency removal does not imply source downloads disappear.

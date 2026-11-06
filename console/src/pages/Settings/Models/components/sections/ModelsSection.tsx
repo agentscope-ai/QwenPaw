@@ -135,7 +135,6 @@ export const ModelsSection = React.memo(function ModelsSection({
 
   return (
     <div className={styles.defaultLlmBody}>
-      <p className={styles.llmDescription}>{t("models.llmDescription")}</p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>

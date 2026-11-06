@@ -928,6 +928,8 @@ Matrix 频道通过 [matrix-nio](https://github.com/poljar/matrix-nio) 库将 Qw
 - Matrix 频道当前**仅支持文本消息**（不支持图片/文件附件）。
 - 机器人只能接收已加入房间的消息，发消息前请先邀请机器人进入对应房间。
 - 如使用自建服务器，将 `homeserver` 设置为你的服务器地址（例如 `https://matrix.example.com`）。
+- 旧版全局 Matrix 状态会在用户和设备一致时自动复制到当前工作区，原文件保持不变；身份不一致时会跳过旧状态并创建独立状态。同一设备同时只能由一个 Agent 运行，停止后锁会自动释放；不同 Agent 可配置不同的 `device_id`。
+- Matrix 默认安装 matrix-nio 0.26 系列及 vodozemac 等 E2EE 依赖，无需手动安装；`encryption` 配置仍默认关闭。如果运行环境缺少必要后端，频道会记录错误并按原有行为降级为 `encryption=False`，可修复依赖后重新启用加密。
 - 群聊默认共享会话，以保持旧版本行为。将 `share_session_in_group` 设为 `false` 后，每位群成员拥有独立的对话上下文。私聊继续沿用原有的房间会话标识。
 
 ---

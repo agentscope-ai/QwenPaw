@@ -264,8 +264,22 @@
   }
 
   .categoryNavButton {
-    width: 28px;
-    height: 30px;
+    width: var(--app-hit-touch) !important;
+    min-width: var(--app-hit-touch) !important;
+    height: var(--app-hit-touch);
+  }
+
+  .categoryChip,
+  .refreshButton,
+  .providerActions :global(.ant-btn),
+  .providerActions :global(.qwenpaw-btn) {
+    min-width: var(--app-hit-touch);
+    min-height: var(--app-hit-touch);
+  }
+
+  .providerSelect :global(.ant-select-selector),
+  .providerSelect :global(.qwenpaw-select-selector) {
+    min-height: var(--app-hit-touch) !important;
   }
 
   .searchInput {
@@ -273,6 +287,13 @@
 
     :global(input) {
       text-align: center;
+    }
+
+    :global(.ant-input-search-button),
+    :global(.qwenpaw-input-search-button) {
+      width: var(--app-hit-touch) !important;
+      min-width: var(--app-hit-touch) !important;
+      height: var(--app-hit-touch) !important;
     }
   }
 

@@ -1,0 +1,7 @@
+{
+  "id": "hello-sdk",
+  "name": "Hello SDK",
+  "version": "1.0.0",
+  "entry": {"backend": "main.py"},
+  "sdk": {"version": "1.0.0", "capabilities": ["tools", "storage", "logging", "models"]}
+}

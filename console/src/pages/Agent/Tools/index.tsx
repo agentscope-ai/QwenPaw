@@ -3,7 +3,7 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { SharedModal as Modal } from "@/components/interaction/SharedModal";
 import { CircleHelp, TriangleAlert, Search, Wrench, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Spin, Popover, Segmented } from "antd";
+import { Alert, Spin, Popover, Segmented } from "antd";
 import {
   Switch,
   Button,
@@ -135,8 +135,8 @@ function ToolConfigModal({
     };
   }, [visible, tool.name, form]);
 
-  const { schedule, flush } = useAutoSave(async () => {
-    if (loadingConfig) return;
+  const { schedule, requestClose } = useAutoSave(async () => {
+    if (loadingConfig) return false;
     const values = form.getFieldsValue(true);
     try {
       await form.validateFields();
@@ -155,11 +155,7 @@ function ToolConfigModal({
           : t(`tools.catalog.${tool.name}.name`, tool.name)
       }`}
       open={visible}
-      onCancel={() => {
-        void flush().then((saved) => {
-          if (saved) onClose();
-        });
-      }}
+      onCancel={() => void requestClose(onClose)}
       footer={null}
     >
       <Spin spinning={loadingConfig}>
@@ -246,6 +242,8 @@ export default function ToolsPage() {
   const {
     tools,
     loading,
+    error,
+    ready,
     batchLoading,
     toggleEnabled,
     toggleAsyncExecution,
@@ -332,6 +330,38 @@ export default function ToolsPage() {
     tools: visibleTools.filter((tool) => toolGroup(tool) === key),
   }));
 
+  if (error) {
+    return (
+      <div className={styles.toolsPage}>
+        <PageHeader items={[{ title: t("tools.title") }]} />
+        <div className={styles.loadError}>
+          <Alert
+            type="error"
+            showIcon
+            message={t("tools.loadError")}
+            action={
+              <Button type="primary" onClick={() => void loadTools()}>
+                {t("common.retry")}
+              </Button>
+            }
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || !ready) {
+    return (
+      <div className={styles.toolsPage}>
+        <PageHeader items={[{ title: t("tools.title") }]} />
+        <div className={styles.empty} role="status">
+          <Spin />
+          <span>{t("common.loading")}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.toolsPage}>
       <PageHeader items={[{ title: t("tools.title") }]} />
@@ -380,12 +410,7 @@ export default function ToolsPage() {
             </Button>
           </div>
         </div>
-        {loading ? (
-          <div className={styles.empty} role="status">
-            <Spin />
-            <span>{t("common.loading")}</span>
-          </div>
-        ) : tools.length === 0 || visibleTools.length === 0 ? (
+        {tools.length === 0 || visibleTools.length === 0 ? (
           <div className={styles.empty} role="status">
             <Search size={24} aria-hidden />
             <span>
@@ -402,6 +427,7 @@ export default function ToolsPage() {
                   className={styles.section}
                   key={group.label}
                   aria-label={group.label}
+                  data-settings-target={`tools.groups.${group.key}`}
                 >
                   <h2 className={styles.sectionTitle}>
                     {group.label}
@@ -428,7 +454,11 @@ export default function ToolsPage() {
                           index={index}
                           animate={!entered.current}
                         >
-                          <InteractiveCard className={styles.toolCard} tilt={2}>
+                          <InteractiveCard
+                            className={styles.toolCard}
+                            tilt={2}
+                            data-settings-target={`tool:${tool.name}`}
+                          >
                             <div className={styles.cardHeader}>
                               <span className={styles.toolIcon}>
                                 <Icon
@@ -518,6 +548,11 @@ export default function ToolsPage() {
                                 <div className={styles.rowActions}>
                                   {canConfigure && (
                                     <Button
+                                      data-settings-open={
+                                        WEBSEARCH_TOOL_NAMES.has(tool.name)
+                                          ? "web-search"
+                                          : undefined
+                                      }
                                       data-press
                                       className={styles.toggleButton}
                                       aria-label={`${t(
@@ -552,6 +587,7 @@ export default function ToolsPage() {
                                     data-press
                                     className={styles.toggleButton}
                                     aria-pressed={tool.async_execution}
+                                    data-settings-target="tools.asyncExecution"
                                     onClick={() => toggleAsyncExecution(tool)}
                                     disabled={batchLoading}
                                     icon={

@@ -1,0 +1,198 @@
+{
+  "schema_version": 2,
+  "channel_key": "wechat",
+  "label": {
+    "en": "WeChat",
+    "zh": "微信"
+  },
+  "process_mode": "runner_process",
+  "dependency_mode": "shared",
+  "entrypoint": {
+    "scope": "runner",
+    "module": "qwenpaw_channel_wechat.driver",
+    "qualname": "WeChatDriver"
+  },
+  "requirements_file": "requirements.txt",
+  "config_schema": {
+    "properties": {
+      "enabled": {
+        "default": false,
+        "title": "Enabled",
+        "type": "boolean"
+      },
+      "bot_prefix": {
+        "default": "",
+        "title": "Bot Prefix",
+        "type": "string"
+      },
+      "show_tool_calls": {
+        "default": true,
+        "title": "Show Tool Calls",
+        "type": "boolean"
+      },
+      "show_tool_results": {
+        "default": true,
+        "title": "Show Tool Results",
+        "type": "boolean"
+      },
+      "tool_call_max_length": {
+        "default": 200,
+        "minimum": 0,
+        "title": "Tool Call Max Length",
+        "type": "integer"
+      },
+      "tool_result_max_length": {
+        "default": 500,
+        "minimum": 0,
+        "title": "Tool Result Max Length",
+        "type": "integer"
+      },
+      "show_thinking": {
+        "default": true,
+        "title": "Show Thinking",
+        "type": "boolean"
+      },
+      "dm_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Dm Policy",
+        "type": "string"
+      },
+      "group_policy": {
+        "default": "open",
+        "enum": [
+          "open",
+          "allowlist"
+        ],
+        "title": "Group Policy",
+        "type": "string"
+      },
+      "allow_from": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Allow From",
+        "type": "array",
+        "default": []
+      },
+      "deny_message": {
+        "default": "",
+        "title": "Deny Message",
+        "type": "string"
+      },
+      "require_mention": {
+        "default": false,
+        "title": "Require Mention",
+        "type": "boolean"
+      },
+      "no_text_debounce": {
+        "default": true,
+        "title": "No Text Debounce",
+        "type": "boolean"
+      },
+      "access_control_dm": {
+        "default": false,
+        "title": "Access Control Dm",
+        "type": "boolean"
+      },
+      "access_control_group": {
+        "default": false,
+        "title": "Access Control Group",
+        "type": "boolean"
+      },
+      "dm_disabled": {
+        "default": false,
+        "title": "Dm Disabled",
+        "type": "boolean"
+      },
+      "group_disabled": {
+        "default": false,
+        "title": "Group Disabled",
+        "type": "boolean"
+      },
+      "bot_token": {
+        "default": "",
+        "title": "Bot Token",
+        "type": "string"
+      },
+      "bot_token_file": {
+        "default": "",
+        "title": "Bot Token File",
+        "type": "string"
+      },
+      "base_url": {
+        "default": "",
+        "title": "Base Url",
+        "type": "string"
+      },
+      "media_dir": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Media Dir"
+      },
+      "message_merge_enabled": {
+        "default": false,
+        "title": "Message Merge Enabled",
+        "type": "boolean"
+      },
+      "message_merge_delay_ms": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": 0,
+        "title": "Message Merge Delay Ms"
+      }
+    },
+    "title": "WeChatConfig",
+    "type": "object"
+  },
+  "config_fields": [
+    "enabled",
+    "bot_prefix",
+    "show_tool_calls",
+    "show_tool_results",
+    "tool_call_max_length",
+    "tool_result_max_length",
+    "show_thinking",
+    "dm_policy",
+    "group_policy",
+    "allow_from",
+    "deny_message",
+    "require_mention",
+    "no_text_debounce",
+    "access_control_dm",
+    "access_control_group",
+    "dm_disabled",
+    "group_disabled",
+    "bot_token",
+    "bot_token_file",
+    "base_url",
+    "media_dir",
+    "message_merge_enabled",
+    "message_merge_delay_ms"
+  ],
+  "capabilities": [
+    "channel.auth.qrcode.v1",
+    "channel.generic.v1",
+    "channel.management.qrcode.v1",
+    "channel.management.verify.v1",
+    "channel.text_merge.v1",
+    "media",
+    "send.content_source.v1"
+  ]
+}

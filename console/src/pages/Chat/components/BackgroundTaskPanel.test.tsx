@@ -39,10 +39,6 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("../../../contexts/ThemeContext", () => ({
-  useTheme: () => ({ isDark: false }),
-}));
-
 vi.mock("../../../stores/backgroundTasksStore", () => ({
   useBackgroundTasksStore: (selector: (s: typeof storeState) => unknown) =>
     selector(storeState),
@@ -147,6 +143,60 @@ describe("BackgroundTaskPanel basics", () => {
 });
 
 describe("BackgroundTaskPanel finished filter and statuses", () => {
+  it("uses semantic tokens for running, done and cancelled states", () => {
+    storeState.tasks = [
+      baseTask({ toolCallId: "r", toolName: "running-tool" }),
+      baseTask({
+        toolCallId: "d",
+        toolName: "done-tool",
+        status: "done",
+        endTime: Date.now(),
+      }),
+      baseTask({
+        toolCallId: "c",
+        toolName: "cancelled-tool",
+        status: "cancelled",
+        endTime: Date.now(),
+      }),
+    ];
+    render(
+      <div className="dark-mode">
+        <BackgroundTaskPanel sessionId="sess-1" />
+      </div>,
+    );
+
+    const badge = screen.getByText("1");
+    expect(badge).toHaveStyle({
+      background: "var(--app-warning-bg)",
+      color: "var(--app-warning-text)",
+    });
+
+    fireEvent.click(screen.getByText("Background tasks"));
+    const runningRow = screen
+      .getByText("running-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    expect(runningRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-accent)",
+    });
+    expect(screen.getByText("Cancel")).toHaveStyle({
+      color: "var(--app-error-text)",
+    });
+
+    fireEvent.click(screen.getByLabelText("Show completed"));
+    const doneRow = screen
+      .getByText("done-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    const cancelledRow = screen
+      .getByText("cancelled-tool")
+      .closest<HTMLElement>("[role=button]")!;
+    expect(doneRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-success)",
+    });
+    expect(cancelledRow.querySelector("span")).toHaveStyle({
+      background: "var(--app-status-idle)",
+    });
+  });
+
   it("formats done and cancelled status texts with durations", () => {
     const start = Date.now() - 125000; // 2m 5s
     storeState.tasks = [

@@ -54,8 +54,18 @@
 }
 .thinking {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 14px;
+}
+.thinkingHeading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--app-text);
+  font-size: var(--app-font-secondary);
+  font-weight: 600;
 }
 .advanced > details > summary {
   display: flex;

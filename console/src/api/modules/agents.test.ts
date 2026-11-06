@@ -163,6 +163,17 @@ describe("agentsApi", () => {
     expect(result).toEqual(graph);
   });
 
+  it("encodes tag expressions without changing literal plus signs or Unicode", async () => {
+    const signal = new AbortController().signal;
+    await agentsApi.getMemoryTagFiles("a1", "C++ & 赵六", 2, signal);
+    const [path, options] = vi.mocked(request).mock.calls[0];
+    const url = new URL(path, "http://localhost");
+    expect(url.pathname).toBe("/agents/a1/memory/tag-files");
+    expect(url.searchParams.get("tag")).toBe("C++ & 赵六");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(options?.signal).toBe(signal);
+  });
+
   it("deleteAgent sends DELETE /agents/${id}", async () => {
     const resp = { success: true, agent_id: "a1" };
     vi.mocked(request).mockResolvedValue(resp);

@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass, replace
+from functools import wraps
 from pathlib import Path
 from typing import Any, BinaryIO, Optional
 
@@ -31,6 +32,12 @@ from ...runtime.tool_registry import tool_descriptor
 from ...sandbox import ExecutionResult
 from ...sandbox.config import SandboxConfig
 from ...utils.io_utils import run_sync_io
+from ...utils.shell_resources import (
+    SHELL_GUARD,
+    ShellGuard,
+    watch_shell_process,
+    watch_shell_process_async,
+)
 from ...utils.shell_normalization import (
     normalize_posix_line_continuations,
     shell_execution_path,
@@ -49,6 +56,49 @@ _WINDOWS_PROCESS_KILL_REAP_SECS = 5.0
 _SHELL_MAX_DISK_BYTES: int = int(
     os.environ.get("QWENPAW_SHELL_MAX_OUTPUT_BYTES", 10 * 1024 * 1024),
 )
+
+
+def _with_shell_guard(function):
+    """Apply opt-in resource protection without changing the tool schema."""
+
+    @wraps(function)
+    async def guarded(*args, **kwargs):
+        try:
+            guard = await ShellGuard.from_environment(
+                _SHELL_MAX_DISK_BYTES,
+            )
+        except ValueError as error:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[TextBlock(type="text", text=str(error))],
+            )
+        except RuntimeError as error:
+            _logger.warning("%s", error)
+            return await function(*args, **kwargs)
+        if guard is None:
+            return await function(*args, **kwargs)
+        token = SHELL_GUARD.set(guard)
+        completed = False
+        try:
+            result = await function(*args, **kwargs)
+            completed = True
+        finally:
+            SHELL_GUARD.reset(token)
+            await asyncio.to_thread(guard.close, not completed)
+            if guard.warning:
+                _logger.warning("%s", guard.warning)
+        if guard.failure:
+            result.state = ToolResultState.ERROR
+            result.content.append(
+                TextBlock(
+                    type="text",
+                    text=f"[resource protection] {guard.failure}",
+                ),
+            )
+        return result
+
+    return guarded
 
 
 # ─── Windows Job Object helpers ──────────────────────────────────────────
@@ -717,6 +767,7 @@ def _execute_subprocess_sync(
     stderr_reader = None
     proc: subprocess.Popen | None = None
     job_handle = None
+    guard = None
 
     try:
         if shell_executable and _is_powershell(shell_executable):
@@ -759,6 +810,16 @@ def _execute_subprocess_sync(
             cwd=cwd,
             env=env,
             creationflags=_windows_shell_creationflags(),
+        )
+
+        guard = watch_shell_process(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                stdout_path,
+                stderr_path,
+                stdout_reader,
+                stderr_reader,
+            ),
         )
 
         # Assign to a Job Object for reliable tree kill (Windows only).
@@ -902,6 +963,8 @@ def _execute_subprocess_sync(
                 pass
         return -1, "", str(e)
     finally:
+        if guard is not None:
+            guard.close()
         _close_job_handle_win32(job_handle)
         for f in (
             stdout_file,
@@ -1103,18 +1166,24 @@ async def _execute_in_sandbox(
         if changed:
             ctx.deadline_changed_event.set()
 
+    guard = SHELL_GUARD.get()
     try:
         async with create_sandbox(effective_config) as sandbox:
             # Setup finished: compensate setup elapsed on borrowed deadlines,
             # then arm kill_deadline for the command timeout only.
             _restore_setup_deadlines()
-            return await cancellable_wait(
+            result = await cancellable_wait(
                 sandbox.execute(cmd, cwd=cwd),
                 fallback_secs=timeout,
                 as_kill_deadline=True,
             )
+            if result.timed_out and guard is not None:
+                await asyncio.to_thread(guard.close, True)
+            return result
     except BaseException:
         _restore_setup_deadlines()
+        if guard is not None:
+            await asyncio.to_thread(guard.close, True)
         raise
 
 
@@ -1186,6 +1255,9 @@ def _is_dangerous_self_kill(cmd: str) -> bool:
 
 async def _cleanup_proc(proc: asyncio.subprocess.Process) -> None:
     """Kill a timed-out or cancelled POSIX subprocess group."""
+    guard = SHELL_GUARD.get()
+    if guard is not None:
+        await asyncio.to_thread(guard.close, True)
     try:
         pgid = os.getpgid(proc.pid)
         os.killpg(pgid, signal.SIGTERM)
@@ -1244,6 +1316,16 @@ async def _execute_posix_host(
             cwd=cwd,
             env=env,
             start_new_session=True,
+        )
+
+        await watch_shell_process_async(
+            proc.pid,
+            lambda: _check_output_disk_size(
+                outputs.stdout_path,
+                outputs.stderr_path,
+                None,
+                None,
+            ),
         )
 
         # The child inherited its own descriptors.  Close the parent copies
@@ -1339,6 +1421,7 @@ async def _execute_posix_host(
     ui_description="Execute shell commands",
     ui_icon="💻",
 )
+@_with_shell_guard
 async def execute_shell_command(
     command: str,
     timeout: float = 60.0,

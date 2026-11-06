@@ -55,6 +55,11 @@ export function SkillsToolbar({
           onChange={onTagsChange}
           open={filterOpen}
           onOpenChange={onFilterOpenChange}
+          onInputKeyDown={(event) => {
+            if (event.key === "Escape") {
+              onFilterOpenChange(false);
+            }
+          }}
           allowClear
           maxTagCount="responsive"
           notFoundContent={<></>}

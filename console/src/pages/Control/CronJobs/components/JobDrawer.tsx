@@ -7,12 +7,11 @@ import {
   Button,
   Checkbox,
 } from "@agentscope-ai/design";
-import { AutoComplete, DatePicker, Tabs, Segmented, Radio } from "antd";
+import { Alert, AutoComplete, DatePicker, Tabs, Segmented, Radio } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
 import InlineHelp from "@/components/InlineHelp";
 import { NumberSlider } from "@/components/interaction/NumberSlider";
-import { useAutoSave } from "@/hooks/useAutoSave";
 import { DurationWheel } from "@/components/interaction/DurationWheel";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,6 +27,7 @@ import { ExecutionModelSelect } from "./ExecutionModelSelect";
 import { RequestInput } from "./RequestInput";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
 import styles from "../index.module.less";
+import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 function ScheduleTime({
   value,
@@ -80,6 +80,7 @@ export function JobDrawer({
   onSubmit,
 }: JobDrawerProps) {
   const { t } = useTranslation();
+  const searchRequest = useSettingsSearchSurface("cron-jobs", open);
   const timezoneOptions = useTimezoneOptions();
   const [saveInboxTouched, setSaveInboxTouched] = useState(false);
   const [activeTab, setActiveTab] = useState("schedule");
@@ -103,21 +104,6 @@ export function JobDrawer({
   );
 
   const isEdit = !!editingJob;
-  const { schedule: scheduleSave, flush } = useAutoSave(async () => {
-    if (!isEdit) return;
-    const values = form.getFieldsValue(true);
-    try {
-      await form.validateFields();
-    } catch {
-      return false;
-    }
-    return onSubmit(values);
-  });
-  const close = () => {
-    void flush().then((saved) => {
-      if (saved) onClose();
-    });
-  };
   const importReviewRequired =
     editingJob !== null && requiresCronImportReview(editingJob);
   const projectMappingRequired =
@@ -128,13 +114,13 @@ export function JobDrawer({
   useEffect(() => {
     if (open) {
       setSaveInboxTouched(false);
-      setActiveTab("schedule");
+      setActiveTab(searchRequest?.tabId ?? "schedule");
       setInvalidField(null);
       onReloadTargets().catch((error) =>
         console.error("Failed to reload cron dispatch targets", error),
       );
     }
-  }, [open, editingJob?.id, onReloadTargets]);
+  }, [open, editingJob?.id, onReloadTargets, searchRequest?.tabId]);
 
   useEffect(() => {
     if (selectedTaskType === "text") {
@@ -200,21 +186,15 @@ export function JobDrawer({
       placement="right"
       title={editingJob ? t("cronJobs.editJob") : t("cronJobs.createJob")}
       open={open}
-      onClose={close}
+      onClose={onClose}
       destroyOnHidden
       footer={
-        isEdit ? null : (
-          <div className={styles.formActions}>
-            <Button onClick={onClose}>{t("common.cancel")}</Button>
-            <Button
-              type="primary"
-              loading={saving}
-              onClick={() => form.submit()}
-            >
-              {t("common.create")}
-            </Button>
-          </div>
-        )
+        <div className={styles.formActions}>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
+          <Button type="primary" loading={saving} onClick={() => form.submit()}>
+            {t(isEdit ? "common.save" : "common.create")}
+          </Button>
+        </div>
       }
     >
       <Form
@@ -222,10 +202,7 @@ export function JobDrawer({
         layout="vertical"
         requiredMark={false}
         className={styles.jobEditor}
-        onValuesChange={() => {
-          if (isEdit) scheduleSave();
-        }}
-        onFinish={onSubmit}
+        onFinish={() => onSubmit(form.getFieldsValue(true))}
         onFinishFailed={({ errorFields }) => {
           const field = errorFields[0]?.name;
           if (!field) return;
@@ -323,12 +300,20 @@ export function JobDrawer({
           }}
         </Form.Item>
 
+        {searchRequest?.targetId === "cronJobs.executionModel" &&
+          selectedTaskType !== "agent" && (
+            <Alert
+              type="info"
+              data-settings-target="cronJobs.executionModel"
+              message={t(
+                "settingsCenter.searchAgentTaskOnly",
+                "Execution models are available for agent tasks only.",
+              )}
+            />
+          )}
         <Tabs
           activeKey={activeTab}
-          onChange={(key) => {
-            setActiveTab(key);
-            void flush();
-          }}
+          onChange={setActiveTab}
           items={[
             {
               key: "schedule",
@@ -715,6 +700,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["schedule", "timezone"]}
+                    data-settings-target="cronJobs.scheduleTimezone"
                     label={t("cronJobs.scheduleTimezone")}
                     tooltip={t("cronJobs.timezoneTooltip")}
                   >
@@ -842,6 +828,7 @@ export function JobDrawer({
                 <>
                   <Form.Item
                     name="save_result_to_inbox"
+                    data-settings-target="cronJobs.saveResultToInbox"
                     label={t("cronJobs.saveResultToInbox")}
                     valuePropName="checked"
                     tooltip={t("cronJobs.saveResultToInboxTooltip")}
@@ -858,6 +845,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["dispatch", "channel"]}
+                    data-settings-target="cronJobs.dispatchChannel"
                     label={t("cronJobs.dispatchChannel")}
                     rules={[
                       {
@@ -883,6 +871,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["dispatch", "target", "user_id"]}
+                    data-settings-target="cronJobs.dispatchTargetUserId"
                     label={t("cronJobs.dispatchTargetUserId")}
                     rules={[
                       {
@@ -908,6 +897,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["dispatch", "target", "session_id"]}
+                    data-settings-target="cronJobs.dispatchTargetSessionId"
                     label={t("cronJobs.dispatchTargetSessionId")}
                     rules={[
                       {
@@ -934,6 +924,7 @@ export function JobDrawer({
                   {selectedTaskType === "agent" && (
                     <Form.Item
                       name={["request", "model_slot_override"]}
+                      data-settings-target="cronJobs.executionModel"
                       label={t("cronJobs.executionModel")}
                       tooltip={t("cronJobs.executionModelTooltip")}
                     >
@@ -954,12 +945,22 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["dispatch", "silent"]}
+                    data-settings-target="cronJobs.silentDelivery"
                     label={t("cronJobs.silentDelivery")}
                     valuePropName="checked"
                     tooltip={t("cronJobs.silentDeliveryTooltip")}
                   >
                     <Switch disabled={selectedTaskType !== "agent"} />
                   </Form.Item>
+                  {selectedTaskType !== "agent" &&
+                    searchRequest?.targetId === "cronJobs.silentDelivery" && (
+                      <p role="status">
+                        {t(
+                          "settingsCenter.searchAgentTaskOnly",
+                          "This setting is available for agent tasks only.",
+                        )}
+                      </p>
+                    )}
                 </>
               ),
             },
@@ -971,6 +972,7 @@ export function JobDrawer({
                 <>
                   <Form.Item
                     name={["runtime", "share_session"]}
+                    data-settings-target="cronJobs.runtimeShareSession"
                     label={t("cronJobs.runtimeShareSession")}
                     valuePropName="checked"
                     tooltip={t("cronJobs.shareSessionTooltip")}
@@ -989,6 +991,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["runtime", "max_concurrency"]}
+                    data-settings-target="cronJobs.runtimeMaxConcurrency"
                     label={t("cronJobs.runtimeMaxConcurrency")}
                     tooltip={t("cronJobs.maxConcurrencyTooltip")}
                   >
@@ -1001,6 +1004,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["runtime", "timeout_seconds"]}
+                    data-settings-target="cronJobs.runtimeTimeoutSeconds"
                     label={t("cronJobs.runtimeTimeoutSeconds")}
                     tooltip={t("cronJobs.timeoutSecondsTooltip")}
                   >
@@ -1013,6 +1017,7 @@ export function JobDrawer({
 
                   <Form.Item
                     name={["runtime", "misfire_grace_seconds"]}
+                    data-settings-target="cronJobs.runtimeMisfireGraceSeconds"
                     label={t("cronJobs.runtimeMisfireGraceSeconds")}
                     tooltip={t("cronJobs.misfireGraceSecondsTooltip")}
                   >

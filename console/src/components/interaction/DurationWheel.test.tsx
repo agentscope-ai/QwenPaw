@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DurationWheel } from "./DurationWheel";
 
 const preferences = vi.hoisted(() => ({ reduced: false }));
+const resizeCallbacks = new Set<() => void>();
 vi.mock("motion/react", () => ({
   useReducedMotion: () => preferences.reduced,
 }));
@@ -12,12 +13,27 @@ vi.mock("react-i18next", () => ({
 
 beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "scrollTo");
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(162);
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      callback: () => void;
+      constructor(callback: () => void) {
+        this.callback = callback;
+        resizeCallbacks.add(callback);
+      }
+      observe = vi.fn();
+      disconnect = () => resizeCallbacks.delete(this.callback);
+    },
+  );
   HTMLElement.prototype.setPointerCapture = vi.fn();
   HTMLElement.prototype.releasePointerCapture = vi.fn();
   HTMLElement.prototype.hasPointerCapture = vi.fn(() => true);
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  resizeCallbacks.clear();
   preferences.reduced = false;
 });
 
@@ -29,6 +45,55 @@ function settle(element: HTMLElement, row: number) {
 }
 
 describe("DurationWheel", () => {
+  it("initializes after its modal portal is attached without emitting an edit", () => {
+    const onChange = vi.fn();
+    const container = document.createElement("div");
+    const view = render(<DurationWheel value={510} onChange={onChange} />, {
+      container,
+    });
+    const [hour, minute] = view.getAllByRole("spinbutton");
+    expect(hour.scrollTop).toBe(0);
+    expect(minute.scrollTop).toBe(0);
+
+    document.body.appendChild(container);
+    act(() => resizeCallbacks.forEach((notify) => notify()));
+    expect(hour.scrollTop).toBe(32 * 72);
+    expect(minute.scrollTop).toBe(90 * 72);
+    act(() => hour.dispatchEvent(new Event("scrollend")));
+    act(() => minute.dispatchEvent(new Event("scrollend")));
+    expect(onChange).not.toHaveBeenCalled();
+    view.unmount();
+    container.remove();
+    expect(resizeCallbacks.size).toBe(0);
+  });
+
+  it("aligns to the latest value when a hidden wheel becomes visible again", () => {
+    const onChange = vi.fn();
+    const height = vi
+      .spyOn(HTMLElement.prototype, "clientHeight", "get")
+      .mockReturnValue(0);
+    const view = render(<DurationWheel value={510} onChange={onChange} />);
+    const [hour, minute] = view.getAllByRole("spinbutton");
+    expect(hour.scrollTop).toBe(0);
+    act(() => hour.dispatchEvent(new Event("scrollend")));
+    expect(onChange).not.toHaveBeenCalled();
+    height.mockReturnValue(162);
+    act(() => resizeCallbacks.forEach((notify) => notify()));
+    expect(hour.scrollTop).toBe(32 * 72);
+    expect(minute.scrollTop).toBe(90 * 72);
+
+    height.mockReturnValue(0);
+    act(() => resizeCallbacks.forEach((notify) => notify()));
+    hour.scrollTop = 0;
+    minute.scrollTop = 0;
+    view.rerender(<DurationWheel value={585} onChange={onChange} />);
+    height.mockReturnValue(162);
+    act(() => resizeCallbacks.forEach((notify) => notify()));
+    expect(hour.scrollTop).toBe(33 * 72);
+    expect(minute.scrollTop).toBe(105 * 72);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it("initializes without saving and animates external selections without emitting edits", () => {
     const onChange = vi.fn();
     const view = render(<DurationWheel value={300} onChange={onChange} />);

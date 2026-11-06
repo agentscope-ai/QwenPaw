@@ -33,24 +33,39 @@ function DurationColumn({
 
   useLayoutEffect(() => {
     const wheel = root.current!;
-    const current = Math.round(wheel.scrollTop / ROW_HEIGHT);
-    const cycle = Math.max(
-      0,
-      Math.min(2, Math.round((current - value) / count)),
-    );
-    const target = initialized.current ? cycle * count + value : count + value;
-    externalScroll.current = true;
-    wheel.scrollTo({
-      top: target * ROW_HEIGHT,
-      behavior: initialized.current && !reduced ? "smooth" : "instant",
+    const sync = () => {
+      externalScroll.current = true;
+      if (!wheel.isConnected || !wheel.clientHeight) {
+        initialized.current = false;
+        return;
+      }
+      const current = Math.round(wheel.scrollTop / ROW_HEIGHT);
+      const cycle = Math.max(
+        0,
+        Math.min(2, Math.round((current - value) / count)),
+      );
+      const target = initialized.current
+        ? cycle * count + value
+        : count + value;
+      wheel.scrollTo({
+        top: target * ROW_HEIGHT,
+        behavior: initialized.current && !reduced ? "smooth" : "instant",
+      });
+      initialized.current = true;
+    };
+    sync();
+    // Portals and hidden tabs acquire scrollable layout after mounting.
+    const observer = new ResizeObserver(() => {
+      if (!wheel.clientHeight || !initialized.current) sync();
     });
-    initialized.current = true;
+    observer.observe(wheel);
+    return () => observer.disconnect();
   }, [value, count, reduced]);
 
   useLayoutEffect(() => {
     const wheel = root.current!;
     const settle = () => {
-      if (drag.current) return;
+      if (drag.current || !wheel.clientHeight) return;
       const next = wrap(Math.round(wheel.scrollTop / ROW_HEIGHT));
       const userEdit = !externalScroll.current;
       externalScroll.current = true;

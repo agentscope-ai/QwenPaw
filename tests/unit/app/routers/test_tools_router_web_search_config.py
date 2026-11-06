@@ -51,6 +51,11 @@ def test_builtin_credential_ref_with_provider() -> None:
     assert ref == "tool/web_search/anysearch"
 
 
+def test_builtin_credential_ref_firecrawl() -> None:
+    ref = _builtin_credential_ref("web_search", {"provider": "firecrawl"})
+    assert ref == "tool/web_search/firecrawl"
+
+
 def test_builtin_credential_ref_blank_provider_returns_empty() -> None:
     assert _builtin_credential_ref("web_search", {}) == ""
     assert _builtin_credential_ref("web_search", {"provider": ""}) == ""
@@ -96,9 +101,20 @@ async def test_get_tool_config_reads_credential_and_masks() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_tool_config_blank_provider_skips_credential_lookup() -> None:  # noqa: E501
-    registry = _registry_mock(tool_config={})
-    load_credential = AsyncMock()
+@pytest.mark.parametrize(
+    "tool_config",
+    [{}, {"provider": ""}, {"provider": "  "}],
+)
+async def test_get_tool_config_blank_provider_reads_default_credential(
+    tool_config: dict,
+) -> None:
+    registry = _registry_mock(tool_config=tool_config)
+    record = CredentialRecord(
+        ref="tool/web_search/anysearch",
+        kind="static",
+        secrets={"api_key": "as_sk_auto_registered"},
+    )
+    load_credential = AsyncMock(return_value=record)
 
     with (
         patch(
@@ -117,8 +133,11 @@ async def test_get_tool_config_blank_provider_skips_credential_lookup() -> None:
     ):
         result = await get_tool_config(tool_name="web_search", request=None)
 
-    assert result == {}
-    load_credential.assert_not_called()
+    assert result == {
+        "provider": "anysearch",
+        "api_key": mask_secret_value("as_sk_auto_registered"),
+    }
+    load_credential.assert_awaited_once_with("tool/web_search/anysearch")
 
 
 @pytest.mark.asyncio
