@@ -7,7 +7,30 @@ the normal plugin installer. Starting the channel never installs packages.
 
 The worker uses websocket-client, HTTPX and AESGCM. The host retains Agent
 execution, sessions, ACL and approval decisions. SDKs and gateway/media/Portal
-I/O run in the worker. The plugin does not stream, type or edit messages.
+I/O run in the worker. With `streaming_enabled` the worker streams C2C replies
+through the official `stream_messages` API (`input_mode=replace`, `input_state`
+1 → 10, incrementing `index`, server-issued `stream_msg_id`). Group, guild and
+guild-DM targets keep the completed-message path because QQ documents streaming
+for single chat only. The plugin never types, edits or recalls messages.
+
+Streaming covers both `message` and `reasoning` response streams; each response
+stream owns its own stream message and the `stream_type` recorded at
+`stream.start` is validated on later slices. Because QQ rejects a repeated slice
+`index`, the index is reserved durably before the native call, so a slice whose
+result is lost still consumes it and the next slice continues from a higher
+index; replace mode resends the whole text, so a reserved-but-lost index loses
+no content. A response that finishes or is cancelled after `stream.start`
+closes the stream with a final `input_state=10` slice through the shared stream
+cleanup hooks instead of leaving the QQ message generating.
+
+The stream is opened by the first slice that carries real text rather than by
+`stream.start`: QQ rejects a `replace` slice that does not start with the
+content it already delivered (`40007`), so the placeholder the host opens every
+stream with must never be sent. A response that only ends never opens a stream
+for nothing, an empty reply opens and closes with the native `...` placeholder,
+and a stored resource without a recorded `stream_type` keeps streaming rather
+than failing every later slice. The descriptor declares the `streaming`
+capability because the host drops the channel's streaming policy otherwise.
 
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary

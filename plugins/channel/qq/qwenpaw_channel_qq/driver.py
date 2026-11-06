@@ -20,6 +20,7 @@ from qwenpaw.channel_protocol.targets import decode_reply_target
 
 from .errors import QQDeliveryError
 from .formatting import (
+    _as_bool,
     _resolve_send_path,
     _route_meta_from_handle,
     resolve_session_id,
@@ -66,7 +67,15 @@ class QQDriver(SharedResponseDriver):
         await self._stop_platform()
 
     def response_policy(self, response_handle):
+        attrs = self._route_attrs(response_handle)
         return ResponsePolicy(
+            # The official stream API covers single chat only, so group,
+            # guild and dm routes keep the completed-message path. A C2C
+            # stream is a passive reply and needs the inbound ``msg_id`` as
+            # its anchor, so routes without one are not streamed either.
+            streaming=bool(self._config.get("streaming_enabled"))
+            and attrs.get("message_type") == "c2c"
+            and bool(attrs.get("message_id")),
             send_format=SendFormatPolicy(False, False, False, False, True),
         )
 
@@ -209,9 +218,174 @@ class QQDriver(SharedResponseDriver):
         )
         await self._checkpoint(reserve_bytes=1024)
 
+    @staticmethod
+    def _text(params):
+        return params.accumulated_text or ""
+
+    async def _perform_stream(self, platform, params):
+        """Stream slices use the QQ replace-mode stream_messages API."""
+        route = self._route_attrs(params.to_handle)
+        markdown = _as_bool(
+            route.get(
+                "markdown_enabled",
+                self._config.get("markdown_enabled", True),
+            ),
+        )
+        stream_type = params.stream_type.value
+        text = self._text(params)
+        operation = params.operation.value
+        if operation == "stream.start":
+            # The native stream is opened by the first slice that carries real
+            # text, not by ``stream.start``. QQ ``replace`` slices must start
+            # with the prefix QQ already delivered (``40007`` otherwise), and
+            # the host opens every stream with a placeholder, which no answer
+            # extends. Opening lazily also keeps a response that produces no
+            # slice from creating an empty message on QQ.
+            return ResponseResourceRef.create(
+                "qq.delivery",
+                params.delivery_id,
+                {
+                    "stream_type": stream_type,
+                    "markdown": "true" if markdown else "false",
+                    "sequence": "0",
+                    "final": "false",
+                },
+            )
+        ref = self._delivery_resource(
+            params.to_handle,
+            params.target_delivery_id,
+        )
+        if ref is None or ref.kind != "qq.delivery":
+            raise QQDeliveryError(
+                "OUTBOUND_TARGET_UNKNOWN",
+                side_effect_possible=False,
+            )
+        resource = dict(ref.attributes)
+        recorded_type = resource.get("stream_type")
+        # Resources written before ``stream_type`` was recorded carry no kind
+        # to compare, so only an explicit disagreement is rejected.
+        if recorded_type is not None and recorded_type != stream_type:
+            raise QQDeliveryError(
+                "STREAM_TYPE_MISMATCH",
+                side_effect_possible=False,
+            )
+        sequence = params.sequence or 0
+        if sequence <= int(resource.get("sequence", "0")):
+            raise QQDeliveryError(
+                "STREAM_SEQUENCE_STALE",
+                side_effect_possible=False,
+            )
+        final = operation == "stream.end"
+        if not resource.get("stream_msg_id"):
+            if not text and not final:
+                # Nothing to show yet: opening now would deliver a slice the
+                # answer cannot extend.
+                return ResponseResourceRef.create(
+                    "qq.delivery",
+                    params.target_delivery_id,
+                    resource,
+                )
+            # The opening slice is the first text QQ ever receives, so it is
+            # never a placeholder the later slices would have to rewrite.
+            created = await platform.start_stream(route, text, markdown)
+            resource.update(created)
+            resource.update(sequence=str(sequence), final="false")
+            await self._reserve_slice(
+                params.to_handle,
+                params.target_delivery_id,
+                resource,
+            )
+            if not final:
+                return ResponseResourceRef.create(
+                    "qq.delivery",
+                    params.target_delivery_id,
+                    resource,
+                )
+        if final and not text:
+            # QQ rejects an empty closing slice, so keep the delivered text.
+            text = str(resource.get("text") or "...")
+        # QQ rejects a repeated slice index for one stream. The index is
+        # therefore reserved durably before the native call, so a slice whose
+        # result is lost locally still consumes it. Replace mode resends the
+        # whole text, so continuing from a higher index loses no content,
+        # while reusing an index that QQ already accepted would be rejected.
+        index = int(resource.get("index", "0")) + 1
+        resource.update(index=str(index), text=text)
+        await self._reserve_slice(
+            params.to_handle,
+            params.target_delivery_id,
+            resource,
+        )
+        await platform.update_stream(
+            route,
+            resource,
+            text,
+            index=index,
+            markdown=markdown,
+            final=final,
+        )
+        # Only an acknowledged slice advances these, so a lost ``stream.end``
+        # is archived as unknown evidence instead of a confirmed close.
+        resource.update(
+            sequence=str(sequence),
+            final="true" if final else "false",
+        )
+        return ResponseResourceRef.create(
+            "qq.delivery",
+            params.target_delivery_id,
+            resource,
+        )
+
+    async def _reserve_slice(self, handle, delivery_id, resource):
+        """Persist the next slice index before the native call.
+
+        The reservation deliberately leaves ``sequence`` and ``final`` alone:
+        only an acknowledged slice advances them. Marking the delivery
+        ``unsettled`` is also avoided here, because an unsettled delivery makes
+        the shared cleanup skip the stream instead of closing it.
+        """
+        self._routes.record_delivery(
+            handle,
+            [
+                ResponseResourceRef.create(
+                    "qq.delivery",
+                    delivery_id,
+                    dict(resource),
+                ),
+            ],
+        )
+        await self._checkpoint()
+
+    def _needs_stream_cleanup(self, ref):
+        # QQ keeps a started stream generating until it sees a slice with
+        # ``input_state=10``, so any stream without an acknowledged end slice
+        # must be closed by cleanup.
+        return bool(dict(ref.attributes).get("stream_msg_id"))
+
+    async def _perform_stream_cleanup(self, ref, resource, sequence):
+        attributes = dict(resource)
+        # The host sequence is not the QQ slice index; the closing slice must
+        # continue the native index, not the response-level sequence.
+        await self._require_connected().update_stream(
+            {},
+            attributes,
+            attributes.get("text") or "...",
+            index=int(attributes.get("index", "0")) + 1,
+            markdown=_as_bool(
+                attributes.get(
+                    "markdown",
+                    self._config.get("markdown_enabled", True),
+                ),
+            ),
+            final=True,
+        )
+
     async def _perform_send(self, params):
         platform = self._require_connected()
-        if params.operation.value != "message.create":
+        operation = params.operation.value
+        if operation in {"stream.start", "stream.delta", "stream.end"}:
+            return await self._perform_stream(platform, params)
+        if operation != "message.create":
             raise QQDeliveryError("OUTBOUND_OPERATION_UNSUPPORTED")
         route = self._route_attrs(params.to_handle)
         async with platform.delivery(
