@@ -109,6 +109,11 @@ def _installed_plugin_ids() -> dict[str, str]:
     for item in plugins_dir.iterdir():
         if not item.is_dir() or _is_disabled_plugin_dir(item):
             continue
+        # A disabled copy (``foo.disabled``) is not installed: discovery and
+        # dependency install both skip it, and its manifest id would
+        # otherwise shadow or clobber the live entry below.
+        if _is_disabled_plugin_dir(item):
+            continue
         manifest_path = item / "plugin.json"
         if not manifest_path.is_file():
             continue
