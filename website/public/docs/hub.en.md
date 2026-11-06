@@ -198,6 +198,8 @@ Hub stores data in `~/.qwenpaw/hub/` by default. If `QWENPAW_WORKING_DIR` is set
 
 Stopping, restarting, rebuilding a Docker container, or switching between Local and Docker does not delete user data. Deleting a runtime record also preserves its directories; remove them manually only after confirming that the data is no longer needed.
 
+When Hub restarts, runtimes whose desired state is running are restored automatically before the control plane becomes ready. Explicitly stopped or administrator-disabled runtimes remain stopped. Recovery respects runtime capacity limits; inspect the runtime state and Hub logs if a runtime cannot be restored. This does not replay cron jobs missed while Hub was stopped.
+
 ## Backup and upgrades
 
 Treat the entire `hub/` directory as one backup set. It must include at least:

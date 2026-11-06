@@ -47,7 +47,7 @@ from qwenpaw.hub.provisioner import (
     RuntimeProvisioner,
     RuntimeProvisionerAvailability,
 )
-from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.models import RuntimeRecord, RuntimeSpec, RuntimeState
 from qwenpaw.hub.registry import RuntimeRegistry
 from qwenpaw.hub.service import RuntimeService
 
@@ -1015,6 +1015,7 @@ def test_model_startup_io_runs_outside_event_loop(tmp_path: Path) -> None:
     """Recovery and listener binding must not block the Hub event loop."""
     checked = []
     recover = ModelGateway.recover
+    restore = RuntimeService.restore_running
     bind = ModelListener._bind  # pylint: disable=protected-access
     discover = _FakeProvisioner.model_network
 
@@ -1035,13 +1036,18 @@ def test_model_startup_io_runs_outside_event_loop(tmp_path: Path) -> None:
         assert_worker("discover")
         return discover(provisioner)
 
+    def restore_off_loop(service: RuntimeService) -> None:
+        assert_worker("runtimes")
+        restore(service)
+
     with (
+        patch.object(RuntimeService, "restore_running", restore_off_loop),
         patch.object(ModelGateway, "recover", recover_off_loop),
         patch.object(ModelListener, "_bind", bind_off_loop),
         patch.object(_FakeProvisioner, "model_network", discover_off_loop),
         _client(tmp_path),
     ):
-        assert checked == ["recover", "discover", "bind"]
+        assert checked == ["recover", "discover", "bind", "runtimes"]
 
 
 def test_model_secret_cleanup_log_is_redacted(
@@ -2220,3 +2226,26 @@ def test_hub_avatar_identity_is_scoped_to_authenticated_user(hub_client):
         ).json()["selected"]
         is None
     )
+
+
+def test_lifespan_restores_runtime_without_personal_request(tmp_path: Path):
+    """Entering Hub lifespan alone restores the persisted execution runtime."""
+    client = _client(tmp_path)
+    service = client.app.state.runtime_service
+    owner, _ = client.app.state.auth_service.register("owner", "safe-password")
+    record = service.create(
+        RuntimeSpec(
+            runtime_id="runtime-recovery",
+            tenant_id="tenant-recovery",
+            owner_user_id=owner.user_id,
+        ),
+    )
+    service.registry.save(
+        replace(
+            record,
+            desired_state=RuntimeState.RUNNING,
+            state=RuntimeState.STOPPED,
+        ),
+    )
+    with client:
+        assert service.get(record.runtime_id).state is RuntimeState.RUNNING
