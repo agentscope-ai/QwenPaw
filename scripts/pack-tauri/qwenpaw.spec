@@ -176,9 +176,13 @@ datas += runpy.run_path(str(Path(SPECPATH) / "collect_runtime_metadata.py"))[
 _metadata_pkgs = [
     "qwenpaw",
     "fastmcp",
+    "fastmcp-slim",
     "mcp",
+    "mcp-types",
     "httpx",
+    "httpx2",
     "httpcore",
+    "httpcore2",
     "anyio",
     "sniffio",
     "starlette",

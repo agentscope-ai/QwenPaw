@@ -125,7 +125,7 @@ _HOST_MEMORY_ACTIONS: dict[str, MemoryActionSpec] = {
         "parameters": {"type": "object", "properties": {}},
     },
 }
-_REQUIRED_REME_VERSION = "0.4.2.0"
+_REQUIRED_REME_VERSION = "0.4.2.2"
 
 
 def _consume_detached_task_result(task: asyncio.Task[Any]) -> None:

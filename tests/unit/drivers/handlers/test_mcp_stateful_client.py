@@ -18,10 +18,10 @@ behind the ``fail_under`` gate.
 from __future__ import annotations
 
 import asyncio
-import httpx
+import httpx2
 import pytest
-from mcp.shared.exceptions import McpError
-from mcp.types import CONNECTION_CLOSED, ErrorData
+from mcp.shared.exceptions import MCPError
+from mcp.types import CONNECTION_CLOSED, REQUEST_TIMEOUT, ErrorData
 
 import qwenpaw.drivers.handlers.mcp_stateful_client as mod
 from qwenpaw.drivers.handlers.mcp_stateful_client import (
@@ -86,63 +86,69 @@ def test_is_transport_error_distinguishes_transport_from_mcp_errors():
 
 
 def test_is_transport_error_recognizes_terminated_mcp_session():
-    exc = McpError(ErrorData(code=32600, message="Session terminated"))
+    exc = MCPError.from_error_data(
+        ErrorData(code=32600, message="Session terminated"),
+    )
     assert _is_transport_error(exc)
 
 
 def test_is_transport_error_recognizes_closed_mcp_connection():
-    exc = McpError(
+    exc = MCPError.from_error_data(
         ErrorData(code=CONNECTION_CLOSED, message="Connection closed"),
     )
     assert _is_transport_error(exc)
 
 
 def test_is_transport_error_rejects_mcp_read_timeout():
-    exc = McpError(ErrorData(code=408, message="Timed out while waiting"))
+    exc = MCPError.from_error_data(
+        ErrorData(code=REQUEST_TIMEOUT, message="Timed out while waiting"),
+    )
     assert not _is_transport_error(exc)
 
 
 def test_is_transport_error_unwraps_exception_group():
-    exc = McpError(
+    exc = MCPError.from_error_data(
         ErrorData(code=CONNECTION_CLOSED, message="Connection closed"),
     )
     assert _is_transport_error(ExceptionGroup("task group", [exc]))
 
 
 def test_is_transport_error_handles_mcp_error_without_payload():
-    exc = McpError.__new__(McpError)
+    exc = MCPError.__new__(MCPError)
     assert not _is_transport_error(exc)
 
 
 def test_is_transport_error_rejects_other_mcp_errors():
-    exc = McpError(ErrorData(code=-32602, message="Invalid tool arguments"))
+    exc = MCPError.from_error_data(
+        ErrorData(code=-32602, message="Invalid tool arguments"),
+    )
     assert not _is_transport_error(exc)
 
 
 def test_is_transport_error_rejects_generic_server_error():
-    exc = McpError(
+    exc = MCPError.from_error_data(
         ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
     )
     assert not _is_transport_error(exc)
 
 
 def test_is_401_error_detects_plain_http_401():
-    req = httpx.Request("GET", "http://x")
-    resp = httpx.Response(401, request=req)
-    err = httpx.HTTPStatusError("unauthorized", request=req, response=resp)
+    req = httpx2.Request("GET", "http://x")
+    resp = httpx2.Response(401, request=req)
+    err = httpx2.HTTPStatusError("unauthorized", request=req, response=resp)
     assert _is_401_error(err)
 
-    other = httpx.Response(500, request=req)
-    err500 = httpx.HTTPStatusError("boom", request=req, response=other)
+    other = httpx2.Response(500, request=req)
+    err500 = httpx2.HTTPStatusError("boom", request=req, response=other)
     assert not _is_401_error(err500)
     assert not _is_401_error(ValueError("not http"))
 
 
 def test_is_401_error_drills_into_exception_group():
     """401 wrapped in an ExceptionGroup (mcp raises these) must still match."""
-    req = httpx.Request("GET", "http://x")
-    resp = httpx.Response(401, request=req)
-    err401 = httpx.HTTPStatusError("unauthorized", request=req, response=resp)
+    req = httpx2.Request("GET", "http://x")
+    resp = httpx2.Response(401, request=req)
+    err401 = httpx2.HTTPStatusError("unauthorized", request=req, response=resp)
     group = ExceptionGroup("grpc failures", [ValueError(), err401])
     assert _is_401_error(group)
 
@@ -469,7 +475,7 @@ async def test_list_tools_retries_once_after_terminated_cold_session():
 
     class TerminatedSession:
         async def list_tools(self):
-            raise McpError(
+            raise MCPError.from_error_data(
                 ErrorData(code=32600, message="Session terminated"),
             )
 
@@ -635,7 +641,7 @@ async def test_call_tool_handles_transport_error_and_marks_disconnected():
 async def test_call_tool_does_not_reconnect_for_generic_server_error():
     c = _client()
     c.is_connected = True
-    error = McpError(
+    error = MCPError.from_error_data(
         ErrorData(code=CONNECTION_CLOSED, message="Rate limit exceeded"),
     )
 
@@ -644,7 +650,7 @@ async def test_call_tool_does_not_reconnect_for_generic_server_error():
             raise error
 
     c.session = FakeSession()  # type: ignore[assignment]
-    with pytest.raises(McpError) as exc_info:
+    with pytest.raises(MCPError) as exc_info:
         await c.call_tool("foo", {})
 
     assert exc_info.value is error

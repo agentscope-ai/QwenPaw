@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Entry point: run the FastMCP server over stdio.
+"""Entry point: run the MCPServer server over stdio.
 
 The server starts even without credentials so that ``create_mailbox`` can
 be used for registration guidance.  Credential-requiring tools will return

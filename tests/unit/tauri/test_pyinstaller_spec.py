@@ -131,6 +131,16 @@ def test_desktop_spec_collects_qwenpawmail_from_nested_source_root():
     assert "MAIL_MCP_SRC" in _analysis_path_names()
 
 
+def test_desktop_spec_collects_mcp_http_dependency_metadata():
+    assert {
+        "mcp",
+        "mcp-types",
+        "httpx2",
+        "httpcore2",
+        "fastmcp-slim",
+    } <= _metadata_packages()
+
+
 def test_desktop_spec_collects_provider_catalog_data():
     assert (
         "providers/data",

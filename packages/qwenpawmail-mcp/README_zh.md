@@ -40,7 +40,7 @@
 
 ## 工作原理
 
-qwenpawmail-mcp 是纯 Python（>= 3.10）实现的 MCP server，基于 FastMCP SDK（`mcp>=1.28`）+ `imap-tools`，通过 **stdio** 传输通信。
+qwenpawmail-mcp 是纯 Python（>= 3.10）实现的 MCP server，基于 MCP Python SDK（MCPServer，`mcp>=2.0.0`）+ `imap-tools`，通过 **stdio** 传输通信。
 
 在 QwenPaw 中，主进程会以子进程方式自动拉起本 server（`sys.executable -m qwenpawmail_mcp`），并通过环境变量注入凭据与状态目录——用户无需手动启动。在 QwenPaw 之外，任何支持 stdio 传输的 MCP 客户端（Claude Desktop、Cursor 等）都可以用同样的方式启动它。
 
