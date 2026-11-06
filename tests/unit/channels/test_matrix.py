@@ -325,10 +325,14 @@ async def test_default_e2ee_dependency_initializes_crypto_store(
     trusted = platform._state.crypto_dir / f"{database.stem}.trusted_devices"
     assert trusted.is_file()
     identity_keys = platform._client.olm.account.identity_keys
+    saved = platform._client.store.load_account()
+    assert saved is not None and saved.shared
+    assert saved.identity_keys == identity_keys
     await platform.stop()
 
     resumed = platform_factory(encryption=True)
     await resumed.start()
+    assert resumed._client.olm.account.shared
     assert resumed._client.olm.account.identity_keys == identity_keys
     assert resumed._client.store.is_device_verified(peer)
     assert len(hs.calls("/keys/upload")) == 1

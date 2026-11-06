@@ -296,6 +296,22 @@ def test_runner_hello_requires_shared_identity():
         expected_requirements=(),
     )
     assert validate_shared_hello(shared, **expected).to_mapping() == shared
+    warning = {
+        **shared,
+        "dependencies": [
+            {
+                "requirement": "sample-sdk>=2",
+                "name": "sample-sdk",
+                "installed_version": "1.0",
+                "status": "incompatible",
+            },
+        ],
+    }
+    checked = validate_shared_hello(
+        warning,
+        **{**expected, "expected_requirements": ("sample-sdk>=2",)},
+    )
+    assert checked.dependencies[0].status == "incompatible"
     for field, value, reason in (
         ("channel_key", "other", "CHANNEL_KEY_MISMATCH"),
         ("instance_id", "old-worker", "INSTANCE_ID_MISMATCH"),
@@ -312,6 +328,152 @@ def test_runner_hello_requires_shared_identity():
             **{**expected, "expected_requirements": ("missing-sdk==1",)},
         )
     assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["run", "probe"])
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "missing-child",
+        "version-warning",
+        "missing-extra",
+        "unrelated-metadata",
+        "installed-url",
+        "invalid-metadata",
+    ],
+)
+async def test_channel_worker_checks_declared_dependency_closure(
+    host,
+    caplog,
+    mode,
+    scenario,
+):
+    import logging
+    from dataclasses import replace
+    from qwenpaw.__version__ import __version__
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.channel_adapter import describe_channel
+
+    source = host.artifact(sdk=True)
+    selected = "[feature]" if scenario == "missing-extra" else ""
+    minimum = "2" if scenario == "version-warning" else "1"
+    (source / "requirements.txt").write_text(
+        (
+            ""
+            if scenario == "unrelated-metadata"
+            else f"sample-shared-sdk{selected}>={minimum}\n"
+        ),
+    )
+    (host.site / "sample_shared_sdk.py").write_text(
+        "def __getattr__(name):\n"
+        "    if name != 'VALUE':\n"
+        "        raise AttributeError(name)\n"
+        "    import qwenpaw_closure_child\n"
+        "    return qwenpaw_closure_child.VALUE\n",
+    )
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info"
+    metadata.mkdir()
+    child = (
+        "qwenpaw-closure-child @ https://example.invalid/child.zip"
+        if scenario == "installed-url"
+        else f"qwenpaw-closure-child>={minimum}"
+    )
+    if scenario == "invalid-metadata":
+        child = "not a valid dependency declaration ???"
+    (metadata / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: sample-shared-sdk\nVersion: 1.0\n"
+        f"Requires-Dist: {child}\n"
+        "Requires-Dist: qwenpaw-closure-extra; extra == 'feature'\n"
+        "Requires-Dist: qwenpaw-closure-inactive; python_version < '0'\n",
+    )
+    if scenario != "missing-child":
+        (host.site / "qwenpaw_closure_child.py").write_text(
+            "VALUE = 'offline-sdk'\n",
+        )
+        metadata = host.site / "qwenpaw_closure_child-1.0.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: qwenpaw-closure-child\n"
+            "Version: 1.0\n",
+        )
+    if scenario == "unrelated-metadata":
+        external = source.parent / "unrelated-1.0.dist-info"
+        external.mkdir()
+        (external / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: unrelated\nVersion: 1.0\n",
+        )
+        (host.site / external.name).symlink_to(
+            external,
+            target_is_directory=True,
+        )
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads((source / "plugin.json").read_text()),
+        ),
+    )
+    prepared = description.prepare_proxy_config(
+        {"enabled": True, "use_sdk": True},
+    )
+    proxy = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=Path(__file__).resolve().parents[3] / "src",
+        dependency_paths=(host.site,),
+        instance_id="closure",
+        generation=1,
+        qwenpaw_version=__version__,
+        prepared_config=prepared,
+    )
+    spec = replace(proxy._launch_spec, workspace_id="test-workspace")
+    process = ChannelProcess()
+    for operation in ("get", "put"):
+        process.register_method(
+            "host.state." + operation,
+            lambda params, _request: {"value": params.value},
+        )
+    caplog.set_level(logging.WARNING, logger="qwenpaw.plugins.worker")
+    start = process.start if mode == "run" else process.probe
+    try:
+        if scenario in {"missing-child", "missing-extra", "invalid-metadata"}:
+            with pytest.raises(process.error_type) as rejected:
+                await start(spec)
+            assert rejected.value.reason_code == (
+                "DEPENDENCY_METADATA_INVALID"
+                if scenario == "invalid-metadata"
+                else "DEPENDENCY_UNSATISFIED"
+            )
+            assert process.observed_hello is None
+            assert process.health_snapshot()["platform_state"] != "connected"
+            assert not rows(host.ledger, "connected")
+        else:
+            await start(spec)
+            assert process.observed_hello is not None
+            if mode == "run":
+                await eventually(lambda: bool(rows(host.ledger, "connected")))
+                value = await process.call("sample.identity", {})
+                assert value["sdk"] == "offline-sdk"
+            else:
+                assert not rows(host.ledger, "connected")
+            for name in (
+                ("sample-shared-sdk", "qwenpaw-closure-child")
+                if scenario == "version-warning"
+                else ()
+            ):
+                await eventually(
+                    lambda: any(
+                        "Dependency warning:" in record.message
+                        and name in record.message
+                        and "attempting load" in record.message
+                        for record in caplog.records
+                    ),
+                )
+    finally:
+        stopped = await process.stop()
+        assert stopped.exited and not stopped.residual
 
 
 @pytest.mark.asyncio
@@ -538,6 +700,43 @@ async def test_preparation_cancellation_retains_custody_and_rejects_changed_sour
 
 
 @pytest.mark.asyncio
+async def test_channel_preflight_rechecks_metadata_read_during_probe(
+    host,
+    monkeypatch,
+):
+    import zipfile
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.dependency_gate import SharedDependencyError
+
+    source = host.artifact(sdk=True)
+    wheel = next(local_wheel(host.root / "wheels").glob("*.whl"))
+    with zipfile.ZipFile(wheel) as archive:
+        archive.extractall(host.site)
+    manifest = host.loader.read_source_manifest(source)[1]
+    binding = host.loader.backend_resolver.resolve(source, manifest)
+    probe = ChannelProcess.probe
+
+    async def changed_after_read(process, spec):
+        result = await probe(process, spec)
+        metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
+        with metadata.open("a") as stream:
+            stream.write("Requires-Dist: new-missing-child>=1\n")
+        return result
+
+    monkeypatch.setattr(ChannelProcess, "probe", changed_after_read)
+    with pytest.raises(SharedDependencyError) as rejected:
+        async with host.loader.plugin_lifecycle(KEY):
+            await host.loader.lifecycle.preflight_backend(
+                binding,
+                allow_install=False,
+                probe=True,
+            )
+    assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+    assert "new-missing-child" in str(rejected.value)
+    assert not host.loader._channel_backend._preparation_scopes
+
+
+@pytest.mark.asyncio
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,
@@ -585,11 +784,24 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
 
 
 @pytest.mark.asyncio
-async def test_real_agent_stream_final_reply_and_saved_session(host):
+async def test_real_agent_stream_final_reply_and_saved_session(
+    host,
+    monkeypatch,
+):
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+
+    real_probe, probes = ChannelProcess.probe, []
+
+    async def probe(process, *args, **kwargs):
+        probes.append(process)
+        return await real_probe(process, *args, **kwargs)
+
+    monkeypatch.setattr(ChannelProcess, "probe", probe)
     ws = await host.workspace("actual-agent", streaming_enabled=True)
     await host.real_agent(ws)
     record = await host.loader.load_plugin_from_path(host.artifact())
     assert record.status == "active"
+    assert len(probes) == 1
     channel, value = await host.identity(ws)
     assert value["pid"] != os.getpid()
     ack = await host.emit(ws, text="native input", room="conversation")
@@ -742,20 +954,74 @@ async def test_config_read_save_restart_preserves_fields_and_exits_old_worker(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("dependency_change", [False, True])
 async def test_update_replaces_worker_and_preserves_data(
     host,
+    monkeypatch,
+    dependency_change,
 ):
-    ws = await host.workspace("updating")
-    await host.loader.load_plugin_from_path(host.artifact())
+    ws = await host.workspace("updating", use_sdk=dependency_change)
+    first = host.artifact(sdk=dependency_change)
+    if dependency_change:
+        import zipfile
+
+        old_wheel = next(
+            local_wheel(
+                host.root / "old-wheel",
+                version="0.5",
+                value="old-sdk",
+            ).glob("*.whl"),
+        )
+        with zipfile.ZipFile(old_wheel) as archive:
+            archive.extractall(host.site)
+        (first / "requirements.txt").write_text("sample-shared-sdk==0.5\n")
+    await host.loader.load_plugin_from_path(first)
     await host.loader.lifecycle.update_config(KEY, {"custom": "keep"})
     old, before = await host.identity(ws)
     data = ws.workspace_dir / "business.json"
     data.write_text('{"retained":true}')
-    report = await host.loader.lifecycle.reload(
-        KEY,
-        new_source=host.artifact("2.0.0"),
-    )
-    assert report.ok, report.errors
+    candidate = host.artifact("2.0.0", sdk=dependency_change)
+    if dependency_change:
+        from qwenpaw.plugins.dependency_upgrade import (
+            DependencyUpgradeRequired,
+            dependency_upgrades,
+            install_with_upgrade,
+        )
+
+        wheels = local_wheel(host.root / "new-wheel")
+        local_certifi_wheel(wheels)
+        calls = []
+
+        def offline(command, **kwargs):
+            calls.append(command)
+            return subprocess.run(
+                [*command, "--no-index", "--find-links", str(wheels)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=kwargs["timeout"],
+            )
+
+        monkeypatch.setattr(
+            host.loader,
+            "_run_subprocess_with_streaming_log",
+            offline,
+        )
+        with pytest.raises(DependencyUpgradeRequired) as review:
+            await install_with_upgrade(host.loader, candidate, force=True)
+        manager = dependency_upgrades(host.loader)
+        operation = manager._read(review.value.operation["id"])
+        assert operation["force"] and not operation["requires_restart"]
+        assert (
+            len(calls) == 1
+        )  # The staged replacement retains the successful wheels.
+        assert alive(before["pid"])
+        assert (await host.identity(ws))[1]["sdk"] == "old-sdk"
+        result = await manager.apply(operation["id"])
+        assert result["status"] == "succeeded", result
+    else:
+        report = await host.loader.lifecycle.reload(KEY, new_source=candidate)
+        assert report.ok, report.errors
     fresh, after = await host.identity(ws)
     assert not alive(before["pid"]) and after["version"] == "2.0.0"
     assert fresh._launch_spec.generation > old._launch_spec.generation
