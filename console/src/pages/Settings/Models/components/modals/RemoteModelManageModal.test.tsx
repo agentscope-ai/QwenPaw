@@ -639,8 +639,57 @@ describe("model pool removal", () => {
     ).toHaveLength(2);
   });
 
+  it("restores a removed subscription model by its original ID and retries failed additions", async () => {
+    const user = userEvent.setup();
+    api.addModel.mockRejectedValueOnce(new Error("Restore failed"));
+    api.addModel.mockImplementationOnce((_id, model) => {
+      serverProvider = {
+        ...serverProvider,
+        extra_models: [...serverProvider.extra_models, model],
+      };
+      return Promise.resolve(serverProvider);
+    });
+    serverProvider = { ...provider, id: "openai-chatgpt", chat_model: "gpt-5" };
+    await render(serverProvider);
+    clickRemove(chosen.name);
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(screen.queryByText(chosen.name)).not.toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "models.addModel" }));
+    await user.type(screen.getByLabelText("models.modelIdLabel"), chosen.id);
+    await user.type(
+      screen.getByLabelText("models.modelNameLabel"),
+      chosen.name,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(message.error).toHaveBeenCalledWith("Restore failed"),
+    );
+    expect(screen.getByLabelText("models.modelIdLabel")).toHaveValue(chosen.id);
+    expect(screen.queryByText(chosen.name)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() => expect(api.addModel).toHaveBeenCalledTimes(2));
+    expect(api.addModel).toHaveBeenLastCalledWith("openai-chatgpt", {
+      id: chosen.id,
+      name: chosen.name,
+      model_type: "chat",
+      template_id: undefined,
+    });
+    expect(await screen.findByText(chosen.name)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByRole("dialog")).toHaveLength(1));
+    expect(
+      screen.queryByRole("button", { name: "models.modelConfigLabel" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not expose removal for organization-managed models", async () => {
     await render({ id: "hub-managed" });
+    expect(
+      screen.queryByRole("button", { name: "models.addModel" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "models.removeModel" }),
     ).not.toBeInTheDocument();

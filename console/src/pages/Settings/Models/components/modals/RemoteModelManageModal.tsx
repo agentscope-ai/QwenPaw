@@ -673,7 +673,7 @@ export function RemoteModelManageModal({
             />
           )}
         </div>
-        {!managed && !subscription && (
+        {!managed && (
           <div className={styles.footer}>
             <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
               {t("models.addModel")}
