@@ -6,20 +6,23 @@ at runtime and applies an LD_PRELOAD shim if needed.
 Usage:
     from office.soffice import run_soffice, get_soffice_cmd, get_soffice_env
 
-    # Option 1 – run soffice directly
     result = run_soffice(["--headless", "--convert-to", "pdf", "input.docx"])
 
-    # Option 2 – get env dict for your own subprocess calls
-    env = get_soffice_env()
-    subprocess.run([get_soffice_cmd(), ...], env=env)
+Call soffice through run_soffice, not through subprocess with get_soffice_env():
+the env dict carries the shim but names no user profile, and a non-root sandbox
+cannot bootstrap the default one -- soffice aborts with "User installation could
+not be completed" and converts nothing. get_soffice_env() stays public for the
+callers that build their own argv (they must pass -env:UserInstallation too).
 """
 
+import contextlib
 import os
 import platform
 import shutil
 import socket
 import subprocess
 import tempfile
+from collections.abc import Iterable
 from pathlib import Path
 
 
@@ -37,6 +40,7 @@ def get_soffice_cmd() -> str:
             if path_candidate:
                 return path_candidate
 
+        # On Windows, try to find soffice.exe via common install paths
         for prog_dir in (
             os.environ.get("PROGRAMFILES", r"C:\Program Files"),
             os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
@@ -48,12 +52,13 @@ def get_soffice_cmd() -> str:
                 candidate = program_dir / exe_name
                 if candidate.exists():
                     return str(candidate)
-        return "soffice"
+        return "soffice"  # fallback, hope it's on PATH
     return "soffice"
 
 
 def get_soffice_env() -> dict:
     env = os.environ.copy()
+    # SAL_USE_VCLPLUGIN=svp is Linux-only (headless rendering)
     if platform.system() == "Linux":
         env["SAL_USE_VCLPLUGIN"] = "svp"
 
@@ -64,9 +69,15 @@ def get_soffice_env() -> dict:
     return env
 
 
-def run_soffice(args: list[str], **kwargs) -> subprocess.CompletedProcess:
-    env = get_soffice_env()
-    return subprocess.run([get_soffice_cmd()] + args, env=env, **kwargs)
+def run_soffice(args: Iterable[str], **kwargs) -> subprocess.CompletedProcess:
+    args = list(args)
+    with contextlib.ExitStack() as stack:
+        if not any(str(a).startswith("-env:UserInstallation") for a in args):
+            profile = stack.enter_context(
+                tempfile.TemporaryDirectory(prefix="lo_profile_", ignore_cleanup_errors=True)
+            )
+            args = [f"-env:UserInstallation={Path(profile).as_uri()}"] + args
+        return subprocess.run([get_soffice_cmd()] + args, env=get_soffice_env(), **kwargs)
 
 
 
