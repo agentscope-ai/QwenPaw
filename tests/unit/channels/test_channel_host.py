@@ -296,6 +296,22 @@ def test_runner_hello_requires_shared_identity():
         expected_requirements=(),
     )
     assert validate_shared_hello(shared, **expected).to_mapping() == shared
+    warning = {
+        **shared,
+        "dependencies": [
+            {
+                "requirement": "sample-sdk>=2",
+                "name": "sample-sdk",
+                "installed_version": "1.0",
+                "status": "incompatible",
+            },
+        ],
+    }
+    checked = validate_shared_hello(
+        warning,
+        **{**expected, "expected_requirements": ("sample-sdk>=2",)},
+    )
+    assert checked.dependencies[0].status == "incompatible"
     for field, value, reason in (
         ("channel_key", "other", "CHANNEL_KEY_MISMATCH"),
         ("instance_id", "old-worker", "INSTANCE_ID_MISMATCH"),

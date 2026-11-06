@@ -529,6 +529,22 @@ class ChannelBackend:
             self._prepared.pop(description.manifest.id)
             snapshot = prepared[1]
             diagnostics += ("channel_validation_passed",)
+            from .execution.dependencies import _dependency_closure
+
+            for name, requirement in _dependency_closure(
+                description.requirements,
+                snapshot.distributions,
+                snapshot.marker_environment,
+            ):
+                row = snapshot.distributions.get(name)
+                version = row["version"] if row is not None else None
+                if version is None or not requirement.specifier.contains(
+                    version,
+                    prereleases=True,
+                ):
+                    diagnostics += (
+                        f"Dependency warning: {requirement}; installed {version or 'unknown'}; attempting load",
+                    )
         if not enabled:
             diagnostics += ("channel_validation_pending",)
         return DefinitionResult(
@@ -732,8 +748,16 @@ class ChannelBackend:
         from .dependency_gate import admit_shared_dependencies
 
         prepared = await self.prepare_dependency_targets(description)
+
+        async def inspect_existing():
+            async with self._dependency_inspection(
+                description.payload,
+            ) as values:
+                process, spec, _token, _usage = values
+                return (await process.probe(spec)).snapshot
+
         return await admit_shared_dependencies(
-            lambda: self.audit_dependencies(description),
+            inspect_existing,
             plugin_id=description.manifest.id,
             requirements_file=None,
             usage_registry=usage,
@@ -782,6 +806,8 @@ class ChannelBackend:
                 description.code_root,
             )
             settings = self.services.runtime_settings()
+            if not allow_install and not wheels:
+                return await process.probe(spec)
             try:
                 snapshot = await prepare_shared_dependencies(
                     process,

@@ -28,6 +28,61 @@ from .execution.dependencies import DependencySnapshot, _dependency_closure
 from .wheel_additions import WheelAddition, validate_additions
 
 
+def resolution_constraints(
+    snapshot,
+    requirements,
+    consumers=(),
+    immutable=None,
+    protected=(),
+    *,
+    prefer_installed=True,
+):
+    """Constraints never turn an unrelated declaration into an install goal."""
+    immutable = immutable or {}
+    requested = {}
+    for name, req in _dependency_closure(
+        requirements,
+        snapshot.distributions,
+        snapshot.marker_environment,
+    ):
+        requested.setdefault(name, []).append(req)
+    values = set()
+    for name, row in {**snapshot.distributions, **immutable}.items():
+        if (
+            name in protected
+            or name in immutable
+            or (
+                prefer_installed
+                and all(
+                    req.specifier.contains(row["version"], prereleases=True)
+                    for req in requested.get(name, ())
+                )
+            )
+        ):
+            values.add(f"{name}=={row['version']}")
+    core = snapshot.distributions.get("qwenpaw", {})
+    for name, req in _dependency_closure(
+        core.get("requires_dist", ()),
+        snapshot.distributions,
+        snapshot.marker_environment,
+    ):
+        if req.specifier:
+            values.add(f"{name}{req.specifier}")
+    if prefer_installed:
+        for consumer in consumers:
+            if consumer["origin"] == "host":
+                continue
+            evidence = consumer["environment"]
+            for name, req in _dependency_closure(
+                consumer["requirements"],
+                evidence["distributions"],
+                evidence["marker_environment"],
+            ):
+                if name in requested and req.specifier:
+                    values.add(f"{name}{req.specifier}")
+    return "".join(value + "\n" for value in sorted(values))
+
+
 class DependencyUpgradeRequired(RuntimeError):
     """The source is retained, but replacing packages needs explicit apply."""
 
@@ -155,6 +210,18 @@ class DependencyUpgradeManager:
         from .dependency_transaction import reconcile_commit
 
         reconcile_commit(directory, operation)
+        if (
+            operation.get("policy_version") != 2
+            and operation["status"] == "needs_confirmation"
+        ):
+            operation.update(
+                status="failed",
+                error={
+                    "code": "DEPENDENCY_PLAN_STALE",
+                    "message": "Dependency policy changed; retry installation.",
+                },
+            )
+            self._save(directory, operation)
         return operation
 
     @staticmethod
@@ -292,11 +359,6 @@ class DependencyUpgradeManager:
         """Collect all consumers within one stable, ordered observation."""
         from .install_lock import environment_observation
 
-        from .python_backend import PythonBackend
-
-        await PythonBackend.reconcile_host_observations(
-            self.loader.registry.dependency_usage,
-        )
         prepared = await self._prepare_consumer_targets()
         roots = tuple(
             dict.fromkeys(
@@ -320,6 +382,7 @@ class DependencyUpgradeManager:
     async def _collect_consumers(self, binding, snapshot):
         """Installed declarations participate even when currently inactive."""
         consumers = []
+        environments = {}
         plugin_id = binding.description.manifest.id
         for manifest, source in await run_sync_io(
             self.loader.discover_plugins,
@@ -331,9 +394,15 @@ class DependencyUpgradeManager:
                 source,
                 manifest,
             )
-            observed = await other.backend.audit_dependencies(
+            prepared = await other.backend.prepare_dependency_targets(
                 other.description,
             )
+            key = (type(other.backend), tuple(map(str, prepared.targets)))
+            if key not in environments:
+                environments[key] = await other.backend.audit_dependencies(
+                    replace(other.description, requirements=()),
+                )
+            observed = environments[key]
             if set(observed.dependency_sites or ()).intersection(
                 snapshot.dependency_sites or (),
             ):
@@ -352,36 +421,27 @@ class DependencyUpgradeManager:
                         "environment": observed.to_mapping(),
                     },
                 )
-        from .dependency_gate import complete_read_uses
-        from .install_lock import observation_inputs
-
-        uses = await run_sync_io(
-            complete_read_uses,
-            tuple(
-                use
-                for use in self.loader.registry.dependency_usage.snapshot().uses
-                if (use.plugin_id != plugin_id or use.origin == "host")
-                and (
-                    use.environment is None
-                    or set(use.environment.sites).intersection(
-                        snapshot.dependency_sites or (),
-                    )
-                )
-            ),
-            inventory=observation_inputs(),
-        )
-        for use in uses:
+        for use in self.loader.registry.dependency_usage.snapshot().uses:
             if use.plugin_id == plugin_id and use.origin != "host":
                 continue
-            if (
-                use.environment is None
-                or use.snapshot is None
-                or use.requirements is None
-            ):
-                _refuse(
-                    "DEPENDENCY_PLAN_UNVERIFIED",
-                    "A shared consumer has incomplete dependency evidence.",
-                )
+            if use.environment is None:
+                # Unknown host history only matters for a real replacement;
+                # stage conservatively requests offline maintenance below.
+                if use.origin == "host":
+                    consumers.append(
+                        {
+                            "plugin_id": use.plugin_id,
+                            "instance_id": use.instance_id,
+                            "generation": use.generation,
+                            "origin": use.origin,
+                            "active": use.active,
+                            "source_revision": use.source_revision,
+                            "requirements": list(use.requirements or ()),
+                            "environment": snapshot.to_mapping(),
+                            "unknown": True,
+                        },
+                    )
+                continue
             if set(use.environment.sites).intersection(
                 snapshot.dependency_sites or (),
             ):
@@ -393,8 +453,23 @@ class DependencyUpgradeManager:
                         "origin": use.origin,
                         "active": use.active,
                         "source_revision": use.source_revision,
-                        "requirements": list(use.requirements),
-                        "environment": use.snapshot.to_mapping(),
+                        "requirements": list(use.requirements or ()),
+                        "environment": (
+                            use.snapshot.to_mapping()
+                            if use.snapshot is not None
+                            else (
+                                (
+                                    await self.loader._python_backend.audit_dependencies(
+                                        replace(
+                                            use.read_context.description,
+                                            requirements=(),
+                                        ),
+                                    )
+                                ).to_mapping()
+                                if use.read_context is not None
+                                else snapshot.to_mapping()
+                            )
+                        ),
                     },
                 )
         host = snapshot.distributions.get("qwenpaw")
@@ -450,7 +525,10 @@ class DependencyUpgradeManager:
         ]
         uses = []
         if not offline:
+            relevant_ids = {row["plugin_id"] for row in consumers}
             for use in self.loader.registry.dependency_usage.snapshot().uses:
+                if use.plugin_id not in relevant_ids:
+                    continue
                 environment = use.environment
                 if (
                     sites
@@ -496,6 +574,13 @@ class DependencyUpgradeManager:
         offline=False,
         allow_stopped=False,
     ):
+        consumers = self._affected(
+            consumers,
+            {
+                row["name"]: operation["proposed"][row["name"]]
+                for row in operation["changes"]
+            },
+        )
         current = self._reviewed_usage(
             consumers,
             offline=offline,
@@ -520,6 +605,121 @@ class DependencyUpgradeManager:
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: shared consumers changed after review; prepare a new confirmation.",
             )
+
+    @staticmethod
+    def _check_core(inventory, markers, installed, changes):
+        changed = {row["name"] for row in changes}
+        for name, req in _dependency_closure(
+            installed.get("qwenpaw", {}).get("requires_dist", ()),
+            installed,
+            markers,
+        ):
+            if name in changed and not req.specifier.contains(
+                inventory[name]["version"],
+                prereleases=True,
+            ):
+                _refuse(
+                    "DEPENDENCY_CONFLICT",
+                    f"QwenPaw requires {req}; planned {inventory[name]['version']}.",
+                )
+
+    @staticmethod
+    def _affected(consumers, changed):
+        result = []
+        for consumer in consumers:
+            environment = consumer["environment"]
+            requirements = consumer["requirements"]
+            visible = {
+                name
+                for name, row in changed.items()
+                if row is None
+                or str(Path(row["metadata_path"]).parent)
+                in environment["dependency_sites"]
+            }
+            if consumer["origin"] == "host":
+                relevant = {
+                    name
+                    for name, row in environment["distributions"].items()
+                    if row.get("loaded_modules")
+                }
+                if consumer["plugin_id"] == "qwenpaw":
+                    requirements = (
+                        environment["distributions"]
+                        .get("qwenpaw", {})
+                        .get("requires_dist", ())
+                    )
+                    relevant.update(
+                        name
+                        for name, _ in _dependency_closure(
+                            requirements,
+                            environment["distributions"],
+                            environment["marker_environment"],
+                        )
+                    )
+            else:
+                relevant = {
+                    name
+                    for name, _ in _dependency_closure(
+                        requirements,
+                        environment["distributions"],
+                        environment["marker_environment"],
+                    )
+                }
+            worker_site = (
+                consumer["origin"] == "runtime"
+                and consumer["active"]
+                and any(
+                    row is not None
+                    and str(Path(row["metadata_path"]).parent)
+                    in environment["dependency_sites"]
+                    for row in changed.values()
+                )
+            )
+            if (
+                consumer.get("unknown")
+                or worker_site
+                or relevant.intersection(visible)
+            ):
+                result.append(consumer)
+        return result
+
+    @staticmethod
+    def _warnings(consumers, inventory, changed):
+        warnings = set()
+        for consumer in consumers:
+            if consumer["origin"] == "host":
+                continue
+            environment = consumer["environment"]
+            merged = dict(environment["distributions"])
+            order = {
+                site: index for index, site in enumerate(environment["sites"])
+            }
+            for name, row in inventory.items():
+                site = str(Path(row["metadata_path"]).parent)
+                previous = merged.get(name)
+                if site in order and (
+                    previous is None
+                    or order[site]
+                    <= order.get(
+                        str(Path(previous["metadata_path"]).parent),
+                        len(order),
+                    )
+                ):
+                    merged[name] = row
+            for name, req in _dependency_closure(
+                consumer["requirements"],
+                merged,
+                environment["marker_environment"],
+            ):
+                if name in changed and not req.specifier.contains(
+                    merged[name]["version"],
+                    prereleases=True,
+                ):
+                    warnings.add(
+                        f"{consumer['plugin_id']}: {req}; planned {merged[name]['version']}. "
+                        "Compatibility is not verified.",
+                    )
+        return sorted(warnings)
 
     @staticmethod
     def _compatible(requirements, inventory, markers):
@@ -626,41 +826,27 @@ class DependencyUpgradeManager:
         resolver = directory / "requirements.txt"
         # Resolve host dependencies without acquiring a new QwenPaw wheel.
         resolver.write_text(
-            "".join(str(value) + "\n" for value in requirements)
-            + "".join(
-                value + "\n"
-                for consumer in consumers
-                for value in (
-                    consumer["environment"]["distributions"]["qwenpaw"][
-                        "requires_dist"
-                    ]
-                    if consumer["origin"] == "host"
-                    and consumer["plugin_id"] == "qwenpaw"
-                    else consumer["requirements"]
-                )
+            "".join(str(value) + "\n" for value in requirements),
+            encoding="utf-8",
+        )
+        constraints = directory / "constraints.txt"
+        constraints.write_text(
+            resolution_constraints(
+                snapshot,
+                requirements,
+                consumers,
+                immutable,
+                protected,
             ),
             encoding="utf-8",
         )
-        closure = {
-            name
-            for name, _ in _dependency_closure(
+        (directory / "required-constraints.txt").write_text(
+            resolution_constraints(
+                snapshot,
                 requirements,
-                snapshot.distributions,
-                snapshot.marker_environment,
-            )
-        }
-        constraints = directory / "constraints.txt"
-        constraints.write_text(
-            "".join(
-                f"{name}=={row['version']}\n"
-                for name, row in snapshot.distributions.items()
-                if name not in closure or name in protected
-            )
-            + "".join(
-                f"{name}=={row['version']}\n"
-                for name, row in immutable.items()
-                if name not in snapshot.distributions
-                or row["version"] != snapshot.distributions[name]["version"]
+                immutable=immutable,
+                protected=protected,
+                prefer_installed=False,
             ),
             encoding="utf-8",
         )
@@ -700,12 +886,14 @@ class DependencyUpgradeManager:
         wheel_tags=None,
     ):
         from .dependency_maintenance import canonical
-        from .dependency_transaction import visible_distributions
 
         requirements = [*requirements, CERTIFI_REQUIREMENT]
         immutable = (
             context.immutable_providers() if context is not None else {}
         )
+        from .execution.dependencies import _installed_metadata
+
+        _rows, invalid, _observed = _installed_metadata(snapshot.sites)
         wheels = []
         changed = {}
         for path in sorted((directory / "wheels").glob("*.whl")):
@@ -759,6 +947,58 @@ class DependencyUpgradeManager:
             clean,
             Path(target),
         )
+        # A hard-only resolver retry may select newer compatible packages.
+        # Keep an installed provider whenever the whole requested closure still
+        # works with its own metadata; downloading a wheel does not mandate a write.
+        retained = set()
+        for name, old in changed.items():
+            if old is None:
+                continue
+            candidate = {**proposed.distributions, name: old}
+            try:
+                cls._compatible(
+                    requirements,
+                    candidate,
+                    snapshot.marker_environment,
+                )
+            except SharedDependencyError:
+                continue
+            proposed = replace(proposed, distributions=candidate)
+            retained.add(name)
+        if retained:
+            changed = {
+                name: old
+                for name, old in changed.items()
+                if name not in retained
+            }
+            wheels = [
+                wheel
+                for wheel in wheels
+                if str(parse_wheel_filename(wheel.path.name)[0])
+                not in retained
+            ]
+            files, proposed = validate_additions(
+                tuple(wheels),
+                replace(
+                    clean,
+                    distributions={
+                        name: row
+                        for name, row in snapshot.distributions.items()
+                        if name not in changed
+                    },
+                ),
+                Path(target),
+            )
+        if not changed:
+            _refuse(
+                "DEPENDENCY_PLAN_UNVERIFIED",
+                "No dependency replacement was resolved.",
+            )
+        for name in changed.keys() & invalid.keys():
+            _refuse(
+                invalid[name],
+                f"Cannot safely replace ambiguous provider: {name}.",
+            )
         destinations = {}
         changes = []
         for name in changed:
@@ -788,17 +1028,6 @@ class DependencyUpgradeManager:
             inventory,
             snapshot.marker_environment,
         )
-        for consumer in consumers:
-            evidence = consumer["environment"]
-            merged = dict(evidence["distributions"])
-            merged.update(
-                visible_distributions(inventory, evidence["dependency_sites"]),
-            )
-            cls._compatible(
-                consumer["requirements"],
-                merged,
-                evidence["marker_environment"],
-            )
         from .dependency_transaction import prepare_payload
 
         payload = prepare_payload(
@@ -895,9 +1124,22 @@ class DependencyUpgradeManager:
                 plugin_id=plugin_id,
             )
             if result.returncode:
+                # Retry only the current install goal, retaining hard protection.
+                command[command.index("--constraint") + 1] = str(
+                    directory / "required-constraints.txt",
+                )
+                await run_sync_io(shutil.rmtree, directory / "wheels")
+                await run_sync_io((directory / "wheels").mkdir)
+                result = await run_sync_io(
+                    self.loader._run_subprocess_with_streaming_log,
+                    command,
+                    timeout=300,
+                    plugin_id=plugin_id,
+                )
+            if result.returncode:
                 _refuse(
                     "DEPENDENCY_CONFLICT",
-                    "A complete compatible wheel plan could not be prepared; check the plugin and shared requirements.",
+                    "Plugin requirements cannot be resolved for the selected Python environment.",
                 )
             changed, changes, inventory, payload = await run_sync_io(
                 self._prepare_payload,
@@ -911,20 +1153,33 @@ class DependencyUpgradeManager:
             )
             from .dependency_transaction import imported_changes_async
 
-            requires_restart = bool(
-                await imported_changes_async(payload),
-            ) or any(
-                consumer["origin"] == "host"
-                and set(changed).intersection(
-                    name
-                    for name, _ in _dependency_closure(
-                        consumer["requirements"],
-                        inventory,
-                        consumer["environment"]["marker_environment"],
-                    )
-                )
-                for consumer in consumers
+            self._check_core(
+                inventory,
+                snapshot.marker_environment,
+                snapshot.distributions,
+                changes,
             )
+            consumers = self._affected(
+                consumers,
+                {name: inventory[name] for name in changed},
+            )
+            requires_restart = bool(await imported_changes_async(payload)) or (
+                any(old is not None for old in changed.values())
+                and any(
+                    row.get("unknown")
+                    or (
+                        row["origin"] == "host"
+                        and any(
+                            name in changed and evidence.get("loaded_modules")
+                            for name, evidence in row["environment"][
+                                "distributions"
+                            ].items()
+                        )
+                    )
+                    for row in consumers
+                )
+            )
+            warnings = self._warnings(consumers, inventory, changed)
             runtime = getattr(self.loader.registry, "channel_runtime", None)
             runtime_data = None
             if runtime is not None:
@@ -943,6 +1198,7 @@ class DependencyUpgradeManager:
                 )
             operation = {
                 "id": operation_id,
+                "policy_version": 2,
                 "plugin_id": plugin_id,
                 "status": "needs_confirmation",
                 "changes": changes,
@@ -957,14 +1213,22 @@ class DependencyUpgradeManager:
                             "active",
                         )
                     }
-                    for consumer in consumers
+                    for consumer in {
+                        (
+                            row["plugin_id"],
+                            row["instance_id"],
+                            row["generation"],
+                        ): row
+                        for row in consumers
+                        if row["origin"] != "host"
+                    }.values()
                 ],
                 "requires_restart": requires_restart,
                 "result": None,
                 "message": "Review and apply the shared dependency upgrade to continue installation.",
                 "error": None,
                 "retryable": True,
-                "instructions": [],
+                "instructions": warnings,
                 "force": bool(force),
                 "source_revision": revision,
                 "environment": snapshot.to_mapping(),
@@ -1230,21 +1494,12 @@ async def continue_operation(directory, *, preflight=False):
             await run_sync_io(verify_payload, directory, operation)
             consumers = await manager._consumers(binding, observed)
             manager._check_reviewed_usage(operation, consumers, offline=True)
-            for consumer in consumers:
-                evidence = consumer["environment"]
-                inventory = dict(evidence["distributions"])
-                inventory.update(
-                    await run_sync_io(
-                        visible_distributions,
-                        operation["proposed"],
-                        evidence["dependency_sites"],
-                    ),
-                )
-                manager._compatible(
-                    consumer["requirements"],
-                    inventory,
-                    evidence["marker_environment"],
-                )
+            manager._check_core(
+                operation["proposed"],
+                observed.marker_environment,
+                observed.distributions,
+                operation["changes"],
+            )
             return
         await run_sync_io(
             verify_providers,

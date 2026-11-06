@@ -299,9 +299,11 @@ def _host_progress_provenance(sites, providers, sources):
             origins.append(
                 (
                     value,
-                    str(Path(archive_key) / member)
-                    if archive_proof is not None
-                    else str(canonical_environment_path(value)),
+                    (
+                        str(Path(archive_key) / member)
+                        if archive_proof is not None
+                        else str(canonical_environment_path(value))
+                    ),
                     stat.st_dev,
                     stat.st_ino,
                     stat.st_size if path.is_file() else None,
@@ -317,7 +319,10 @@ def _host_provider_witness(code_root, paths, roots, snapshot, inputs):
     """Detach historical provider inputs only when a batch has a tail."""
     from importlib.metadata import PathDistribution
 
-    from .execution.dependencies import read_dependency_inventory, _read_record
+    from .execution.dependencies import (
+        _read_provider_inventory as read_dependency_inventory,
+        _read_record,
+    )
 
     key = ("metadata", snapshot.sites)
     if key not in inputs:
@@ -728,55 +733,6 @@ def _observe_host_dependencies(
     return snapshot, imported
 
 
-def _check_read_history(view, uses):
-    from .dependency_gate import SharedDependencyError, GateDecision
-    from .execution.dependencies import _provides_loaded_modules
-
-    def refuse(code, detail):
-        raise SharedDependencyError(
-            GateDecision(
-                False,
-                False,
-                reason=f"{code}: {detail}",
-                reason_code=code,
-                require_restart=code == "DEPENDENCY_RESTART_REQUIRED",
-                unsupported=(
-                    [detail] if code == "DEPENDENCY_PLAN_UNVERIFIED" else []
-                ),
-            ),
-        )
-
-    for use in uses:
-        if use.origin != "host":
-            continue
-        if use.environment is None or use.snapshot is None:
-            refuse("DEPENDENCY_PLAN_UNVERIFIED", "host history unavailable")
-        if not set(use.environment.sites).intersection(view.dependency_sites):
-            continue
-        for name, old in use.snapshot.distributions.items():
-            fresh = view.distributions.get(name)
-            if (
-                name in view.invalid
-                or fresh is None
-                or old["version"] != fresh["version"]
-                or old["metadata_path"] != fresh["metadata_path"]
-            ):
-                refuse(
-                    "DEPENDENCY_RESTART_REQUIRED",
-                    "loaded dependency differs",
-                )
-            modules = old.get("loaded_modules", ())
-            if modules and any(
-                provider not in use.snapshot.distributions
-                and _provides_loaded_modules(row, set(modules))
-                for provider, row in view.distributions.items()
-            ):
-                refuse(
-                    "DEPENDENCY_RESTART_REQUIRED",
-                    "loaded embedded provider shadowed",
-                )
-
-
 def _observe_host_delta(
     code_root,
     paths,
@@ -787,7 +743,9 @@ def _observe_host_delta(
     _module_owners=None,
 ):
     """Resolve only changed modules; uncertain providers use the old observer."""
-    from .execution.dependencies import read_dependency_inventory
+    from .execution.dependencies import (
+        _read_provider_inventory as read_dependency_inventory,
+    )
 
     root = Path(code_root).resolve()
     resolved = {
@@ -1054,6 +1012,19 @@ class PythonBackend:
 
                     raise SDKRestartRequiredError(decision.reason)
                 raise SharedDependencyError(decision)
+            for warning in decision.warnings:
+                logger.warning(
+                    "Plugin '%s': %s",
+                    description.manifest.id,
+                    warning,
+                )
+                instance = getattr(
+                    self.services,
+                    "get_instance",
+                    lambda _id: None,
+                )(description.manifest.id)
+                if instance is not None:
+                    instance.add_diagnostic(warning)
         if probe:
             entry = description.payload
             failed = await self.services.probe(
@@ -1085,13 +1056,11 @@ class PythonBackend:
         from .execution.dependencies import (
             read_dependency_inventory,
         )
-        from .execution.errors import ProtocolValidationError
         from .install_lock import observation_inputs
 
         del snapshot
         if not usage.has_declaration(token, plugin_id=description.manifest.id):
             raise ValueError("DEPENDENCY_DECLARATION_MISMATCH")
-        await self.reconcile_host_observations(usage)
         prepared = await self.prepare_dependency_targets(description)
         cwd = os.getcwd()
         paths = _host_paths(cwd)
@@ -1099,88 +1068,51 @@ class PythonBackend:
         context = await run_sync_io(factory) if factory is not None else None
         async with _shared_observation(prepared.targets):
             prepared.validate()
-            for attempt in range(2):
-                before = _host_dependency_state()
-                before_usage = usage.snapshot()
-                try:
-                    view, _ = await run_sync_io(
-                        read_dependency_inventory,
-                        description.source_path,
-                        paths,
-                        description.requirements,
-                        inventory=observation_inputs(),
-                    )
-                    digest = await run_sync_io(
-                        _read_source_identity,
-                        description,
-                    )
-                    await run_sync_io(
-                        _check_read_history,
-                        view,
-                        before_usage.uses,
-                    )
-                except Exception as exc:
-                    code = getattr(
-                        exc,
-                        "reason_code",
-                        "DEPENDENCY_PLAN_UNVERIFIED",
-                    )
-                    if isinstance(exc, SharedDependencyError):
-                        raise
-                    missing = (
-                        [str(exc)]
-                        if isinstance(exc, ProtocolValidationError)
-                        and code == "DEPENDENCY_UNSATISFIED"
-                        and str(exc) != code
-                        else []
-                    )
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            missing=missing,
-                            reason=(
-                                f"{code}: {description.manifest.id}"
-                                + (
-                                    f": {', '.join(missing)}"
-                                    if missing
-                                    else ""
-                                )
-                            ),
-                            reason_code=code,
-                            require_restart=code
-                            == "DEPENDENCY_REPAIR_REQUIRED",
+            try:
+                view, _ = await run_sync_io(
+                    read_dependency_inventory,
+                    description.source_path,
+                    paths,
+                    description.requirements,
+                    inventory=observation_inputs(),
+                )
+                digest = await run_sync_io(_read_source_identity, description)
+            except Exception as exc:
+                code = getattr(
+                    exc,
+                    "reason_code",
+                    "DEPENDENCY_PLAN_UNVERIFIED",
+                )
+                if isinstance(exc, SharedDependencyError):
+                    raise
+                raise SharedDependencyError(
+                    GateDecision(
+                        False,
+                        False,
+                        missing=(
+                            [str(exc)]
+                            if code == "DEPENDENCY_UNSATISFIED"
+                            else []
                         ),
-                    ) from exc
-                prepared.validate()
-                if not set(view.dependency_sites) <= {
-                    str(path) for path in prepared.targets
-                }:
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            reason="DEPENDENCY_PLAN_UNVERIFIED: admission roots changed",
-                            reason_code="DEPENDENCY_PLAN_UNVERIFIED",
-                        ),
-                    )
-                if (
-                    _same_host_dependency_state(
-                        before,
-                        _host_dependency_state(),
-                    )
-                    and usage.snapshot().revision == before_usage.revision
-                ):
-                    break
-                if attempt == 1:
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            reason="DEPENDENCY_PLAN_UNVERIFIED: imports changed",
-                            reason_code="DEPENDENCY_PLAN_UNVERIFIED",
-                        ),
-                    )
+                        reason=f"{code}: {description.manifest.id}: {exc}",
+                        reason_code=code,
+                    ),
+                ) from exc
+            prepared.validate()
+            for warning in view.warnings:
+                logger.warning(
+                    "Plugin '%s': %s",
+                    description.manifest.id,
+                    warning,
+                )
+                get_instance = getattr(self.services, "get_instance", None)
+                instance = (
+                    get_instance(description.manifest.id)
+                    if get_instance
+                    else None
+                )
+                if instance is not None:
+                    instance.add_diagnostic(warning)
             environment = DependencyEnvironment(
                 os.path.abspath(sys.executable),
                 view.dependency_sites,
@@ -1249,6 +1181,7 @@ class PythonBackend:
                         "_audit_sites": paths,
                         "dependency_paths": (),
                         "_requirements": description.requirements,
+                        "_reuse_ambiguous": True,
                     },
                     _inventory=observation_inputs(),
                 )
@@ -1573,9 +1506,11 @@ class PythonBackend:
                                 existing = imported.get(package)
                                 imported.update(
                                     _merge_host_distributions(
-                                        {package: existing}
-                                        if existing
-                                        else {},
+                                        (
+                                            {package: existing}
+                                            if existing
+                                            else {}
+                                        ),
                                         {package: row},
                                     ),
                                 )

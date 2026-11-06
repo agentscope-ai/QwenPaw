@@ -18,7 +18,14 @@ from typing import Any, Mapping
 from urllib.parse import unquote, urlsplit
 
 from packaging.markers import default_environment
-from packaging.tags import sys_tags
+from packaging.tags import (
+    sys_tags,
+    compatible_tags,
+    cpython_tags,
+    generic_tags,
+    interpreter_name,
+    interpreter_version,
+)
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import Version
 
@@ -670,8 +677,6 @@ def _dependency_closure(requirements, rows, environment):
             for extra in ("", *parent_extras)
         ):
             continue
-        if requirement.extras and not transitive:
-            raise dependency_error("DEPENDENCY_UNSATISFIED")
         name = str(canonicalize_name(requirement.name))
         row = rows.get(name)
         if requirement.url and (
@@ -714,6 +719,46 @@ def observe_dependencies(
     """Inspect this interpreter's paths before candidate imports execute."""
     if _record_reads is None and _inventory is not None:
         _record_reads = _inventory.setdefault("records", {})
+    if packet.get("mode", "audit") != "audit":
+        view, _ = read_dependency_inventory(
+            packet["code_root"],
+            packet["_audit_sites"],
+            packet.get("_requirements", ()),
+        )
+        import logging
+
+        for warning in view.warnings:
+            logging.getLogger(__name__).warning(
+                "Dependency warning: %s",
+                warning,
+            )
+        # Read evidence needs ABI identity, not platform wheel compatibility.
+        # Avoid enumerating platform tags; real write audits still use sys_tags.
+        interpreter = interpreter_name()
+        abi_tags = (
+            cpython_tags(platforms=("any",))
+            if interpreter == "cp"
+            else generic_tags(platforms=("any",))
+        )
+        tags = tuple(
+            str(tag)
+            for tag in (
+                *abi_tags,
+                *compatible_tags(
+                    interpreter=interpreter + interpreter_version(),
+                    platforms=("any",),
+                ),
+            )
+        )
+        return DependencySnapshot(
+            os.path.abspath(sys.executable),
+            sys.prefix,
+            view.sites,
+            view.marker_environment,
+            tags,
+            view.distributions,
+            view.dependency_sites,
+        )
     sites = _inventory_sites(packet["code_root"], packet["_audit_sites"])
     embedded_sites = set()
     rows, invalid, observed = _installed_metadata(
@@ -735,7 +780,7 @@ def observe_dependencies(
         rows,
         environment,
     ):
-        if name in invalid:
+        if name in invalid and not packet.get("_reuse_ambiguous", False):
             raise dependency_error(invalid[name])
         if name in rows and name not in scanned:
             tops = set(rows[name]["top_level"])
@@ -755,8 +800,9 @@ def observe_dependencies(
                     tops.add(part.split(".", 1)[0])
             rows[name]["top_level"] = tuple(sorted(tops))
             scanned.add(name)
-    for name in invalid:
-        rows.pop(name, None)
+    if not packet.get("_reuse_ambiguous", False):
+        for name in invalid:
+            rows.pop(name, None)
     return DependencySnapshot.from_mapping(
         {
             "executable": os.path.abspath(sys.executable),
@@ -786,9 +832,104 @@ class _ReadInventory:
     distributions: Mapping[str, Mapping[str, Any]]
     invalid: Mapping[str, str]
     embedded_owners: Mapping[str, str]
+    warnings: tuple[str, ...] = ()
 
 
 def read_dependency_inventory(
+    code_root,
+    paths,
+    requirements,
+    *,
+    inventory=None,
+):
+    """Read package headers for loading; ownership belongs to the writer."""
+    from importlib.machinery import PathFinder
+    from ..dependency_gate import _import_name
+    from ..dependency_maintenance import authorized, check_admission
+
+    sites = _inventory_sites(code_root, paths)
+    for site in sites:
+        check_admission(site)
+        if repair_marker(site).exists() and not authorized(site):
+            raise dependency_error("DEPENDENCY_REPAIR_REQUIRED")
+    rows, invalid, warnings = {}, {}, []
+    for distribution in metadata.distributions(path=list(sites)):
+        headers = _HeaderDistribution(distribution._path).metadata
+        name = str(
+            canonicalize_name(
+                headers.get("Name")
+                or Path(distribution._path).name.split("-", 1)[0],
+            ),
+        )
+        version = headers.get("Version")
+        try:
+            if not headers.get("Name") or not valid_metadata_headers(
+                headers,
+                ("Name", "Version"),
+            ):
+                raise ValueError("invalid headers")
+            Version(version)
+        except (ValueError, TypeError):
+            invalid[name] = "DEPENDENCY_METADATA_INVALID"
+            continue
+        origin = str(Path(distribution._path).resolve())
+        if name in rows:
+            if rows[name]["metadata_path"] != origin:
+                invalid[name] = "DEPENDENCY_ENVIRONMENT_AMBIGUOUS"
+            continue
+        rows[name] = {
+            "version": version,
+            "metadata_path": origin,
+            "requires_dist": tuple(headers.get_all("Requires-Dist", [])),
+            "top_level": (),
+        }
+    relevant = set()
+    for name, requirement in _dependency_closure(
+        requirements,
+        rows,
+        default_environment(),
+    ):
+        relevant.add(name)
+        if name in invalid:
+            warnings.append(f"{name}: {invalid[name]}; attempting load")
+        row = rows.get(name)
+        if row is None:
+            top = _import_name(requirement).split(".", 1)[0]
+            if (
+                name in invalid
+                or top in sys.modules
+                or PathFinder.find_spec(top, sites)
+            ):
+                warnings.append(
+                    f"{requirement}: installed version unknown; attempting load",
+                )
+                continue
+            raise ProtocolValidationError(
+                str(requirement),
+                reason_code="DEPENDENCY_UNSATISFIED",
+            )
+        if not requirement.specifier.contains(
+            row["version"],
+            prereleases=True,
+        ):
+            warnings.append(
+                f"{requirement}: installed {row['version']}; attempting load",
+            )
+    return (
+        _ReadInventory(
+            sites,
+            dependency_sites(sites),
+            default_environment(),
+            rows,
+            invalid,
+            {},
+            tuple(dict.fromkeys(warnings)),
+        ),
+        relevant,
+    )
+
+
+def _read_provider_inventory(
     code_root,
     paths,
     requirements,

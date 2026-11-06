@@ -1189,7 +1189,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     targets=snapshot.dependency_sites or (),
                 )
             except SharedDependencyError as exc:
-                if exc.decision.require_restart or exc.decision.unsupported:
+                if (
+                    exc.reason_code != "DEPENDENCY_UNSATISFIED"
+                    or not exc.decision.missing
+                    or exc.decision.require_restart
+                    or exc.decision.unsupported
+                    or exc.decision.host_conflicts
+                ):
                     raise
                 if target is None:
                     raise RuntimeError(
@@ -2088,17 +2094,93 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 record.diagnostics = list(instance.diagnostics)
         return record
 
+    async def _recover_plugin_transactions_unlocked(
+        self,
+        plugin_id: str,
+    ) -> None:
+        """Retry one plugin's recovery under its existing lifecycle lock."""
+        from ..utils.io_utils import run_sync_io
+        from .provision import recover_migrating_inventory
+        from .updates import recover_interrupted_updates
+
+        if not self.lifecycle.delegate.owns_commit(plugin_id):
+            return
+        record = self._loaded_plugins.get(plugin_id)
+        if record is not None and record.status in (
+            "registered",
+            "active",
+        ):
+            return
+        instance = self.lifecycle.get_instance(plugin_id)
+        if self._has_runtime_custody(plugin_id) or (
+            instance is not None and instance.has_runtime_ledger()
+        ):
+            error = "Recovery has runtime resources; unload first"
+            self._recovery_blocked[plugin_id] = error
+            self._recovery_errors[plugin_id] = error
+            self._add_recovery_diagnostics(plugin_id)
+            return
+
+        blocked: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        try:
+            updates = await run_sync_io(
+                recover_interrupted_updates,
+                plugin_id=plugin_id,
+            )
+            provisions = await run_sync_io(
+                recover_migrating_inventory,
+                plugin_id,
+            )
+            blocked.update(updates.blocked)
+            blocked.update(provisions.blocked)
+            errors.update(updates.failures)
+            errors.update(provisions.failures)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc) or type(exc).__name__
+            blocked[plugin_id] = error
+            errors[plugin_id] = error
+            logger.exception(
+                "Startup recovery failed for '%s'",
+                plugin_id,
+            )
+        if plugin_id in blocked:
+            self._recovery_blocked[plugin_id] = blocked[plugin_id]
+            manifest, path = next(
+                (
+                    (manifest, path)
+                    for manifest, path in await run_sync_io(
+                        self.discover_plugins,
+                    )
+                    if manifest.id == plugin_id
+                ),
+                (
+                    PluginManifest(id=plugin_id, version="unknown"),
+                    (
+                        self.plugin_dirs[0] / plugin_id
+                        if self.plugin_dirs
+                        else Path(plugin_id)
+                    ),
+                ),
+            )
+            self._record_failed_backend(
+                manifest,
+                path,
+                RuntimeError(blocked[plugin_id]),
+            )
+        elif self._recovery_blocked.pop(plugin_id, None) is not None:
+            self._loaded_plugins.pop(plugin_id, None)
+            self.lifecycle.drop_instance(plugin_id)
+        self._recovery_errors.pop(plugin_id, None)
+        self._recovery_errors.update(errors)
+        if plugin_id in errors:
+            self._add_recovery_diagnostics(plugin_id)
+
     async def _recover_startup_transactions(self) -> None:
         """Recover leftovers under each id's lock, never a live transaction."""
         from ..utils.io_utils import run_sync_io
-        from .provision import (
-            provision_ids_to_recover,
-            recover_migrating_inventory,
-        )
-        from .updates import (
-            interrupted_update_ids,
-            recover_interrupted_updates,
-        )
+        from .provision import provision_ids_to_recover
+        from .updates import interrupted_update_ids
 
         try:
             ids = await run_sync_io(
@@ -2113,78 +2195,39 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         ids.update(self._recovery_blocked)
         for plugin_id in sorted(ids):
             async with self.plugin_lifecycle(plugin_id):
-                if not self.lifecycle.delegate.owns_commit(plugin_id):
-                    continue
-                record = self._loaded_plugins.get(plugin_id)
-                if record is not None and record.status in (
-                    "registered",
-                    "active",
-                ):
-                    continue
-                instance = self.lifecycle.get_instance(plugin_id)
-                if self._has_runtime_custody(plugin_id) or (
-                    instance is not None and instance.has_runtime_ledger()
-                ):
-                    error = "Recovery has runtime resources; unload first"
-                    self._recovery_blocked[plugin_id] = error
-                    self._recovery_errors[plugin_id] = error
-                    self._add_recovery_diagnostics(plugin_id)
-                    continue
+                await self._recover_plugin_transactions_unlocked(plugin_id)
 
-                blocked: dict[str, str] = {}
-                errors: dict[str, str] = {}
-                try:
-                    updates = await run_sync_io(
-                        recover_interrupted_updates,
-                        plugin_id=plugin_id,
-                    )
-                    provisions = await run_sync_io(
-                        recover_migrating_inventory,
-                        plugin_id,
-                    )
-                    blocked.update(updates.blocked)
-                    blocked.update(provisions.blocked)
-                    errors.update(updates.failures)
-                    errors.update(provisions.failures)
-                except Exception as exc:  # noqa: BLE001
-                    error = str(exc) or type(exc).__name__
-                    blocked[plugin_id] = error
-                    errors[plugin_id] = error
-                    logger.exception(
-                        "Startup recovery failed for '%s'",
-                        plugin_id,
-                    )
-                if plugin_id in blocked:
-                    self._recovery_blocked[plugin_id] = blocked[plugin_id]
-                    manifest, path = next(
-                        (
-                            (manifest, path)
-                            for manifest, path in await run_sync_io(
-                                self.discover_plugins,
-                            )
-                            if manifest.id == plugin_id
-                        ),
-                        (
-                            PluginManifest(id=plugin_id, version="unknown"),
-                            (
-                                self.plugin_dirs[0] / plugin_id
-                                if self.plugin_dirs
-                                else Path(plugin_id)
-                            ),
-                        ),
-                    )
-                    self._record_failed_backend(
-                        manifest,
-                        path,
-                        RuntimeError(blocked[plugin_id]),
-                    )
-                elif self._recovery_blocked.pop(plugin_id, None) is not None:
-                    self._loaded_plugins.pop(plugin_id, None)
-                    self.lifecycle.drop_instance(plugin_id)
-                self._recovery_errors.pop(plugin_id, None)
-                self._recovery_errors.update(errors)
-                if plugin_id in errors:
-                    self._add_recovery_diagnostics(plugin_id)
+    async def _retry_plugin_recovery_unlocked(
+        self,
+        plugin_id: str,
+        *,
+        require_clean: bool = False,
+    ) -> None:
+        """Refresh a blocked/unfinished transaction before changing files."""
+        from ..utils.io_utils import run_sync_io
+        from .provision import load_inventory
+        from .updates import marker_path
+
+        def pending():
+            return marker_path(plugin_id).is_file() or any(
+                location and location.get("migrating")
+                for location in load_inventory(plugin_id, strict=True)
+                .get("locations", {})
+                .values()
+            )
+
+        if (
+            plugin_id in self._recovery_blocked
+            or plugin_id in self._recovery_errors
+            or await run_sync_io(pending)
+        ):
+            await self._recover_plugin_transactions_unlocked(plugin_id)
+        self._require_recovered(plugin_id)
+        if require_clean and plugin_id in self._recovery_errors:
+            raise RuntimeError(
+                f"Plugin '{plugin_id}' update cleanup is incomplete: "
+                f"{self._recovery_errors[plugin_id]}",
+            )
 
     async def load_all_plugins(
         self,
@@ -3253,7 +3296,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if not compatible:
             raise ValueError(reason)
         async with self.plugin_lifecycle(manifest.id):
-            self._require_recovered(manifest.id)
+            await self._retry_plugin_recovery_unlocked(manifest.id)
             if self.find_installed_plugin_dir(manifest.id) is not None:
                 raise ValueError("Official source already exists")
             # Reuse A first-copy/publication, never replacement.
@@ -3408,6 +3451,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         del _manifest_path
         plugin_id = manifest.id
         async with self.plugin_lifecycle(plugin_id):
+            await self._retry_plugin_recovery_unlocked(plugin_id)
             if force and plugin_id in self._loaded_plugins:
                 report = await self.reload_plugin_unlocked(
                     plugin_id,
@@ -3949,8 +3993,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path,
                     manifest,
                 )
-            from .dependency_gate import SharedDependencyError
-
             try:
                 await self.lifecycle.preflight_backend(
                     binding,
@@ -3958,7 +4000,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     probe=True,
                     wheels=wheels,
                 )
-            except SharedDependencyError as exc:
+            except RuntimeError as exc:
                 from .dependency_upgrade import stage_dependency_refusal
 
                 await stage_dependency_refusal(
@@ -4316,6 +4358,16 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         del self._loaded_plugins[plugin_id]
 
         if mode is UnloadMode.UNINSTALL:
+            try:
+                await self._retry_plugin_recovery_unlocked(
+                    plugin_id,
+                    require_clean=True,
+                )
+            except RuntimeError as exc:
+                report.clean = False
+                report.needs_restart = True
+                report.errors.append(str(exc))
+                return report
             await _recheck_created_locations(plugin_id, report)
 
         # Optionally delete files from disk (off the event loop).
@@ -4631,6 +4683,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             report.needs_restart = True
             report.errors.append("CHANNEL_INSTANCE_STILL_OWNED")
             return report
+        try:
+            await self._retry_plugin_recovery_unlocked(
+                plugin_id,
+                require_clean=True,
+            )
+        except RuntimeError as exc:
+            report.clean = False
+            report.needs_restart = True
+            report.errors.append(str(exc))
+            return report
+        source_path = self._find_installed_plugin_dir(plugin_id) or source_path
         has_inventory = inventory_path(plugin_id).is_file()
         from .legacy_cloudpaw import has_pending_cleanup
 

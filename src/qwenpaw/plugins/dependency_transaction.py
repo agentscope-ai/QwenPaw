@@ -41,6 +41,7 @@ _PLAN_FIELDS = (
     "continuation_command",
     "host_bundle_identity",
     "dependency_state_dir",
+    "policy_version",
 )
 
 
@@ -75,6 +76,7 @@ def authenticate_plan(directory, operation, *, seal=False):
                 "continuation_command",
                 "host_bundle_identity",
                 "dependency_state_dir",
+                "policy_version",
             }
         },
         sort_keys=True,
@@ -1092,7 +1094,7 @@ async def apply_operation(manager, operation_id):
 
     async with async_lock(operation_lock(directory)):
         operation = await run_sync_io(manager._read, operation_id)
-        if operation["status"] in {"succeeded", "cancelled"}:
+        if operation["status"] in {"succeeded", "cancelled", "failed"}:
             return manager._public(operation)
         if operation.get("worker_pid") or operation["status"] == "applying":
             return manager._public(operation)
@@ -1123,21 +1125,19 @@ async def apply_operation(manager, operation_id):
             )
             consumers = await manager._consumers(binding, fresh)
             manager._check_reviewed_usage(operation, consumers)
-            for consumer in consumers:
-                evidence = consumer["environment"]
-                inventory = dict(evidence["distributions"])
-                inventory.update(
-                    await run_sync_io(
-                        visible_distributions,
-                        operation["proposed"],
-                        evidence["dependency_sites"],
-                    ),
-                )
-                manager._compatible(
-                    consumer["requirements"],
-                    inventory,
-                    evidence["marker_environment"],
-                )
+            consumers = manager._affected(
+                consumers,
+                {
+                    row["name"]: operation["proposed"][row["name"]]
+                    for row in operation["changes"]
+                },
+            )
+            manager._check_core(
+                operation["proposed"],
+                fresh.marker_environment,
+                fresh.distributions,
+                operation["changes"],
+            )
             if not operation[
                 "requires_restart"
             ] and await imported_changes_async(

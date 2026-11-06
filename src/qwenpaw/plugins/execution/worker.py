@@ -106,9 +106,11 @@ def _configure(
     sys.modules["qwenpaw.plugins.dependency_maintenance"] = custody
     custody.lease_environment(
         (*dependencies, *custody.host_sites()),
-        parent_pid=int(sys.argv[1])
-        if packet.get("mode") in {"audit", "probe"}
-        else None,
+        parent_pid=(
+            int(sys.argv[1])
+            if packet.get("mode") in {"audit", "probe"}
+            else None
+        ),
         timeout=packet["startup_timeout"],
     )
     package = types.ModuleType("qwenpaw")
@@ -266,10 +268,10 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
     from .dependencies import (
         observe_dependencies,
         validate_driver,
-        check_import_origins,
-        require_dependencies,
     )
 
+    packet["mode"] = mode
+    packet["_reuse_ambiguous"] = mode == "audit"
     snapshot = observe_dependencies(packet)
     accepted = await peer.call(
         "execution.dependencies",
@@ -291,9 +293,9 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
                 "source mismatch",
             )
         return None
-    relevant = require_dependencies(snapshot, packet)
     packet["dependency_versions"] = {
-        name: snapshot.distributions[name]["version"] for name in relevant
+        name: snapshot.distributions[name]["version"]
+        for name in snapshot.distributions
     }
     entrypoint, source, hello = runtime.verify(boot, packet, identity)
     accepted = await peer.call(
@@ -308,11 +310,6 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
     sys.path.insert(0, str(root))
     sys.modules["qwenpaw"].__path__.insert(0, str(root / "qwenpaw"))
     component_class = boot._load_driver_class(entrypoint, source)
-    check_import_origins(
-        snapshot,
-        Path(packet["code_root"]).resolve(),
-        relevant,
-    )
     if mode == "probe":
         validate_driver(component_class)
     return component_class

@@ -988,7 +988,13 @@ def test_namespace_additions_preserve_file_ownership(
     assert {root: _inventory(Path(root)) for root in sites} == before
 
 
-def _prepare_dependency_operation(files, context=None):
+def _prepare_dependency_operation(
+    files,
+    context=None,
+    *,
+    extra_wheels=(),
+    requirements="sample-shared-sdk==1.0\n",
+):
     """Prepare the same reviewed payload for the separate publish checks."""
 
     snapshot = _dependency_snapshot(files)
@@ -999,11 +1005,17 @@ def _prepare_dependency_operation(files, context=None):
         files.site,
         (),
     )
-    requirements = files.directory.parent / "requirements.txt"
-    requirements.write_text("sample-shared-sdk==1.0\n")
-    args = files.directory, snapshot, ["sample-shared-sdk==1.0"], []
-    DependencyUpgradeManager._prepare_resolution(*args, requirements, context)
+    requirements_path = files.directory.parent / "requirements.txt"
+    requirements_path.write_text(requirements)
+    args = files.directory, snapshot, requirements.splitlines(), []
+    DependencyUpgradeManager._prepare_resolution(
+        *args,
+        requirements_path,
+        context,
+    )
     shutil.copy2(files.wheel, files.directory / "wheels" / files.wheel.name)
+    for wheel in extra_wheels:
+        shutil.copy2(wheel, files.directory / "wheels" / wheel.name)
     _, changes, proposed, payload = DependencyUpgradeManager._prepare_payload(
         *args,
         files.site,
@@ -1144,10 +1156,31 @@ def test_explicit_target_prepares_payload(tmp_path, dependency_files):
     files = dependency_files
     files.site.rename(tmp_path / "host-selected")
     files.site = tmp_path / "host-selected"
-    operation = _prepare_dependency_operation(files)
-    assert (
-        operation["payload"]
-        and operation["changes"][0]["name"] == "sample-shared-sdk"
+    old = _local_dependency_wheel(
+        tmp_path / "old-compatible",
+        "compatible-sdk",
+        "1.0",
+        {"compatible_sdk.py": b"VALUE = 1\n"},
+    )
+    new = _local_dependency_wheel(
+        tmp_path / "new-compatible",
+        "compatible-sdk",
+        "2.0",
+        {"compatible_sdk.py": b"VALUE = 2\n"},
+    )
+    with zipfile.ZipFile(old) as archive:
+        archive.extractall(files.site)
+    operation = _prepare_dependency_operation(
+        files,
+        extra_wheels=(new,),
+        requirements="sample-shared-sdk==1.0\ncompatible-sdk>=1\n",
+    )
+    assert [row["name"] for row in operation["changes"]] == [
+        "sample-shared-sdk",
+    ]
+    assert operation["proposed"]["compatible-sdk"]["version"] == "1.0"
+    assert not any(
+        "compatible_sdk" in path for path in operation["payload"]["new"]
     )
 
 
@@ -1398,6 +1431,16 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
         if use.plugin_id == "independent-consumer"
     )
     assert read_use.snapshot is None and read_use.environment is not None
+    added_path = tmp_path / "additional-plugin-search-path"
+    added_path.mkdir()
+    monkeypatch.setattr(
+        python_backend,
+        "_host_paths",
+        lambda cwd: (str(independent_site), str(added_path)),
+    )
+    (independent / "requirements.txt").write_text(
+        "unrelated-missing-sdk>=1\nsample-shared-sdk<1\n",
+    )
     old = local_wheel(tmp_path / "old", version="0.5", value="0.5")
     with zipfile.ZipFile(next(old.glob("*.whl"))) as archive:
         archive.extractall(site)
@@ -1420,6 +1463,8 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
 
     def resolve(command, **kwargs):
         assert "wheel" in command and "install" not in command
+        goals = Path(command[command.index("-r") + 1]).read_text()
+        assert "unrelated-missing-sdk" not in goals
         target = Path(command[command.index("--wheel-dir") + 1])
         shutil.copy2(wheel, target / wheel.name)
         shutil.copy2(certifi_wheel, target / certifi_wheel.name)
@@ -1508,9 +1553,17 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
     )
     usage.observe_host(unknown, None)
     usage.withdraw(unknown)
-    with pytest.raises(SharedDependencyError) as rejected:
-        await manager.stage(source)
-    assert rejected.value.decision.reason_code == "DEPENDENCY_PLAN_UNVERIFIED"
+    if broken_source:
+        retry = await manager.stage(source)
+        assert retry[
+            "requires_restart"
+        ]  # Unknown live host use requires offline replacement.
+    else:
+        with pytest.raises(
+            SharedDependencyError,
+            match="No dependency replacement",
+        ):
+            await manager.stage(source)
 
 
 @pytest.mark.asyncio

@@ -716,9 +716,6 @@ async def test_preparation_and_admission_keep_only_required_real_audits(
         "stale",
         "duplicate",
         "bad_record",
-        "fresh_metadata",
-        "fresh_record",
-        "child_record",
     ],
 )
 async def test_existing_dependency_read_admission_keeps_safety_boundaries(
@@ -801,67 +798,11 @@ async def test_existing_dependency_read_admission_keeps_safety_boundaries(
         for p in site.rglob("*")
         if p.is_file()
     }
-    if case in {"fresh_metadata", "fresh_record", "child_record"}:
-        import asyncio
-        import os
-        from qwenpaw.plugins.install_lock import environment_observation
-
-        async with environment_observation((site,)):
-            assert (
-                await backend.admit_existing(
-                    description,
-                    usage=usage,
-                    token=token,
-                )
-                is None
-            )
-            changed = info / (
-                "METADATA" if case == "fresh_metadata" else "RECORD"
-            )
-            stamp = changed.stat()
-            changed.write_text(
-                "Name: sample\nVersion: 0.5\n"
-                if case == "fresh_metadata"
-                else "sample.py,,not-a-size\n",
-            )
-            os.utime(changed, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
-            fresh_token = usage.declare(declaration)
-            pending = (
-                asyncio.create_task(
-                    backend.admit_existing(
-                        description,
-                        usage=usage,
-                        token=fresh_token,
-                    ),
-                )
-                if case == "child_record"
-                else None
-            )
-        with pytest.raises(SharedDependencyError) as rejected:
-            if pending is not None:
-                await pending
-            else:
-                await backend.admit_existing(
-                    description,
-                    usage=usage,
-                    token=fresh_token,
-                )
-        expected = (
-            {"DEPENDENCY_UNSATISFIED"}
-            if case == "fresh_metadata"
-            else {"DEPENDENCY_METADATA_INVALID", "DEPENDENCY_PLAN_UNVERIFIED"}
-        )
-        assert rejected.value.decision.reason_code in expected
-        assert usage.snapshot().uses[-1].environment is None
-        return
     if case in {
-        "missing",
         "missing_package",
         "transitive",
         "repair",
         "stale",
-        "duplicate",
-        "bad_record",
     }:
         if case == "stale":
             with pytest.raises(
@@ -916,6 +857,17 @@ async def test_existing_dependency_read_admission_keeps_safety_boundaries(
             await backend.admit_existing(description, usage=usage, token=token)
             is None
         )
+        if case in {"missing", "duplicate"}:
+            from qwenpaw.plugins.execution.dependencies import (
+                read_dependency_inventory,
+            )
+
+            view, _ = read_dependency_inventory(
+                source,
+                (str(site),),
+                requirements,
+            )
+            assert view.warnings
         uses = usage.snapshot().uses
         assert len(uses) == 1
         assert uses[0].environment is not None
@@ -1046,7 +998,7 @@ def test_host_delta_skips_own_source_inventory(tmp_path, monkeypatch):
         (("sdk", str(external)),),
     )
     assert imported["sdk"]["version"] == "1.0"
-    read_inventory, calls = deps.read_dependency_inventory, []
+    read_inventory, calls = deps._read_provider_inventory, []
     resolve, resolved = Path.resolve, Counter()
 
     def counted_resolve(path, *args, **kwargs):
@@ -1057,7 +1009,7 @@ def test_host_delta_skips_own_source_inventory(tmp_path, monkeypatch):
         calls.append(args)
         return read_inventory(*args, **kwargs)
 
-    monkeypatch.setattr(deps, "read_dependency_inventory", counted)
+    monkeypatch.setattr(deps, "_read_provider_inventory", counted)
     monkeypatch.setattr(Path, "resolve", counted_resolve)
     observed, imported = backend._observe_host_delta(
         source,
@@ -1135,9 +1087,11 @@ def test_host_delta_skips_own_source_inventory(tmp_path, monkeypatch):
     monkeypatch.setattr(
         backend,
         "Path",
-        lambda path: WindowsOrigin(path)
-        if str(path).replace("\\", "/") in {"C:/sdk.py", "C:/SDK.py"}
-        else Path(path),
+        lambda path: (
+            WindowsOrigin(path)
+            if str(path).replace("\\", "/") in {"C:/sdk.py", "C:/SDK.py"}
+            else Path(path)
+        ),
     )
     _, imported = backend._observe_host_delta(
         source,
@@ -1382,7 +1336,23 @@ def test_host_dependency_record_retains_loaded_ownership(tmp_path):
         loaded,
     )
     snapshot = replace(snapshot, distributions=imported)
+    removed_source = tmp_path / "cleaned-candidate"
+    snapshot = replace(
+        snapshot,
+        sites=(*snapshot.sites, str(removed_source)),
+        dependency_sites=(*snapshot.dependency_sites, str(removed_source)),
+    )
     usage.observe_host(old_token, snapshot)
+    from qwenpaw.plugins.dependency_gate import _host_observation_roots
+
+    roots = _host_observation_roots(
+        usage.snapshot().uses,
+        (tmp_path,),
+        tmp_path,
+    )
+    assert str(removed_source) not in roots
+    assert str(canonical_environment_path(tmp_path)) in roots
+    assert usage.snapshot().uses[-1].snapshot == snapshot
     metadata = info / "METADATA"
     metadata_stat = metadata.stat()
     metadata.write_text("Name: sample\nVersion: 2.0\n")
@@ -1435,7 +1405,7 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
     from qwenpaw.plugins.dependency_gate import admit_shared_dependencies
     from qwenpaw.plugins.dependency_usage import DependencyUsageRegistry
     from qwenpaw.plugins.execution.dependencies import (
-        read_dependency_inventory,
+        _read_provider_inventory as read_dependency_inventory,
     )
     from qwenpaw.plugins.execution_backend import PluginDescription
     from qwenpaw.plugins.ownership import RuntimeOwners
@@ -2126,7 +2096,31 @@ async def test_dependency_directory_classification_retains_provider_ownership(
         observed,
         plugin_id="incoming",
         uses=(use,),
+        installed_distributions=before.distributions,
     )
+    if layout == "owned":
+        # Planned metadata is not on disk yet. Its validated RECORD, rather
+        # than a failed disk lookup, determines whether an addition shadows code.
+        origin = str(site / "planned_sdk-2.0.dist-info")
+        proposed = replace(
+            before,
+            distributions={
+                **before.distributions,
+                "planned-sdk": {
+                    **observed.distributions["sample-sdk"],
+                    "metadata_path": origin,
+                },
+            },
+        )
+        addition = evaluate_shared_dependencies(
+            None,
+            proposed,
+            plugin_id="incoming",
+            uses=(use,),
+            installed_distributions=before.distributions,
+            planned_records={origin: "unrelated_sdk.py,,\n"},
+        )
+        assert addition.already_satisfied and not addition.require_restart
     assert decision.require_restart
     assert any(
         "sample-sdk shadows a loaded embedded module" in conflict
@@ -2139,6 +2133,7 @@ async def test_dependency_directory_classification_retains_provider_ownership(
                 observed,
                 plugin_id="incoming",
                 uses=consumers,
+                installed_distributions=before.distributions,
             )
             assert decision.require_restart
             assert decision.host_conflicts == [
@@ -2152,6 +2147,7 @@ async def test_dependency_directory_classification_retains_provider_ownership(
             observed,
             plugin_id="incoming",
             uses=(use, other_use),
+            installed_distributions=before.distributions,
         )
         assert decision.require_restart
         assert decision.host_conflicts == [
