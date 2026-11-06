@@ -69,8 +69,8 @@ export function useRerankerVerification(
     async (history: RerankerHistoryRecord[]) => {
       const fingerprint = await fingerprintPromise;
       if (!fingerprint) return;
-      const existing = useRerankerVerificationStore.getState()
-        .verificationByAgent[agentId];
+      const existing =
+        useRerankerVerificationStore.getState().verificationByAgent[agentId];
       if (
         existing &&
         existing.fingerprint === fingerprint &&

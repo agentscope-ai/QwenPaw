@@ -13,8 +13,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../../api", () => ({
   default: {
-    getRerankerHistory: (...a: unknown[]) =>
-      mocks.getRerankerHistory(...a),
+    getRerankerHistory: (...a: unknown[]) => mocks.getRerankerHistory(...a),
   },
 }));
 

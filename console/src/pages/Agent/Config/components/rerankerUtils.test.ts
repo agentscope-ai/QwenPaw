@@ -62,7 +62,10 @@ describe("getRerankerServiceFingerprint", () => {
     const baseline = await getRerankerServiceFingerprint(enabledConfig);
 
     expect(
-      await getRerankerServiceFingerprint({ ...enabledConfig, api_key: "other" }),
+      await getRerankerServiceFingerprint({
+        ...enabledConfig,
+        api_key: "other",
+      }),
     ).not.toBe(baseline);
     expect(
       await getRerankerServiceFingerprint({
