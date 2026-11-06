@@ -482,7 +482,7 @@ class QoderAdapter(HarnessAdapter):
             capabilities = HarnessRuntimeCapabilities()
         projected_mcp = mcp_servers(capabilities)
         extra_args = {}
-        if effort in {"low", "medium", "high", "max"}:
+        if effort in {"low", "medium", "high", "xhigh", "max"}:
             extra_args["reasoning-effort"] = effort
         return QoderAgentOptions(
             auth=self._auth(),
