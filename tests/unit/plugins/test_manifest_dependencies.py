@@ -35,7 +35,7 @@ def package(tmp_path, dependencies=(), requirements=None, *, sdk=True):
         manifest.pop("sdk")
     path.write_text(json.dumps(manifest))
     if requirements is not None:
-        (root / "requirements.txt").write_text(requirements)
+        (root / "requirements.txt").write_text(requirements, encoding="utf-8")
     return root
 
 

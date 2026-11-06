@@ -283,7 +283,17 @@ async def test_default_e2ee_dependency_initializes_crypto_store(
     assert platform._client.olm is not None
     assert platform._client.olm.account.shared
     assert len(hs.calls("/keys/upload")) == 1
-    assert any(platform._state.crypto_dir.glob("*.db"))
+    keys = platform._client.olm.account.identity_keys
+    # nio's default name contains the Matrix ID's colon; on NTFS it may be
+    # a stream that glob("*.db") cannot enumerate. Check actual persistence.
+    saved = platform._client.store.load_account()
+    assert saved is not None and saved.shared
+    assert saved.identity_keys == keys
+    await platform.stop()
+    restarted = platform_factory(encryption=True)
+    await restarted.start()
+    assert restarted._client.olm.account.shared
+    assert restarted._client.olm.account.identity_keys == keys
 
 
 @pytest.mark.asyncio

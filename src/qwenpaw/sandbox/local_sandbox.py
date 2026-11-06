@@ -213,8 +213,21 @@ class NoneSandbox(LocalSandbox):
 
         start = time.monotonic()
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *_shell_argv(shell, cmd),
+            # cmd.exe parses a command string, not C-runtime argv quoting.
+            # Passing it through exec would backslash-escape embedded quotes
+            # (e.g. a script path containing spaces) a second time.
+            if (
+                sys.platform == "win32"
+                and _shell_basename(shell) in _CMD_NAMES
+            ):
+                create_process = asyncio.create_subprocess_shell
+                args, shell_options = (cmd,), {"executable": shell}
+            else:
+                create_process = asyncio.create_subprocess_exec
+                args, shell_options = _shell_argv(shell, cmd), {}
+            self._process = await create_process(
+                *args,
+                **shell_options,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
