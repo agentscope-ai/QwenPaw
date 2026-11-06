@@ -57,12 +57,13 @@ def observe_installer(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "operation",
-    ["read", "install", "immutable", "immutable-known"],
+    ["read", "install", "immutable", "immutable-known", "immutable-read"],
 )
 async def test_unknown_version_respects_operation_and_environment(
     tmp_path,
     monkeypatch,
     operation,
+    caplog,
 ):
     import importlib
     import sys
@@ -70,16 +71,18 @@ async def test_unknown_version_respects_operation_and_environment(
 
     bundle = tmp_path / "bundle"
     bundle.mkdir()
-    source = tmp_path / "plugin"
-    source.mkdir()
+    source = package(
+        tmp_path,
+        requirements="unknown-dependency>=1\n",
+        sdk=False,
+    )
     module = bundle / "unknown_dependency.py"
     module.write_text("VALUE = 1\n")
     monkeypatch.syspath_prepend(str(bundle))
     importlib.invalidate_caches()
-    requirements = source / "requirements.txt"
-    requirements.write_text("unknown-dependency>=1\n")
     installed = False
     calls = []
+    probes = []
 
     def version_of(name):
         if installed:
@@ -90,6 +93,11 @@ async def test_unknown_version_respects_operation_and_environment(
         nonlocal installed
         calls.append(_requirements.read_text())
         installed = True
+
+    async def probe(plugin_id, *_args):
+        probes.append(plugin_id)
+
+    monkeypatch.setattr("qwenpaw.plugins.loader._probe_incoming", probe)
 
     monkeypatch.setattr(dependency_gate, "_dist_version", version_of)
     monkeypatch.setattr(dependency_gate, "_dist_requires", lambda name: ())
@@ -117,21 +125,35 @@ async def test_unknown_version_respects_operation_and_environment(
         (info / "METADATA").write_text(
             "Name: unknown-dependency\nVersion: 1.0\n",
         )
-    decision = await loader._ensure_requirements_installed(
-        requirements,
+    from qwenpaw.plugins.architecture import PluginManifest
+
+    description = loader._python_backend.describe(
         source,
-        "unknown-plugin",
-        allow_install=operation != "read",
+        PluginManifest.model_validate_json(
+            (source / "plugin.json").read_text(),
+        ),
     )
+    preparation = loader._python_backend.prepare(
+        description,
+        allow_install=operation not in {"read", "immutable-read"},
+        probe=True,
+    )
+    if operation == "immutable":
+        with pytest.raises(dependency_gate.SharedDependencyError) as error:
+            await preparation
+        assert error.value.reason_code == "DEPENDENCY_ENVIRONMENT_PROTECTED"
+        assert not error.value.decision.require_restart
+        assert not calls and not probes
+        return
+
+    await preparation
+    assert probes == [description.manifest.id]
     if operation == "install":
-        assert len(calls) == 1 and decision.already_satisfied
-    elif operation == "immutable-known":
-        assert not calls and decision.already_satisfied
-    elif operation == "immutable":
-        assert not calls and not decision.already_satisfied
-        assert decision.reason_code == "DEPENDENCY_ENVIRONMENT_PROTECTED"
+        assert len(calls) == 1
     else:
-        assert not calls and decision.warnings and not decision.missing
+        assert not calls
+    if operation in {"read", "immutable-read"}:
+        assert "installed version unknown; attempting load" in caplog.text
 
 
 def write_wheel(

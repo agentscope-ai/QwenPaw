@@ -886,15 +886,19 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
             # Importability is a read compatibility fallback, not proof that a
             # bundled provider satisfies an explicit versioned installation.
-            return GateDecision(
-                False,
-                False,
-                warnings=decision.warnings,
-                reason=(
-                    "Bundled dependency version is unknown. Update the desktop app "
-                    "or repair its dependency runtime."
+            from .dependency_gate import SharedDependencyError
+
+            raise SharedDependencyError(
+                GateDecision(
+                    False,
+                    False,
+                    warnings=decision.warnings,
+                    reason=(
+                        "Bundled dependency version is unknown. Update the desktop app "
+                        "or repair its dependency runtime."
+                    ),
+                    reason_code="DEPENDENCY_ENVIRONMENT_PROTECTED",
                 ),
-                reason_code="DEPENDENCY_ENVIRONMENT_PROTECTED",
             )
         logger.info(
             "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
