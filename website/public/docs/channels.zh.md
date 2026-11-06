@@ -74,6 +74,7 @@
   "client_secret": "你的 Client Secret",
   "share_session_in_group": false,
   "show_tool_calls": true,
+  "tool_call_format": "full",
   "show_tool_results": true,
   "show_thinking": true,
   "tool_call_max_length": 200,
@@ -1685,20 +1686,23 @@ https://xxxx.ngrok-free.app/api/messages
 
 所有频道都支持以下通用字段：
 
-| 字段                     | 类型     | 默认值   | 说明                                                    |
-| ------------------------ | -------- | -------- | ------------------------------------------------------- |
-| `enabled`                | bool     | `false`  | 是否启用该频道                                          |
-| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                            |
-| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                    |
-| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                  |
-| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                        |
-| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                        |
-| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                   |
-| `dm_policy`              | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `group_policy`           | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单） |
-| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）         |
-| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                    |
-| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                 |
+| 字段                     | 类型     | 默认值   | 说明                                                                                                  |
+| ------------------------ | -------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | 是否启用该频道                                                                                        |
+| `bot_prefix`             | string   | `""`     | 机器人回复前缀（如 `[BOT]`）                                                                          |
+| `show_tool_calls`        | bool     | `true`   | 是否显示工具调用信息                                                                                  |
+| `tool_call_format`       | string   | `"full"` | 工具调用格式：`"full"`（原有格式）、`"name_only"`（仅名称）或 `"compact"`（单行，参数最多 80 个字符） |
+| `show_tool_results`      | bool     | `true`   | 是否显示工具结果文本；结果媒体始终发送                                                                |
+| `tool_call_max_length`   | int      | `200`    | 工具调用预览长度；`0` 表示不截断                                                                      |
+| `tool_result_max_length` | int      | `500`    | 工具结果预览长度；`0` 表示不截断                                                                      |
+| `show_thinking`          | bool     | `true`   | 是否显示思考/推理内容                                                                                 |
+| `dm_policy`              | string   | `"open"` | 私聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单）                                               |
+| `group_policy`           | string   | `"open"` | 群聊访问策略：`"open"`（开放）/ `"allowlist"`（白名单）                                               |
+| `allow_from`             | string[] | `[]`     | 白名单列表（当 policy 为 `"allowlist"` 时生效）                                                       |
+| `deny_message`           | string   | `""`     | 拒绝访问时的提示消息                                                                                  |
+| `require_mention`        | bool     | `false`  | 是否需要 @机器人 才响应                                                                               |
+
+在 `agent.json` 中按频道设置 `tool_call_format`，例如 `channels.feishu.tool_call_format: "name_only"`，也可以在控制台的**消息展示 → 工具调用格式**中选择。默认 `full` 保持原有输出；`name_only` 仅显示工具名称；`compact` 单行显示名称和参数预览，将连续空白合并为空格，截断时追加 `...`。紧凑预览取 80 与正数 `tool_call_max_length` 中的较小值；设为 `0` 时紧凑模式仍保留 80 字符上限。`show_tool_calls: false` 隐藏所有格式，且全局 `show_tool_details: false` 在所有格式中隐藏参数。工具结果的显示不受影响。
 
 ### 多模态消息支持
 

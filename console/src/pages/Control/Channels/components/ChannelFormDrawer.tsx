@@ -31,6 +31,7 @@ function normalizeChannelFormValues(
     bot_prefix: "",
     show_tool_calls: true,
     show_tool_results: true,
+    tool_call_format: "full",
     tool_call_max_length: 200,
     tool_result_max_length: 500,
     show_thinking: true,

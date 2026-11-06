@@ -362,6 +362,7 @@ class BaseChannelConfig(BaseModel):
     bot_prefix: str = ""
     show_tool_calls: bool = True
     show_tool_results: bool = True
+    tool_call_format: Literal["full", "name_only", "compact"] = "full"
     # A value of 0 means unlimited (do not truncate).
     tool_call_max_length: int = Field(default=200, ge=0)
     tool_result_max_length: int = Field(default=500, ge=0)

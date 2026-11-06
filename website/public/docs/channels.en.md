@@ -79,6 +79,7 @@ In your agent's `agent.json` (e.g., `~/.qwenpaw/workspaces/default/agent.json`),
   "robot_code": "",
   "share_session_in_group": false,
   "show_tool_calls": true,
+  "tool_call_format": "full",
   "show_tool_results": true,
   "show_thinking": true,
   "tool_call_max_length": 200,
@@ -1668,20 +1669,23 @@ Field details and structure are in the tables above and [Config & working dir](.
 
 All channels support the following common fields:
 
-| Field                    | Type     | Default  | Description                                                               |
-| ------------------------ | -------- | -------- | ------------------------------------------------------------------------- |
-| `enabled`                | bool     | `false`  | Whether to enable this channel                                            |
-| `bot_prefix`             | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                          |
-| `show_tool_calls`        | bool     | `true`   | Whether to show tool call information                                     |
-| `show_tool_results`      | bool     | `true`   | Whether to show tool result text; result media is always sent             |
-| `tool_call_max_length`   | int      | `200`    | Tool call preview length; `0` means unlimited                             |
-| `tool_result_max_length` | int      | `500`    | Tool result preview length; `0` means unlimited                           |
-| `show_thinking`          | bool     | `true`   | Whether to show thinking/reasoning content                                |
-| `dm_policy`              | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist) |
-| `group_policy`           | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)     |
-| `allow_from`             | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                        |
-| `deny_message`           | string   | `""`     | Denial message when access is denied                                      |
-| `require_mention`        | bool     | `false`  | Whether @mention is required to respond                                   |
+| Field                    | Type     | Default  | Description                                                                                                                        |
+| ------------------------ | -------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                | bool     | `false`  | Whether to enable this channel                                                                                                     |
+| `bot_prefix`             | string   | `""`     | Bot reply prefix (e.g., `[BOT]`)                                                                                                   |
+| `show_tool_calls`        | bool     | `true`   | Whether to show tool call information                                                                                              |
+| `tool_call_format`       | string   | `"full"` | Tool call format: `"full"` (existing layout), `"name_only"` (name only), or `"compact"` (one line, at most 80 argument characters) |
+| `show_tool_results`      | bool     | `true`   | Whether to show tool result text; result media is always sent                                                                      |
+| `tool_call_max_length`   | int      | `200`    | Tool call preview length; `0` means unlimited                                                                                      |
+| `tool_result_max_length` | int      | `500`    | Tool result preview length; `0` means unlimited                                                                                    |
+| `show_thinking`          | bool     | `true`   | Whether to show thinking/reasoning content                                                                                         |
+| `dm_policy`              | string   | `"open"` | Direct message access policy: `"open"` (open) / `"allowlist"` (whitelist)                                                          |
+| `group_policy`           | string   | `"open"` | Group chat access policy: `"open"` (open) / `"allowlist"` (whitelist)                                                              |
+| `allow_from`             | string[] | `[]`     | Whitelist (effective when policy is `"allowlist"`)                                                                                 |
+| `deny_message`           | string   | `""`     | Denial message when access is denied                                                                                               |
+| `require_mention`        | bool     | `false`  | Whether @mention is required to respond                                                                                            |
+
+Set `tool_call_format` per channel in `agent.json`, for example `channels.feishu.tool_call_format: "name_only"`, or use **Message presentation → Tool Call Format** in the Console. `full` is the default and preserves the existing output. `name_only` shows just the tool name; `compact` shows the name and a single-line argument preview, with whitespace collapsed and `...` added when truncated. Compact previews use the smaller of 80 characters and a positive `tool_call_max_length`; `0` still leaves the compact 80-character cap. `show_tool_calls: false` hides all formats, and global `show_tool_details: false` hides arguments in every format. Tool results are unaffected.
 
 ### Multi-modal message support
 
