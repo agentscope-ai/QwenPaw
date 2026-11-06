@@ -152,6 +152,106 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     sessionStorage.clear();
   });
 
+  it.each([
+    "/clear",
+    "/new",
+    "  /clear  ",
+    "/new ignored-argument",
+    "/CLEAR",
+    "/New ignored-argument",
+  ])("keeps a cleared chat empty when reopening after %s", async (command) => {
+    seedSessionList("chat-cleared");
+    sessionApi.setLastUserMessage(
+      "chat-cleared",
+      command,
+      [{ type: "text", text: command }],
+      "client-command",
+    );
+    await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-cleared");
+    expect((session as RuntimeSession).messages).toEqual([]);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-cleared`)).toBeNull();
+
+    // Recreate the in-memory cache state after a page reload.
+    testApi.convertedSessionCache.clear();
+    testApi.sessionResultCache.clear();
+    testApi.lastSelectedIds.clear();
+    const reloaded = await sessionApi.getSession("chat-cleared");
+    expect((reloaded as RuntimeSession).messages).toEqual([]);
+  });
+
+  it("removes legacy command caches for both local and canonical chat IDs", async () => {
+    const localId = "1700000000000";
+    testApi.sessionList = [
+      {
+        id: localId,
+        realId: "chat-cleared",
+        sessionId: "runtime-cleared",
+        userId: "u",
+        channel: "c",
+        name: "t",
+      },
+    ];
+    sessionStorage.setItem(`${STORAGE_PREFIX}${localId}`, "/clear");
+    sessionStorage.setItem(`${STORAGE_PREFIX}chat-cleared`, "/clear");
+    sessionApi.setLastUserMessage("another-chat", "keep this message");
+    await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+
+    const session = await sessionApi.getSession(localId);
+    expect((session as RuntimeSession).messages).toEqual([]);
+    for (const id of [localId, "chat-cleared"]) {
+      expect(localStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
+      expect(sessionStorage.getItem(`${STORAGE_PREFIX}${id}`)).toBeNull();
+    }
+    expect(localStorage.getItem(`${STORAGE_PREFIX}another-chat`)).toBe(
+      "keep this message",
+    );
+  });
+
+  it.each(["/clear", "/new"])(
+    "retains %s while the command is still running",
+    async (command) => {
+      seedSessionList("chat-running-command");
+      sessionApi.setLastUserMessage("chat-running-command", command);
+      await mockGetChat({ messages: [], status: "running" } as ChatHistory);
+
+      const session = await sessionApi.getSession("chat-running-command");
+      expect(userCardTexts(session)).toEqual([command]);
+      expect(
+        localStorage.getItem(`${STORAGE_PREFIX}chat-running-command`),
+      ).toBe(command);
+    },
+  );
+
+  it.each(["hello", "/clearance", "/new-topic", "/help", "explain /clear"])(
+    "preserves the pending input %s in an empty idle chat",
+    async (text) => {
+      seedSessionList("chat-pending");
+      sessionApi.setLastUserMessage("chat-pending", text);
+      await mockGetChat({ messages: [], status: "idle" } as ChatHistory);
+
+      const session = await sessionApi.getSession("chat-pending");
+      expect(userCardTexts(session)).toEqual([text]);
+      expect(localStorage.getItem(`${STORAGE_PREFIX}chat-pending`)).toBe(text);
+    },
+  );
+
+  it("keeps a reset command when idle history has not been cleared yet", async () => {
+    seedSessionList("chat-before-clear");
+    sessionApi.setLastUserMessage("chat-before-clear", "/clear");
+    await mockGetChat({
+      messages: [userMsg("u1", "earlier"), assistantMsg("a1", "reply")],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-before-clear");
+    expect(userCardTexts(session)).toEqual(["earlier", "/clear"]);
+    expect(localStorage.getItem(`${STORAGE_PREFIX}chat-before-clear`)).toBe(
+      "/clear",
+    );
+  });
+
   it("patches the pending user message while generating (status running)", async () => {
     seedSessionList("chat-running");
     sessionApi.setLastUserMessage("chat-running", "hello in flight");

@@ -1126,6 +1126,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return false;
     }
 
+    // Reset commands erase their own turn, so empty idle history is final.
+    if (
+      !generating &&
+      messages.length === 0 &&
+      ["/clear", "/new"].includes(
+        cached.text.trim().split(" ", 1)[0].toLowerCase(),
+      )
+    ) {
+      pendingIds.forEach(clearPendingUserMessage);
+      return false;
+    }
+
     // Canonicalize a local draft entry onto its resolved backend UUID.
     const canonicalId = pendingIds[0];
     if (canonicalId && cachedId !== canonicalId) {

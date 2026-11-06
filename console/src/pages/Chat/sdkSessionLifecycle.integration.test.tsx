@@ -851,6 +851,35 @@ describe("installed SDK activation after route ownership resolution", () => {
 });
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
+  it.each(["/clear", "/new"])(
+    "keeps cleared history empty after %s across navigation and remount",
+    async (command) => {
+      fixture.records.push(record(B));
+      sessionApi.setLastUserMessage(A, command, undefined, "reset-command");
+      const host = mountHost(fixture);
+      await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
+      expect(host.current().messages.getMessages()).toEqual([]);
+      expect(localStorage.getItem(`qwenpaw_pending_user_msg_${A}`)).toBeNull();
+
+      await act(async () => host.current().navigate(`/chat/${B}`));
+      await waitFor(() => expect(host.adapter.isReady(B)).toBe(true));
+      await act(async () => host.current().navigate(`/chat/${A}`));
+      await waitFor(() => {
+        expect(host.current().sessions.currentSessionId).toBe(A);
+        expect(host.adapter.isReady(A)).toBe(true);
+      });
+      expect(host.current().messages.getMessages()).toEqual([]);
+
+      cleanup();
+      host.unsubscribe();
+      sessionApi.resetForTests();
+      const reloaded = mountHost(fixture);
+      await waitFor(() => expect(reloaded.adapter.isReady(A)).toBe(true));
+      expect(reloaded.current().messages.getMessages()).toEqual([]);
+      expect(fixture.transport).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries the real SDK loader and commits recovered history", async () => {
     await i18nReady;
     const user = userEvent.setup();
