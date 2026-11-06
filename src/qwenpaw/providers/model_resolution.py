@@ -27,6 +27,23 @@ def resolve_model_info(
     """Enrich a copy; automatic values never become persisted overrides."""
     result = ModelInfo.model_validate(model.model_dump())
     local = provider.is_local or not provider._context_catalog_enabled()
+    # Two different catalogs feed this function, and only one of them is safe
+    # to skip for a user-created provider.
+    #
+    # ``model_metadata`` is curated: it only matches an exact endpoint, an
+    # exact provider id, or a template the user pointed at, so a custom
+    # provider keeps that on purpose.
+    #
+    # The static pattern table in ``context_windows`` is the opposite -- it
+    # matches a model-alias substring with no provider or endpoint gating at
+    # all. A local alias such as ``qwen3.8-27b`` matches the cloud ``qwen3.8``
+    # entry, which can dwarf what the server actually accepts and stop
+    # compaction from ever firing. Skip that table for custom providers.
+    #
+    # Falling back to the default errs conservatively: compaction just runs
+    # earlier. Anyone who knows their real window sets ``max_input_length``,
+    # which still takes precedence over both catalogs.
+    skip_pattern_catalog = local or provider.is_custom
     matches = (
         []
         if local
@@ -72,7 +89,9 @@ def resolve_model_info(
             automatic = result.max_input_length
             context_source = f"catalog"
         else:
-            automatic = None if local else known_context_size(model.id)
+            automatic = (
+                None if skip_pattern_catalog else known_context_size(model.id)
+            )
             context_source = f"catalog" if automatic else f"default"
             automatic = automatic or DEFAULT_CONTEXT_WINDOW
     for candidate in (model, discovered):
