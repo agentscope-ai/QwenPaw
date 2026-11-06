@@ -512,12 +512,23 @@ async def _probe_multimodal_if_needed(
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info, _get_active_model_slot
+        from ..prompt import (
+            _get_active_model_info,
+            _get_active_model_slot,
+            _get_media_decision,
+        )
         from ...providers.provider_manager import ProviderManager
 
         model_info, _ = await run_sync_io(_get_active_model_info)
-        if model_info is None or model_info.supports_multimodal is not None:
+        if model_info is None:
             return None
+        decision = _get_media_decision(
+            model_info,
+            media_type,
+            allow_generic=media_type == "image",
+        )
+        if decision.supported is not None:
+            return decision.supported
 
         manager = ProviderManager.get_instance()
         active = await run_sync_io(_get_active_model_slot)
@@ -588,21 +599,17 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
     probe-on-demand logic.
     """
     try:
-        from ..prompt import _explicit_media_override, _get_active_model_info
+        from ..prompt import _get_active_model_info, _get_media_decision
 
         model_info, _ = _get_active_model_info()
         if model_info is None:
             return True
-        explicit = _explicit_media_override(model_info, media_type)
-        if explicit is not None:
-            return explicit
-        if media_type == "video":
-            return model_info.supports_video is True
-        # image: True if supports_image or the combined supports_multimodal
-        return (
-            model_info.supports_image is True
-            or model_info.supports_multimodal is True
+        decision = _get_media_decision(
+            model_info,
+            media_type,
+            allow_generic=media_type == "image",
         )
+        return decision.supported is True
     except Exception:
         return True
 
@@ -615,11 +622,26 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     the media itself.
     """
     try:
-        from ..prompt import get_active_model_multimodal_raw
+        from ..prompt import (
+            _get_active_model_info,
+            _get_media_decision,
+            get_active_model_multimodal_raw,
+        )
 
-        raw = get_active_model_multimodal_raw()
+        raw = get_active_model_multimodal_raw(media_type)
+        model_info, _ = _get_active_model_info()
+        decision = (
+            _get_media_decision(
+                model_info,
+                media_type,
+                allow_generic=media_type == "image",
+            )
+            if model_info is not None
+            else None
+        )
     except Exception:
         raw = None
+        decision = None
 
     if raw is None:
         logger.warning(
@@ -639,6 +661,20 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
             f"content. If they believe this model supports vision, they "
             f"can override this in provider settings by setting "
             f"`supports_multimodal: true`, then retry.]"
+        )
+
+    if raw is False and decision is not None and decision.explicit:
+        logger.warning(
+            "view_%s was called but %s input is disabled in provider "
+            "settings for the active model.",
+            media_type,
+            media_type,
+        )
+        return (
+            f"[Note: {media_type} input is disabled for the active model "
+            f"in provider settings. You cannot see this {media_type}, "
+            f"but it has been shown to the user. Inform the user that "
+            f"you cannot analyze the {media_type} content.]"
         )
 
     logger.warning(

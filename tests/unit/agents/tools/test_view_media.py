@@ -943,6 +943,51 @@ class TestViewImage:
         ]
         assert any("multimodal" in t.lower() for t in text_parts)
 
+    @pytest.mark.asyncio
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch("qwenpaw.agents.prompt._get_active_model_slot")
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    async def test_explicit_image_opt_out_skips_probe(
+        self,
+        mock_info,
+        mock_slot,
+        get_instance,
+        tmp_path,
+    ):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        model_info = ModelInfo(
+            id="custom-vision",
+            name="custom-vision",
+            supports_image=False,
+            supports_multimodal=None,
+            config_overrides=["supports_image"],
+        )
+        mock_info.return_value = (model_info, model_info.id)
+        mock_slot.return_value = MagicMock(
+            provider_id="custom",
+            model=model_info.id,
+        )
+        manager = MagicMock()
+        manager.probe_model_multimodal = AsyncMock(
+            return_value={"supports_image": True},
+        )
+        get_instance.return_value = manager
+        image = tmp_path / "image.png"
+        Image.new("RGB", (2, 2), color="red").save(image)
+
+        result = await view_image(str(image))
+        await asyncio.sleep(0)
+
+        manager.probe_model_multimodal.assert_not_awaited()
+        text = " ".join(
+            block.text
+            for block in result.content
+            if getattr(block, "type", None) == "text"
+        )
+        assert "Image loaded" not in text
+        assert "disabled" in text or "does not support" in text
+
 
 class TestFreezeImageBytes:
     """Tests for the shared local/remote image freezing path."""
