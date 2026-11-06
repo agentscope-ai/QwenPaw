@@ -19,6 +19,7 @@ from qwenpaw.utils.media_paths import local_media_path
 from .codec import (
     build_artifact_msg,
     build_completed_msg,
+    build_working_msg,
     build_control_response,
 )
 from .connection import XiaoYiConnection
@@ -686,3 +687,17 @@ class XiaoYiPlatform:
                 )
             )
             await self._send_to_route(route, message)
+
+    async def send_working(self, route):
+        """Best-effort working frame; False when the link is down."""
+        if not route.get("task_id"):
+            return False
+        try:
+            async with self._effect():
+                await self._send_to_route(
+                    route,
+                    build_working_msg(self.agent_id, route),
+                )
+        except XiaoYiDeliveryError:
+            return False
+        return True

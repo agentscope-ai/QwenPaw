@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import asyncio
 import hashlib
+import time
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -23,6 +25,7 @@ from qwenpaw.channel_protocol.targets import decode_reply_target
 
 from .errors import XiaoYiDeliveryError
 from .platform import XiaoYiPlatform
+from .constants import WORKING_FRAME_INTERVAL, WORKING_FRAME_MAX_WAIT
 
 
 class XiaoYiDriver(SharedResponseDriver):
@@ -32,6 +35,7 @@ class XiaoYiDriver(SharedResponseDriver):
             "xiaoyi.shared.responses",
             XiaoYiDeliveryError,
         )
+        self._working_tasks: dict[str, asyncio.Task] = {}
 
     async def start(self, config):
         if self._platform is not None:
@@ -87,6 +91,9 @@ class XiaoYiDriver(SharedResponseDriver):
         return self._platform
 
     async def stop(self):
+        for task in self._working_tasks.values():
+            task.cancel()
+        self._working_tasks.clear()
         await self._stop_platform()
 
     def response_policy(self, response_handle):
@@ -159,16 +166,63 @@ class XiaoYiDriver(SharedResponseDriver):
     async def _perform_send(self, params):
         if params.operation.value != "message.create":
             raise XiaoYiDeliveryError("OPERATION_UNSUPPORTED")
+        route = self._route_attrs(params.to_handle)
         receipt = await self._require_connected().send_parts(
-            self._route_attrs(params.to_handle),
+            route,
             params.content_parts,
             params.content_source,
         )
+        self._resume_working_frames(params.to_handle, route)
         return ResponseResourceRef.create(
             "xiaoyi.delivery",
             params.delivery_id,
             receipt,
         )
+
+    def _working_frame_interval(self):
+        try:
+            interval = float(
+                self._config.get("working_frame_interval", WORKING_FRAME_INTERVAL),
+            )
+        except (TypeError, ValueError):
+            interval = WORKING_FRAME_INTERVAL
+        if interval <= 0:
+            return 0.0
+        return min(interval, float(WORKING_FRAME_MAX_WAIT))
+
+    def _resume_working_frames(self, handle, route):
+        """Restart the client-refresh loop for one response route.
+
+        Every outbound send means the turn is alive and the client is
+        waiting; between sends and before the first artifact the app shows
+        nothing at all (issue #8394). The loop stops itself after
+        WORKING_FRAME_MAX_WAIT so an abandoned session cannot tick forever.
+        """
+        interval = self._working_frame_interval()
+        if interval <= 0:
+            return
+        previous = self._working_tasks.pop(handle, None)
+        if previous is not None:
+            previous.cancel()
+
+        async def loop():
+            deadline = time.monotonic() + WORKING_FRAME_MAX_WAIT
+            platform = self._platform
+            while (
+                platform is not None
+                and self._working_tasks.get(handle) is asyncio.current_task()
+                and time.monotonic() < deadline
+            ):
+                await platform.send_working(route)
+                await asyncio.sleep(interval)
+
+        task = self._platform._spawn(loop())
+        self._working_tasks[handle] = task
+
+    def _cancel_working_frames(self, handle):
+        task = self._working_tasks.pop(handle, None)
+        if task is not None:
+            task.cancel()
 
     async def _perform_reaction(self, params):
         raise XiaoYiDeliveryError("REACTION_UNSUPPORTED")
@@ -195,6 +249,7 @@ class XiaoYiDriver(SharedResponseDriver):
         return updated
 
     async def _before_cleanup_complete(self, snapshot):
+        self._cancel_working_frames(snapshot.response_handle)
         route = dict(snapshot.route_refs[0].attributes)
         if not route.get("session_id") or not route.get("task_id"):
             return snapshot
