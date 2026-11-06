@@ -1044,3 +1044,106 @@ async def test_fetch_models_invalid_ps_still_probes_show(
     models = await provider.fetch_models()
     assert show_calls == ["qwen3:8b"]
     assert models[0].max_input_length_auto_detected == 8192
+
+@pytest.mark.asyncio
+async def test_successful_unknown_context_clears_stale_auto_detected(
+    monkeypatch,
+) -> None:
+    """Successful show without num_ctx must clear a prior auto-detected value.
+
+    Failed probes omit the field so merge keeps the old window; a successful
+    probe that no longer reports context must not retain a stale 65536.
+    """
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=65536,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+    assert provider.discovered_models[0].max_input_length_auto_detected == 65536
+
+    class UnknownContextClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            # Successful show, Modelfile no longer sets num_ctx.
+            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
+
+    _patch_list_and_native(
+        monkeypatch,
+        UnknownContextClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert fetched[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_failed_show_probe_retains_previous_auto_detected(
+    monkeypatch,
+) -> None:
+    """A failed /api/show must not clear a previously discovered window."""
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=65536,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class FailedShowClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(403, {"error": "denied"})
+
+    _patch_list_and_native(
+        monkeypatch,
+        FailedShowClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected == 65536
+

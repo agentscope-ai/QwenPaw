@@ -56,14 +56,16 @@ def resolve_ollama_context_window(
        this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
     2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``.
 
-    If neither is available, return ``None`` and leave auto-detected
-    unset. Do not invent a fallback: the server-level context is unknown
-    until the model is loaded, and ``OLLAMA_CONTEXT_LENGTH`` may be below
-    any guessed constant.
+    If neither is available, return ``None``. Do not invent a fallback:
+    the server-level context is unknown until the model is loaded, and
+    ``OLLAMA_CONTEXT_LENGTH`` may be below any guessed constant.
 
     ``show_payload is None`` means the probe failed (timeout, 401/403, or
     an invalid body). That is not an empty successful show: this returns
-    ``None`` so the caller leaves the model unchanged.
+    ``None`` so the caller leaves the model unchanged (merge keeps any
+    previous auto-detected window). A dict payload with no usable
+    ``num_ctx`` also returns ``None``; the caller then clears a stale
+    auto-detected value.
 
     A non-string ``parameters`` value is malformed, not an omitted
     ``num_ctx``. This also returns ``None``.
@@ -225,9 +227,11 @@ class OllamaProvider(OpenAIProvider):
         metadata, so without this step every Ollama model stays at the
         128k placeholder and compaction never aligns with ``num_ctx``.
 
-        A failed ``/api/show``, or a successful show that omitted
-        ``num_ctx``, leaves that model unchanged. The server-level context
-        is unknown until ``/api/ps`` reports a loaded window.
+        A failed ``/api/show`` leaves that model unchanged so merge can
+        keep a previous auto-detected window. A successful show that
+        omitted ``num_ctx`` (and with no served ``/api/ps`` window)
+        explicitly clears ``max_input_length_auto_detected``, so a stale
+        value from an earlier discovery is not retained.
 
         ``timeout`` bounds each native HTTP call and the ``/api/show``
         fan-out. Loaded ``/api/ps`` windows are applied before that
@@ -441,10 +445,19 @@ class OllamaProvider(OpenAIProvider):
             show_payload=show_payload,
             served_context=None,
         )
-        if detected is None:
+        if detected is not None:
+            return model.model_copy(
+                update={"max_input_length_auto_detected": detected},
+            )
+        if show_payload is None:
+            # Probe failed (timeout, auth, invalid body). Omit the field
+            # so merge_discovered_model keeps any previous auto-detected
+            # window instead of inventing a fallback.
             return model
+        # Successful show without usable num_ctx / served context: clear
+        # a stale auto-detected value from an earlier discovery.
         return model.model_copy(
-            update={"max_input_length_auto_detected": detected},
+            update={"max_input_length_auto_detected": None},
         )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
