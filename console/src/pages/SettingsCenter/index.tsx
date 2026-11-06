@@ -70,6 +70,10 @@ import {
   type SettingsSearchAvailability,
 } from "./settingsSearch";
 import { useSettingsSearchTarget } from "./useSettingsSearchTarget";
+import type {
+  PluginSettingsContext,
+  SettingsNavigationState,
+} from "./usePluginSettingsNavigation";
 import {
   SettingsSearchRequest,
   SettingsRuntimeConfigContext,
@@ -325,7 +329,13 @@ function pageKeyFromPath(pathname: string) {
   return key || "general";
 }
 
-export default function SettingsCenter({ routeId }: { routeId?: string }) {
+export default function SettingsCenter({
+  routeId,
+  pluginContext,
+}: {
+  routeId?: string;
+  pluginContext?: PluginSettingsContext;
+}) {
   const reducedMotion = useReducedMotion();
   const { t, i18n } = useTranslation();
   const { isDark } = useTheme();
@@ -503,11 +513,17 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
 
   const activeKey = pageKeyFromPath(location.pathname);
   const allPages = availableGroups.flatMap((group) => group.pages);
-  const matchedActivePage = allPages.find((page) =>
-    routeId ? page.routeId === routeId : page.key === activeKey,
-  );
+  const matchedActivePage =
+    allPages.find((page) =>
+      routeId ? page.routeId === routeId : page.key === activeKey,
+    ) ??
+    (pluginContext
+      ? allPages.find((page) => page.routeId === pluginContext.routeId)
+      : undefined);
   const activePage = matchedActivePage ?? allPages[0];
-  const ActiveComponent = activePage?.Component
+  const ActiveComponent = routeId
+    ? componentByRouteId.get(routeId)
+    : activePage?.Component
     ? activePage.Component
     : activePage?.routeId
     ? componentByRouteId.get(activePage.routeId)
@@ -644,10 +660,19 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
     : availableGroups;
 
   const returnTo =
-    (location.state as { settingsReturnTo?: string } | null)
-      ?.settingsReturnTo || "/chat";
+    pluginContext?.returnTo ||
+    (location.state as SettingsNavigationState | null)?.settingsReturnTo ||
+    "/chat";
+  const hasPluginRoute = Boolean(routeId && componentByRouteId.has(routeId));
+  const backToApp = () =>
+    navigate(returnTo, { state: { settingsPluginContext: null } });
 
-  if (pluginsLoading && !matchedActivePage && activeKey !== "general") {
+  if (
+    pluginsLoading &&
+    !hasPluginRoute &&
+    !matchedActivePage &&
+    activeKey !== "general"
+  ) {
     return (
       <div
         className={`${styles.root} ${isDark ? styles.rootDark : ""}`}
@@ -660,7 +685,12 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
     );
   }
 
-  if (!pluginsLoading && !matchedActivePage && activeKey !== "general") {
+  if (
+    !pluginsLoading &&
+    !hasPluginRoute &&
+    !matchedActivePage &&
+    activeKey !== "general"
+  ) {
     return (
       <Navigate
         to="/settings/general"
@@ -690,8 +720,22 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
       return;
     }
     if (destination.legacyPath) {
+      const destinationRoute = routes.find(
+        (route) => route.id === destination.routeId,
+      );
       navigate(withQuery(destination.legacyPath), {
-        state: { settingsSearchTarget: target, settingsReturnTo: returnTo },
+        state: {
+          settingsSearchTarget: target,
+          settingsReturnTo: returnTo,
+          settingsPluginContext:
+            destinationRoute?.source && destinationRoute.source !== "core"
+              ? {
+                  source: destinationRoute.source,
+                  routeId: destinationRoute.id,
+                  returnTo,
+                }
+              : undefined,
+        },
       });
       return;
     }
@@ -729,7 +773,7 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
             type="text"
             icon={<ArrowLeft size={18} />}
             aria-label={t("settingsCenter.backToApp", "Back to app")}
-            onClick={() => navigate(returnTo)}
+            onClick={backToApp}
           />
           <Select
             aria-label={t("nav.settings")}
@@ -785,7 +829,7 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
             type="text"
             className={styles.backButton}
             icon={<ArrowLeft size={18} />}
-            onClick={() => navigate(returnTo)}
+            onClick={backToApp}
           >
             {t("settingsCenter.backToApp", "Back to app")}
           </Button>
@@ -896,6 +940,7 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
           ref={contentRef}
           className={styles.content}
           data-core-settings={
+            !routeId &&
             activePage?.key !== "models" &&
             !activePage?.key.startsWith("extension-")
           }
@@ -910,7 +955,9 @@ export default function SettingsCenter({ routeId }: { routeId?: string }) {
               />
             )}
             {ActiveComponent ? (
-              <ChunkErrorBoundary resetKey={activePage?.key ?? "settings"}>
+              <ChunkErrorBoundary
+                resetKey={routeId ?? activePage?.key ?? "settings"}
+              >
                 <ChunkRecoverySuspense
                   fallback={
                     <div className={styles.loading}>

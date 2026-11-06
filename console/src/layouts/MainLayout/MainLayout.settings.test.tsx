@@ -1,17 +1,51 @@
 import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Grid } from "antd";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  type Location,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installHostExternals } from "@/plugins/hostExternals";
+import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
 import { menuRegistry, routeRegistry } from "@/plugins/registry/store";
+import { flattenMenu } from "@/layouts/registry/adapter";
 import SettingsCenter from "@/pages/SettingsCenter";
 import { renderWithProviders } from "@/test/common_setup";
 import MainLayout from ".";
 
 vi.mock("../Sidebar", () => ({
-  default: () => <aside>Session sidebar</aside>,
+  default: function Sidebar() {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const menu = useMenuItems("primary.agentScoped");
+    const routes = useRoutes();
+    return (
+      <aside>
+        Session sidebar
+        <button
+          onClick={() =>
+            navigate("/settings/general", {
+              state: {
+                settingsReturnTo:
+                  location.pathname + location.search + location.hash,
+              },
+            })
+          }
+        >
+          Open settings
+        </button>
+        {flattenMenu(menu, routes, 16).map((entry) => (
+          <button key={entry.key} onClick={() => navigate(entry.path)}>
+            {entry.label}
+          </button>
+        ))}
+      </aside>
+    );
+  },
 }));
 vi.mock("../AmbientLight", () => ({ default: () => null }));
 vi.mock("../Header", () => ({ default: () => null }));
@@ -31,7 +65,37 @@ vi.mock("@/pages/SettingsCenter/GeneralSettings", () => ({
 
 function PluginPage() {
   const { section } = useParams();
-  return <div>Plugin configuration{section ? `: ${section}` : ""}</div>;
+  const navigate = useNavigate();
+  return (
+    <div>
+      <div>Plugin configuration{section ? `: ${section}` : ""}</div>
+      <button onClick={() => navigate("?tab=advanced#field")}>
+        Change plugin tab
+      </button>
+      <button
+        onClick={() =>
+          navigate("?tab=replaced#field", {
+            replace: true,
+            state: { tabValue: "kept" },
+          })
+        }
+      >
+        Replace plugin tab
+      </button>
+      <button onClick={() => navigate("/settings/example-child")}>
+        Open settings child
+      </button>
+      <button
+        onClick={() =>
+          navigate("/example-details/advanced?tab=extra#field", {
+            state: { pluginValue: "kept" },
+          })
+        }
+      >
+        Open plugin child
+      </button>
+    </div>
+  );
 }
 
 function HistoryControls() {
@@ -42,13 +106,18 @@ function HistoryControls() {
       <output data-testid="location">
         {location.pathname + location.search + location.hash}
       </output>
+      <output data-testid="location-state">
+        {JSON.stringify(location.state)}
+      </output>
       <button onClick={() => navigate(-1)}>History back</button>
       <button onClick={() => navigate(1)}>History forward</button>
+      <button onClick={() => navigate("/other-plugin")}>Other plugin</button>
+      <button onClick={() => navigate("/my-plugin")}>Open plugin route</button>
     </>
   );
 }
 
-function renderLayout(path = "/settings/general") {
+function renderLayout(path: string | Partial<Location> = "/settings/general") {
   return renderWithProviders(
     <>
       <HistoryControls />
@@ -78,6 +147,16 @@ function registerSettingsPlugin(path: string, withMeta = true) {
     label: "Example extension",
     location: "primary.settings",
     parentId: withMeta ? "core.settings-group" : "plugins-group",
+    route: "example.settings",
+  });
+}
+
+function registerSharedPlugin(withMeta = true) {
+  registerSettingsPlugin("/my-plugin", withMeta);
+  window.QwenPaw.menu!.add("example", {
+    id: "example.chat.menu",
+    label: "Example workspace",
+    location: "primary.agentScoped",
     route: "example.settings",
   });
 }
@@ -118,6 +197,206 @@ beforeEach(() => {
 });
 
 describe("plugin settings navigation", () => {
+  it.each([true, false])(
+    "uses the entry sidebar for a shared route with metadata %s and restores history",
+    async (withMeta) => {
+      registerSharedPlugin(withMeta);
+      renderLayout("/chat");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Example workspace" }),
+      );
+      expect(screen.getByText("Plugin configuration")).toBeVisible();
+      expect(screen.getByText("Session sidebar")).toBeVisible();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Open settings" }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "Example extension" }),
+      );
+      expect(screen.getByText("Plugin configuration")).toBeVisible();
+      expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Example extension" }),
+      ).toHaveAttribute("aria-current", "page");
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "Back to app" }),
+      );
+      expect(screen.getByTestId("location")).toHaveTextContent("/my-plugin");
+      expect(screen.getByText("Session sidebar")).toBeVisible();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "History back" }),
+      );
+      expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("button", { name: "History back" }),
+      );
+      expect(screen.getByText("General settings")).toBeVisible();
+      await userEvent.click(
+        screen.getByRole("button", { name: "History back" }),
+      );
+      expect(screen.getByText("Plugin configuration")).toBeVisible();
+      expect(screen.getByText("Session sidebar")).toBeVisible();
+
+      await userEvent.click(
+        screen.getByRole("button", { name: "History forward" }),
+      );
+      await userEvent.click(
+        screen.getByRole("button", { name: "History forward" }),
+      );
+      expect(screen.getByText("Plugin configuration")).toBeVisible();
+      expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    },
+  );
+
+  it("uses the app layout for shared direct links without a settings origin", () => {
+    registerSharedPlugin();
+    renderLayout("/my-plugin");
+    expect(screen.getByText("Plugin configuration")).toBeVisible();
+    expect(screen.getByText("Session sidebar")).toBeVisible();
+  });
+
+  it("retains the origin through replace navigation and remounting", async () => {
+    registerSharedPlugin();
+    const view = renderLayout();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Example extension" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Replace plugin tab" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/my-plugin?tab=replaced#field",
+    );
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    const state = JSON.parse(screen.getByTestId("location-state").textContent!);
+    expect(state.tabValue).toBe("kept");
+    await userEvent.click(screen.getByRole("button", { name: "History back" }));
+    expect(screen.getByText("General settings")).toBeVisible();
+    view.unmount();
+
+    renderLayout({
+      pathname: "/my-plugin",
+      search: "?tab=replaced",
+      hash: "#field",
+      state,
+    });
+    expect(screen.getByText("Plugin configuration")).toBeVisible();
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Example extension" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("renders a separately registered child under /settings without redirecting", async () => {
+    registerSharedPlugin(false);
+    window.QwenPaw.route!.add("example", {
+      id: "example.child",
+      path: "/settings/example-child",
+      component: () => <div>Separate settings child</div>,
+    });
+    renderLayout();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Example extension" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open settings child" }),
+    );
+    expect(screen.getByText("Separate settings child")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/example-child",
+    );
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Example extension" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("preserves settings across query, hash and separate same-plugin child routes", async () => {
+    registerSharedPlugin();
+    window.QwenPaw.route!.add("example", {
+      id: "example.details",
+      path: "/example-details/:section",
+      component: () => <div>Plugin child configuration</div>,
+    });
+    window.QwenPaw.route!.add("other", {
+      id: "other.workspace",
+      path: "/other-plugin",
+      component: () => <div>Other plugin workspace</div>,
+    });
+    renderLayout("/chat?session=1#messages");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open settings" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Example extension" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Change plugin tab" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/my-plugin?tab=advanced#field",
+    );
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open plugin child" }),
+    );
+    expect(screen.getByText("Plugin child configuration")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/example-details/advanced?tab=extra#field",
+    );
+    expect(screen.getByTestId("location-state")).toHaveTextContent(
+      '"pluginValue":"kept"',
+    );
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Example extension" }),
+    ).toHaveAttribute("aria-current", "page");
+
+    await userEvent.click(screen.getByRole("button", { name: "Other plugin" }));
+    expect(screen.getByText("Other plugin workspace")).toBeVisible();
+    expect(screen.getByText("Session sidebar")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "History back" }));
+    expect(screen.getByText("Plugin child configuration")).toBeVisible();
+    expect(screen.queryByText("Session sidebar")).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "History forward" }),
+    );
+    expect(screen.getByText("Session sidebar")).toBeVisible();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open plugin route" }),
+    );
+    expect(screen.getByText("Plugin configuration")).toBeVisible();
+    expect(screen.getByText("Session sidebar")).toBeVisible();
+  });
+
+  it("keeps the original app return URL after a separate child route", async () => {
+    registerSettingsPlugin("/my-plugin");
+    window.QwenPaw.route!.add("example", {
+      id: "example.details",
+      path: "/example-details/:section",
+      component: () => <div>Plugin child configuration</div>,
+    });
+    renderLayout("/chat?session=1#messages");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open settings" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Example extension" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open plugin child" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Back to app" }));
+    expect(screen.getByText("Chat page")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/chat?session=1#messages",
+    );
+    expect(screen.getByText("Session sidebar")).toBeVisible();
+  });
+
   it.each(["/settings/myplugin", "/my-plugin"])(
     "keeps the settings navigation when opening %s and using history",
     async (path) => {

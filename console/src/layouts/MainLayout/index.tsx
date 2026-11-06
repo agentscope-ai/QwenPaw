@@ -21,6 +21,7 @@ import { getRouteTitle } from "./routeTitle";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
 import { SettingsSearchNavigation } from "../../pages/SettingsCenter/SettingsSearchNavigation";
+import { usePluginSettingsNavigation } from "../../pages/SettingsCenter/usePluginSettingsNavigation";
 
 const { Content } = Layout;
 
@@ -30,6 +31,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const currentPath = location.pathname;
   const routes = useRoutes();
   const settingsMenu = useMenuItems("primary.settings");
+  const agentMenu = useMenuItems("primary.agentScoped");
   const SettingsCenterPage = routes.find(
     (route) => route.id === "core.settings-center",
   )?.Component;
@@ -47,6 +49,15 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
         .map((route) => route.id),
     );
   }, [routes, settingsMenu]);
+  const agentRouteIds = useMemo(
+    () =>
+      new Set(
+        flattenMenu(agentMenu, routes, 16).map(
+          (entry) => findMenuItem(agentMenu, entry.key)?.route,
+        ),
+      ),
+    [routes, agentMenu],
+  );
 
   // Backend is the source of truth for Coding Mode state — refill the
   // in-memory store every time the selected agent changes.
@@ -56,10 +67,14 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     () => pickSelectedKey(currentPath, routes),
     [currentPath, routes],
   );
+  const selectedRoute = routes.find((route) => route.id === selectedKey);
+  const pluginSettingsContext = usePluginSettingsNavigation(
+    selectedRoute,
+    settingsRouteIds.has(selectedKey) && !agentRouteIds.has(selectedKey),
+  );
   const settingsCenterActive =
     selectedKey === "core.settings-center" ||
-    Boolean(SettingsCenterPage && settingsRouteIds.has(selectedKey));
-  const selectedRoute = routes.find((route) => route.id === selectedKey);
+    Boolean(SettingsCenterPage && pluginSettingsContext);
   const pageTitle = getRouteTitle(selectedRoute, i18n.language);
 
   // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
@@ -124,8 +139,12 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                             mode="compat"
                           >
                             {SettingsCenterPage &&
-                            settingsRouteIds.has(r.id) ? (
-                              <SettingsCenterPage routeId={r.id} />
+                            pluginSettingsContext &&
+                            r.id === selectedKey ? (
+                              <SettingsCenterPage
+                                routeId={r.id}
+                                pluginContext={pluginSettingsContext}
+                              />
                             ) : (
                               <r.Component />
                             )}
