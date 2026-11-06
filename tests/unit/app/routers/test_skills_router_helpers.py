@@ -121,6 +121,40 @@ class TestSnapshotRestore:
         entry = _read_manifest(workspace_dir)["skills"]["demo"]
         assert entry["enabled"] is True
 
+    def test_restore_renames_a_same_volume_backup(
+        self,
+        skill_env,
+        monkeypatch,
+    ):
+        """The rollback must not copy the tree back when it can rename it."""
+        _tmp, workspace_dir = skill_env
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+        _write_workspace_manifest(
+            workspace_dir,
+            {"demo": {"enabled": True}},
+        )
+
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        backup_dir = Path(snapshot["backup_dir"])
+        # the backup sits beside the workspace, on its own volume
+        assert backup_dir.parent.parent == workspace_dir
+
+        (skill_dir / "SKILL.md").write_text("corrupted", encoding="utf-8")
+
+        def _no_copy(*_args, **_kwargs):
+            raise AssertionError("same-volume rollback must not copy")
+
+        monkeypatch.setattr(skills_module.shutil, "copytree", _no_copy)
+        skills_module._restore_workspace_skill(snapshot)
+
+        assert (skill_dir / "SKILL.md").read_text(encoding="utf-8") == (
+            _skill_md("demo")
+        )
+
     def test_snapshot_missing_skill_has_no_backup(self, skill_env):
         _tmp, workspace_dir = skill_env
         _write_workspace_manifest(workspace_dir, {})

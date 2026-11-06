@@ -2027,7 +2027,12 @@ class TestDownloadPoolSkillRoute:
             # captured inside the loop: after the plan snapshot was taken
             # and before the finally leg cleaned it up
             seen_during_download.append(
-                sorted(path.name for path in temp_root.iterdir()),
+                sorted(
+                    path.name
+                    for path in workspace_dir.glob(
+                        ".qwenpaw_skill_rollback_*",
+                    )
+                ),
             )
             return {
                 "success": True,
@@ -2055,14 +2060,49 @@ class TestDownloadPoolSkillRoute:
 
         assert response.status_code == 200
         assert response.json()["downloaded"][0]["name"] == "demo"
-        # a rollback dir really existed mid-download (so the empty temp
-        # root below is a real cleanup, not a vacuous assertion), and the
+        # a rollback dir really existed mid-download (so the empty checks
+        # below are a real cleanup, not a vacuous assertion), and the
         # finally leg removed it again
         assert len(seen_during_download) == 1
         assert len(seen_during_download[0]) == 1
         assert seen_during_download[0][0].startswith(
-            "qwenpaw_skill_rollback_demo_",
+            ".qwenpaw_skill_rollback_demo_",
         )
+        assert list(workspace_dir.glob(".qwenpaw_skill_rollback_*")) == []
+        # the backup stayed on the workspace volume: system temp is untouched
+        assert list(temp_root.iterdir()) == []
+
+    def test_rollback_backup_stays_in_temp_on_another_volume(
+        self,
+        workspace_agent,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """A workspace on another volume keeps the old temp-dir backup."""
+        temp_root = tmp_path / "tempdirs"
+        temp_root.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+        monkeypatch.setattr(
+            skills_module,
+            "same_volume",
+            lambda *_args, **_kwargs: False,
+        )
+        workspace_dir = workspace_agent
+        _write_skill(workspace_dir / "skills" / "demo", "demo")
+        _write_workspace_manifest(
+            workspace_dir,
+            {"demo": {"enabled": True}},
+        )
+
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        backup_dir = Path(snapshot["backup_dir"])
+        assert backup_dir.parent.parent == temp_root
+
+        skills_module._restore_workspace_skill(snapshot)
+        assert (workspace_dir / "skills" / "demo" / "SKILL.md").is_file()
         assert list(temp_root.iterdir()) == []
 
 

@@ -7,6 +7,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import shutil
 import tempfile
 import threading
@@ -64,6 +65,7 @@ from ...agents.skill_system.store import (
     read_skill_pool_manifest,
     resolve_pool_skill_dir,
     safe_skill_dir,
+    same_volume,
     suggest_conflict_name,
     with_cancel_checker,
 )
@@ -622,6 +624,45 @@ def _workspace_dir_for_agent(agent_id: str) -> Path:
     )
 
 
+def _rollback_backup_parent(
+    workspace_dir: Path,
+    skill_dir: Path,
+) -> str | None:
+    """Where to create the rollback copy: beside the workspace, or None.
+
+    A backup on the workspace's own volume is what lets the restore rename it
+    back instead of copying every file a second time. When the volumes differ
+    the caller keeps the old behaviour (system temp), because a cross-volume
+    move would fail and land on the very copy we are trying to avoid.
+    """
+    try:
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:  # pragma: no cover - unwritable workspace
+        return None
+    return (
+        str(workspace_dir) if same_volume(workspace_dir, skill_dir) else None
+    )
+
+
+def _install_rollback_copy(backup_dir: Path, skill_dir: Path) -> None:
+    """Put a rollback backup back at *skill_dir*, renaming when legal.
+
+    *skill_dir* must already be gone: a rename cannot replace a directory.
+    """
+    if same_volume(backup_dir, skill_dir.parent):
+        try:
+            os.rename(backup_dir, skill_dir)
+        except OSError:
+            logger.debug(
+                "Rollback fell back to a copy for %s",
+                skill_dir,
+                exc_info=True,
+            )
+        else:
+            return
+    shutil.copytree(backup_dir, skill_dir)
+
+
 def _snapshot_workspace_skill(
     workspace_dir: Path,
     skill_name: str,
@@ -632,7 +673,10 @@ def _snapshot_workspace_skill(
     backup_dir: Path | None = None
     if skill_dir.exists():
         backup_root = Path(
-            tempfile.mkdtemp(prefix=f"qwenpaw_skill_rollback_{skill_name}_"),
+            tempfile.mkdtemp(
+                prefix=f".qwenpaw_skill_rollback_{skill_name}_",
+                dir=_rollback_backup_parent(workspace_dir, skill_dir),
+            ),
         )
         backup_dir = backup_root / skill_name
         shutil.copytree(skill_dir, backup_dir)
@@ -654,7 +698,7 @@ def _restore_workspace_skill(snapshot: dict[str, Any]) -> None:
     if skill_dir.exists():
         shutil.rmtree(skill_dir)
     if backup_dir is not None and Path(backup_dir).exists():
-        shutil.copytree(Path(backup_dir), skill_dir)
+        _install_rollback_copy(Path(backup_dir), skill_dir)
 
     def _restore(payload: dict[str, Any]) -> None:
         payload.setdefault("skills", {})
