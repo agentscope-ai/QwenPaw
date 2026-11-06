@@ -160,6 +160,7 @@ class DoomLoopGate(LoopGate):
             return StopHandlerResult(
                 action=StopAction.TERMINATE,
                 reason=active_stage.prompt,
+                outcome_code="loop_detected",
             )
 
         state.prompt = active_stage.prompt
