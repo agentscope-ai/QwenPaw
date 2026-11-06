@@ -267,6 +267,22 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Anchors the conversation width handles to the chat column. */
+  position: relative;
+}
+
+/* Conversation width axis: ChatContentWidthHandles publishes the user's chosen
+ * column width; the transcript and composer follow the same axis. The fallbacks
+ * keep the shipped widths until the user drags an edge. */
+.chatMainArea :global {
+  .qwenpaw-chat-anywhere-message-list .qwenpaw-bubble-list {
+    max-width: var(--qwenpaw-chat-user-content-width, 960px) !important;
+  }
+
+  .qwenpaw-chat-anywhere-input-wrapper,
+  .qwenpaw-chat-anywhere-sender-wrapper {
+    max-width: var(--qwenpaw-chat-user-content-width, 850px) !important;
+  }
 }
 
 /* Chat messages scrollable area */
@@ -302,7 +318,7 @@
       .qwenpaw-bubble-list,
       .qwenpaw-chat-anywhere-input-wrapper,
       .qwenpaw-chat-anywhere-sender-wrapper {
-        max-width: none !important;
+        max-width: var(--qwenpaw-chat-user-content-width, none) !important;
       }
 
       .qwenpaw-chat-anywhere-input-wrapper,

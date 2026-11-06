@@ -107,6 +107,7 @@ import { wrapReplayFastForward } from "./replayFastForward";
 import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
+import ChatContentWidthHandles from "./components/ChatContentWidthHandles";
 import {
   buildFallbackSystemMessage,
   modelFallbackEventKey,
@@ -3546,6 +3547,7 @@ export default function ChatPage() {
 
   const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+  const chatMainAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4622,7 +4624,7 @@ export default function ChatPage() {
         onClickCapture={handleInternalFileLink}
       >
         {/* Main chat area */}
-        <div className={styles.chatMainArea}>
+        <div ref={chatMainAreaRef} className={styles.chatMainArea}>
           <div
             ref={chatMessagesAreaRef}
             className={[
@@ -4660,6 +4662,12 @@ export default function ChatPage() {
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
           </div>
+
+          <ChatContentWidthHandles
+            containerRef={chatMainAreaRef}
+            scrollRef={chatMessagesAreaRef}
+            enabled={!isMobile && !isSessionTransition && !isWideMode}
+          />
 
           {/* Rate-limit guidance banner */}
           {usesQwenPawBackend && rateLimitAlternatives.length > 0 && (

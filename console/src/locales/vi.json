@@ -1176,6 +1176,10 @@
     "runtimeRestartFailed": "Không thể khởi động lại môi trường"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "Điều chỉnh độ rộng cuộc trò chuyện",
+      "hint": "Kéo để điều chỉnh độ rộng; nhấp đúp để đặt lại"
+    },
     "longTextPaste": {
       "title": "Dán văn bản dài",
       "asText": "Dán dưới dạng văn bản",
