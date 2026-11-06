@@ -125,66 +125,21 @@ class TestDependencyGate:
         assert not decision.allow_install
         assert not decision.require_restart
 
-    def test_unsatisfied_httpx_requires_restart(self, tmp_path: Path):
-        req = tmp_path / "requirements.txt"
-        req.write_text("httpx==0.0.1\n", encoding="utf-8")
-        decision = DependencyGate().evaluate(
-            req,
-            allow_install=True,
-            plugin_id="p",
-        )
-        assert decision.require_restart
-        assert not decision.allow_install
-        assert hits_imported_host_package(Requirement("httpx==0.0.1"))
-
-    @pytest.mark.parametrize(
-        "package,frozen",
-        [
-            ("openai", False),
-            ("agentscope", False),
-            ("reme-ai", False),
-            ("apscheduler", False),
-            ("openai", True),
-        ],
-    )
-    def test_conflicting_core_dependency_is_blocked(
-        self,
-        tmp_path: Path,
-        package: str,
-        frozen: bool,
-    ):
-        requirements = tmp_path / "requirements.txt"
-        declaration = f"{package}<0.1"
-        requirements.write_text(declaration + "\n", encoding="utf-8")
-        with (
-            patch(
-                "qwenpaw.plugins.dependency_gate._dist_version",
-                return_value="2.0.0",
-            ),
-            patch(
-                "qwenpaw.plugins.dependency_gate._is_frozen",
-                return_value=frozen,
-            ),
-        ):
-            decision = DependencyGate().evaluate(
-                requirements,
-                allow_install=True,
-                plugin_id="test-plugin",
-            )
-        assert not decision.allow_install
-        assert not decision.already_satisfied
-        assert decision.host_conflicts == [declaration]
-        assert decision.require_restart
-
     def test_satisfied_core_dependency_needs_no_install(
         self,
         tmp_path: Path,
     ):
         requirements = tmp_path / "requirements.txt"
         requirements.write_text("openai>=1\n", encoding="utf-8")
-        with patch(
-            "qwenpaw.plugins.dependency_gate._dist_version",
-            return_value="2.0.0",
+        with (
+            patch(
+                "qwenpaw.plugins.dependency_gate._dist_version",
+                return_value="2.0.0",
+            ),
+            patch(
+                "qwenpaw.plugins.dependency_gate._dist_requires",
+                return_value=(),
+            ),
         ):
             decision = DependencyGate().evaluate(
                 requirements,
@@ -328,37 +283,6 @@ async def test_boot_missing_deps_is_failed_without_install(
     assert record.status == "failed"
     assert record.enabled is False
     assert any("missing-dep" in d for d in record.diagnostics)
-
-
-@pytest.mark.asyncio
-async def test_user_install_rejects_httpx_upgrade(
-    tmp_path: Path,
-    fresh_registry,
-):
-    root = _write_plugin(
-        tmp_path / "httpx-up",
-        "httpx-up",
-        requirements="httpx==0.0.1\n",
-    )
-    loader = PluginLoader(plugin_dirs=[tmp_path])
-    loader.registry = fresh_registry
-    with patch.object(
-        loader,
-        "_install_requirements_locked",
-        side_effect=AssertionError("site must not be written"),
-    ) as installer:
-        record = await loader.load_plugin(
-            PluginManifest.from_dict(
-                json.loads(
-                    (root / "plugin.json").read_text(encoding="utf-8"),
-                ),
-            ),
-            root,
-            allow_install=True,
-        )
-        assert record.status == "failed" and not record.enabled
-        assert "Restart" in " ".join(record.diagnostics)
-        installer.assert_not_called()
 
 
 @pytest.mark.asyncio

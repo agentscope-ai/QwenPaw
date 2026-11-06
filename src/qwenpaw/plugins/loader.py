@@ -498,9 +498,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             return False
         return True
 
-    def _require_recovered(self, plugin_id: str) -> None:
+    def _require_recovered(
+        self,
+        plugin_id: str,
+        *,
+        for_uninstall: bool = False,
+    ) -> None:
         """Do not import or commit a version whose boot recovery failed."""
-        if plugin_id == "cloudpaw":
+        # Uninstall may finish its own pending cleanup; loading may not.
+        if plugin_id == "cloudpaw" and not for_uninstall:
             from .legacy_cloudpaw import has_pending_uninstall
 
             if has_pending_uninstall(self):
@@ -2202,6 +2208,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         plugin_id: str,
         *,
         require_clean: bool = False,
+        for_uninstall: bool = False,
     ) -> None:
         """Refresh a blocked/unfinished transaction before changing files."""
         from ..utils.io_utils import run_sync_io
@@ -2222,7 +2229,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             or await run_sync_io(pending)
         ):
             await self._recover_plugin_transactions_unlocked(plugin_id)
-        self._require_recovered(plugin_id)
+        self._require_recovered(plugin_id, for_uninstall=for_uninstall)
         if require_clean and plugin_id in self._recovery_errors:
             raise RuntimeError(
                 f"Plugin '{plugin_id}' update cleanup is incomplete: "
@@ -4362,6 +4369,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 await self._retry_plugin_recovery_unlocked(
                     plugin_id,
                     require_clean=True,
+                    for_uninstall=True,
                 )
             except RuntimeError as exc:
                 report.clean = False
@@ -4687,6 +4695,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             await self._retry_plugin_recovery_unlocked(
                 plugin_id,
                 require_clean=True,
+                for_uninstall=True,
             )
         except RuntimeError as exc:
             report.clean = False
