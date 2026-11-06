@@ -122,6 +122,27 @@ def test_matching_identity_copies_sync_and_crypto_once(tmp_path):
         second.close()
 
 
+def test_legacy_crypto_filename_conflict_is_rejected(tmp_path):
+    legacy = tmp_path / "legacy"
+    write_legacy(legacy)
+    crypto = legacy / "matrix_crypto_store"
+    (crypto / DATABASE_NAME).write_bytes(b"current-crypto")
+    store = make_store(tmp_path / "workspace", legacy)
+    try:
+        with pytest.raises(
+            MatrixStateError,
+            match="MATRIX_CRYPTO_STORE_CONFLICT",
+        ):
+            store.bind(USER, DEVICE, encryption_enabled=True)
+        assert store.directory is None
+        assert (crypto / LEGACY_DATABASE_NAME).read_bytes() == (
+            b"legacy-crypto"
+        )
+        assert (crypto / DATABASE_NAME).read_bytes() == b"current-crypto"
+    finally:
+        store.close()
+
+
 def test_account_switch_reuses_each_workspace_scope(tmp_path):
     legacy = tmp_path / "legacy"
     write_legacy(legacy)
@@ -233,7 +254,7 @@ def test_non_e2ee_crypto_copy_failure_discards_partial_copy(
     legacy = tmp_path / "legacy"
     write_legacy(legacy)
 
-    def partial_copy(_source, destination):
+    def partial_copy(_source, destination, **_kwargs):
         destination.mkdir(parents=True)
         (destination / DATABASE_NAME).write_bytes(b"partial")
         raise OSError("copy interrupted")

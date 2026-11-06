@@ -16,6 +16,13 @@ from qwenpaw.plugins.install_lock import plugin_install_lock
 
 logger = logging.getLogger(__name__)
 
+_CRYPTO_SUFFIXES = (
+    ".db",
+    ".trusted_devices",
+    ".blacklisted_devices",
+    ".ignored_devices",
+)
+
 
 class MatrixStateError(RuntimeError):
     """Matrix state cannot be used without risking identity or data loss."""
@@ -113,7 +120,26 @@ class MatrixStateStore:
         )
 
     @staticmethod
+    def _copy_file(source, destination):
+        fd, temporary = tempfile.mkstemp(
+            prefix=".matrix-crypto-",
+            dir=destination.parent,
+        )
+        try:
+            with (
+                os.fdopen(fd, "wb") as target,
+                source.open("rb") as source_stream,
+            ):
+                shutil.copyfileobj(source_stream, target)
+                target.flush()
+                os.fsync(target.fileno())
+            os.replace(temporary, destination)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    @classmethod
     def _migrate_crypto_files(
+        cls,
         crypto,
         user_id,
         device_id,
@@ -121,34 +147,47 @@ class MatrixStateStore:
     ):
         legacy_base = f"{user_id}_{device_id}"
         safe_base = Path(database_name).stem
-        for suffix in (
-            ".db",
-            ".trusted_devices",
-            ".blacklisted_devices",
-            ".ignored_devices",
-        ):
+        for suffix in _CRYPTO_SUFFIXES:
             legacy_path = crypto / f"{legacy_base}{suffix}"
             safe_path = crypto / f"{safe_base}{suffix}"
             if not legacy_path.exists():
                 continue
             if safe_path.exists():
                 raise MatrixStateError("MATRIX_CRYPTO_STORE_CONFLICT")
-            fd, temporary = tempfile.mkstemp(
-                prefix=".matrix-crypto-",
-                dir=crypto,
-            )
-            try:
-                with (
-                    os.fdopen(fd, "wb") as target,
-                    legacy_path.open("rb") as source,
-                ):
-                    shutil.copyfileobj(source, target)
-                    target.flush()
-                    os.fsync(target.fileno())
-                os.replace(temporary, safe_path)
-                legacy_path.unlink()
-            finally:
-                Path(temporary).unlink(missing_ok=True)
+            cls._copy_file(legacy_path, safe_path)
+            legacy_path.unlink()
+
+    @classmethod
+    def _copy_crypto_store(
+        cls,
+        source,
+        target,
+        user_id,
+        device_id,
+        database_name,
+    ):
+        legacy_base = f"{user_id}_{device_id}"
+        safe_base = Path(database_name).stem
+        legacy_names = {
+            f"{legacy_base}{suffix}" for suffix in _CRYPTO_SUFFIXES
+        }
+        for suffix in _CRYPTO_SUFFIXES:
+            legacy_path = source / f"{legacy_base}{suffix}"
+            safe_path = source / f"{safe_base}{suffix}"
+            if legacy_path.exists() and safe_path.exists():
+                raise MatrixStateError("MATRIX_CRYPTO_STORE_CONFLICT")
+
+        def ignore_legacy(_directory, names):
+            return [name for name in names if name in legacy_names]
+
+        shutil.copytree(source, target, ignore=ignore_legacy)
+        for suffix in _CRYPTO_SUFFIXES:
+            legacy_path = source / f"{legacy_base}{suffix}"
+            if legacy_path.exists():
+                safe_path = target / f"{safe_base}{suffix}"
+                cls._copy_file(legacy_path, safe_path)
+                copied_legacy = target / f"{legacy_base}{suffix}"
+                copied_legacy.unlink(missing_ok=True)
 
     def _claim_device(self, scope):
         claim_root = (
@@ -220,21 +259,20 @@ class MatrixStateStore:
                     self.legacy / ".matrix-plugin.lock",
                     timeout=0,
                 ):
-                    shutil.copytree(
+                    self._copy_crypto_store(
                         legacy_crypto,
                         staging / "crypto_store",
+                        user_id,
+                        device_id,
+                        database_name,
                     )
+            except MatrixStateError:
+                raise
             except Exception as exc:
                 raise MatrixStateError("MATRIX_LEGACY_COPY_FAILED") from exc
             if target.exists():
                 target.rmdir()
             os.replace(staging / "crypto_store", target)
-            self._migrate_crypto_files(
-                target,
-                user_id,
-                device_id,
-                database_name,
-            )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
@@ -305,11 +343,8 @@ class MatrixStateStore:
                             )
                     if has_crypto(source_crypto):
                         try:
-                            shutil.copytree(
+                            self._copy_crypto_store(
                                 source_crypto,
-                                staging / "crypto_store",
-                            )
-                            self._migrate_crypto_files(
                                 staging / "crypto_store",
                                 owner["user_id"],
                                 owner["device_id"],
