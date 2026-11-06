@@ -210,6 +210,266 @@ class TestCheckMultimodalSupport:
         mock_info.return_value = (model_info, None)
         assert _check_multimodal_support("image") is True
 
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_active_model_uses_resolved_capabilities(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents.prompt import (
+            _get_active_model_info,
+            get_model_supports_image,
+        )
+        from qwenpaw.providers.model_info import ModelInfo
+        from qwenpaw.providers.openai_provider import OpenAIProvider
+
+        active = MagicMock(provider_id="custom", model="custom-vision")
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        get_instance.return_value = manager
+
+        for overrides, expected_image_support in (
+            ([], True),
+            (["supports_image"], False),
+        ):
+            raw_model = ModelInfo(
+                id=active.model,
+                name=active.model,
+                supports_image=False,
+                supports_multimodal=True,
+                config_overrides=overrides,
+            )
+            provider = OpenAIProvider(
+                id="custom",
+                name="Custom",
+                extra_models=[raw_model],
+                discovered_models=[discovered_model],
+            )
+            manager.get_provider.return_value = provider
+
+            model_info, model_name = _get_active_model_info()
+
+            assert model_info.supports_image is expected_image_support
+            assert model_name == active.model
+            current_model = MagicMock(
+                model_key=f"{active.provider_id}:{active.model}",
+            )
+            assert (
+                get_model_supports_image(current_model)
+                is expected_image_support
+            )
+            with patch(
+                "qwenpaw.agents.prompt._get_active_model_info",
+                return_value=(model_info, model_name),
+            ):
+                assert (
+                    _check_multimodal_support("image")
+                    is expected_image_support
+                )
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_chatgpt_discovery_preserves_explicit_image_opt_out(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents import prompt
+        from qwenpaw.providers.chatgpt_provider import ChatGPTProvider
+        from qwenpaw.providers.model_info import ModelInfo
+
+        active = MagicMock(provider_id="chatgpt", model="gpt-5.4")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=False,
+            supports_multimodal=False,
+            config_overrides=["supports_image"],
+        )
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        provider = ChatGPTProvider(
+            id="chatgpt",
+            name="ChatGPT",
+            extra_models=[raw_model],
+            discovered_models=[discovered_model],
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        model_info, _ = prompt._get_active_model_info()
+
+        assert model_info.supports_image is False
+        assert _check_multimodal_support("image") is False
+        assert prompt.get_active_model_supports_multimodal() is False
+        assert prompt.get_model_supports_image() is False
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_explicit_multimodal_opt_out_blocks_discovered_image(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents import prompt
+        from qwenpaw.providers.model_info import ModelInfo
+        from qwenpaw.providers.openai_provider import OpenAIProvider
+
+        active = MagicMock(provider_id="custom", model="custom-vision")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=False,
+            config_overrides=["supports_multimodal"],
+        )
+        discovered_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=True,
+            supports_multimodal=True,
+            probe_source="api",
+        )
+        provider = OpenAIProvider(
+            id="custom",
+            name="Custom",
+            extra_models=[raw_model],
+            discovered_models=[discovered_model],
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        model_info, _ = prompt._get_active_model_info()
+
+        assert model_info.supports_image is True
+        assert model_info.supports_multimodal is False
+        assert _check_multimodal_support("image") is False
+        assert prompt.get_active_model_supports_multimodal() is False
+        assert prompt.get_model_supports_image() is False
+        current_model = MagicMock(model_key="custom:custom-vision")
+        assert prompt.get_model_supports_image(current_model) is False
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_active_probe_settled_text_only_stays_text_only(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+    ):
+        from qwenpaw.agents.prompt import _get_active_model_info
+        from qwenpaw.providers.model_info import ModelInfo
+        from qwenpaw.providers.openai_provider import OpenAIProvider
+
+        active = MagicMock(provider_id="custom", model="text-only")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=False,
+            supports_video=False,
+            supports_multimodal=False,
+            probe_source="probed",
+        )
+        provider = OpenAIProvider(
+            id="custom",
+            name="Custom",
+            extra_models=[raw_model],
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        model_info, model_name = _get_active_model_info()
+
+        assert model_info.supports_multimodal is False
+        assert model_name == active.model
+        with patch(
+            "qwenpaw.agents.prompt._get_active_model_info",
+            return_value=(model_info, model_name),
+        ):
+            assert _check_multimodal_support("image") is False
+
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch(
+        "qwenpaw.config.config.load_agent_config",
+        side_effect=RuntimeError("no agent override"),
+    )
+    @patch("qwenpaw.app.agent_context.get_current_agent_id", return_value=None)
+    def test_active_model_resolution_failure_uses_configured_metadata(
+        self,
+        _agent_id,
+        _agent_config,
+        get_instance,
+        caplog,
+    ):
+        import logging
+
+        from qwenpaw.agents.prompt import _get_active_model_info
+        from qwenpaw.providers.model_info import ModelInfo
+
+        active = MagicMock(provider_id="mimo", model="mimo-v2.6-flash")
+        raw_model = ModelInfo(
+            id=active.model,
+            name=active.model,
+            supports_image=False,
+            supports_multimodal=False,
+        )
+        provider = MagicMock()
+        provider.all_models.return_value = [raw_model]
+        provider.model_capabilities.side_effect = RuntimeError(
+            "resolver failed",
+        )
+        manager = MagicMock()
+        manager.get_active_model.return_value = active
+        manager.get_provider.return_value = provider
+        get_instance.return_value = manager
+
+        with caplog.at_level(logging.WARNING):
+            model_info, model_name = _get_active_model_info()
+
+        assert model_info is raw_model
+        assert model_name == active.model
+        assert "mimo/mimo-v2.6-flash" in caplog.text
+        assert "using configured metadata" in caplog.text
+        assert "resolver failed" in caplog.text
+
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_video_requires_explicit_support(self, mock_info):
         model_info = MagicMock()
@@ -682,6 +942,51 @@ class TestViewImage:
             if getattr(b, "type", None) == "text"
         ]
         assert any("multimodal" in t.lower() for t in text_parts)
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")
+    @patch("qwenpaw.agents.prompt._get_active_model_slot")
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    async def test_explicit_image_opt_out_skips_probe(
+        self,
+        mock_info,
+        mock_slot,
+        get_instance,
+        tmp_path,
+    ):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        model_info = ModelInfo(
+            id="custom-vision",
+            name="custom-vision",
+            supports_image=False,
+            supports_multimodal=None,
+            config_overrides=["supports_image"],
+        )
+        mock_info.return_value = (model_info, model_info.id)
+        mock_slot.return_value = MagicMock(
+            provider_id="custom",
+            model=model_info.id,
+        )
+        manager = MagicMock()
+        manager.probe_model_multimodal = AsyncMock(
+            return_value={"supports_image": True},
+        )
+        get_instance.return_value = manager
+        image = tmp_path / "image.png"
+        Image.new("RGB", (2, 2), color="red").save(image)
+
+        result = await view_image(str(image))
+        await asyncio.sleep(0)
+
+        manager.probe_model_multimodal.assert_not_awaited()
+        text = " ".join(
+            block.text
+            for block in result.content
+            if getattr(block, "type", None) == "text"
+        )
+        assert "Image loaded" not in text
+        assert "disabled" in text or "does not support" in text
 
 
 class TestFreezeImageBytes:
