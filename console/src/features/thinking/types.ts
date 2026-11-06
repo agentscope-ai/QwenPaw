@@ -28,13 +28,8 @@ export interface ThinkingControlSpec {
   budget_max?: number | null;
   budget_default?: number | null;
 }
-export interface DecisionSettings {
-  enabled: boolean;
-  configured: boolean;
-  override: boolean | null;
-}
 export interface ThinkingView {
-  decision?: DecisionSettings;
+  decision_model_configured?: boolean;
   model_source?: "session" | "agent" | "global";
   provider_id?: string | null;
   model_key?: string;

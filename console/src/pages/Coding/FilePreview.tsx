@@ -15,9 +15,10 @@ import {
   FileWarning,
   LoaderCircle,
 } from "lucide-react";
+import { useMemoizedFn } from "ahooks";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
@@ -32,6 +33,7 @@ import {
   parseMarkdownFrontmatter,
   parseMemoryTags,
 } from "../../utils/markdown";
+import { resolveMarkdownFilePath } from "./markdownFileReferences";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,7 @@ function useAuthBlobUrl(
   chatId?: string,
   binaryUrl?: string,
   root?: WorkspaceRoot,
+  projectDirOverride?: string,
 ): {
   blobUrl: string | null;
   loading: boolean;
@@ -124,7 +127,9 @@ function useAuthBlobUrl(
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
 
   useEffect(() => {
-    let revoked = false;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    setBlobUrl(null);
     setLoading(true);
     setFailed(false);
 
@@ -134,7 +139,11 @@ function useAuthBlobUrl(
         headers: {
           ...buildAuthHeaders(),
           ...(chatId ? { "X-Chat-Id": chatId } : {}),
+          ...(!chatId && projectDirOverride
+            ? { "X-Session-Project-Dir": projectDirOverride }
+            : {}),
         },
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(`${res.status}`);
       return res.blob();
@@ -142,12 +151,13 @@ function useAuthBlobUrl(
 
     loadBlob()
       .then((blob) => {
-        if (revoked || !blob) return;
-        setBlobUrl(URL.createObjectURL(blob));
+        if (controller.signal.aborted || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
         setLoading(false);
       })
       .catch(() => {
-        if (!revoked) {
+        if (!controller.signal.aborted) {
           setBlobUrl(null);
           setLoading(false);
           setFailed(true);
@@ -155,13 +165,10 @@ function useAuthBlobUrl(
       });
 
     return () => {
-      revoked = true;
-      setBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [binaryUrl, chatId, filePath, root, selectedAgent]);
+  }, [binaryUrl, chatId, filePath, root, projectDirOverride, selectedAgent]);
 
   return { blobUrl, loading, failed };
 }
@@ -175,11 +182,13 @@ function ImagePreview({
   chatId,
   binaryUrl,
   root,
+  projectDirOverride,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  projectDirOverride?: string;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -187,6 +196,7 @@ function ImagePreview({
     chatId,
     binaryUrl,
     root,
+    projectDirOverride,
   );
   if (loading) {
     return (
@@ -218,11 +228,13 @@ function PdfPreview({
   chatId,
   binaryUrl,
   root,
+  projectDirOverride,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  projectDirOverride?: string;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -230,6 +242,7 @@ function PdfPreview({
     chatId,
     binaryUrl,
     root,
+    projectDirOverride,
   );
   if (loading) {
     return (
@@ -303,6 +316,28 @@ const markdownComponents = {
   },
 };
 
+function MarkdownImage({
+  filePath,
+  chatId,
+  root,
+  projectDirOverride,
+  ...props
+}: React.ComponentPropsWithoutRef<"img"> & {
+  filePath: string;
+  chatId?: string;
+  root?: WorkspaceRoot;
+  projectDirOverride?: string;
+}) {
+  const { blobUrl, loading } = useAuthBlobUrl(
+    filePath,
+    chatId,
+    undefined,
+    root,
+    projectDirOverride,
+  );
+  return <img {...props} src={blobUrl ?? undefined} aria-busy={loading} />;
+}
+
 type MarkdownAstNode = {
   type?: string;
   lang?: string;
@@ -322,17 +357,73 @@ function preserveMathCodeBlocks() {
 }
 
 function MarkdownPreview({
+  filePath,
   content,
+  chatId,
+  root,
+  projectDirOverride,
+  workspaceBacked,
+  onOpenFile,
   onMemoryTagClick,
-}: {
-  content: string;
-  onMemoryTagClick?: (tag: string) => void;
-}) {
+}: FilePreviewProps) {
   const { t } = useTranslation();
   const tags = useMemo(() => parseMemoryTags(content), [content]);
   const { body, entries } = useMemo(
     () => parseMarkdownFrontmatter(content),
     [content],
+  );
+  const canOpenFile = !!onOpenFile;
+  const handleOpenFile = useMemoizedFn((path: string) => onOpenFile?.(path));
+  const components = useMemo<Components>(
+    () => ({
+      ...markdownComponents,
+      a({ node, href, ...props }) {
+        void node;
+        const path = workspaceBacked
+          ? resolveMarkdownFilePath(filePath, href)
+          : null;
+        if (!path || !canOpenFile) {
+          return <ExternalMarkdownLink {...props} href={href} />;
+        }
+        return (
+          <a
+            {...props}
+            href={workspaceApi.getFileDownloadUrl(path, root)}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              handleOpenFile(path);
+            }}
+          />
+        );
+      },
+      img({ node, src, ...props }) {
+        void node;
+        const path = workspaceBacked
+          ? resolveMarkdownFilePath(filePath, src)
+          : null;
+        return path ? (
+          <MarkdownImage
+            {...props}
+            filePath={path}
+            chatId={chatId}
+            root={root}
+            projectDirOverride={projectDirOverride}
+          />
+        ) : (
+          <img {...props} src={src} />
+        );
+      },
+    }),
+    [
+      filePath,
+      chatId,
+      root,
+      projectDirOverride,
+      workspaceBacked,
+      canOpenFile,
+      handleOpenFile,
+    ],
   );
   // Tags come from the resolved YAML document, including merge keys and
   // quoted keys. Render one semantic tag row independently of raw metadata.
@@ -388,7 +479,7 @@ function MarkdownPreview({
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath, preserveMathCodeBlocks]}
         rehypePlugins={[rehypeKatex]}
-        components={markdownComponents}
+        components={components}
       >
         {body}
       </ReactMarkdown>
@@ -601,6 +692,7 @@ export interface FilePreviewProps {
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
+  onOpenFile?: (path: string) => void;
   onMemoryTagClick?: (tag: string) => void;
 }
 
@@ -612,6 +704,7 @@ export default function FilePreview({
   root,
   projectDirOverride,
   workspaceBacked,
+  onOpenFile,
   onMemoryTagClick,
 }: FilePreviewProps) {
   const type = getPreviewType(filePath);
@@ -623,6 +716,7 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        projectDirOverride={projectDirOverride}
       />
     );
   }
@@ -633,12 +727,22 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        projectDirOverride={projectDirOverride}
       />
     );
   }
   if (type === "markdown")
     return (
-      <MarkdownPreview content={content} onMemoryTagClick={onMemoryTagClick} />
+      <MarkdownPreview
+        filePath={filePath}
+        content={content}
+        chatId={chatId}
+        root={root}
+        projectDirOverride={projectDirOverride}
+        workspaceBacked={workspaceBacked && !binaryUrl}
+        onOpenFile={onOpenFile}
+        onMemoryTagClick={onMemoryTagClick}
+      />
     );
   if (type === "html") {
     return (

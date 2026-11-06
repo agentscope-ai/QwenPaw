@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """Local Matrix API transport; actual nio/client/platform remain unmocked."""
 import asyncio
+import hashlib
 import json
 from nio import AsyncClient
+from nio.crypto import ENCRYPTION_ENABLED, OlmDevice
 from pathlib import Path
 import pytest
 from qwenpaw.channel_protocol.models import SendParams
@@ -11,12 +13,30 @@ from tests.channel_support.driver import bind, module
 
 from aiohttp import web
 import pytest_asyncio
+import tomllib
 
-MatrixPlatform = module("matrix", "platform").MatrixPlatform
+matrix_module = module("matrix", "platform")
+state_module = module("matrix", "state")
+MatrixPlatform = matrix_module.MatrixPlatform
 
 BOT = "@bot:example.com"
 ROOM = "!test_room:example.com"
 SENDER = "@user:example.com"
+
+
+def test_matrix_requirements_match_channels_extra():
+    project_root = Path(__file__).resolve().parents[3]
+    with (project_root / "pyproject.toml").open("rb") as stream:
+        project = tomllib.load(stream)
+    declared = set(project["project"]["optional-dependencies"]["channels"])
+    requirements = {
+        line.strip()
+        for line in (project_root / "plugins/channel/matrix/requirements.txt")
+        .read_text()
+        .splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    assert requirements <= declared
 
 
 def text_event(body, event_id, sender=SENDER):
@@ -61,6 +81,7 @@ class LocalMatrixAPI:
         self.device = "SERVER-DEVICE"
         self.closed = asyncio.Event()
         self.download = b"native-media-bytes"
+        self.device_keys = {}
 
     async def handle(self, request):
         raw = await request.read()
@@ -118,6 +139,21 @@ class LocalMatrixAPI:
                     BOT: {"display_name": "Bot"},
                     SENDER: {"display_name": "User"},
                 },
+            }, 200
+        elif path.endswith("/keys/upload"):
+            if "device_keys" in body:
+                self.device_keys[self.device] = body["device_keys"]
+            value, status = {
+                "one_time_key_counts": {
+                    "signed_curve25519": len(
+                        body.get("one_time_keys", {}),
+                    ),
+                },
+            }, 200
+        elif path.endswith("/keys/query"):
+            value, status = {
+                "device_keys": {self.user: self.device_keys},
+                "failures": {},
             }, 200
         elif "/send/" in path:
             value, status = ({"event_id": "$sent-" + str(len(self.sent))}, 200)
@@ -235,6 +271,197 @@ async def test_password_precedes_token_and_server_identity_is_persisted(
             "password-result-token",
         ),
     }
+
+
+@pytest.mark.asyncio
+async def test_legacy_identity_mismatch_does_not_block_valid_token(
+    platform_factory,
+):
+    platform = platform_factory()
+    legacy = Path(platform.config["legacy_state_dir"])
+    legacy.mkdir(parents=True)
+    old_auth = {
+        "access_token": "old-test-token",
+        "user_id": "@old-bot:example.com",
+        "device_id": "OLD-DEVICE",
+    }
+    (legacy / "matrix_auth_state.json").write_text(json.dumps(old_auth))
+    (legacy / "matrix_sync_token").write_text("old-batch")
+    await platform.start()
+    assert platform.observed_states == ["connected"]
+    assert platform._state.owner["user_id"] == BOT
+    assert (
+        json.loads(
+            (legacy / "matrix_auth_state.json").read_text(),
+        )
+        == old_auth
+    )
+    assert (legacy / "matrix_sync_token").read_text() == "old-batch"
+
+
+@pytest.mark.asyncio
+async def test_missing_e2ee_dependency_keeps_plaintext_fallback(
+    platform_factory,
+    monkeypatch,
+):
+    monkeypatch.setattr(matrix_module, "ENCRYPTION_ENABLED", False)
+    platform = platform_factory(encryption=True)
+    await platform.start()
+    assert platform.encryption is False
+    assert platform.observed_states == ["connected"]
+
+
+@pytest.mark.skipif(
+    not ENCRYPTION_ENABLED,
+    reason="nio E2EE backend required",
+)
+@pytest.mark.asyncio
+async def test_default_e2ee_dependency_initializes_crypto_store(
+    hs,
+    platform_factory,
+):
+    platform = platform_factory(encryption=True)
+    await platform.start()
+    assert platform._client.olm is not None
+    assert platform._client.olm.account.shared
+    assert len(hs.calls("/keys/upload")) == 1
+    database = Path(platform._client.store.database_path)
+    assert database.name == platform._state.database_name
+    assert database.name == f"{platform._state.directory.name}.db"
+    assert database.parent == platform._state.crypto_dir
+    assert database.is_file()
+    peer = OlmDevice(
+        SENDER,
+        "PEER-DEVICE",
+        {"ed25519": "ed25519-key", "curve25519": "curve25519-key"},
+    )
+    assert platform._client.store.verify_device(peer)
+    trusted = platform._state.crypto_dir / f"{database.stem}.trusted_devices"
+    assert trusted.is_file()
+    identity_keys = platform._client.olm.account.identity_keys
+    await platform.stop()
+
+    resumed = platform_factory(encryption=True)
+    await resumed.start()
+    assert resumed._client.olm.account.identity_keys == identity_keys
+    assert resumed._client.store.is_device_verified(peer)
+    assert len(hs.calls("/keys/upload")) == 1
+
+
+@pytest.mark.parametrize("use_legacy", [False, True])
+def test_scoped_crypto_filenames_migrate_legacy_names(
+    tmp_path,
+    use_legacy,
+):
+    homeserver = "https://matrix.example.com"
+    workspace = tmp_path / "A"
+    legacy = tmp_path / "legacy"
+    config = {
+        "workspace_dir": str(workspace),
+        "homeserver": homeserver,
+        "legacy_state_dir": str(legacy),
+    }
+    state = state_module.MatrixStateStore(config)
+    scope = hashlib.sha256(
+        json.dumps([homeserver, BOT, "SERVER-DEVICE"]).encode(),
+    ).hexdigest()
+    crypto = (
+        legacy / "matrix_crypto_store"
+        if use_legacy
+        else state.root / scope / "crypto_store"
+    )
+    crypto.mkdir(parents=True)
+    suffixes = (
+        ".db",
+        ".trusted_devices",
+        ".blacklisted_devices",
+        ".ignored_devices",
+    )
+    for index, suffix in enumerate(suffixes):
+        path = crypto / f"{BOT}_SERVER-DEVICE{suffix}"
+        path.write_bytes(f"state-{index}".encode())
+    if use_legacy:
+        (legacy / "matrix_auth_state.json").write_text(
+            json.dumps({"user_id": BOT, "device_id": "SERVER-DEVICE"}),
+        )
+        owner = {
+            "homeserver": homeserver,
+            "user_id": BOT,
+            "device_id": "SERVER-DEVICE",
+            "workspace_dir": str(state.workspace),
+        }
+        (legacy / "matrix_plugin_owner.json").write_text(
+            json.dumps(owner),
+        )
+
+    state.begin()
+    target_crypto = state.root / scope / "crypto_store"
+    try:
+        state.bind(
+            BOT,
+            "SERVER-DEVICE",
+            encryption_enabled=True,
+        )
+        assert state.crypto_dir == target_crypto
+        assert state.database_name == f"{scope}.db"
+        for index, suffix in enumerate(suffixes):
+            legacy_path = crypto / f"{BOT}_SERVER-DEVICE{suffix}"
+            safe_path = target_crypto / f"{scope}{suffix}"
+            if use_legacy:
+                assert legacy_path.read_bytes() == f"state-{index}".encode()
+            else:
+                assert not legacy_path.exists()
+            assert safe_path.read_bytes() == f"state-{index}".encode()
+    finally:
+        state.close()
+
+
+def test_scoped_crypto_filename_conflict_is_rejected(tmp_path):
+    homeserver = "https://matrix.example.com"
+    state = state_module.MatrixStateStore(
+        {
+            "workspace_dir": str(tmp_path / "A"),
+            "homeserver": homeserver,
+            "legacy_state_dir": str(tmp_path / "legacy"),
+        },
+    )
+    scope = hashlib.sha256(
+        json.dumps([homeserver, BOT, "SERVER-DEVICE"]).encode(),
+    ).hexdigest()
+    crypto = state.root / scope / "crypto_store"
+    crypto.mkdir(parents=True)
+    (crypto / f"{BOT}_SERVER-DEVICE.db").write_bytes(b"old")
+    (crypto / f"{scope}.db").write_bytes(b"new")
+
+    state.begin()
+    try:
+        with pytest.raises(
+            state_module.MatrixStateError,
+            match="MATRIX_CRYPTO_STORE_CONFLICT",
+        ):
+            state.bind(BOT, "SERVER-DEVICE", encryption_enabled=True)
+    finally:
+        state.close()
+
+
+def test_scoped_crypto_database_names_are_unique_per_identity(tmp_path):
+    names = []
+    for index, user in enumerate(("@one:example.com", "@two:example.com")):
+        state = state_module.MatrixStateStore(
+            {
+                "workspace_dir": str(tmp_path / str(index)),
+                "homeserver": "https://matrix.example.com",
+                "legacy_state_dir": str(tmp_path / f"legacy-{index}"),
+            },
+        )
+        state.begin()
+        try:
+            state.bind(user, "SERVER-DEVICE", encryption_enabled=True)
+            names.append(state.database_name)
+        finally:
+            state.close()
+    assert len(set(names)) == 2
+    assert all(":" not in name for name in names)
 
 
 @pytest.mark.asyncio

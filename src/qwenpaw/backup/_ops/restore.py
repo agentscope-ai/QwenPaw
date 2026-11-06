@@ -33,6 +33,7 @@ from .._utils.safe_swap import (
 )
 from .._utils.signing import resolve_signature_action, sign_trusted_backup
 from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
+from ...agents.context.scroll.sync import invalidate_agent_migration
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
@@ -347,6 +348,9 @@ def _stage_agents(
                         "error": str(exc),
                     },
                 ) from exc
+        # Online snapshots and session files can represent different moments.
+        # Reconcile once after restore, before trusting completion metadata.
+        invalidate_agent_migration(staged_workspace)
         staged_dirs.append(dst)
         dst_map[aid] = dst
         if is_new:

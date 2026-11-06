@@ -7,6 +7,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ACPAgentConfig, ACPConfig } from "../../../api/types";
+import { SettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 const mocks = vi.hoisted(() => ({
   getACPConfig: vi.fn(),
@@ -228,6 +229,30 @@ function deferred<T>() {
 }
 
 describe("ACP load guard", () => {
+  it("opens the Node path search target after loading without saving a path", async () => {
+    mocks.getACPConfig.mockReset().mockResolvedValue(loadedConfig);
+    mocks.getACPNodeRuntime.mockResolvedValue({
+      node_path: "/old/node",
+      effective_node_path: "/old/node",
+      candidates: [],
+    });
+    render(
+      <SettingsSearchRequest.Provider
+        value={{
+          page: "acp",
+          label: "Node path",
+          targetId: "acp.nodePath",
+          surface: "node",
+        }}
+      >
+        <ACPPage />
+      </SettingsSearchRequest.Provider>,
+    );
+    await waitFor(() => expect(mocks.getACPNodeRuntime).toHaveBeenCalled());
+    expect(screen.getByText("acp.nodePath")).toBeVisible();
+    expect(mocks.updateACPNodeRuntime).not.toHaveBeenCalled();
+    expect(mocks.updateACPConfig).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     mocks.getACPConfig.mockReset();
     mocks.updateACPConfig.mockReset();

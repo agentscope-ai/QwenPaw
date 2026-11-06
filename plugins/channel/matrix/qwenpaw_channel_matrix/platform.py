@@ -16,7 +16,7 @@ import time
 import urllib.parse
 from collections import OrderedDict
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, List, Optional
 
@@ -68,6 +68,27 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
+
+if ENCRYPTION_ENABLED:
+    from nio.store import DefaultStore, KeyStore
+
+    class _ScopedStore(DefaultStore):
+        """Use the scope-derived database basename for every state file."""
+
+        def __post_init__(self):
+            super().__post_init__()
+            base = Path(self.database_name).stem
+            for attribute, suffix in (
+                ("trust_db", ".trusted_devices"),
+                ("blacklist_db", ".blacklisted_devices"),
+                ("ignore_db", ".ignored_devices"),
+            ):
+                path = Path(self.store_path) / f"{base}{suffix}"
+                setattr(self, attribute, KeyStore(str(path)))
+
+else:
+    DefaultStore = None
+    _ScopedStore = None
 
 logger = logging.getLogger("qwenpaw.plugins.matrix")
 
@@ -455,67 +476,21 @@ class MatrixPlatform:
         )
         return "pbkdf2-sha256:600000:" + digest.hex()
 
-    async def _bind_authenticated_state(self, whoami=None):
+    async def _bind_authenticated_state(self):
         user_id = self._user_id or ""
         device_id = self._client.device_id or ""
-        verified = False
-        if self._state.has_legacy_state():
-            hint = self._state.legacy_auth() or {}
-            if (
-                hint.get("user_id") != user_id
-                or hint.get("device_id", "") != device_id
-            ):
-                raise RuntimeError("MATRIX_LEGACY_IDENTITY_CONFLICT")
-            expected_owner = {
-                "homeserver": self.homeserver,
-                "user_id": user_id,
-                "device_id": device_id,
-                "workspace_dir": str(self._workspace_dir),
-            }
-            owner = self._state.legacy_owner()
-            if owner is not None:
-                if owner != expected_owner:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_CONFLICT")
-                verified = True
-            elif self._state.has_legacy_authorization:
-                verified = self._state.captured_legacy_verified(
-                    user_id,
-                    device_id,
-                )
-                if not verified:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
-            else:
-                # The old JSON has no homeserver. Only a token the user has
-                # explicitly provided for THIS server may be checked here.
-                # Never transmit an unrelated cached token to a new server.
-                explicit_token = self.config.get("access_token") or ""
-                if not explicit_token or explicit_token != hint.get(
-                    "access_token",
-                ):
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
-                if whoami is None:
-                    current_token = self._client.access_token
-                    try:
-                        self._client.access_token = explicit_token
-                        whoami = await self._client.whoami()
-                    finally:
-                        self._client.access_token = current_token
-                verified = (
-                    isinstance(whoami, WhoamiResponse)
-                    and whoami.user_id == user_id
-                    and whoami.device_id == device_id
-                )
-                if not verified:
-                    raise RuntimeError("MATRIX_LEGACY_OWNER_UNVERIFIED")
         self._state.bind(
             user_id,
             device_id,
-            legacy_verified=verified,
             encryption_enabled=self.encryption,
         )
         if self.encryption:
             self._state.crypto_dir.mkdir(parents=True, exist_ok=True)
             self._client.store_path = str(self._state.crypto_dir)
+            self._client.config = replace(
+                self._client.config,
+                store_name=self._state.database_name,
+            )
 
     def _save_auth_state(self):
         if (
@@ -583,6 +558,7 @@ class MatrixPlatform:
         sync_s = self.sync_timeout_ms / 1000
         request_timeout = max(sync_s + 30, 60)
         return AsyncClientConfig(
+            store=_ScopedStore if encryption else DefaultStore,
             store_sync_tokens=False,
             encryption_enabled=encryption,
             request_timeout=request_timeout,
@@ -609,13 +585,11 @@ class MatrixPlatform:
         )
 
     def _preflight_e2ee_dependencies(self) -> None:
-        if not self.encryption:
-            return
-        if ENCRYPTION_ENABLED:
+        if not self.encryption or ENCRYPTION_ENABLED:
             return
         logger.error(
-            "matrix-nio has no E2EE backend; encryption=False. Install the optional "
-            "matrix-nio[e2e] extra and platform libolm to enable encryption.",
+            "MatrixChannel: E2EE backend unavailable; encryption=False. "
+            "Reinstall the Matrix channel dependencies to enable encryption.",
         )
         self.encryption = False
 
@@ -869,7 +843,7 @@ class MatrixPlatform:
             self._user_id,
             whoami.device_id,
         )
-        await self._bind_authenticated_state(whoami)
+        await self._bind_authenticated_state()
         self._save_auth_state()
         if self.encryption and self._client.store_path:
             if self._client.device_id:
