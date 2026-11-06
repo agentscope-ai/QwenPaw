@@ -9,6 +9,7 @@ Covers:
 - edit_file
 - append_file
 """
+
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
@@ -40,7 +41,6 @@ from qwenpaw.agents.utils.file_handling import (
     _decode_mostly_utf8_lossy,
     decode_text_bytes_with_encoding_fallback,
 )
-
 
 # ---------------------------------------------------------------------------
 # _resolve_file_path
@@ -463,11 +463,24 @@ def test_decode_gbk_not_overridden_by_accidental_utf8():
     assert decode_text_bytes_with_encoding_fallback(raw) == "name=一锘"
 
 
-
 def test_decode_gbk_zhebu_not_lossy_utf8():
     """GBK ``name=这不`` must not keep incidental three-byte lossy UTF-8."""
     raw = "name=这不".encode("gbk")
     assert decode_text_bytes_with_encoding_fallback(raw) == "name=这不"
+
+
+def test_decode_gbk_rubu_not_lossy_utf8():
+    """GBK ``name=如不`` must not keep incidental CJK lossy UTF-8."""
+    raw = "name=如不\n".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=如不\n"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
+def test_decode_gbk_qijing_not_lossy_utf8():
+    """GBK ``name=其经`` must not keep incidental CJK lossy UTF-8."""
+    raw = "name=其经\n".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=其经\n"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
 
 
 def test_decode_gbk_axc0a_not_cp1252():
@@ -558,6 +571,16 @@ class TestEditFile:
         result = await edit_file(str(f), "张三", "李四")
         assert "Successfully replaced" in result.content[0].text
         assert f.read_text(encoding="utf-8-sig") == "姓名: 李四" + chr(10)
+
+    @pytest.mark.asyncio
+    async def test_edit_rubu_gbk_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``如不`` instead of lossy CJK leftovers."""
+        f = tmp_path / "rubu.txt"
+        f.write_bytes("name=如不\n".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_text(encoding="utf-8") == "title=如不\n"
+        assert "\ufffd" not in f.read_text(encoding="utf-8")
 
     @pytest.mark.asyncio
     async def test_edit_short_gbk_writes_utf8(self, tmp_path):

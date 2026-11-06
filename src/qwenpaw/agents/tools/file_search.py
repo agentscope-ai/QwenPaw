@@ -28,7 +28,7 @@ from ..utils.file_handling import (
     _UTF8_BOM,
     _choose_fallback_decoding,
     _feed_gbk_pair_trails,
-    _lossy_has_cjk_ideograph,
+    _lossy_has_convincing_cjk,
     _lossy_text_stats,
     single_line_log_value,
 )
@@ -612,7 +612,7 @@ def _select_grep_fallback_decoding(
     bad = 0
     good = 0
     saw_non_ascii = False
-    saw_cjk = False
+    lossy_parts: list[str] = []
     other = 0
     letters = 0
     unpaired = 0
@@ -635,7 +635,7 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
-            saw_cjk = saw_cjk or _lossy_has_cjk_ideograph(text)
+            lossy_parts.append(text)
         if reader.hit_eof:
             for probe in probes.values():
                 probe.feed(b"", final=True)
@@ -644,12 +644,15 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
-            saw_cjk = saw_cjk or _lossy_has_cjk_ideograph(text)
+            lossy_parts.append(text)
 
-    # Mirror _signals_for_bytes: accidental UTF-8 leftovers inside valid
-    # GBK must not beat a clean GBK decode unless lossy kept real CJK
-    # (dirty UTF-8). Non-CJK leftovers (``name=这不`` → U+2CBB) stay GBK.
-    if probes["gbk"].ok and not bom and not saw_cjk:
+    # Mirror _signals_for_bytes: incidental GBK leftovers (``如不``) must
+    # not beat a clean GBK decode; dirty UTF-8 with several ideographs can.
+    if (
+        probes["gbk"].ok
+        and not bom
+        and not _lossy_has_convincing_cjk("".join(lossy_parts))
+    ):
         saw_non_ascii = False
 
     choice = _choose_fallback_decoding(

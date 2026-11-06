@@ -16,7 +16,6 @@ from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
 from ..utils.file_handling import (
     _choose_fallback_decoding,
-    _lossy_utf8_text,
     _normalize_newlines,
     _signals_for_bytes,
     _strict_decodes,

@@ -7,6 +7,7 @@ This module provides utilities for:
 - Managing download directories
 - Reading text files with encoding fallback for cross-platform compatibility
 """
+
 import codecs
 import os
 import mimetypes
@@ -114,8 +115,17 @@ def _decode_mostly_utf8_lossy(data: bytes) -> str | None:
     """
     raw = data.decode("utf-8-sig", errors="replace")
     bad, good, saw_non_ascii = _lossy_text_stats(raw)
+    bom = data.startswith(_UTF8_BOM)
+    # Strict GBK must beat incidental leftovers (``如不`` → one CJK + one
+    # replacement). Dirty UTF-8 with several real ideographs still wins.
+    if (
+        not bom
+        and _strict_decodes(data, "gbk")
+        and not _lossy_has_convincing_cjk(raw)
+    ):
+        saw_non_ascii = False
     if not _lossy_utf8_kept(
-        bom=data.startswith(_UTF8_BOM),
+        bom=bom,
         bad=bad,
         good=good,
         saw_non_ascii=saw_non_ascii,
@@ -205,9 +215,10 @@ def _choose_fallback_decoding(
     """Pick ``(encoding, lossy)`` after strict UTF-8 failed.
 
     ``None`` means Latin-1. Lossy UTF-8 wins when a BOM survived, or when
-    a real non-ASCII character survived after GBK-aware filtering
-    (incidental non-CJK leftovers such as ``name=这不`` → U+2CBB do not
-    count; dirty UTF-8 with CJK ideographs still wins). Otherwise a
+    a real non-ASCII character survived after GBK-aware filtering.
+    Incidental leftovers inside valid GBK — one CJK such as ``如不`` →
+    U+7CBB, or non-CJK such as ``这不`` → U+2CBB — do not count; dirty
+    UTF-8 with several ideographs still wins. Otherwise a
     strict legacy decode wins. CP1252 beats GBK only when every GBK pair
     ate an ASCII letter *from a CP1252 accented lead* (0xC0+) and there
     are *more* unpaired ASCII letters than such pairs (``Cafés``). A
@@ -253,23 +264,17 @@ def _choose_fallback_decoding(
     return None
 
 
-def _lossy_saw_three_byte_char(text: str) -> bool:
-    """True when lossy UTF-8 produced a character from a 3-byte sequence.
+def _lossy_has_convincing_cjk(text: str) -> bool:
+    """True when lossy UTF-8 kept more CJK ideographs than replacements.
 
-    U+0800 and above need three UTF-8 bytes. A lone 2-byte decode such as
-    GBK ``一`` (``d2 bb`` → U+047B) must not count as UTF-8 evidence when
-    GBK also succeeds.
+    Dirty UTF-8 (``姓名`` + one bad byte) keeps several ideographs and one
+    ``U+FFFD``. GBK leftovers such as ``如不`` / ``其经`` produce only one
+    incidental CJK beside a replacement and must not count as UTF-8
+    evidence. Non-CJK leftovers (``这不`` → U+2CBB) never match.
     """
-    return any(ord(ch) >= 0x800 and ch != "�" for ch in text)
-
-
-def _lossy_has_cjk_ideograph(text: str) -> bool:
-    """True when lossy UTF-8 kept a CJK Unified Ideograph.
-
-    Used to tell dirty UTF-8 (``姓名`` + one bad byte) from GBK bytes that
-    only happen to form a non-CJK 3-byte sequence (``name=这不`` → U+2CBB).
-    """
-    return any(0x4E00 <= ord(ch) <= 0x9FFF for ch in text)
+    bad = text.count("�")
+    cjk = sum(1 for ch in text if 0x4E00 <= ord(ch) <= 0x9FFF)
+    return cjk > bad
 
 
 def _signals_for_bytes(
@@ -294,10 +299,11 @@ def _signals_for_bytes(
     bad, good, saw_non_ascii = _lossy_text_stats(raw)
     bom = data.startswith(_UTF8_BOM)
     # Valid GBK whose bytes accidentally form UTF-8 must fall through to
-    # GBK, not lossy UTF-8. Clear saw_non_ascii unless lossy kept a real
-    # CJK ideograph (dirty UTF-8 such as ``姓名`` + ``\xff``). A lone
-    # non-CJK 3-byte leftover (``name=这不`` → U+2CBB) must not win.
-    if gbk_ok and not bom and not _lossy_has_cjk_ideograph(raw):
+    # GBK, not lossy UTF-8. Clear saw_non_ascii unless lossy kept more
+    # CJK ideographs than replacements (dirty UTF-8 such as ``姓名`` +
+    # ``\xff``). A single incidental CJK (``如不`` → U+7CBB) or a non-CJK
+    # leftover (``这不`` → U+2CBB) must not win.
+    if gbk_ok and not bom and not _lossy_has_convincing_cjk(raw):
         saw_non_ascii = False
     other, letters, unpaired = _gbk_pair_trail_kinds(data)
     return _FallbackSignals(

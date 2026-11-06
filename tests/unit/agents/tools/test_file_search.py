@@ -19,7 +19,6 @@ from qwenpaw.agents.tools.file_search import (
     _walk_and_grep,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -895,7 +894,9 @@ def test_walk_and_grep_show_file_false_with_context(temp_dir):
 def test_walk_and_grep_matches_gbk_file(temp_dir):
     """GBK/CP936 files must remain searchable for Chinese queries."""
     target = temp_dir / "note.txt"
-    target.write_bytes(("姓名: 张三" + chr(10) + "地址: 上海" + chr(10)).encode("gbk"))
+    target.write_bytes(
+        ("姓名: 张三" + chr(10) + "地址: 上海" + chr(10)).encode("gbk")
+    )
 
     regex = _compile_search_pattern("张三", is_regex=False, flags=0)
     matches, status = _walk_and_grep(
@@ -1052,6 +1053,38 @@ def test_walk_and_grep_longer_gbk_finds_character(temp_dir):
     assert status == "ok"
     assert matches
     assert any("锘" in line for line in matches)
+
+
+def test_walk_and_grep_gbk_rubu_finds_characters(temp_dir):
+    """Pattern 如不 matches GBK bytes that lose to incidental CJK UTF-8."""
+    target = temp_dir / "rubu.txt"
+    target.write_bytes("name=如不\n".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("如不"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("如不" in line for line in matches)
+
+
+def test_walk_and_grep_gbk_qijing_finds_characters(temp_dir):
+    """Pattern 其经 matches GBK bytes that lose to incidental CJK UTF-8."""
+    target = temp_dir / "qijing.txt"
+    target.write_bytes("name=其经\n".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("其经"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("其经" in line for line in matches)
 
 
 def test_walk_and_grep_gbk_yi_nuo_finds_characters(temp_dir):
