@@ -1,0 +1,58 @@
+name: PawApp Data Integration
+on:
+  push:
+    branches: [dev/data-app-task-integration]
+  pull_request:
+    paths:
+      - 'src/qwenpaw/pawapp/**'
+      - 'src/qwenpaw/plugins/**'
+      - 'plugins/apps/qwenpaw-data/**'
+      - 'tests/unit/pawapp/test_qwenpaw_data*'
+      - 'tests/integration/test_pawapp_data_tasks.py'
+      - 'tests/integration/test_pawapp_task_dispatch.py'
+      - 'tests/pawapp_data_task_support.py'
+      - 'tests/fixtures/pawapp*'
+      - 'scripts/prepare-pawapp-engine.py'
+      - '.github/workflows/pawapp-data-integration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  data-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+      - name: Read tested Engine pairing
+        id: pairing
+        run: |
+          python - <<'PY'
+          import json, os
+          pairing = json.load(open('tests/fixtures/pawapp-compatibility.json'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"repository={pairing['engine_repository']}\nrevision={pairing['engine_revision']}\n")
+          PY
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pairing.outputs.repository }}
+          ref: ${{ steps.pairing.outputs.revision }}
+          path: .engine-contract
+      - name: Verify tested Engine revision
+        run: python scripts/prepare-pawapp-engine.py .engine-contract
+      - name: Install isolated Host and Engine environments
+        run: |
+          python -m pip install -e '.[test]'
+          uv sync --project .engine-contract --frozen --group dev --python 3.11
+      - name: Check Data App integration
+        run: python -m pytest -q tests/unit/pawapp/test_qwenpaw_data_*.py
+      - name: Check real Host and Engine boundary
+        env:
+          QWENPAW_TEST_ENGINE_SOURCE: ${{ github.workspace }}/.engine-contract
+          QWENPAW_TEST_ENGINE_PYTHON: ${{ github.workspace }}/.engine-contract/.venv/bin/python
+        run: python -m pytest -q tests/integration/test_pawapp_data_tasks.py tests/integration/test_pawapp_task_dispatch.py
+      - name: Check both Engine session stores
+        working-directory: .engine-contract
+        run: .venv/bin/python -m pytest -q packages/qwenpaw-data-host-core/tests/test_store_conformance.py packages/qwenpaw-data-host-core/tests/test_sessions_api.py packages/qwenpaw-data-host-core/tests/test_console_attachments.py packages/qwenpaw-data-host-core/tests/test_cron_api.py packages/qwenpaw-data-host-core/tests/test_submissions_api.py
