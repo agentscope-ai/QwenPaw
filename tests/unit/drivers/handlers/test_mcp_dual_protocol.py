@@ -431,14 +431,14 @@ async def test_auto_falls_back_on_plain_422(monkeypatch):
         ),
         (lambda r: _err(r, -32022, "bad", {}), RuntimeError, "incompatible"),
         (
-            lambda r: _err(
-                r,
-                -32601,
-                "Method not found: server/discover",
-                status=404,
-            ),
+            lambda r: _err(r, -32020, "header mismatch", status=404),
             RuntimeError,
-            "server/discover",
+            "code=-32020",
+        ),
+        (
+            lambda r: _err(r, -32021, "missing capability", status=404),
+            RuntimeError,
+            "code=-32021",
         ),
         (
             lambda _r: _sse(
@@ -462,6 +462,83 @@ async def test_auto_does_not_fallback(monkeypatch, make, exc_type, match):
         await c.connect()
     assert not connected
     assert c._impl is None
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "expected"),
+    [
+        (404, -32601, _LegacyProtocolError),
+        (200, -32601, _LegacyProtocolError),
+        (400, -32601, _LegacyProtocolError),
+        (404, -32020, RuntimeError),
+        (404, -32021, RuntimeError),
+    ],
+)
+async def test_discover_jsonrpc_status_classification(
+    status,
+    code,
+    expected,
+):
+    """Classify server/discover JSON-RPC errors by HTTP status and code."""
+    client = _cli(
+        HttpStatelessClient,
+        "discover",
+        lambda req: _err(
+            _rid(req),
+            code,
+            "Method not found: server/discover",
+            status=status,
+        ),
+    )
+    with pytest.raises(expected, match="server/discover"):
+        await client.connect()
+    assert client.is_connected is False
+    assert client._http is None
+
+
+async def test_auto_discover_404_method_not_found_falls_back_once(
+    monkeypatch,
+):
+    """404/-32601 uses one legacy initialize and does not rediscover."""
+    calls = {"discover": 0, "legacy": 0}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        body = json.loads(req.content or b"{}")
+        assert body.get("method") == "server/discover"
+        assert req.headers.get(_MCP_METHOD_HEADER) == "server/discover"
+        calls["discover"] += 1
+        return _err(
+            body.get("id", 1),
+            -32601,
+            "Method not found: server/discover",
+            status=404,
+        )
+
+    class Fake(HttpStatefulClient):
+        async def connect(self, timeout=30.0):
+            assert timeout > 0
+            calls["legacy"] += 1
+            self.is_connected = True
+
+        async def close(self, ignore_errors=True):
+            del ignore_errors
+            self.is_connected = False
+
+        async def list_tools(self):
+            return ["legacy-tool"]
+
+    monkeypatch.setattr(mod, "HttpStatefulClient", Fake)
+    client = _cli(HttpAutoClient, "auto", handler)
+    await client.connect()
+    try:
+        assert client.is_connected
+        assert client.is_stateful
+        assert isinstance(client._impl, Fake)
+        assert calls == {"discover": 1, "legacy": 1}
+        assert await client.list_tools() == ["legacy-tool"]
+    finally:
+        await client.close()
+    assert client._impl is None
 
 
 async def test_auto_still_reports_oauth_when_legacy_also_denies(monkeypatch):
