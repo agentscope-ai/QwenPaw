@@ -93,7 +93,10 @@ async def test_reasoning_events_carry_fallback_metadata(
         del tool_choice
         await self.model()
         yield TextBlockStartEvent(reply_id="r1", block_id="b1")
-        yield AssistantMsg("agent", content=[])
+        # A4-PR1: the fake's final message mirrors the model's real
+        # output ("ok") — a zero-content final message is now
+        # intercepted by the empty-reply fallback in QwenPawAgent._reasoning.
+        yield AssistantMsg("agent", content=[{"type": "text", "text": "ok"}])
 
     monkeypatch.setattr(Agent, "_reasoning", fake_base_reasoning)
     monkeypatch.setattr(
@@ -139,7 +142,10 @@ async def test_reasoning_events_stay_clean_without_fallback(
         del tool_choice
         await self.model()
         yield TextBlockStartEvent(reply_id="r1", block_id="b1")
-        yield AssistantMsg("agent", content=[])
+        # A4-PR1: the fake's final message mirrors the model's real
+        # output ("ok") — a zero-content final message is now
+        # intercepted by the empty-reply fallback in QwenPawAgent._reasoning.
+        yield AssistantMsg("agent", content=[{"type": "text", "text": "ok"}])
 
     monkeypatch.setattr(Agent, "_reasoning", fake_base_reasoning)
     monkeypatch.setattr(
