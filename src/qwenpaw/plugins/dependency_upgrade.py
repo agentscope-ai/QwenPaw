@@ -28,6 +28,73 @@ from .execution.dependencies import DependencySnapshot, _dependency_closure
 from .wheel_additions import WheelAddition, validate_additions
 
 
+def _core_requirements(installed, markers) -> tuple[str, ...]:
+    """Keep host declarations distinct from installed providers' metadata."""
+    return tuple(
+        sorted(
+            {
+                str(requirement)
+                for _, requirement in _dependency_closure(
+                    installed.get("qwenpaw", {}).get("requires_dist", ()),
+                    {},
+                    markers,
+                )
+            },
+        ),
+    )
+
+
+def _resolution_requirements(
+    snapshot,
+    requirements,
+    *,
+    proposed=None,
+    changed=(),
+) -> tuple[str, ...]:
+    """Give pip the host parents affected by this install, not every host root."""
+    goals = {*requirements, CERTIFI_REQUIREMENT}
+    direct = {
+        name
+        for name, _ in _dependency_closure(
+            goals - {CERTIFI_REQUIREMENT},
+            {},
+            snapshot.marker_environment,
+        )
+    }
+    touched = set(changed) | direct
+    for name, requirement in _dependency_closure(
+        goals,
+        snapshot.distributions,
+        snapshot.marker_environment,
+    ):
+        row = snapshot.distributions.get(name)
+        if row is None or not requirement.specifier.contains(
+            row["version"],
+            prereleases=True,
+        ):
+            touched.add(name)
+    for root in _core_requirements(
+        snapshot.distributions,
+        snapshot.marker_environment,
+    ):
+        if any(
+            touched.intersection(
+                name
+                for name, _ in _dependency_closure(
+                    (root,),
+                    inventory,
+                    snapshot.marker_environment,
+                )
+            )
+            for inventory in (
+                snapshot.distributions,
+                proposed if proposed is not None else snapshot.distributions,
+            )
+        ):
+            goals.add(root)
+    return tuple(sorted(goals))
+
+
 def resolution_constraints(
     snapshot,
     requirements,
@@ -60,10 +127,12 @@ def resolution_constraints(
             )
         ):
             values.add(f"{name}=={row['version']}")
-    core = snapshot.distributions.get("qwenpaw", {})
     for name, req in _dependency_closure(
-        core.get("requires_dist", ()),
-        snapshot.distributions,
+        _core_requirements(
+            snapshot.distributions,
+            snapshot.marker_environment,
+        ),
+        {},
         snapshot.marker_environment,
     ):
         if req.specifier:
@@ -609,18 +678,18 @@ class DependencyUpgradeManager:
     @staticmethod
     def _check_core(inventory, markers, installed, changes):
         changed = {row["name"] for row in changes}
-        for name, req in _dependency_closure(
-            installed.get("qwenpaw", {}).get("requires_dist", ()),
-            installed,
-            markers,
-        ):
-            if name in changed and not req.specifier.contains(
-                inventory[name]["version"],
-                prereleases=True,
+        for root in _core_requirements(installed, markers):
+            if any(
+                changed.intersection(
+                    name
+                    for name, _ in _dependency_closure((root,), graph, markers)
+                )
+                for graph in (installed, inventory)
             ):
-                _refuse(
-                    "DEPENDENCY_CONFLICT",
-                    f"QwenPaw requires {req}; planned {inventory[name]['version']}.",
+                DependencyUpgradeManager._compatible(
+                    (root,),
+                    inventory,
+                    markers,
                 )
 
     @staticmethod
@@ -1102,55 +1171,92 @@ class DependencyUpgradeManager:
                     "The dependency installation site is ambiguous.",
                 )
             wheel_tags = await run_sync_io(context.inspect_executor)
-            requirements = list(binding.description.requirements)
-            fingerprint, command = await run_sync_io(
-                self._prepare_resolution,
-                directory,
+            requirements = await run_sync_io(
+                _resolution_requirements,
                 snapshot,
-                requirements,
-                consumers,
-                binding.description.requirements_path,
-                context,
+                binding.description.requirements,
             )
-            if not await run_sync_io(require_pip, command[0], isolated=True):
-                _refuse(
-                    "DEPENDENCY_INSTALLER_UNAVAILABLE",
-                    "pip is missing from the selected dependency environment.",
+            # Only a newly affected host root can justify another resolution.
+            for attempt in range(
+                len(
+                    _core_requirements(
+                        snapshot.distributions,
+                        snapshot.marker_environment,
+                    ),
                 )
-            result = await run_sync_io(
-                self.loader._run_subprocess_with_streaming_log,
-                command,
-                timeout=300,
-                plugin_id=plugin_id,
-            )
-            if result.returncode:
-                # Retry only the current install goal, retaining hard protection.
-                command[command.index("--constraint") + 1] = str(
-                    directory / "required-constraints.txt",
+                + 1,
+            ):
+                fingerprint, command = await run_sync_io(
+                    self._prepare_resolution,
+                    directory,
+                    snapshot,
+                    requirements,
+                    consumers,
+                    binding.description.requirements_path,
+                    context,
                 )
-                await run_sync_io(shutil.rmtree, directory / "wheels")
-                await run_sync_io((directory / "wheels").mkdir)
+                if attempt == 0 and not await run_sync_io(
+                    require_pip,
+                    command[0],
+                    isolated=True,
+                ):
+                    _refuse(
+                        "DEPENDENCY_INSTALLER_UNAVAILABLE",
+                        "pip is missing from the selected dependency environment.",
+                    )
                 result = await run_sync_io(
                     self.loader._run_subprocess_with_streaming_log,
                     command,
                     timeout=300,
                     plugin_id=plugin_id,
                 )
-            if result.returncode:
-                _refuse(
-                    "DEPENDENCY_CONFLICT",
-                    "Plugin requirements cannot be resolved for the selected Python environment.",
+                if result.returncode:
+                    # Drop preferences, retaining host and immutable bounds.
+                    command[command.index("--constraint") + 1] = str(
+                        directory / "required-constraints.txt",
+                    )
+                    await run_sync_io(shutil.rmtree, directory / "wheels")
+                    await run_sync_io((directory / "wheels").mkdir)
+                    result = await run_sync_io(
+                        self.loader._run_subprocess_with_streaming_log,
+                        command,
+                        timeout=300,
+                        plugin_id=plugin_id,
+                    )
+                if result.returncode:
+                    _refuse(
+                        "DEPENDENCY_CONFLICT",
+                        "Plugin requirements cannot be resolved for the selected Python environment.",
+                    )
+                changed, changes, inventory, payload = await run_sync_io(
+                    self._prepare_payload,
+                    directory,
+                    snapshot,
+                    requirements,
+                    consumers,
+                    target,
+                    context,
+                    wheel_tags,
                 )
-            changed, changes, inventory, payload = await run_sync_io(
-                self._prepare_payload,
-                directory,
-                snapshot,
-                requirements,
-                consumers,
-                target,
-                context,
-                wheel_tags,
-            )
+                expanded = await run_sync_io(
+                    _resolution_requirements,
+                    snapshot,
+                    binding.description.requirements,
+                    proposed=inventory,
+                    changed=changed,
+                )
+                if set(expanded).issubset(requirements):
+                    break
+                requirements = tuple(sorted({*requirements, *expanded}))
+                for name in ("wheels", "payload"):
+                    path = directory / name
+                    if await run_sync_io(path.exists):
+                        await run_sync_io(shutil.rmtree, path)
+            else:
+                _refuse(
+                    "DEPENDENCY_PLAN_UNVERIFIED",
+                    "Core dependency resolution scope did not stabilize.",
+                )
             from .dependency_transaction import imported_changes_async
 
             self._check_core(

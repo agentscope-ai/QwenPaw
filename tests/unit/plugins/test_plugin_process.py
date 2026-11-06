@@ -1031,6 +1031,178 @@ def _prepare_dependency_operation(
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scenario",
+    ["paired-sdk", "helper-only", "new-edge", "host-cap", "retained-parent"],
+)
+async def test_shared_upgrade_resolves_paired_dependencies(
+    tmp_path,
+    monkeypatch,
+    scenario,
+):
+    import hashlib
+
+    host = await Host.create(tmp_path, monkeypatch)
+    wheels = tmp_path / "wheels"
+    wheels.mkdir()
+
+    def wheel(name, version, requires=()):
+        module = name.replace("-", "_")
+        info = f"{module}-{version}.dist-info"
+        files = {
+            f"{module}.py": f"VALUE = {version!r}\n".encode(),
+            f"{info}/METADATA": (
+                f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n"
+                + "".join(f"Requires-Dist: {value}\n" for value in requires)
+            ).encode(),
+            f"{info}/WHEEL": (
+                b"Wheel-Version: 1.0\nRoot-Is-Purelib: true\n"
+                b"Tag: py3-none-any\n"
+            ),
+        }
+        files[f"{info}/RECORD"] = (
+            "".join(
+                f"{path},sha256="
+                f"{base64.urlsafe_b64encode(hashlib.sha256(data).digest()).decode().rstrip('=')},"
+                f"{len(data)}\n"
+                for path, data in files.items()
+            )
+            + f"{info}/RECORD,,\n"
+        ).encode()
+        path = wheels / f"{module}-{version}-py3-none-any.whl"
+        with zipfile.ZipFile(path, "w") as archive:
+            for filename, content in files.items():
+                archive.writestr(filename, content)
+        return path
+
+    try:
+        for version, requires in (
+            ("1.0", ("paired-helper<2",)),
+            ("2.0", ("paired-helper>=2",)),
+        ):
+            sdk = wheel("sample-shared-sdk", version, requires)
+            helper = wheel("paired-helper", version)
+            if version == "1.0":
+                for path in (sdk, helper):
+                    with zipfile.ZipFile(path) as archive:
+                        archive.extractall(host.site)
+        certifi = local_certifi_wheel(wheels)
+        with zipfile.ZipFile(certifi) as archive:
+            archive.extractall(host.site)
+        root = (
+            "sample-shared-sdk==1"
+            if scenario == "retained-parent"
+            else "sample-shared-sdk>=1"
+        )
+        core = wheel(
+            "qwenpaw",
+            "1.0",
+            (root, "unrelated-host-missing>=1")
+            + (("paired-helper<2",) if scenario == "host-cap" else ()),
+        )
+        with zipfile.ZipFile(core) as archive:
+            archive.extractall(host.site)
+        source = host.artifact(sdk=True)
+        goal = (
+            "paired-helper>=2"
+            if scenario in {"helper-only", "retained-parent"}
+            else "sample-shared-sdk>=2"
+        )
+        if scenario == "new-edge":
+            old_tool = wheel("paired-tool", "1.0")
+            wheel("paired-tool", "2.0", ("paired-helper>=2",))
+            with zipfile.ZipFile(old_tool) as archive:
+                archive.extractall(host.site)
+            goal = "paired-tool>=2"
+        (source / "requirements.txt").write_text(goal + "\n")
+
+        # Bound the observed metadata to the fixture's actual installed tree.
+        async def audit(_description):
+            rows, invalid, _ = _installed_metadata((str(host.site),))
+            assert not invalid
+            return DependencySnapshot(
+                sys.executable,
+                sys.prefix,
+                (str(host.site),),
+                default_environment(),
+                ("py3-none-any",),
+                rows,
+                (str(host.site),),
+            )
+
+        monkeypatch.setattr(
+            host.loader._channel_backend,
+            "audit_dependencies",
+            audit,
+        )
+        calls = []
+
+        def offline(command, **kwargs):
+            goals = Path(command[command.index("-r") + 1]).read_text()
+            assert "unrelated-host-missing" not in goals
+            assert "qwenpaw" not in goals
+            calls.append(goals)
+            return subprocess.run(
+                [*command, "--no-index", "--find-links", str(wheels)],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=kwargs["timeout"],
+            )
+
+        monkeypatch.setattr(
+            host.loader,
+            "_run_subprocess_with_streaming_log",
+            offline,
+        )
+        before = _inventory(host.site)
+        manager = DependencyUpgradeManager(host.loader)
+        if scenario in {"host-cap", "retained-parent"}:
+            with pytest.raises(SharedDependencyError) as refused:
+                await manager.stage(source)
+            assert refused.value.reason_code == "DEPENDENCY_CONFLICT"
+            installed = (await audit(None)).distributions
+            proposed = {
+                **installed,
+                "paired-helper": {
+                    **installed["paired-helper"],
+                    "version": "2.0",
+                },
+            }
+            if scenario == "host-cap":
+                proposed["sample-shared-sdk"] = {
+                    **installed["sample-shared-sdk"],
+                    "version": "2.0",
+                    "requires_dist": ("paired-helper>=2",),
+                }
+            with pytest.raises(SharedDependencyError) as refused:
+                manager._check_core(
+                    proposed,
+                    default_environment(),
+                    installed,
+                    [{"name": "paired-helper"}],
+                )
+            assert refused.value.reason_code == "DEPENDENCY_CONFLICT"
+        else:
+            result = await manager.stage(source)
+            assert result["status"] == "needs_confirmation"
+            operation = manager._read(result["id"])
+            for name in ("sample-shared-sdk", "paired-helper"):
+                assert operation["proposed"][name]["version"] == "2.0"
+            assert {row["name"] for row in result["changes"]} == {
+                "sample-shared-sdk",
+                "paired-helper",
+                *({"paired-tool"} if scenario == "new-edge" else ()),
+            }
+            assert "sample-shared-sdk>=1" in calls[-1]
+            if scenario == "new-edge":
+                assert "sample-shared-sdk>=1" not in calls[0]
+        assert _inventory(host.site) == before
+    finally:
+        await host.close()
+
+
 @pytest.mark.parametrize(
     "layout",
     [
