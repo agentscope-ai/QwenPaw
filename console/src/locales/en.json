@@ -3054,6 +3054,7 @@
       "ranking_version_mismatch": "Ranking version needs review"
     },
     "pool": {
+      "deleteModels": "Delete models",
       "enabledCount": "Models {{count}}",
       "modelCount": "Models {{count}} / {{total}}",
       "enableAllConfirm": "Enable all {{count}} models?",

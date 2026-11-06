@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Settings,
+  Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type {
@@ -61,6 +62,7 @@ export function RemoteModelManageModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [configId, setConfigId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
   const [confirmEnableAll, setConfirmEnableAll] = useState(false);
   const [templateId, setTemplateId] = useState<string>();
   const [form] = Form.useForm();
@@ -71,6 +73,10 @@ export function RemoteModelManageModal({
   const hoverTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const managed = provider.id === "hub-managed";
   const subscription = provider.id === "openai-chatgpt";
+
+  useEffect(() => {
+    setDeleteMode(false);
+  }, [open, provider.id]);
 
   useEffect(() => {
     setCurrent(provider);
@@ -187,6 +193,19 @@ export function RemoteModelManageModal({
     try {
       await apply(await api.selectAllModels(provider.id, selected));
       setOffset(0);
+      window.dispatchEvent(new Event("session-model-changed"));
+    } catch (error) {
+      failure(error);
+    } finally {
+      setBusy(null);
+    }
+  };
+  const remove = async (model: ModelInfo) => {
+    setBusy(model.id);
+    try {
+      await apply(await api.removeModel(provider.id, model.id));
+      if (rows.length === 1 && offset > 0) setOffset(offset - 30);
+      message.success(t("models.modelRemoved", { name: model.name }));
       window.dispatchEvent(new Event("session-model-changed"));
     } catch (error) {
       failure(error);
@@ -572,6 +591,25 @@ export function RemoteModelManageModal({
                           onChange={(checked) => select(model, checked)}
                         />
                       </label>
+                      {deleteMode && !managed && !subscription && (
+                        <Tooltip title={t("models.removeModel")}>
+                          <Button
+                            type="text"
+                            danger
+                            icon={<Trash2 size={17} />}
+                            aria-label={`${t("models.removeModel")} ${
+                              model.name
+                            }`}
+                            disabled={
+                              loading ||
+                              syncing ||
+                              current.models_syncing ||
+                              busy !== null
+                            }
+                            onClick={() => void remove(model)}
+                          />
+                        </Tooltip>
+                      )}
                     </div>
                   </div>
                 </InteractiveCard>
@@ -596,9 +634,18 @@ export function RemoteModelManageModal({
           )}
         </div>
         {!managed && !subscription && (
-          <div className={styles.footer}>
+          <div className={`${styles.footer} ${styles.deleteFooter}`}>
             <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
               {t("models.addModel")}
+            </Button>
+            <Button
+              icon={<Trash2 size={16} />}
+              danger={deleteMode}
+              aria-pressed={deleteMode}
+              disabled={busy !== null}
+              onClick={() => setDeleteMode((value) => !value)}
+            >
+              {t(deleteMode ? "common.done" : "models.pool.deleteModels")}
             </Button>
           </div>
         )}
