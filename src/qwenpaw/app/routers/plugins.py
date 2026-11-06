@@ -873,7 +873,8 @@ async def unload_plugin_keep_config(
     summary="Repair plugin dependencies",
     description=(
         "Explicitly install missing plugin dependencies, then load. "
-        "Host-package upgrades are rejected and require a backend restart."
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
     ),
 )
 async def repair_plugin_dependencies(plugin_id: str, request: Request):

@@ -8,7 +8,7 @@ import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import AsyncExitStack, asynccontextmanager, nullcontext
 
 from .execution_backend import (
     DefinitionResult,
@@ -277,6 +277,8 @@ class ChannelDescription:
 def describe_channel(
     source_path: Path,
     manifest: PluginManifest,
+    *,
+    include_revision: bool = True,
 ) -> ChannelDescription:
     """Validate source metadata without loading implementation code."""
     if (
@@ -334,7 +336,7 @@ def describe_channel(
         code_root=root,
         requirements_path=requirements_path,
         requirements=requirements,
-        source_revision=code_root_digest(root),
+        source_revision=code_root_digest(root) if include_revision else "",
         name=manifest.name,
         description=manifest.description,
     )
@@ -381,6 +383,167 @@ class ChannelBackend:
     def __init__(self, services: ChannelServices):
         self.services = services
         self._prepared = {}
+        self._preparation_scopes = {}
+
+    @asynccontextmanager
+    async def preparation_scope(self, plugin_id):
+        """One task/operation owns reusable checks and their continuous readers."""
+        import asyncio
+
+        task = (asyncio.current_task(), plugin_id)
+        if task in self._preparation_scopes:
+            yield
+            return
+        async with AsyncExitStack() as stack:
+            self._preparation_scopes[task] = (stack, {})
+            try:
+                yield
+            finally:
+                del self._preparation_scopes[task]
+
+    async def _probe_once(self, description, inspect):
+        import asyncio
+        import sys
+        from ..utils.io_utils import run_sync_io
+        from .dependency_maintenance import observation_readers
+        from .execution.dependencies import dependency_sites
+        from .install_lock import async_lock, environment_observation
+
+        scope = self._preparation_scopes.get(
+            (asyncio.current_task(), description.manifest.id),
+        )
+        if scope is None:
+            return await inspect()
+        prepared = await self.prepare_dependency_targets(description)
+        settings = self.runtime_for(description)
+        roots = tuple(prepared.targets)
+        if settings.python_executable == sys.executable:
+            roots = tuple(
+                dict.fromkeys(
+                    (
+                        *roots,
+                        *await run_sync_io(
+                            dependency_sites,
+                            tuple(sys.path),
+                        ),
+                    ),
+                ),
+            )
+        key = (
+            description.manifest.id,
+            description.source_identity,
+            description.requirements,
+        )
+
+        def witness(snapshot=None):
+            from importlib.metadata import Distribution
+
+            paths = set(map(Path, roots))
+            if snapshot is not None:
+                for name in snapshot.versions:
+                    for distribution in Distribution.discover(
+                        name=name,
+                        path=list(map(str, roots)),
+                    ):
+                        info = Path(distribution._path)
+                        paths.add(info)
+                        paths.update(
+                            path
+                            for path in (info / "METADATA", info / "PKG-INFO")
+                            if path.exists()
+                        )
+            return tuple(
+                (
+                    str(path),
+                    path.stat().st_dev,
+                    path.stat().st_ino,
+                    path.stat().st_mtime_ns,
+                    path.stat().st_ctime_ns,
+                )
+                for path in sorted(paths)
+            )
+
+        async with environment_observation(roots):
+            prepared.validate()
+            cached = scope[1].get(key)
+            current = await run_sync_io(
+                witness,
+                cached[1] if cached is not None else None,
+            )
+            if cached is not None and cached[0] == current:
+                # Source identity must still be current after registration or rebase.
+                fresh = await run_sync_io(
+                    self.describe,
+                    description.source_path,
+                    description.manifest,
+                )
+                if (
+                    fresh.dependency_declaration()
+                    == description.dependency_declaration()
+                ):
+                    return cached[1]
+            before_roots = await run_sync_io(witness)
+            observed = await inspect()
+            snapshot = getattr(observed, "snapshot", observed)
+            prepared.validate()
+            after = await run_sync_io(witness)
+            if before_roots != after:
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+            from .dependency_gate import GateDecision, SharedDependencyError
+            from .execution.dependencies import (
+                DependencyReadEvidence,
+                read_dependency_inventory,
+            )
+            from .execution.errors import ProtocolValidationError
+
+            if not isinstance(snapshot, DependencyReadEvidence):
+                return observed
+            metadata_before = await run_sync_io(witness, snapshot)
+            try:
+                view, relevant = await run_sync_io(
+                    read_dependency_inventory,
+                    description.source_path,
+                    snapshot.sites,
+                    description.requirements,
+                    marker_environment=snapshot.marker_environment,
+                )
+            except ProtocolValidationError as exc:
+                if any(
+                    version is None for version in snapshot.versions.values()
+                ):
+                    # Unknown bundled/native modules may only be inspectable by
+                    # the selected interpreter. Reprobe instead of caching.
+                    return observed
+                raise SharedDependencyError(
+                    GateDecision(
+                        False,
+                        False,
+                        missing=(
+                            [str(exc)]
+                            if exc.reason_code == "DEPENDENCY_UNSATISFIED"
+                            else []
+                        ),
+                        reason=f"{exc.reason_code}: {description.manifest.id}: {exc}",
+                        reason_code=exc.reason_code,
+                    ),
+                ) from exc
+            metadata_after = await run_sync_io(witness, snapshot)
+            versions = {
+                name: view.distributions.get(name, {}).get("version")
+                for name in relevant
+            }
+            if (
+                metadata_before != metadata_after
+                or versions != snapshot.versions
+                or view.warnings != snapshot.warnings
+            ):
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+            if set(snapshot.dependency_sites or ()) <= set(map(str, roots)):
+                await scope[0].enter_async_context(
+                    async_lock(observation_readers(roots)),
+                )
+                scope[1][key] = (metadata_after, snapshot)
+            return observed
 
     def runtime_for(self, candidate):
         """Select by trusted routing identity, independently of plugin ID."""
@@ -422,15 +585,32 @@ class ChannelBackend:
         settings = self.runtime_for(description)
         if settings is None:
             return PreparedDependencyTargets((), validate)
-        return PreparedDependencyTargets(
-            (
-                *settings.dependency_paths,
-                *(
-                    (settings.dependency_install_target,)
-                    if settings.dependency_install_target
-                    else ()
-                ),
+        import sys
+        from ..utils.io_utils import run_sync_io
+        from .execution.dependencies import dependency_sites
+
+        roots = (
+            *settings.dependency_paths,
+            *(
+                (settings.dependency_install_target,)
+                if settings.dependency_install_target
+                else ()
             ),
+        )
+        if settings.python_executable == sys.executable:
+            roots = tuple(
+                dict.fromkeys(
+                    (
+                        *roots,
+                        *await run_sync_io(
+                            dependency_sites,
+                            tuple(sys.path),
+                        ),
+                    ),
+                ),
+            )
+        return PreparedDependencyTargets(
+            tuple(Path(root) for root in roots),
             validate,
         )
 
@@ -466,6 +646,21 @@ class ChannelBackend:
             ),
         )
 
+    def describe_candidate(self, source_path, manifest):
+        """Static declaration/selection only; strong witnesses follow resolution."""
+        payload = describe_channel(
+            source_path,
+            manifest,
+            include_revision=False,
+        )
+        return PluginDescription(
+            manifest,
+            Path(source_path),
+            payload.requirements_path,
+            payload,
+            requirements=payload.requirements,
+        )
+
     def registration_scope(self, description):
         del description
         return nullcontext()
@@ -483,12 +678,27 @@ class ChannelBackend:
         if not allow_install and not probe:
             return
         self.require_selection(description)
-        prepared = await self.services.prepare_candidate(
-            description.payload,
-            allow_install=allow_install and owns_dependency_env,
-            probe=probe,
-            wheels=wheels if owns_dependency_env else (),
-        )
+
+        async def inspect():
+            return await self.services.prepare_candidate(
+                description.payload,
+                allow_install=allow_install and owns_dependency_env,
+                probe=probe,
+                wheels=wheels if owns_dependency_env else (),
+            )
+
+        if not wheels and (not allow_install or not description.requirements):
+            # Empty declarations have no installation work, even on explicit install.
+            async def read():
+                return await self.services.prepare_candidate(
+                    description.payload,
+                    allow_install=False,
+                    probe=probe,
+                )
+
+            prepared = await self._probe_once(description, read)
+        else:
+            prepared = await inspect()
         snapshot = getattr(prepared, "snapshot", prepared)
         self._prepared[description.manifest.id] = (description, snapshot)
         record = self.services.record(description.manifest.id)
@@ -529,22 +739,32 @@ class ChannelBackend:
             self._prepared.pop(description.manifest.id)
             snapshot = prepared[1]
             diagnostics += ("channel_validation_passed",)
-            from .execution.dependencies import _dependency_closure
+            from .execution.dependencies import (
+                DependencyReadEvidence,
+                _dependency_closure,
+            )
 
-            for name, requirement in _dependency_closure(
-                description.requirements,
-                snapshot.distributions,
-                snapshot.marker_environment,
-            ):
-                row = snapshot.distributions.get(name)
-                version = row["version"] if row is not None else None
-                if version is None or not requirement.specifier.contains(
-                    version,
-                    prereleases=True,
+            if isinstance(snapshot, DependencyReadEvidence):
+                diagnostics += tuple(
+                    f"Dependency warning: {warning}"
+                    for warning in snapshot.warnings
+                )
+            else:
+                for name, requirement in _dependency_closure(
+                    description.requirements,
+                    snapshot.distributions,
+                    snapshot.marker_environment,
+                    verify_sources=False,
                 ):
-                    diagnostics += (
-                        f"Dependency warning: {requirement}; installed {version or 'unknown'}; attempting load",
-                    )
+                    row = snapshot.distributions.get(name)
+                    version = row["version"] if row is not None else None
+                    if version is None or not requirement.specifier.contains(
+                        version,
+                        prereleases=True,
+                    ):
+                        diagnostics += (
+                            f"Dependency warning: {requirement}; installed {version or 'unknown'}; attempting load",
+                        )
         if not enabled:
             diagnostics += ("channel_validation_pending",)
         return DefinitionResult(
@@ -757,7 +977,7 @@ class ChannelBackend:
                 return (await process.probe(spec)).snapshot
 
         return await admit_shared_dependencies(
-            inspect_existing,
+            lambda: self._probe_once(description, inspect_existing),
             plugin_id=description.manifest.id,
             requirements_file=None,
             usage_registry=usage,

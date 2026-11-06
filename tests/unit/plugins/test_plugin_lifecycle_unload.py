@@ -18,7 +18,6 @@ from packaging.requirements import Requirement
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.dependency_gate import (
     DependencyGate,
-    hits_imported_host_package,
 )
 from qwenpaw.plugins.lifecycle import (
     LifecycleDelegate,
@@ -151,20 +150,6 @@ class TestDependencyGate:
         assert not decision.host_conflicts
         assert not decision.require_restart
 
-    def test_reme_distribution_detects_loaded_module_without_metadata(self):
-        with (
-            patch.dict(sys.modules, {"reme": ModuleType("reme")}),
-            patch(
-                "qwenpaw.plugins.dependency_gate._dist_version",
-                side_effect=PackageNotFoundError("reme-ai"),
-            ),
-            patch(
-                "qwenpaw.plugins.dependency_gate._is_frozen",
-                return_value=False,
-            ),
-        ):
-            assert hits_imported_host_package(Requirement("reme-ai<0.1"))
-
 
 class TestProvisionFiles:
     def test_create_keep_migrate_and_recover(
@@ -270,9 +255,9 @@ async def test_boot_missing_deps_is_failed_without_install(
     loader.registry = fresh_registry
     with patch.object(
         loader,
-        "_install_requirements_locked",
+        "_prepare_python_dependencies",
         side_effect=AssertionError("must not install on boot"),
-    ):
+    ) as installer:
         record = await loader.load_plugin(
             PluginManifest.from_dict(
                 json.loads((root / "plugin.json").read_text(encoding="utf-8")),
@@ -280,12 +265,14 @@ async def test_boot_missing_deps_is_failed_without_install(
             root,
             allow_install=False,
         )
+    installer.assert_not_called()
     assert record.status == "failed"
     assert record.enabled is False
     assert any("missing-dep" in d for d in record.diagnostics)
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("bounded_dependency_environment")
 async def test_unload_mode_leaves_agent_json_and_removes_manifest(
     tmp_path: Path,
     fresh_registry,

@@ -54,6 +54,86 @@ def observe_installer(monkeypatch):
     return calls
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation",
+    ["read", "install", "immutable", "immutable-known"],
+)
+async def test_unknown_version_respects_operation_and_environment(
+    tmp_path,
+    monkeypatch,
+    operation,
+):
+    import importlib
+    import sys
+    from importlib.metadata import PackageNotFoundError
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    source = tmp_path / "plugin"
+    source.mkdir()
+    module = bundle / "unknown_dependency.py"
+    module.write_text("VALUE = 1\n")
+    monkeypatch.syspath_prepend(str(bundle))
+    importlib.invalidate_caches()
+    requirements = source / "requirements.txt"
+    requirements.write_text("unknown-dependency>=1\n")
+    installed = False
+    calls = []
+
+    def version_of(name):
+        if installed:
+            return "1.0"
+        raise PackageNotFoundError(name)
+
+    async def install(_self, _requirements, _plugin_id, **_kwargs):
+        nonlocal installed
+        calls.append(_requirements.read_text())
+        installed = True
+
+    monkeypatch.setattr(dependency_gate, "_dist_version", version_of)
+    monkeypatch.setattr(dependency_gate, "_dist_requires", lambda name: ())
+    monkeypatch.setattr(PluginLoader, "_prepare_python_dependencies", install)
+    monkeypatch.setattr(
+        sys,
+        "frozen",
+        operation.startswith("immutable"),
+        raising=False,
+    )
+    loader = PluginLoader([])
+    from qwenpaw.plugins.dependency_context import DependencyEnvironmentContext
+
+    context = DependencyEnvironmentContext(
+        sys.executable,
+        source,
+        (bundle,),
+        None,
+        (bundle,),
+    )
+    monkeypatch.setattr(loader, "_dependency_environment", lambda: context)
+    if operation == "immutable-known":
+        info = bundle / "unknown_dependency-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text(
+            "Name: unknown-dependency\nVersion: 1.0\n",
+        )
+    decision = await loader._ensure_requirements_installed(
+        requirements,
+        source,
+        "unknown-plugin",
+        allow_install=operation != "read",
+    )
+    if operation == "install":
+        assert len(calls) == 1 and decision.already_satisfied
+    elif operation == "immutable-known":
+        assert not calls and decision.already_satisfied
+    elif operation == "immutable":
+        assert not calls and not decision.already_satisfied
+        assert decision.reason_code == "DEPENDENCY_ENVIRONMENT_PROTECTED"
+    else:
+        assert not calls and decision.warnings and not decision.missing
+
+
 def write_wheel(
     wheels,
     name,
@@ -407,7 +487,7 @@ async def main():
     async with PluginTestHost(root) as host:
         if sys.argv[6] == 'tool':
             import shutil
-            from qwenpaw.plugins.python_backend import _observe_host_dependencies
+            from qwenpaw.plugins.execution.dependencies import observe_dependencies
             from qwenpaw.plugins.dependency_usage import DependencyDeclaration
             candidate = root.parent / 'candidate-source'
             backend = candidate / 'backend'
@@ -425,9 +505,8 @@ async def main():
             assert (await host.install(candidate)).ok
             usage = host._loader.registry.dependency_usage
             # Retain an observation left by the previous implementation too.
-            snapshot, _ = _observe_host_dependencies(
-                root / 'unrelated', (*sys.path, str(backend)), (),
-            )
+            snapshot = observe_dependencies({'code_root': root / 'unrelated',
+                '_audit_sites': (*sys.path, str(backend))})
             token = usage.declare(DependencyDeclaration('legacy-path', 'old', (), None))
             from dataclasses import replace
             snapshot = replace(snapshot, distributions={})

@@ -13,7 +13,10 @@ from typing import TYPE_CHECKING, Callable, Mapping, Protocol
 from .architecture import PluginManifest, PluginRecord, PluginType
 
 if TYPE_CHECKING:
-    from .execution.dependencies import DependencySnapshot
+    from .execution.dependencies import (
+        DependencyReadEvidence,
+        DependencySnapshot,
+    )
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ class ExecutionBackend(Protocol):
         probe: bool,
         wheels: tuple = (),
         owns_dependency_env: bool = True,
-    ) -> DependencySnapshot | None:
+    ) -> DependencySnapshot | DependencyReadEvidence | None:
         """Prepare/probe, optionally returning evidence already produced.
 
         Final admission calls admit_existing under exclusion. A separate
@@ -142,8 +145,8 @@ class ExecutionBackend(Protocol):
         usage,
         token,
         snapshot=None,
-    ) -> DependencySnapshot | None:
-        """Admit existing code; only full audits return a snapshot."""
+    ) -> DependencySnapshot | DependencyReadEvidence | None:
+        """Admit checked reads; strong snapshots remain exclusive to audits."""
 
     async def load_definition(
         self,
@@ -277,6 +280,14 @@ class BackendResolver:
     ) -> BackendBinding:
         """Describe a snapshot without consulting executable plugin code."""
         manifest = manifest.model_copy(deep=True)
+        backend = self.select(manifest)
+        return BackendBinding(
+            backend,
+            backend.describe(Path(source_path), manifest),
+        )
+
+    def select(self, manifest):
+        """Select the trusted adapter without hashing unrelated source trees."""
         backend = self._python_backend
         if manifest.entry.descriptor is not None:
             if manifest.entry.backend is not None:
@@ -287,13 +298,9 @@ class BackendResolver:
                 backend = self._descriptors[manifest.plugin_type]
             except KeyError as exc:
                 raise ValueError(
-                    "No descriptor backend registered for "
-                    f"{manifest.plugin_type.value}",
+                    f"No descriptor backend registered for {manifest.plugin_type.value}",
                 ) from exc
-        return BackendBinding(
-            backend,
-            backend.describe(Path(source_path), manifest),
-        )
+        return backend
 
 
 def registration_scope(binding: BackendBinding):

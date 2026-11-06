@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
 import os
@@ -98,11 +98,11 @@ def _resolution_requirements(
 def resolution_constraints(
     snapshot,
     requirements,
-    consumers=(),
     immutable=None,
     protected=(),
     *,
     prefer_installed=True,
+    soft_preferences=(),
 ):
     """Constraints never turn an unrelated declaration into an install goal."""
     immutable = immutable or {}
@@ -138,18 +138,77 @@ def resolution_constraints(
         if req.specifier:
             values.add(f"{name}{req.specifier}")
     if prefer_installed:
-        for consumer in consumers:
-            if consumer["origin"] == "host":
-                continue
-            evidence = consumer["environment"]
-            for name, req in _dependency_closure(
-                consumer["requirements"],
-                evidence["distributions"],
-                evidence["marker_environment"],
-            ):
-                if name in requested and req.specifier:
-                    values.add(f"{name}{req.specifier}")
+        for value in soft_preferences:
+            values.add(value)
     return "".join(value + "\n" for value in sorted(values))
+
+
+def _protected_providers(snapshot, context, managed_root):
+    from .dependency_transaction import dependency_site_is_mutable
+
+    protected, sites = set(), {}
+    policy = context.to_mapping() if context is not None else None
+    for name, row in snapshot.distributions.items():
+        site = Path(row["metadata_path"]).parent
+        key = str(site)
+        if key not in sites:
+            sites[key] = (
+                context is not None and context.protected(site)
+            ) or not dependency_site_is_mutable(
+                site,
+                snapshot.prefix,
+                managed_root,
+                policy,
+            )
+        if sites[key]:
+            protected.add(name)
+    return protected
+
+
+@dataclass
+class PreparedResolution:
+    """Caller owns temporary wheels until stage copies and verifies them once."""
+
+    source_revision: str
+    environment_fingerprint: str
+    context: dict | None
+    requirements: tuple[str, ...]
+    candidates: tuple
+    wheels: tuple[WheelAddition, ...]
+    preferences_failed: bool = False
+    claimed: bool = False
+    excluded_tokens: tuple = ()
+    owner: object = field(default_factory=asyncio.current_task, repr=False)
+
+    def claim(self, destination):
+        if self.claimed:
+            raise RuntimeError(
+                "DEPENDENCY_PLAN_STALE: resolution already consumed.",
+            )
+        for item in self.wheels:
+            if (
+                hashlib.sha256(item.path.read_bytes()).hexdigest()
+                != item.sha256
+            ):
+                raise RuntimeError(
+                    "DEPENDENCY_PLAN_STALE: prepared wheel changed.",
+                )
+            target = destination / item.path.name
+            shutil.copy2(item.path, target)
+            if hashlib.sha256(target.read_bytes()).hexdigest() != item.sha256:
+                raise RuntimeError(
+                    "DEPENDENCY_PLAN_STALE: copied wheel changed.",
+                )
+        self.claimed = True
+
+
+def _candidate_scope(candidates):
+    return tuple(
+        sorted(
+            (row["plugin_id"], tuple(row["requirements"]), row["sites"])
+            for row in candidates
+        ),
+    )
 
 
 class DependencyUpgradeRequired(RuntimeError):
@@ -164,12 +223,6 @@ def _refuse(code, message):
     raise SharedDependencyError(
         GateDecision(False, False, reason=message, reason_code=code),
     )
-
-
-def _digest(value):
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode(),
-    ).hexdigest()
 
 
 def _source_hash(root):
@@ -278,10 +331,23 @@ class DependencyUpgradeManager:
         authenticate_plan(directory, operation)
         from .dependency_transaction import reconcile_commit
 
+        version = operation.get("policy_version", 1)
+        if version not in (1, 2, 3):
+            raise RuntimeError(
+                "DEPENDENCY_PLAN_UNVERIFIED: unsupported dependency policy.",
+            )
         reconcile_commit(directory, operation)
+        started = (
+            operation.get("approved")
+            or (directory / "journal.json").exists()
+            or operation.get("worker_pid")
+            or operation["status"]
+            in {"waiting_restart", "applying", "repair_required"}
+        )
         if (
-            operation.get("policy_version") != 2
+            version < 3
             and operation["status"] == "needs_confirmation"
+            and not started
         ):
             operation.update(
                 status="failed",
@@ -404,7 +470,7 @@ class DependencyUpgradeManager:
                 )
         return context
 
-    async def _prepare_consumer_targets(self):
+    async def _legacy_prepare_consumer_targets(self):
         """Capture every installed backend's roots before maintenance locks."""
         targets = []
         for manifest, source in await run_sync_io(
@@ -424,11 +490,11 @@ class DependencyUpgradeManager:
                 targets.append(await prepare(binding.description))
         return targets
 
-    async def _consumers(self, binding, snapshot):
+    async def _legacy_consumers(self, binding, snapshot):
         """Collect all consumers within one stable, ordered observation."""
         from .install_lock import environment_observation
 
-        prepared = await self._prepare_consumer_targets()
+        prepared = await self._legacy_prepare_consumer_targets()
         roots = tuple(
             dict.fromkeys(
                 (
@@ -446,9 +512,9 @@ class DependencyUpgradeManager:
         async with environment_observation(roots):
             for row in prepared:
                 row.validate()
-            return await self._collect_consumers(binding, snapshot)
+            return await self._legacy_collect_consumers(binding, snapshot)
 
-    async def _collect_consumers(self, binding, snapshot):
+    async def _legacy_collect_consumers(self, binding, snapshot):
         """Installed declarations participate even when currently inactive."""
         consumers = []
         environments = {}
@@ -557,7 +623,412 @@ class DependencyUpgradeManager:
             )
         return consumers
 
-    def _reviewed_usage(self, consumers, *, offline=False, sites=()):
+    async def _consumer_candidates(self, binding, snapshot):
+        """Cheap declarations and current coordination roots, never full audits."""
+        from .execution_backend import BackendBinding
+
+        result = []
+        for manifest, source in await run_sync_io(
+            self.loader.discover_plugins,
+        ):
+            if manifest.id == binding.description.manifest.id:
+                continue
+            try:
+                backend = self.loader.backend_resolver.select(manifest)
+                describe = getattr(
+                    backend,
+                    "describe_candidate",
+                    backend.describe,
+                )
+                description = await run_sync_io(describe, source, manifest)
+                prepared = await backend.prepare_dependency_targets(
+                    description,
+                )
+                prepared.validate()
+            except (RuntimeError, ValueError, OSError):
+                result.append(
+                    {
+                        "plugin_id": manifest.id,
+                        "source": source,
+                        "requirements": (),
+                        "sites": (),
+                        "risk": f"{manifest.id}: inactive dependency environment unavailable; verify before enabling.",
+                    },
+                )
+                continue
+            result.append(
+                {
+                    "binding": BackendBinding(backend, description),
+                    "prepared": prepared,
+                    "plugin_id": manifest.id,
+                    "source": source,
+                    "requirements": description.requirements,
+                    "sites": tuple(map(str, prepared.targets)),
+                },
+            )
+        return result
+
+    @staticmethod
+    def _candidate_related(row, snapshot, changes=None):
+        if not set(row["sites"]).intersection(snapshot.dependency_sites or ()):
+            return False
+        if changes is None or not set(row["sites"]) <= set(snapshot.sites):
+            return True
+        try:
+            return bool(
+                set(changes).intersection(
+                    name
+                    for name, _ in _dependency_closure(
+                        row["requirements"],
+                        snapshot.distributions,
+                        snapshot.marker_environment,
+                        verify_sources=False,
+                    )
+                ),
+            )
+        except (ValueError, TypeError, KeyError):
+            row[
+                "risk"
+            ] = f"{row['plugin_id']}: dependency scope unavailable; verify before enabling."
+            return True
+
+    @staticmethod
+    def _soft_preferences(candidates, snapshot):
+        values = set()
+        for row in candidates:
+            if not set(row["sites"]) <= set(
+                snapshot.sites,
+            ) or not DependencyUpgradeManager._candidate_related(
+                row,
+                snapshot,
+            ):
+                continue
+            preferences = set()
+            try:
+                for name, req in _dependency_closure(
+                    row["requirements"],
+                    snapshot.distributions,
+                    snapshot.marker_environment,
+                    verify_sources=False,
+                ):
+                    if req.specifier:
+                        preferences.add(f"{name}{req.specifier}")
+            except (ValueError, TypeError, KeyError):
+                row[
+                    "risk"
+                ] = f"{row['plugin_id']}: dependency preference unavailable; verify before enabling."
+            else:
+                values.update(preferences)
+        return tuple(sorted(values))
+
+    async def _prepare_host_targets(self, binding):
+        uses = self.loader.registry.dependency_usage.snapshot().uses
+        if not any(
+            use.origin == "host" or use.read_context is not None
+            for use in uses
+        ):
+            return None
+        return await self.loader._python_backend.prepare_dependency_targets(
+            binding.description,
+        )
+
+    async def _prepare_consumer_targets(self, operation=None, snapshot=None):
+        if operation is None or operation.get("policy_version", 2) < 3:
+            return await self._legacy_prepare_consumer_targets()
+        binding = await self._binding(
+            self._directory(operation["id"]) / "source",
+        )
+        candidates = await self._consumer_candidates(binding, snapshot)
+        targets = [
+            row["prepared"]
+            for row in candidates
+            if self._candidate_related(
+                row,
+                snapshot,
+                {change["name"] for change in operation["changes"]},
+            )
+        ]
+
+        host = await self._prepare_host_targets(binding)
+        if host is not None:
+            targets.append(host)
+        return targets
+
+    async def _consumers(
+        self,
+        binding,
+        snapshot,
+        *,
+        operation=None,
+        candidates=None,
+        changes=None,
+        payload_paths=(),
+        excluded_tokens=(),
+    ):
+        if operation is not None and operation.get("policy_version", 2) < 3:
+            return await self._legacy_consumers(binding, snapshot)
+        if operation is not None:
+            changes = {
+                row["name"]: operation["proposed"][row["name"]]
+                for row in operation["changes"]
+            }
+            payload_paths = operation["payload"]
+        if candidates is None:
+            candidates = await self._consumer_candidates(binding, snapshot)
+        related = [
+            row
+            for row in candidates
+            if self._candidate_related(
+                row,
+                snapshot,
+                changes,
+            )
+        ]
+        from .install_lock import environment_observation
+
+        host = await self._prepare_host_targets(binding)
+
+        roots = tuple(
+            dict.fromkeys(
+                (
+                    *(snapshot.dependency_sites or ()),
+                    *(host.targets if host is not None else ()),
+                    *(
+                        root
+                        for row in related
+                        for root in row["prepared"].targets
+                    ),
+                    *(
+                        site
+                        for use in self.loader.registry.dependency_usage.snapshot().uses
+                        if use.environment is not None
+                        and set(use.environment.sites).intersection(
+                            snapshot.dependency_sites or (),
+                        )
+                        for site in use.environment.sites
+                    ),
+                ),
+            ),
+        )
+        async with environment_observation(roots):
+            if host is not None:
+                host.validate()
+            for row in related:
+                row["prepared"].validate()
+            return await self._collect_consumers(
+                binding,
+                snapshot,
+                candidates=related,
+                changes=changes,
+                payload_paths=payload_paths,
+                excluded_tokens=excluded_tokens,
+                host_sites=tuple(map(str, host.targets))
+                if host is not None
+                else (),
+            )
+
+    async def _collect_consumers(
+        self,
+        binding,
+        snapshot,
+        *,
+        candidates,
+        changes,
+        payload_paths,
+        excluded_tokens=(),
+        host_sites=(),
+    ):
+        consumers, environments = [], {}
+        records = {}
+        if isinstance(payload_paths, dict):
+            for path, entry in payload_paths.get("new", {}).items():
+                if Path(path).name == "RECORD":
+                    records[str(Path(path).parent)] = await run_sync_io(
+                        (
+                            binding.description.source_path.parent
+                            / entry["payload"]
+                        ).read_text,
+                        encoding="utf-8",
+                    )
+
+        for row in candidates:
+            if row.get("risk"):
+                continue
+            other = await run_sync_io(
+                self.loader.backend_resolver.resolve,
+                row["source"],
+                row["binding"].description.manifest,
+            )
+            row["prepared"].validate()
+            key = (type(other.backend), row["sites"])
+            if key not in environments:
+                environments[key] = await other.backend.audit_dependencies(
+                    replace(other.description, requirements=()),
+                )
+            observed = environments[key]
+            if set(observed.dependency_sites or ()).intersection(
+                snapshot.dependency_sites or (),
+            ):
+                consumers.append(
+                    {
+                        "plugin_id": row["plugin_id"],
+                        "instance_id": None,
+                        "generation": None,
+                        "origin": "installed",
+                        "active": False,
+                        "source_revision": await run_sync_io(
+                            _source_hash,
+                            row["source"],
+                        ),
+                        "requirements": list(other.description.requirements),
+                        "environment": observed.to_mapping(),
+                    },
+                )
+        changed_sites = {
+            str(Path(row["metadata_path"]).parent)
+            for row in (changes.values() if isinstance(changes, dict) else ())
+            if row is not None
+        }
+        write_paths = (
+            set(payload_paths.get("old", ()))
+            | set(payload_paths.get("new", ()))
+            if isinstance(payload_paths, dict)
+            else set()
+        )
+        for use in self.loader.registry.dependency_usage.snapshot().uses:
+            if (
+                use.origin != "host"
+                and use.declaration_token in excluded_tokens
+            ):
+                continue
+            host_actor = use.origin == "host" or use.read_context is not None
+            if use.environment is not None and changed_sites:
+                visible = host_sites if host_actor else use.environment.sites
+                physical = any(
+                    value in write_paths
+                    for fact in use.host_modules
+                    for value in (
+                        fact.origin,
+                        *(witness[0] for witness in fact.file_witness),
+                    )
+                )
+                if not changed_sites.intersection(visible) and not physical:
+                    continue
+            if use.environment is None:
+                if use.origin != "host" and not (use.active or use.pending):
+                    continue
+                evidence, unknown = snapshot, True
+            elif host_actor or set(use.environment.sites).intersection(
+                snapshot.dependency_sites or (),
+            ):
+                evidence, unknown = use.snapshot, False
+                if evidence is None:
+                    # Reuse this observation only for the same current interpreter.
+                    # Private environments retain their own write evidence.
+                    if use.read_context is not None:
+                        description = use.read_context.description
+                        key = ("host", use.environment.sites)
+                        if key not in environments:
+                            environments[
+                                key
+                            ] = await self.loader._python_backend.audit_dependencies(
+                                replace(description, requirements=()),
+                            )
+                        evidence = environments[key]
+                    else:
+                        evidence = snapshot
+            else:
+                continue
+            facts = getattr(use, "host_modules", ())
+            if facts and changes is not None:
+                from .execution.dependencies import host_module_affected
+
+                rows = (
+                    changes.values()
+                    if isinstance(changes, dict)
+                    else (
+                        snapshot.distributions[name]
+                        for name in changes
+                        if name in snapshot.distributions
+                    )
+                )
+                rows = tuple(row for row in rows if row is not None)
+                paths = (
+                    set(payload_paths.get("old", ()))
+                    | set(payload_paths.get("new", ()))
+                    if isinstance(payload_paths, dict)
+                    else set()
+                )
+                facts = tuple(
+                    fact
+                    for fact in facts
+                    if any(
+                        value in paths
+                        for value in (
+                            os.path.realpath(fact.origin),
+                            *(witness[0] for witness in fact.file_witness),
+                        )
+                    )
+                    or any(
+                        host_module_affected(
+                            row,
+                            (fact,),
+                            record_reads=records,
+                        )
+                        for row in rows
+                    )
+                )
+                if not facts and not unknown:
+                    continue
+            consumers.append(
+                {
+                    "plugin_id": use.plugin_id,
+                    "instance_id": use.instance_id,
+                    "generation": use.generation,
+                    "origin": use.origin,
+                    "active": use.active,
+                    "pending": use.pending,
+                    "admission_id": (
+                        use.declaration_token.identity
+                        if use.declaration_token is not None
+                        else None
+                    ),
+                    "source_revision": use.source_revision,
+                    "requirements": list(use.requirements or ()),
+                    "environment": evidence.to_mapping(),
+                    **({"unknown": True} if unknown else {}),
+                    **(
+                        {"host_facts": [asdict(fact) for fact in facts]}
+                        if facts
+                        else {}
+                    ),
+                },
+            )
+        host = snapshot.distributions.get("qwenpaw")
+        if host:
+            consumers.append(
+                {
+                    "plugin_id": "qwenpaw",
+                    "instance_id": None,
+                    "generation": None,
+                    "origin": "host",
+                    "active": True,
+                    "source_revision": host["version"],
+                    "requirements": [f"qwenpaw=={host['version']}"],
+                    "environment": snapshot.to_mapping(),
+                },
+            )
+        return consumers
+
+    def _reviewed_usage(
+        self,
+        consumers,
+        *,
+        offline=False,
+        sites=(),
+        excluded_tokens=(),
+        policy_version=2,
+    ):
         """Bind confirmation to declarations and exact runtime generations."""
 
         def identity(row):
@@ -581,8 +1052,18 @@ class DependencyUpgradeManager:
                         "pending",
                     )
                 },
+                **(
+                    {"admission_id": row.get("admission_id")}
+                    if policy_version >= 3
+                    else {}
+                ),
                 "requirements": sorted(row.get("requirements") or ()),
                 "environment": environment,
+                **(
+                    {"host_facts": row["host_facts"]}
+                    if row.get("host_facts")
+                    else {}
+                ),
             }
 
         rows = [
@@ -596,6 +1077,11 @@ class DependencyUpgradeManager:
         if not offline:
             relevant_ids = {row["plugin_id"] for row in consumers}
             for use in self.loader.registry.dependency_usage.snapshot().uses:
+                if (
+                    use.origin != "host"
+                    and use.declaration_token in excluded_tokens
+                ):
+                    continue
                 if use.plugin_id not in relevant_ids:
                     continue
                 environment = use.environment
@@ -615,6 +1101,11 @@ class DependencyUpgradeManager:
                             "origin": use.origin,
                             "active": use.active,
                             "pending": use.pending,
+                            "admission_id": (
+                                use.declaration_token.identity
+                                if use.declaration_token is not None
+                                else None
+                            ),
                             "requirements": use.requirements,
                             "environment": (
                                 {
@@ -654,14 +1145,42 @@ class DependencyUpgradeManager:
             consumers,
             offline=offline,
             sites=operation["environment"]["dependency_sites"],
+            policy_version=operation.get("policy_version", 2),
         )
         if offline:
             reviewed = self._reviewed_usage(
                 operation["consumers"],
                 offline=True,
+                policy_version=operation.get("policy_version", 2),
             )
         else:
             reviewed = operation["reviewed_usage"]
+        if operation.get("policy_version", 2) >= 3:
+            if offline:
+                persistent = lambda row: row["origin"] == "installed" or (
+                    row["origin"] == "host" and row["plugin_id"] == "qwenpaw"
+                )
+                scope = sorted(
+                    {row["plugin_id"] for row in consumers if persistent(row)},
+                )
+                confirmed = sorted(
+                    {
+                        row["plugin_id"]
+                        for row in operation["consumers"]
+                        if persistent(row)
+                    },
+                )
+            else:
+                scope = sorted({row["plugin_id"] for row in consumers})
+                confirmed = operation["reviewed_usage"]["consumer_scope"]
+            if not (
+                set(scope) <= set(confirmed)
+                if allow_stopped
+                else scope == confirmed
+            ):
+                raise RuntimeError(
+                    "DEPENDENCY_PLAN_STALE: shared consumer scope changed.",
+                )
         matches = all(
             (
                 set(current[key]) <= set(reviewed[key])
@@ -746,6 +1265,7 @@ class DependencyUpgradeManager:
             )
             if (
                 consumer.get("unknown")
+                or consumer.get("host_facts")
                 or worker_site
                 or relevant.intersection(visible)
             ):
@@ -832,14 +1352,15 @@ class DependencyUpgradeManager:
         directory,
         snapshot,
         requirements,
-        consumers,
         requirements_path,
         context=None,
+        *,
+        soft_preferences=(),
+        prefer_installed=True,
     ):
         from packaging.requirements import Requirement
 
         from .dependency_transaction import (
-            dependency_site_is_mutable,
             environment_fingerprint,
         )
 
@@ -847,22 +1368,11 @@ class DependencyUpgradeManager:
         immutable = (
             context.immutable_providers() if context is not None else {}
         )
-        policy = context.to_mapping() if context is not None else None
-        site_protection, protected = {}, set()
-        for name, row in snapshot.distributions.items():
-            site = Path(row["metadata_path"]).parent
-            key = str(site)
-            if key not in site_protection:
-                site_protection[key] = (
-                    context is not None and context.protected(site)
-                ) or not dependency_site_is_mutable(
-                    site,
-                    snapshot.prefix,
-                    directory.parent.parent / "plugin_runtime",
-                    policy,
-                )
-            if site_protection[key]:
-                protected.add(name)
+        protected = _protected_providers(
+            snapshot,
+            context,
+            directory.parent.parent / "plugin_runtime",
+        )
         protected.update(immutable)
         for value in requirements:
             requirement = Requirement(value)
@@ -903,9 +1413,10 @@ class DependencyUpgradeManager:
             resolution_constraints(
                 snapshot,
                 requirements,
-                consumers,
-                immutable,
-                protected,
+                immutable=immutable,
+                protected=protected,
+                soft_preferences=soft_preferences,
+                prefer_installed=prefer_installed,
             ),
             encoding="utf-8",
         )
@@ -949,7 +1460,6 @@ class DependencyUpgradeManager:
         directory,
         snapshot,
         requirements,
-        consumers,
         target,
         context=None,
         wheel_tags=None,
@@ -1129,7 +1639,7 @@ class DependencyUpgradeManager:
             authenticate_plan(directory, operation, seal=True)
         cls._save(directory, operation)
 
-    async def stage(self, source_path, force=False):
+    async def stage(self, source_path, force=False, *, prepared=None):
         operation_id = uuid4().hex
         directory = self.root / operation_id
         try:
@@ -1162,7 +1672,8 @@ class DependencyUpgradeManager:
                     "DEPENDENCY_PLAN_UNVERIFIED",
                     "Actual dependency environment is unavailable.",
                 )
-            consumers = await self._consumers(binding, snapshot)
+            candidates = await self._consumer_candidates(binding, snapshot)
+            soft_preferences = self._soft_preferences(candidates, snapshot)
             context = await self._environment(binding, snapshot)
             target = context.install_target
             if target is None:
@@ -1176,9 +1687,35 @@ class DependencyUpgradeManager:
                 snapshot,
                 binding.description.requirements,
             )
+            if prepared is not None:
+                from .dependency_transaction import environment_fingerprint
+
+                if (
+                    not isinstance(prepared, PreparedResolution)
+                    or prepared.owner is not asyncio.current_task()
+                    or prepared.claimed
+                    or prepared.source_revision != revision
+                    or prepared.environment_fingerprint
+                    != await run_sync_io(
+                        environment_fingerprint,
+                        snapshot.to_mapping(),
+                    )
+                    or prepared.context != context.to_mapping()
+                    or prepared.candidates != _candidate_scope(candidates)
+                    or not set(requirements) <= set(prepared.requirements)
+                ):
+                    _refuse(
+                        "DEPENDENCY_PLAN_STALE",
+                        "Prepared resolution inputs changed.",
+                    )
+                requirements = prepared.requirements
+            preferences_failed = (
+                prepared.preferences_failed if prepared is not None else False
+            )
             # Only a newly affected host root can justify another resolution.
             for attempt in range(
-                len(
+                len(candidates)
+                + len(
                     _core_requirements(
                         snapshot.distributions,
                         snapshot.marker_environment,
@@ -1191,9 +1728,10 @@ class DependencyUpgradeManager:
                     directory,
                     snapshot,
                     requirements,
-                    consumers,
                     binding.description.requirements_path,
                     context,
+                    soft_preferences=soft_preferences,
+                    prefer_installed=not preferences_failed,
                 )
                 if attempt == 0 and not await run_sync_io(
                     require_pip,
@@ -1204,40 +1742,46 @@ class DependencyUpgradeManager:
                         "DEPENDENCY_INSTALLER_UNAVAILABLE",
                         "pip is missing from the selected dependency environment.",
                     )
-                result = await run_sync_io(
-                    self.loader._run_subprocess_with_streaming_log,
-                    command,
-                    timeout=300,
-                    plugin_id=plugin_id,
-                )
-                if result.returncode:
-                    # Drop preferences, retaining host and immutable bounds.
-                    command[command.index("--constraint") + 1] = str(
-                        directory / "required-constraints.txt",
-                    )
-                    await run_sync_io(shutil.rmtree, directory / "wheels")
-                    await run_sync_io((directory / "wheels").mkdir)
+                if attempt == 0 and prepared is not None:
+                    await run_sync_io(prepared.claim, directory / "wheels")
+                else:
                     result = await run_sync_io(
                         self.loader._run_subprocess_with_streaming_log,
                         command,
                         timeout=300,
                         plugin_id=plugin_id,
                     )
-                if result.returncode:
-                    _refuse(
-                        "DEPENDENCY_CONFLICT",
-                        "Plugin requirements cannot be resolved for the selected Python environment.",
+                    if result.returncode:
+                        preferences_failed = True
+                        # Drop preferences, retaining host and immutable bounds.
+                        command[command.index("--constraint") + 1] = str(
+                            directory / "required-constraints.txt",
+                        )
+                        await run_sync_io(shutil.rmtree, directory / "wheels")
+                        await run_sync_io((directory / "wheels").mkdir)
+                        result = await run_sync_io(
+                            self.loader._run_subprocess_with_streaming_log,
+                            command,
+                            timeout=300,
+                            plugin_id=plugin_id,
+                        )
+                    if result.returncode:
+                        _refuse(
+                            "DEPENDENCY_CONFLICT",
+                            "Plugin requirements cannot be resolved for the selected Python environment.",
+                        )
+                from .install_lock import environment_observation
+
+                async with environment_observation(snapshot.dependency_sites):
+                    changed, changes, inventory, payload = await run_sync_io(
+                        self._prepare_payload,
+                        directory,
+                        snapshot,
+                        requirements,
+                        target,
+                        context,
+                        wheel_tags,
                     )
-                changed, changes, inventory, payload = await run_sync_io(
-                    self._prepare_payload,
-                    directory,
-                    snapshot,
-                    requirements,
-                    consumers,
-                    target,
-                    context,
-                    wheel_tags,
-                )
                 expanded = await run_sync_io(
                     _resolution_requirements,
                     snapshot,
@@ -1257,6 +1801,16 @@ class DependencyUpgradeManager:
                     "DEPENDENCY_PLAN_UNVERIFIED",
                     "Core dependency resolution scope did not stabilize.",
                 )
+            consumers = await self._consumers(
+                binding,
+                snapshot,
+                candidates=candidates,
+                changes={name: inventory[name] for name in changed},
+                payload_paths=payload,
+                excluded_tokens=(
+                    prepared.excluded_tokens if prepared is not None else ()
+                ),
+            )
             from .dependency_transaction import imported_changes_async
 
             self._check_core(
@@ -1269,23 +1823,32 @@ class DependencyUpgradeManager:
                 consumers,
                 {name: inventory[name] for name in changed},
             )
-            requires_restart = bool(await imported_changes_async(payload)) or (
-                any(old is not None for old in changed.values())
-                and any(
-                    row.get("unknown")
-                    or (
-                        row["origin"] == "host"
-                        and any(
-                            name in changed and evidence.get("loaded_modules")
-                            for name, evidence in row["environment"][
-                                "distributions"
-                            ].items()
+            requires_restart = (
+                bool(await imported_changes_async(payload))
+                or any(row.get("host_facts") for row in consumers)
+                or (
+                    any(old is not None for old in changed.values())
+                    and any(
+                        row.get("unknown")
+                        or row.get("host_facts")
+                        or (
+                            row["origin"] == "host"
+                            and any(
+                                name in changed
+                                and evidence.get("loaded_modules")
+                                for name, evidence in row["environment"][
+                                    "distributions"
+                                ].items()
+                            )
                         )
+                        for row in consumers
                     )
-                    for row in consumers
                 )
             )
             warnings = self._warnings(consumers, inventory, changed)
+            warnings.extend(
+                row["risk"] for row in candidates if row.get("risk")
+            )
             runtime = getattr(self.loader.registry, "channel_runtime", None)
             runtime_data = None
             if runtime is not None:
@@ -1304,7 +1867,7 @@ class DependencyUpgradeManager:
                 )
             operation = {
                 "id": operation_id,
-                "policy_version": 2,
+                "policy_version": 3,
                 "plugin_id": plugin_id,
                 "status": "needs_confirmation",
                 "changes": changes,
@@ -1343,6 +1906,12 @@ class DependencyUpgradeManager:
                 "reviewed_usage": self._reviewed_usage(
                     consumers,
                     sites=snapshot.dependency_sites,
+                    policy_version=3,
+                    excluded_tokens=(
+                        prepared.excluded_tokens
+                        if prepared is not None
+                        else ()
+                    ),
                 ),
                 "proposed": inventory,
                 "payload": payload,
@@ -1354,6 +1923,9 @@ class DependencyUpgradeManager:
                 "dependency_context": context.to_mapping(),
                 "approved": False,
             }
+            operation["reviewed_usage"]["consumer_scope"] = sorted(
+                {row["plugin_id"] for row in consumers},
+            )
             await run_sync_io(self._seal_operation, directory, operation)
             return self._public(operation)
         except BaseException as exc:
@@ -1541,7 +2113,6 @@ async def continue_operation(directory, *, preflight=False):
         environment_fingerprint,
         verify_payload,
         atomic_json,
-        visible_distributions,
         verify_providers,
     )
 
@@ -1550,6 +2121,20 @@ async def continue_operation(directory, *, preflight=False):
     from .dependency_transaction import authenticate_plan
 
     authenticate_plan(directory, operation)
+    version = operation.get("policy_version", 1)
+    if version not in (1, 2, 3) or (
+        version < 3
+        and not (
+            operation.get("approved")
+            or (directory / "journal.json").exists()
+            or operation.get("worker_pid")
+            or operation["status"]
+            in {"waiting_restart", "applying", "repair_required"}
+        )
+    ):
+        raise RuntimeError(
+            "DEPENDENCY_PLAN_UNVERIFIED: unsupported continuation policy.",
+        )
     runtime = operation["runtime"]
     if runtime is not None:
         runtime = dict(runtime)
@@ -1598,7 +2183,11 @@ async def continue_operation(directory, *, preflight=False):
                     "DEPENDENCY_PLAN_STALE: environment changed after review.",
                 )
             await run_sync_io(verify_payload, directory, operation)
-            consumers = await manager._consumers(binding, observed)
+            consumers = await manager._consumers(
+                binding,
+                observed,
+                operation=operation,
+            )
             manager._check_reviewed_usage(operation, consumers, offline=True)
             manager._check_core(
                 operation["proposed"],

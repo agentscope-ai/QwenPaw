@@ -27,22 +27,6 @@ WheelAddition = wheel_additions.WheelAddition
 
 logger = logging.getLogger(__name__)
 
-# Known host packages that must not be pip-installed over a running process.
-HOST_PACKAGE_NAMES: frozenset[str] = frozenset(
-    {
-        "httpx",
-        "pydantic",
-        "fastapi",
-        "uvicorn",
-        "starlette",
-        "anyio",
-        "openai",
-        "agentscope",
-        "reme-ai",
-        "apscheduler",
-    },
-)
-
 _IMPORT_NAME_OVERRIDES = {
     "pillow": "PIL",
     "pyyaml": "yaml",
@@ -75,17 +59,7 @@ class GateDecision:
     require_restart: bool = False
     reason: str = ""
     reason_code: str = ""
-    affected_instances: tuple[dict, ...] = ()
     warnings: tuple[str, ...] = ()
-
-
-def _is_frozen() -> bool:
-    return bool(getattr(sys, "frozen", False))
-
-
-def parse_requirement_lines(requirements_file: Path) -> list[Requirement]:
-    """Parse installable requirement lines, skipping comments and flags."""
-    return parse_requirements_file(requirements_file).requirements
 
 
 def parse_requirements_file(requirements_file: Path) -> ParsedRequirements:
@@ -223,25 +197,6 @@ def is_requirement_satisfied(req: Requirement) -> bool:
         return False
 
 
-def hits_imported_host_package(req: Requirement) -> bool:
-    """True when installing *req* would overwrite a host-owned package."""
-    if not requirement_applies(req):
-        return False
-    dist = _dist_key(req)
-    if _is_frozen():
-        return dist in HOST_PACKAGE_NAMES
-    if dist in HOST_PACKAGE_NAMES:
-        top = _import_name(req).split(".", 1)[0]
-        if top in sys.modules:
-            return True
-        try:
-            _dist_version(req.name)
-            return True
-        except PackageNotFoundError:
-            return False
-    return False
-
-
 class DependencyGate:
     """Front door for ``_ensure_dependencies_installed``."""
 
@@ -294,6 +249,7 @@ class DependencyGate:
                         [str(req) for req in parsed.requirements],
                         InstalledRequirements(),
                         default_environment(),
+                        verify_sources=False,
                     )
                 }.values(),
             )
@@ -323,7 +279,7 @@ class DependencyGate:
                         f"{req}: installed version unknown; attempting load",
                     )
             return GateDecision(
-                allow_install=False,
+                allow_install=bool(warnings) and allow_install,
                 already_satisfied=not warnings,
                 warnings=tuple(warnings),
                 reason=(
@@ -418,6 +374,35 @@ def _host_observation_roots(uses, sites, install_target=None):
         if install_target is not None
         else None
     )
+    uses = tuple(uses)
+    providers = [
+        row.get("metadata_path")
+        for use in uses
+        if use.snapshot is not None
+        for row in use.snapshot.distributions.values()
+    ]
+    providers += [
+        fact.origin
+        for use in uses
+        for fact in getattr(use, "host_modules", ())
+    ]
+    unknown = any(
+        use.origin == "host" and use.environment is None for use in uses
+    )
+
+    def retired_search_root(root):
+        return (
+            root not in sites
+            and root != target
+            and not unknown
+            and not Path(root).exists()
+            and not Path(root).is_symlink()
+            and all(
+                origin and not Path(origin).is_relative_to(root)
+                for origin in providers
+            )
+        )
+
     roots = set()
     for use in uses:
         if use.read_admitted and use.environment is not None:
@@ -427,7 +412,19 @@ def _host_observation_roots(uses, sites, install_target=None):
                 if target is not None
                 else sites.intersection(visible)
             ):
-                roots.update(visible)
+                roots.update(
+                    root for root in visible if not retired_search_root(root)
+                )
+        if (
+            use.origin == "host"
+            and use.snapshot is None
+            and use.environment is not None
+        ):
+            roots.update(
+                root
+                for root in _canonical_dependency_roots(use.environment.sites)
+                if not retired_search_root(root)
+            )
         if use.origin != "host" or use.snapshot is None:
             continue
         evidence = use.snapshot
@@ -441,9 +438,11 @@ def _host_observation_roots(uses, sites, install_target=None):
         ):
             continue
         historical = _canonical_dependency_roots(
-            evidence.dependency_sites
-            if evidence.dependency_sites is not None
-            else dependency_sites(evidence.sites),
+            (
+                evidence.dependency_sites
+                if evidence.dependency_sites is not None
+                else dependency_sites(evidence.sites)
+            ),
         )
         providers = [
             row.get("metadata_path") for row in evidence.distributions.values()
@@ -518,11 +517,14 @@ async def admit_shared_dependencies(
     validate=None,
 ):
     """Audit and admit the exact consumer under environment exclusion."""
-    from .execution.dependencies import DependencySnapshot
+    from .execution.dependencies import (
+        DependencyReadEvidence,
+        DependencySnapshot,
+    )
     from ..utils.io_utils import run_sync_io
 
     roots = await run_sync_io(_canonical_dependency_roots, targets)
-    if isinstance(snapshot, DependencySnapshot):
+    if isinstance(snapshot, (DependencySnapshot, DependencyReadEvidence)):
         roots |= await run_sync_io(
             _canonical_dependency_roots,
             snapshot.dependency_sites or (),
@@ -532,7 +534,10 @@ async def admit_shared_dependencies(
             if validate is not None:
                 validate()
             observed = await audit()
-            if not isinstance(observed, DependencySnapshot):
+            if not isinstance(
+                observed,
+                (DependencySnapshot, DependencyReadEvidence),
+            ):
                 raise _unverified("admission environment unavailable")
             if validate is not None:
                 validate()
@@ -560,7 +565,6 @@ def evaluate_shared_dependencies(
     *,
     plugin_id,
     uses=(),
-    install_target=None,
     extra_requirements=(),
     installed_distributions=None,
     inventory=None,
@@ -594,7 +598,10 @@ def evaluate_shared_dependencies(
     # Additions may expose a public provider for a loaded embedded module.
     # Only the proposed changes matter; never compare an entire old snapshot.
     if installed_distributions is not None:
-        from .execution.dependencies import _provides_loaded_modules
+        from .execution.dependencies import (
+            _provides_loaded_modules,
+            host_module_affected,
+        )
 
         record_reads = dict((inventory or {}).get("records", {}))
         record_reads.update(planned_records or {})
@@ -604,7 +611,18 @@ def evaluate_shared_dependencies(
             if installed_distributions.get(name) != row
         }
         for use in uses:
-            if use.origin != "host" or use.snapshot is None:
+            if use.origin != "host":
+                continue
+            for name, row in changed.items():
+                if host_module_affected(
+                    row,
+                    getattr(use, "host_modules", ()),
+                    record_reads=record_reads,
+                ):
+                    conflicts.append(
+                        f"host {use.plugin_id}: {name} changes or shadows loaded code",
+                    )
+            if use.snapshot is None:
                 continue
             for name, row in changed.items():
                 for owner, old in use.snapshot.distributions.items():
@@ -717,7 +735,11 @@ async def prepare_shared_dependencies(
     target = await run_sync_io(inspect_target)
 
     async def audit():
+        from .execution.dependencies import DependencySnapshot
+
         observed = (await process.audit(spec)).snapshot
+        if not isinstance(observed, DependencySnapshot):
+            raise _unverified("complete write evidence required")
         _refine_admission(usage_registry, admission_token, observed, plugin_id)
         return observed
 
@@ -730,7 +752,6 @@ async def prepare_shared_dependencies(
             plugin_id=plugin_id,
             usage_registry=usage_registry,
             admission_token=admission_token,
-            install_target=target,
             extra_requirements=extra,
             installed_distributions=snapshot.distributions,
             planned_records=planned_records,
@@ -788,19 +809,6 @@ async def prepare_shared_dependencies(
             if not actual <= observation_roots:
                 observation_roots |= actual
                 continue
-            if expected_snapshot is not None and snapshot != expected_snapshot:
-                raise SharedDependencyError(
-                    GateDecision(
-                        False,
-                        False,
-                        require_restart=True,
-                        reason=(
-                            "DEPENDENCY_RESTART_REQUIRED: "
-                            "environment changed during resolution"
-                        ),
-                        reason_code="DEPENDENCY_RESTART_REQUIRED",
-                    ),
-                )
             if target is None and (
                 await run_sync_io(
                     _canonical_dependency_roots,
@@ -898,9 +906,11 @@ async def prepare_shared_dependencies(
                     GateDecision(
                         False,
                         False,
-                        reason=str(exc)
-                        if isinstance(exc, ProtocolValidationError)
-                        else code,
+                        reason=(
+                            str(exc)
+                            if isinstance(exc, ProtocolValidationError)
+                            else code
+                        ),
                         reason_code=code,
                         require_restart=code == "DEPENDENCY_RESTART_REQUIRED",
                     ),

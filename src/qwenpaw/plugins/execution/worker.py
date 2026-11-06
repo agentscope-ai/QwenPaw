@@ -293,10 +293,7 @@ async def _prepare_component(boot, packet, runtime, identity, peer):
                 "source mismatch",
             )
         return None
-    packet["dependency_versions"] = {
-        name: snapshot.distributions[name]["version"]
-        for name in snapshot.distributions
-    }
+    packet["dependency_versions"] = dict(snapshot.versions)
     entrypoint, source, hello = runtime.verify(boot, packet, identity)
     accepted = await peer.call(
         runtime.hello_method,

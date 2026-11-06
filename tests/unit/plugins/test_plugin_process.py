@@ -1007,7 +1007,7 @@ def _prepare_dependency_operation(
     )
     requirements_path = files.directory.parent / "requirements.txt"
     requirements_path.write_text(requirements)
-    args = files.directory, snapshot, requirements.splitlines(), []
+    args = files.directory, snapshot, requirements.splitlines()
     DependencyUpgradeManager._prepare_resolution(
         *args,
         requirements_path,
@@ -1185,7 +1185,29 @@ async def test_shared_upgrade_resolves_paired_dependencies(
                 )
             assert refused.value.reason_code == "DEPENDENCY_CONFLICT"
         else:
-            result = await manager.stage(source)
+            if scenario == "paired-sdk":
+                from qwenpaw.plugins.dependency_upgrade import (
+                    DependencyUpgradeRequired,
+                )
+
+                with pytest.raises(DependencyUpgradeRequired) as upgrade:
+                    await host.loader._acquire_dependency_wheels(
+                        SimpleNamespace(),
+                        SimpleNamespace(
+                            python_executable=sys.executable,
+                            code_root=source,
+                        ),
+                        await audit(None),
+                        host.site,
+                        "feishu",
+                        source / "requirements.txt",
+                    )
+                result = upgrade.value.operation
+                assert (
+                    len(calls) == 2
+                )  # One preference failure + one hard-only solve; stage reuses wheels.
+            else:
+                result = await manager.stage(source)
             assert result["status"] == "needs_confirmation"
             operation = manager._read(result["id"])
             for name in ("sample-shared-sdk", "paired-helper"):
@@ -1249,7 +1271,7 @@ def test_dependency_preparation_rejects_protected_environment(
     )
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("sample-shared-sdk==1.0\n")
-    args = files.directory, snapshot, ["sample-shared-sdk==1.0"], []
+    args = files.directory, snapshot, ["sample-shared-sdk==1.0"]
     before = _inventory(tmp_path)
     with pytest.raises(
         SharedDependencyError,
@@ -1306,7 +1328,6 @@ def test_overlay_rejects_record_outside_target(
             files.directory,
             snapshot,
             ["sample-shared-sdk==1.0"],
-            [],
             files.site,
             context,
         )
@@ -1668,6 +1689,175 @@ async def staged_upgrade(tmp_path, monkeypatch, request):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "pending_target",
+    [False, True, "embedded", "private-worker"],
+)
+async def test_shared_change_ignores_disjoint_inactive_runtime(
+    staged_upgrade,
+    monkeypatch,
+    pending_target,
+):
+    prepared = staged_upgrade
+    original_audit = prepared.host.loader._python_backend.audit_dependencies
+
+    async def unavailable(_description):
+        pytest.fail("disjoint inactive runtime must not be audited")
+
+    monkeypatch.setattr(
+        prepared.host.loader._python_backend,
+        "audit_dependencies",
+        unavailable,
+    )
+    operation = await prepared.manager.stage(prepared.source)
+    assert operation["status"] == "needs_confirmation"
+    assert operation["changes"] == prepared.operation["changes"]
+
+    if pending_target is True:
+        from qwenpaw.plugins.dependency_usage import DependencyDeclaration
+
+        usage = prepared.host.registry.dependency_usage
+        declaration = DependencyDeclaration("feishu", "parallel", (), None)
+        first = usage.declare(declaration)
+        try:
+            result = await prepared.manager.apply(operation["id"])
+            assert result["status"] == "failed"
+            assert result["error"]["code"] == "DEPENDENCY_PLAN_STALE"
+            reviewed = await prepared.manager.stage(prepared.source)
+            second = usage.declare(declaration)
+            try:
+                result = await prepared.manager.apply(reviewed["id"])
+                assert result["status"] == "failed"
+                assert result["error"]["code"] == "DEPENDENCY_PLAN_STALE"
+                assert prepared.module.read_text() == "VALUE = '0.5'\n"
+            finally:
+                usage.withdraw(second)
+        finally:
+            usage.withdraw(first)
+
+    elif pending_target == "embedded":
+        from types import ModuleType
+        from qwenpaw.plugins import python_backend
+        from qwenpaw.plugins.dependency_usage import DependencyDeclaration
+
+        prepared.module.unlink()
+        shutil.rmtree(prepared.site / "sample_shared_sdk-0.5.dist-info")
+        embedded = prepared.site / "owner/_vendor/sample_shared_sdk.py"
+        embedded.parent.mkdir(parents=True)
+        embedded.write_text("VALUE = 'old embedded'\n")
+        info = prepared.site / "embedded_owner-0.5.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text("Name: embedded-owner\nVersion: 0.5\n")
+        (info / "RECORD").write_text(
+            "owner/_vendor/sample_shared_sdk.py,,\n"
+            + f"{info.name}/METADATA,,\n{info.name}/RECORD,,\n",
+        )
+        module = ModuleType("sample_shared_sdk")
+        module.__file__ = str(embedded)
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+        state = python_backend._host_dependency_state
+        monkeypatch.setattr(
+            python_backend,
+            "_host_dependency_state",
+            lambda: (
+                state()[0],
+                tuple(row for row in state()[1] if row[0] == module.__name__),
+            ),
+        )
+        usage = prepared.host.registry.dependency_usage
+        token = usage.declare(
+            DependencyDeclaration("shadow-reader", "old", (), None),
+        )
+        description = SimpleNamespace(
+            manifest=SimpleNamespace(id="shadow-reader"),
+            source_path=prepared.source,
+        )
+        await python_backend.PythonBackend.observe_host_dependencies(
+            description,
+            usage,
+            token,
+        )
+        usage.withdraw(token)
+        previous_paths = python_backend._host_paths(os.getcwd())
+        monkeypatch.setattr(
+            python_backend,
+            "_host_paths",
+            lambda cwd: (str(prepared.site), *previous_paths),
+        )
+        monkeypatch.setattr(
+            prepared.host.loader._python_backend,
+            "audit_dependencies",
+            original_audit,
+        )
+        addition = await prepared.manager.stage(prepared.source)
+        assert all(
+            row["current_version"] is None for row in addition["changes"]
+        )
+        assert addition[
+            "requires_restart"
+        ]  # A new public provider shadows loaded embedded code.
+    elif pending_target == "private-worker":
+        from qwenpaw.plugins.dependency_usage import DependencyDeclaration
+        from qwenpaw.plugins.execution.dependencies import observe_dependencies
+        from qwenpaw.plugins.ownership import RuntimeKey, RuntimeStopReceipt
+
+        usage = prepared.host.registry.dependency_usage
+        owners = prepared.host.registry.runtime_owners
+        independent = prepared.host.installed.parent / "independent-consumer"
+        private_site = prepared.host.root / "independent-site"
+        wheel = next(
+            local_wheel(
+                prepared.host.root / "private-wheel",
+                version="0.5",
+            ).glob("*.whl"),
+        )
+        with zipfile.ZipFile(wheel) as archive:
+            archive.extractall(private_site)
+        native = str(
+            Path(sys.prefix)
+            / (
+                "Lib/site-packages"
+                if os.name == "nt"
+                else f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
+            ),
+        )
+        evidence = observe_dependencies(
+            {
+                "mode": "probe",
+                "code_root": independent,
+                "_audit_sites": (native, private_site),
+                "_requirements": ("sample-shared-sdk<1",),
+            },
+        )
+        token = usage.declare(
+            DependencyDeclaration(
+                "independent-consumer",
+                "running-private",
+                ("sample-shared-sdk<1",),
+                None,
+            ),
+        )
+        usage.refine(token, evidence)
+        lease = owners.reserve(
+            "independent-consumer",
+            RuntimeKey("channel", "private", "workspace"),
+            independent,
+            instance_id="private",
+        )
+        owners.attach(lease, lambda: RuntimeStopReceipt(True, "TEST_STOPPED"))
+        usage.bind(lease, token)
+        try:
+            fresh = await prepared.manager.stage(prepared.source)
+            assert not any(
+                row["plugin_id"] == "independent-consumer"
+                for row in fresh["affected_instances"]
+            )
+        finally:
+            await owners.stop(lease)
+            usage.withdraw(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "staged_upgrade",
     [False, True, "shared_reader"],
     indirect=True,
@@ -1730,6 +1920,26 @@ async def test_shared_upgrade_replaces_provider_or_restores_exact_old_tree(
         assert retry[
             "requires_restart"
         ]  # Unknown live host use requires offline replacement.
+        approved = await manager.apply(retry["id"])
+        assert approved["status"] == "waiting_restart"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-B",
+                "-c",
+                "import asyncio,sys;sys.path.insert(0,sys.argv[1]);"
+                "from qwenpaw.plugins.dependency_upgrade import continue_operation;"
+                "asyncio.run(continue_operation(sys.argv[2],preflight=True))",
+                str(ROOT / "src"),
+                str(manager._directory(retry["id"])),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
     else:
         with pytest.raises(
             SharedDependencyError,
