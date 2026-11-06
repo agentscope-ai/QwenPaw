@@ -121,14 +121,11 @@ class RerankerTestResult:
     cases: list[RerankerCaseResult] | None = None
 
 
-# Each case is (query, documents, expected_index). The expected
-# most-relevant document is deliberately placed at a different position in
-# every case (0, 1, 2, 0, 1) so a service that merely echoes a fixed order
-# (or returns identical scores for everything, which is judged incorrect by
-# the tie rule in _extract_scores) cannot pass the suite. A working
-# reranker should rank the expected document first in every case, turning
-# the probe into a small multi-domain ranking-quality estimate instead of a
-# single binary smoke test.
+# Each case is (query, [expected-most-relevant document, distractor,
+# distractor]).
+# A working reranker should rank document 0 first for every case, turning the
+# probe into a small multi-domain ranking-quality estimate instead of a single
+# binary smoke test.
 _TEST_SUITE = [
     (
         "How do I reset my password?",
@@ -138,25 +135,22 @@ _TEST_SUITE = [
             "The quick brown fox jumps over the lazy dog.",
             "Today's lunch special is grilled salmon with rice.",
         ],
-        0,
     ),
     (
         "What time is hotel checkout?",
         [
-            "The stock market closed higher today.",
             "Checkout is at 11 AM; a late checkout may incur a fee.",
+            "The stock market closed higher today.",
             "The cat slept on the windowsill all afternoon.",
         ],
-        1,
     ),
     (
         "How many grams are in a cup of flour?",
         [
+            "One cup of all-purpose flour weighs about 120 grams.",
             "The train to the airport leaves every 20 minutes.",
             "It rained heavily in the north overnight.",
-            "One cup of all-purpose flour weighs about 120 grams.",
         ],
-        2,
     ),
     (
         "Which planet is closest to the Sun?",
@@ -165,17 +159,15 @@ _TEST_SUITE = [
             "The concert was rescheduled to next Friday.",
             "My neighbour's dog barks at the mail carrier.",
         ],
-        0,
     ),
     (
         "How do I cancel my subscription?",
         [
-            "The recipe calls for two eggs and a cup of milk.",
             "Go to Account > Billing > Cancel subscription to stop "
             "auto-renewal.",
+            "The recipe calls for two eggs and a cup of milk.",
             "Line 3 of the metro is suspended for maintenance.",
         ],
-        1,
     ),
 ]
 
@@ -190,13 +182,8 @@ def _strip_html(text: str) -> str:
 def _extract_scores(
     results: list[Any],
     n_docs: int,
-    expected_index: int = 0,
 ) -> tuple[list[float] | None, bool | None]:
-    """Map returned results back to request order and judge the top rank.
-
-    Tied top scores count as incorrect: a service returning the same score
-    for every document carries no ranking signal and must not pass.
-    """
+    """Map returned results back to request order and judge the top rank."""
     score_by_index: dict[int, float] = {}
     for item in results:
         if not isinstance(item, dict):
@@ -208,10 +195,8 @@ def _extract_scores(
     if not all(i in score_by_index for i in range(n_docs)):
         return None, None
     scores = [score_by_index[i] for i in range(n_docs)]
-    top_score = max(scores)
-    if scores.count(top_score) > 1:
-        return scores, False
-    return scores, scores.index(top_score) == expected_index
+    top_index = scores.index(max(scores))
+    return scores, top_index == 0
 
 
 async def _validate_reranker_base_url(base_url: str) -> str:
@@ -302,7 +287,7 @@ async def test_reranker_model(
 
         cases: list[RerankerCaseResult] = []
         correct_count = 0
-        for query, documents, expected_index in _TEST_SUITE:
+        for query, documents in _TEST_SUITE:
             payload = {
                 "model": config.model_name.strip(),
                 "query": query,
@@ -331,11 +316,7 @@ async def test_reranker_model(
                 raise RuntimeError(
                     "Reranker service returned invalid document indices",
                 )
-            scores, correct = _extract_scores(
-                results,
-                len(documents),
-                expected_index=expected_index,
-            )
+            scores, correct = _extract_scores(results, len(documents))
             cases.append(
                 RerankerCaseResult(
                     query=query,

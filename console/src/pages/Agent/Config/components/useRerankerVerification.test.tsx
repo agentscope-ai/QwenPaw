@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { RerankerConfig } from "@/api/types/agent";
@@ -39,10 +39,10 @@ afterEach(() => {
 });
 
 describe("useRerankerVerification", () => {
-  it("stores latency and the ranking verdict for the agent", () => {
+  it("stores latency and the ranking verdict for the agent", async () => {
     const { result } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, 1, 3, 3, []));
+    await act(async () => result.current.markVerified(320, 1, 3, 3, []));
 
     const stored =
       useRerankerVerificationStore.getState().verificationByAgent.default;
@@ -56,10 +56,10 @@ describe("useRerankerVerification", () => {
     expect(result.current.testedRerankerIsCurrent).toBe(true);
   });
 
-  it("preserves the selected agent verification during a mixed config frame", () => {
+  it("preserves the selected agent verification during a mixed config frame", async () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, 1, 3, 3, []));
+    await act(async () => result.current.markVerified(320, 1, 3, 3, []));
     expect(
       useRerankerVerificationStore.getState().verificationByAgent.default,
     ).toBeDefined();
@@ -79,10 +79,10 @@ describe("useRerankerVerification", () => {
     expect(result.current.testedRerankerIsCurrent).toBe(true);
   });
 
-  it("still clears verification when the same agent becomes disabled", () => {
+  it("still clears verification when the same agent becomes disabled", async () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, 1, 3, 3, []));
+    await act(async () => result.current.markVerified(320, 1, 3, 3, []));
     rerender({ currentConfig: disabledConfig });
 
     expect(
@@ -90,14 +90,18 @@ describe("useRerankerVerification", () => {
     ).toBeUndefined();
   });
 
-  it("invalidates the stored verdict when the service config changes", () => {
+  it("invalidates the stored verdict when the service config changes", async () => {
     const { result, rerender } = renderVerificationHook(enabledConfig);
 
-    act(() => result.current.markVerified(320, 1, 3, 3, []));
+    await act(async () => result.current.markVerified(320, 1, 3, 3, []));
     rerender({
       currentConfig: { ...enabledConfig, model_name: "other-reranker-model" },
     });
 
-    expect(result.current.testedRerankerIsCurrent).toBe(false);
+    // The fingerprint resolves asynchronously, so the invalidation lands a
+    // tick after the rerender.
+    await waitFor(() =>
+      expect(result.current.testedRerankerIsCurrent).toBe(false),
+    );
   });
 });

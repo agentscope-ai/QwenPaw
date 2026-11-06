@@ -45,11 +45,7 @@ async def _sweep_once() -> None:
             )
             continue
 
-        # The reranker lives under running.reme_light_memory_config; reading
-        # it from the profile root silently disabled the whole sweep.
-        running = getattr(agent_config, "running", None)
-        memory_config = getattr(running, "reme_light_memory_config", None)
-        reranker = getattr(memory_config, "reranker_config", None)
+        reranker = getattr(agent_config, "reranker_config", None)
         if reranker is None or not reranker.enabled:
             continue
         interval_hours = (

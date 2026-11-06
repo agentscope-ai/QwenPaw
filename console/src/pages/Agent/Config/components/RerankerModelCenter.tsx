@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import InlineHelp from "@/components/InlineHelp";
 import { Form } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
@@ -38,9 +38,32 @@ export function RerankerModelCenter() {
     clearVerification,
   } = useRerankerVerification(rerankerConfig, rerankerConfigured);
 
-  const serviceFingerprint = rerankerConfigured
-    ? getRerankerServiceFingerprint(rerankerConfig)
-    : "";
+  // The fingerprint is a SHA-256 digest computed via WebCrypto, so it
+  // resolves asynchronously and must be tracked in state.
+  const [serviceFingerprint, setServiceFingerprint] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    if (!rerankerConfigured) {
+      setServiceFingerprint("");
+      return;
+    }
+    getRerankerServiceFingerprint(rerankerConfig)
+      .then((fingerprint) => {
+        if (!cancelled) setServiceFingerprint(fingerprint);
+      })
+      .catch(() => {
+        if (!cancelled) setServiceFingerprint("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    rerankerConfigured,
+    rerankerConfig?.base_url,
+    rerankerConfig?.api_key,
+    rerankerConfig?.model_name,
+    rerankerConfig?.timeout,
+  ]);
 
   // Load the persistent verification history for the current service so the
   // precision slot can show a trend even before a manual verification.
@@ -49,8 +72,8 @@ export function RerankerModelCenter() {
     let cancelled = false;
     api
       .getRerankerHistory(serviceFingerprint)
-      .then((res) => {
-        if (!cancelled) setHistory(res.history);
+      .then(async (res) => {
+        if (!cancelled) await setHistory(res.history);
       })
       .catch(() => {
         // History is best-effort; a failed fetch must not block the UI.
@@ -86,7 +109,7 @@ export function RerankerModelCenter() {
     try {
       const result = await api.testReranker(config);
       if (result.success) {
-        markVerified(
+        await markVerified(
           result.latency_ms,
           result.precision,
           result.correct_count,

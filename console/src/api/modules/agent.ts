@@ -114,7 +114,11 @@ export const agentApi = {
     request<RerankerTestResponse>("/workspace/reranker/test", {
       method: "POST",
       body: JSON.stringify(config),
-      timeout: Math.max(30, (config.timeout ?? 10) * 2 + 5) * 1000,
+      // The backend runs the full 5-case suite sequentially, each bounded by
+      // the per-request timeout plus a 5s hard-deadline buffer, so the
+      // client must budget for all five requests, not one or two.
+      timeout:
+        Math.max(30, (config.timeout ?? 10) * 5 * (10 + 5) / 10 + 10) * 1000,
     }),
 
   getRerankerHistory: (fingerprint: string) =>

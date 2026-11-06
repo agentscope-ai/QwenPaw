@@ -2,15 +2,12 @@
 """Persistent history for reranker probe results.
 
 Each verification run appends one record keyed by the service fingerprint
-(a SHA-256 digest of the normalized configuration). The JSON file lives under
-the QwenPaw working dir so it survives restarts and is shared across browser
-sessions. The key never contains the API key itself, so it is safe to expose
-in request URLs and access logs.
+(base URL + API key + model + timeout). The JSON file lives under the QwenPaw
+working dir so it survives restarts and is shared across browser sessions.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import threading
 import time
@@ -25,44 +22,21 @@ _MAX_ENTRIES = 200
 _HISTORY_FILE = "reranker_history.json"
 
 
-def _canonical_timeout(timeout: Any) -> str:
-    """Normalize a timeout to a shared decimal string.
-
-    Both sides of the fingerprint contract (here and the console helper) hash
-    the same six-decimal, trailing-zero-stripped text so a fractional timeout
-    such as ``1.5`` produces an identical digest instead of being truncated
-    to ``int`` by one side only.
-    """
-    try:
-        value = float(timeout or 0)
-    except (TypeError, ValueError):
-        value = 0.0
-    text = f"{value:.6f}".rstrip("0").rstrip(".")
-    return text or "0"
-
-
 def service_fingerprint(config: RerankerConfig) -> str:
-    """Digest of a reranker service config, mirroring the console helper.
+    """Fingerprint of a reranker service, mirroring the console helper.
 
     Kept in sync with console/src/pages/Agent/Config/components/
-    rerankerUtils.ts (getRerankerServiceFingerprint): both sides SHA-256 the
-    same canonical JSON array [base_url, api_key, model, timeout] so a config
-    change starts a new history series while the API key never appears in
-    URLs, access logs, or the history file.
+    rerankerUtils.ts
+    (getRerankerServiceFingerprint): base URL normalized, key/model/timeout
+    included so a config change starts a new history series.
     """
     base_url = (config.base_url or "").strip().rstrip("/")
     model_name = (config.model_name or "").strip()
-    canonical = json.dumps(
-        [
-            base_url,
-            config.api_key or "",
-            model_name,
-            _canonical_timeout(config.timeout),
-        ],
+    return json.dumps(
+        [base_url, config.api_key or "", model_name, int(config.timeout or 0)],
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _history_path() -> Path:

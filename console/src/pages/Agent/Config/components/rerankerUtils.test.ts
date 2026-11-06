@@ -40,9 +40,17 @@ describe("isRerankerConfigured", () => {
 });
 
 describe("getRerankerServiceFingerprint", () => {
-  it("ignores trailing slashes in the base URL", () => {
-    const withSlash = getRerankerServiceFingerprint(enabledConfig);
-    const withoutSlash = getRerankerServiceFingerprint({
+  it("returns an opaque sha256 digest without leaking the API key", async () => {
+    const fingerprint = await getRerankerServiceFingerprint(enabledConfig);
+
+    expect(fingerprint).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(fingerprint).not.toContain("secret");
+    expect(fingerprint).not.toContain("siliconflow");
+  });
+
+  it("ignores trailing slashes in the base URL", async () => {
+    const withSlash = await getRerankerServiceFingerprint(enabledConfig);
+    const withoutSlash = await getRerankerServiceFingerprint({
       ...enabledConfig,
       base_url: "https://api.siliconflow.cn/v1",
     });
@@ -50,35 +58,48 @@ describe("getRerankerServiceFingerprint", () => {
     expect(withSlash).toBe(withoutSlash);
   });
 
-  it("changes whenever a service-affecting field changes", () => {
-    const baseline = getRerankerServiceFingerprint(enabledConfig);
+  it("changes whenever a service-affecting field changes", async () => {
+    const baseline = await getRerankerServiceFingerprint(enabledConfig);
 
     expect(
-      getRerankerServiceFingerprint({ ...enabledConfig, api_key: "other" }),
+      await getRerankerServiceFingerprint({ ...enabledConfig, api_key: "other" }),
     ).not.toBe(baseline);
     expect(
-      getRerankerServiceFingerprint({
+      await getRerankerServiceFingerprint({
         ...enabledConfig,
         model_name: "other-model",
       }),
     ).not.toBe(baseline);
     expect(
-      getRerankerServiceFingerprint({ ...enabledConfig, timeout: 5 }),
+      await getRerankerServiceFingerprint({ ...enabledConfig, timeout: 5 }),
     ).not.toBe(baseline);
   });
 
-  it("ignores form-only fields like the multiplier", () => {
-    const baseline = getRerankerServiceFingerprint(enabledConfig);
+  it("preserves fractional timeouts (1.5 != 1)", async () => {
+    const fractional = await getRerankerServiceFingerprint({
+      ...enabledConfig,
+      timeout: 1.5,
+    });
+    const whole = await getRerankerServiceFingerprint({
+      ...enabledConfig,
+      timeout: 1,
+    });
+
+    expect(fractional).not.toBe(whole);
+  });
+
+  it("ignores form-only fields like the multiplier", async () => {
+    const baseline = await getRerankerServiceFingerprint(enabledConfig);
 
     expect(
-      getRerankerServiceFingerprint({
+      await getRerankerServiceFingerprint({
         ...enabledConfig,
         candidate_multiplier: 5,
       }),
     ).toBe(baseline);
   });
 
-  it("returns an empty fingerprint for a missing config", () => {
-    expect(getRerankerServiceFingerprint(undefined)).toBe("");
+  it("returns an empty fingerprint for a missing config", async () => {
+    expect(await getRerankerServiceFingerprint(undefined)).toBe("");
   });
 });
