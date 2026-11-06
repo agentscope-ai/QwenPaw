@@ -39,7 +39,7 @@ describe("AgentGallery", () => {
       screen.getByRole("button", { name: /agent.modelPlaceholder/ }),
     );
     const dialog = within(await screen.findByRole("dialog"));
-    expect(dialog.getByRole("button", { name: "common.edit" })).toBeDisabled();
+    expect(dialog.getByRole("button", { name: "common.edit" })).toBeEnabled();
     expect(
       dialog.getByRole("button", { name: "common.disable" }),
     ).toBeDisabled();
@@ -51,6 +51,58 @@ describe("AgentGallery", () => {
       expect.objectContaining({ id: "default" }),
     );
   });
+  it.each(["card", "detail"])(
+    "edits the default agent from %s while respecting loading",
+    async (entry) => {
+      const agent = {
+        id: "default",
+        name: "Default",
+        description: "",
+        workspace_dir: "/workspace",
+        enabled: true,
+        backend: "qwenpaw",
+        startup_status: "running",
+      } as AgentSummary;
+      const props = {
+        agents: [agent],
+        loading: true,
+        reordering: false,
+        onEdit: vi.fn(),
+        onCopy: vi.fn(),
+        onDelete: vi.fn(),
+        onToggle: vi.fn(),
+        onPin: vi.fn(),
+        onReorder: vi.fn(),
+      };
+      const view = renderWithProviders(<AgentGallery {...props} />);
+      expect(
+        screen.getByRole("button", { name: "agent.pinAgent" }),
+      ).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: "common.disable" }),
+      ).toBeDisabled();
+      if (entry === "detail") {
+        fireEvent.click(
+          screen.getByRole("button", { name: /agent.modelPlaceholder/ }),
+        );
+      }
+      const scope =
+        entry === "detail" ? within(await screen.findByRole("dialog")) : screen;
+      const edit = scope.getByRole("button", { name: "common.edit" });
+      expect(edit).toBeDisabled();
+      fireEvent.click(edit);
+      expect(props.onEdit).not.toHaveBeenCalled();
+
+      view.rerender(<AgentGallery {...props} loading={false} />);
+      expect(edit).toBeEnabled();
+      fireEvent.click(edit);
+      expect(props.onEdit).toHaveBeenCalledExactlyOnceWith(agent);
+      expect(props.onDelete).not.toHaveBeenCalled();
+      expect(props.onToggle).not.toHaveBeenCalled();
+      expect(props.onPin).not.toHaveBeenCalled();
+      expect(props.onReorder).not.toHaveBeenCalled();
+    },
+  );
   it("keeps pin actions and backend identities in the active gallery", () => {
     const onPin = vi.fn();
     renderWithProviders(

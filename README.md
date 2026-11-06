@@ -407,7 +407,7 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Magic commands](https://qwenpaw.agentscope.io/docs/commands)           | Control conversation state without waiting for the AI |
 | [Heartbeat](https://qwenpaw.agentscope.io/docs/heartbeat)                | Scheduled check-in and digest                    |
 | [Cron / Scheduled Tasks](https://qwenpaw.agentscope.io/docs/cron)       | Scheduled tasks and automation                   |
-| [Multi-Agent](https://qwenpaw.agentscope.io/docs/multi-agent)           | Create multiple agents and enable collaboration  |
+| [Multi-Agent](https://qwenpaw.agentscope.io/docs/multi-agent)           | Manage agents, edit the default agent, and enable collaboration  |
 | [Security](https://qwenpaw.agentscope.io/docs/security)                 | Sandbox, tool guard, file guard, skill scanner, access policy |
 | [Backup & Restore](https://qwenpaw.agentscope.io/docs/backup)           | Data backup and recovery                         |
 | [Config & working dir](https://qwenpaw.agentscope.io/docs/config) | Working directory and config file                |
