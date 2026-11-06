@@ -235,11 +235,17 @@ from .state import MatrixStateStore  # noqa: E402
 
 class MatrixPlatform:
     def __init__(self, config, on_event, on_state):
+        config = dict(config)
+        for key in ("homeserver", "user_id", "access_token"):
+            config[key] = str(config.get(key) or "").strip()
+        config["homeserver"] = config["homeserver"].rstrip("/")
         self.config = dict(config)
         self.on_event, self.on_state = on_event, on_state
-        self.homeserver = str(config.get("homeserver") or "").rstrip("/")
-        self.matrix_user_id = config.get("user_id", "")
-        self.access_token = config.get("access_token", "")
+        self.homeserver = (
+            str(config.get("homeserver") or "").strip().rstrip("/")
+        )
+        self.matrix_user_id = str(config.get("user_id") or "").strip()
+        self.access_token = str(config.get("access_token") or "").strip()
         self.password = config.get("password", "")
         self.device_name = config.get("device_name", "qwenpaw-worker")
         self.device_id = config.get("device_id", "")  # legacy raw-only input
