@@ -1139,7 +1139,10 @@ class SkillPoolService:
                 return conflict
 
         target_dir.parent.mkdir(parents=True, exist_ok=True)
-        with staged_skill_dir(final_name) as staged_dir:
+        with staged_skill_dir(
+            final_name,
+            root_dir=target_dir.parent,
+        ) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
             scan_skill_dir_or_raise(staged_dir, final_name)
             # Cheap early-out before the workspace itself is replaced: a
