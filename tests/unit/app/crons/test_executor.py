@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.app.crons.executor import CronExecutor
-from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
+from qwenpaw.app.crons.models import (
+    CronJobRequest,
+    DispatchSpec,
+    DispatchTarget,
+)
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
 
@@ -88,6 +92,75 @@ async def test_agent_job_still_delivers_by_default(monkeypatch):
     assert workspace.events_consumed == 2
     assert channel_manager.send_event.await_count == 2
     assert result["delivery_status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_job_thinking_override_is_request_scoped(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="thinking-job")
+    job.runtime.thinking_level = "off"
+    job.request = CronJobRequest(
+        input="ping",
+        request_context={"cron_thinking_budget": 4096},
+    )
+
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    request_context = workspace.requests[0]["request_context"]
+    assert request_context["source"] == "cron"
+    assert request_context["cron_thinking_level"] == "off"
+    assert "cron_thinking_budget" not in request_context
+
+
+@pytest.mark.asyncio
+async def test_job_thinking_budget_is_forwarded(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="budget-thinking-job")
+    job.runtime.thinking_level = "budget"
+    job.runtime.thinking_budget = 4096
+
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    request_context = workspace.requests[0]["request_context"]
+    assert request_context["cron_thinking_level"] == "budget"
+    assert request_context["cron_thinking_budget"] == 4096
+
+
+@pytest.mark.asyncio
+async def test_inherit_thinking_adds_no_request_override(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="inherit-thinking-job")
+    job.request = CronJobRequest(
+        input="ping",
+        request_context={
+            "cron_thinking_level": "high",
+            "cron_thinking_budget": 4096,
+        },
+    )
+
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    request_context = workspace.requests[0]["request_context"]
+    assert "cron_thinking_level" not in request_context
+    assert "cron_thinking_budget" not in request_context
 
 
 @pytest.mark.asyncio
