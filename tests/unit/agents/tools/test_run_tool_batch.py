@@ -1057,6 +1057,212 @@ class TestCallTool:
         )
         assert chunk.state == ToolResultState.INTERRUPTED
 
+    # ── Governance gate ────────────────────────────────────────────────
+    # ``Toolkit.call_tool`` does not invoke ``check_permissions`` (that
+    # lives in ``Agent._execute_tool_call``), so ``_call_tool`` must run
+    # it explicitly — otherwise batch inner calls escape governance.
+
+    def test_denied_decision_blocks_execution(self):
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionDecision,
+        )
+
+        executed: list[str] = []
+
+        class _Tool:
+            async def check_permissions(self, arguments, agent_state):
+                return PermissionDecision(
+                    behavior=PermissionBehavior.DENY,
+                    message="blocked by policy",
+                )
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("should not run")
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
+                    return await rtb._call_tool("danger_tool", {"x": 1})
+
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert chunk.state == ToolResultState.DENIED
+        assert not executed, "denied tool must not be executed"
+        payload = rtb._response_payload(chunk)
+        assert payload["ok"] is False
+        assert payload["denied"] is True
+        assert "blocked by policy" in payload["error"]
+
+    def test_allow_decision_executes_tool(self):
+        import asyncio
+
+        from agentscope.permission import (
+            PermissionBehavior,
+            PermissionDecision,
+        )
+
+        class _Tool:
+            async def check_permissions(self, arguments, agent_state):
+                return PermissionDecision(
+                    behavior=PermissionBehavior.ALLOW,
+                    message="ok",
+                )
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return _Tool()
+
+            async def call_tool(self, tool_call, agent_state):
+                yield _text_chunk("ran")
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
+                    return await rtb._call_tool("safe_tool", {})
+
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert chunk.state == ToolResultState.SUCCESS
+        assert rtb._response_payload(chunk)["ok"] is True
+
+    def test_unknown_tool_blocked_before_execution(self):
+        import asyncio
+
+        executed: list[str] = []
+
+        class _Toolkit:
+            async def get_tool(self, tool_name):
+                return None
+
+            async def call_tool(self, tool_call, agent_state):
+                executed.append(tool_call.name)
+                yield _text_chunk("nope")
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "get_current_toolkit",
+                return_value=_Toolkit(),
+            ):
+                with patch.object(
+                    rtb,
+                    "get_current_agent_state",
+                    return_value=object(),
+                ):
+                    return await rtb._call_tool("ghost_tool", {})
+
+        chunk = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert not executed
+        payload = rtb._response_payload(chunk)
+        assert payload["ok"] is False
+        assert "ghost_tool" in payload["error"]
+
+    def test_denied_step_terminates_batch(self):
+        """A DENIED step stops the batch even when stop_on_error is False."""
+        import asyncio
+
+        calls: list[str] = []
+
+        async def _fake_call_tool(tool_name, arguments):
+            calls.append(tool_name)
+            denied = rtb._json_tool_response(
+                {"ok": False, "error": "blocked", "denied": True},
+            )
+            denied.state = ToolResultState.DENIED
+            return denied
+
+        actions = [
+            {"tool_name": "a", "arguments": {}},
+            {"tool_name": "b", "arguments": {}},
+        ]
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "_call_tool",
+                side_effect=_fake_call_tool,
+            ):
+                return await rtb._run_steps(actions, stop_on_error=False)
+
+        results, _, _ = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        # Second step must never run, even though stop_on_error is False.
+        assert calls == ["a"]
+        # The denial is recorded so the model learns why it stopped.
+        assert len(results) == 1
+        assert results[0]["ok"] is False
+        assert results[0]["denied"] is True
+
+    def test_non_denied_error_respects_stop_on_error_flag(self):
+        """stop_on_error=False still continues past ordinary failures."""
+        import asyncio
+
+        calls: list[str] = []
+
+        async def _fake_call_tool(tool_name, arguments):
+            calls.append(tool_name)
+            return rtb._json_tool_response(
+                {"ok": False, "error": "ordinary failure"},
+            )
+
+        actions = [
+            {"tool_name": "a", "arguments": {}},
+            {"tool_name": "b", "arguments": {}},
+        ]
+
+        async def _go():
+            with patch.object(
+                rtb,
+                "_call_tool",
+                side_effect=_fake_call_tool,
+            ):
+                return await rtb._run_steps(actions, stop_on_error=False)
+
+        results, _, _ = (
+            asyncio.get_event_loop_policy()
+            .new_event_loop()
+            .run_until_complete(_go())
+        )
+        assert calls == ["a", "b"]
+        assert len(results) == 2
+
 
 # ---------------------------------------------------------------------------
 # _build_batch_response / last_only shaping
