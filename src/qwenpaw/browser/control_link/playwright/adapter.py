@@ -137,6 +137,47 @@ def teaching_from_strict_violation(exc: Exception) -> BrowserError | None:
     )
 
 
+_DRIVER_DEAD_MARKERS = ("connection closed while reading from the driver",)
+
+
+def _driver_connection_dead(driver: Any) -> bool:
+    """Return whether this driver's transport reported a dead connection."""
+    # Playwright has no public driver-health API; this future is completed by
+    # the pipe transport itself, so user-controlled error text cannot spoof it.
+    impl = getattr(driver, "_impl_obj", None)
+    connection = getattr(impl, "_connection", None)
+    transport = getattr(connection, "_transport", None)
+    failure_future = getattr(transport, "on_error_future", None)
+    if (
+        failure_future is None
+        or not failure_future.done()
+        or failure_future.cancelled()
+    ):
+        return False
+    failure = failure_future.exception()
+    if failure is None:
+        return False
+    failure_text = str(failure).lower()
+    return any(marker in failure_text for marker in _DRIVER_DEAD_MARKERS)
+
+
+class _DriverConnectionLost(Exception):
+    """Carry the exact Playwright driver used by a failed request."""
+
+    def __init__(self, driver: Any, cause: Exception) -> None:
+        super().__init__(str(cause))
+        self.driver = driver
+        self.cause = cause
+
+
+def _driver_replaced(driver: Any) -> _DriverConnectionLost:
+    """Build the failure raised when an opener outlives its driver."""
+    return _DriverConnectionLost(
+        driver,
+        RuntimeError("Playwright driver was replaced while opening a session"),
+    )
+
+
 class PlaywrightControlLink:
     """Per-variant multiplexer for workspace processes and session contexts."""
 
@@ -151,7 +192,7 @@ class PlaywrightControlLink:
         self._procs: dict[tuple[str, str], dict[str, Any]] = {}
         self._fixed_profile_workspaces: dict[str, str] = {}
         self._contexts: dict[OwnerKey, Any] = {}
-        self._opening: dict[OwnerKey, str] = {}
+        self._opening: set[tuple[OwnerKey, str, Any]] = set()
         self._sessions: dict[OwnerKey, dict[str, str]] = {}
         self._pages: dict[tuple[OwnerKey, str], Page] = {}
         self._active: dict[OwnerKey, str | None] = {}
@@ -189,7 +230,33 @@ class PlaywrightControlLink:
         if handler is None:
             raise _fatal(f"unknown method: {method}", method)
         typed_handler = cast(Callable[..., Any], handler)
-        return await typed_handler(dict(params), timeout=timeout)
+        victim = self._pw
+        failure: Exception
+        try:
+            return await typed_handler(dict(params), timeout=timeout)
+        except _DriverConnectionLost as lost:
+            victim = lost.driver
+            failure = lost.cause
+        except Exception as exc:
+            if method == "open_session" and self._pw is not victim:
+                victim = self._pw
+            if not _driver_connection_dead(victim):
+                raise
+            failure = exc
+        await self._recover_dead_driver(victim)
+        raise BrowserError(
+            category=ErrorCategory.RETRYABLE,
+            cause=ErrorCause.STATE_STALE,
+            suggested_action=(
+                "Reconnect, then reopen your page: browser = await "
+                "Browser.connect(); page = await browser.open(url)."
+            ),
+            reason=(
+                "the browser driver process died and was reset; every "
+                "browser session must be reopened"
+            ),
+            detail=str(failure),
+        ) from failure
 
     def on_event(self, sink: EventSink) -> Callable[[], None]:
         """Subscribe to raw provider events and return an unsubscribe callback.
@@ -311,18 +378,27 @@ class PlaywrightControlLink:
                 return owner[1]
         return None
 
+    def _ensure_current_driver(self, driver: Any) -> None:
+        """Reject an opener that continued after driver recovery."""
+        if self._pw is not driver:
+            raise _driver_replaced(driver)
+
     def _has_session_or_opening(self, workspace_id: str, kind: str) -> bool:
         """Report whether a proc-key still has a live or opening session."""
         return any(
             owner[0] == workspace_id and info["context"] == kind
             for owner, info in self._sessions.items()
         ) or any(
-            owner[0] == workspace_id and opening_kind == kind
-            for owner, opening_kind in self._opening.items()
+            owner[0] == workspace_id
+            and opening_kind == kind
+            and opening_driver is self._pw
+            for owner, opening_kind, opening_driver in self._opening
         )
 
+    # pylint: disable-next=too-many-statements
     async def _create_session_context(
         self,
+        driver: Any,
         owner: OwnerKey,
         context_kind: str,
         params: Mapping[str, Any],
@@ -333,12 +409,18 @@ class PlaywrightControlLink:
         workspace_id = owner[0]
         proc_key = (workspace_id, context_kind)
         async with self._launch_lock(proc_key):
+            self._ensure_current_driver(driver)
             process = self._procs.get(proc_key)
+            if process is not None and process.get("driver") is not driver:
+                await self._close_workspace_proc(workspace_id, context_kind)
+                self._ensure_current_driver(driver)
+                process = None
             if process is not None and not self._proc_is_alive(
                 process,
                 context_kind,
             ):
                 await self._close_workspace_proc(workspace_id, context_kind)
+                self._ensure_current_driver(driver)
             if context_kind == "profile":
                 holder = self._profile_holder(workspace_id)
                 if holder is not None:
@@ -377,14 +459,20 @@ class PlaywrightControlLink:
                         if fixed_profile is not None
                         else await self._default_profile_dir()
                     )
-                    context = (
-                        await self._pw.chromium.launch_persistent_context(
-                            user_data_dir,
-                            **launch_kwargs,
-                            **context_kwargs,
-                        )
+                    self._ensure_current_driver(driver)
+                    context = await driver.chromium.launch_persistent_context(
+                        user_data_dir,
+                        **launch_kwargs,
+                        **context_kwargs,
                     )
+                    try:
+                        self._ensure_current_driver(driver)
+                    except _DriverConnectionLost:
+                        with contextlib.suppress(Exception):
+                            await context.close()
+                        raise
                     self._procs[proc_key] = {
+                        "driver": driver,
                         "context": context,
                         "fixed_profile": fixed_profile,
                     }
@@ -394,11 +482,29 @@ class PlaywrightControlLink:
                         ] = workspace_id
                 return self._procs[proc_key]["context"]
             if proc_key not in self._procs:
-                browser = await self._pw.chromium.launch(**launch_kwargs)
-                self._procs[proc_key] = {"browser": browser}
-            return await self._procs[proc_key]["browser"].new_context(
+                browser = await driver.chromium.launch(**launch_kwargs)
+                try:
+                    self._ensure_current_driver(driver)
+                except _DriverConnectionLost:
+                    with contextlib.suppress(Exception):
+                        await browser.close()
+                    raise
+                self._procs[proc_key] = {
+                    "driver": driver,
+                    "browser": browser,
+                }
+            process = self._procs[proc_key]
+            self._ensure_current_driver(driver)
+            context = await process["browser"].new_context(
                 **context_kwargs,
             )
+            try:
+                self._ensure_current_driver(driver)
+            except _DriverConnectionLost:
+                with contextlib.suppress(Exception):
+                    await context.close()
+                raise
+            return context
 
     async def _m_open_session(  # pylint: disable=too-many-branches
         self,
@@ -422,27 +528,38 @@ class PlaywrightControlLink:
             ready, detail, retry_after = ensure_managed_chromium()
             if not ready:
                 raise _managed_cache_not_ready(detail, retry_after)
-        if self._pw is None:
-            async with self._pw_lock:
-                if self._pw is None:
-                    self._pw = await async_playwright().start()
+        async with self._pw_lock:
+            if self._pw is None:
+                self._pw = await async_playwright().start()
+            driver = self._pw
 
         launch_kwargs, context_kwargs = _build_launch_kwargs(params)
-        self._opening[owner] = context_kind
+        opening = (owner, context_kind, driver)
+        self._opening.add(opening)
         try:
-            self._contexts[owner] = await self._create_session_context(
+            context = await self._create_session_context(
+                driver,
                 owner,
                 context_kind,
                 params,
                 launch_kwargs,
                 context_kwargs,
             )
-        except BaseException:
-            self._opening.pop(owner, None)
+            try:
+                self._ensure_current_driver(driver)
+            except _DriverConnectionLost:
+                with contextlib.suppress(Exception):
+                    await context.close()
+                raise
+            self._contexts[owner] = context
+        except BaseException as exc:
+            self._opening.discard(opening)
+            if isinstance(exc, Exception) and _driver_connection_dead(driver):
+                raise _DriverConnectionLost(driver, exc) from exc
             raise
 
         self._sessions[owner] = {"context": context_kind}
-        self._opening.pop(owner, None)
+        self._opening.discard(opening)
         self._closed_sessions.discard(owner)
         self._touch(owner)
         return {
@@ -624,6 +741,45 @@ class PlaywrightControlLink:
     ) -> Mapping[str, Any]:
         await self.close_all()
         return {"closed": True}
+
+    async def _recover_dead_driver(self, victim: Any) -> None:
+        """Drop a dead node driver and every session it can no longer serve.
+
+        A dead driver connection cannot be revived, so the only truthful
+        recovery is to forget every cached handle and let the next
+        ``open_session`` start a fresh driver. Former owners are marked
+        closed so stale SDK references receive the reconnect teaching.
+        """
+        async with self._pw_lock:
+            if self._pw is not victim:
+                return
+            dead_owners = set(self._contexts) | set(self._sessions)
+            dead_processes = list(self._procs.values())
+            logger.warning(
+                "browser Playwright driver connection died; resetting "
+                "the provider so the next session restarts it",
+            )
+            self._pw = None
+            self._procs.clear()
+            self._contexts.clear()
+            self._sessions.clear()
+            self._pages.clear()
+            self._active.clear()
+            self._last_used.clear()
+            self._fixed_profile_workspaces.clear()
+            self._closed_sessions.update(dead_owners)
+            # ``_opening`` and ``_launch_locks`` are deliberately kept: each
+            # opener discards its own marker, and dropping a launch lock
+            # would let a new opener run concurrently with one that is still
+            # holding the old lock for the same proc key.
+        for process in dead_processes:
+            target = process.get("context") or process.get("browser")
+            if target is not None:
+                with contextlib.suppress(Exception):
+                    await target.close()
+        if victim is not None:
+            with contextlib.suppress(Exception):
+                await victim.stop()
 
     async def close_all_sessions(self) -> None:
         """Explicitly destroy every session during application shutdown."""
@@ -925,15 +1081,31 @@ class PlaywrightControlLink:
 
     async def close_all(self) -> None:
         """Close all contexts/processes and reset multiplexer state."""
-        for session_id, context in list(self._contexts.items()):
-            info = self._sessions.get(session_id) or {}
-            if info.get("context") != "profile":
-                try:
-                    await context.close()
-                # intentional boundary: best-effort per-context shutdown.
-                except Exception:
-                    pass
-        for process in self._procs.values():
+        async with self._pw_lock:
+            contexts = [
+                (owner, context, self._sessions.get(owner) or {})
+                for owner, context in self._contexts.items()
+            ]
+            processes = list(self._procs.values())
+            driver = self._pw
+            self._pw = None
+            self._procs.clear()
+            self._contexts.clear()
+            self._sessions.clear()
+            self._pages.clear()
+            self._active.clear()
+            self._last_used.clear()
+            self._closed_sessions.clear()
+            self._fixed_profile_workspaces.clear()
+        for _owner, context, info in contexts:
+            if info.get("context") == "profile":
+                continue
+            try:
+                await context.close()
+            # intentional boundary: best-effort per-context shutdown.
+            except Exception:
+                pass
+        for process in processes:
             try:
                 if process.get("context") is not None:
                     await process["context"].close()
@@ -942,19 +1114,11 @@ class PlaywrightControlLink:
             # intentional boundary: best-effort process shutdown.
             except Exception:
                 pass
-        if self._pw is not None:
-            await self._pw.stop()
-        self._procs.clear()
-        self._contexts.clear()
-        self._sessions.clear()
-        self._pages.clear()
-        self._active.clear()
-        self._last_used.clear()
-        self._closed_sessions.clear()
-        self._fixed_profile_workspaces.clear()
-        self._pw = None
-        if self in _LIVE:
-            _LIVE.remove(self)
+        if driver is not None:
+            await driver.stop()
+        async with self._pw_lock:
+            if self._pw is None and self in _LIVE:
+                _LIVE.remove(self)
 
 
 def register() -> None:
