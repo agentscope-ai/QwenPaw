@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>QwenPaw</title>
+  <style>
+    html, body, #root { height: 100%; margin: 0; padding: 0; }
+    body {
+      -webkit-font-smoothing: antialiased;
+      font-family: -apple-system, BlinkMacSystemFont, "HarmonyOS Sans", "PingFang SC",
+        "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+      overscroll-behavior: none;
+    }
+    #root { width: 100%; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #141414; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <!-- UMD 运行时（本地 vendor，版本固定）：dayjs → react → react-dom → antd → icons → 宿主 shell -->
+  <script src="vendor/dayjs.min.js"></script>
+  <script src="vendor/react.min.js"></script>
+  <script src="vendor/react-dom.min.js"></script>
+  <script src="vendor/antd.min.js"></script>
+  <script src="vendor/icons.min.js"></script>
+  <script src="host.js"></script>
+</body>
+</html>
