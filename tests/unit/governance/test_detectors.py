@@ -436,6 +436,51 @@ class TestDetectShellEvasion:
 
 
 class TestRunDeepScan:
+    @pytest.mark.parametrize(
+        "command",
+        [
+            "rm -rf /",
+            "mkfs.ext4 /tmp/probe.img",
+            "dd if=/dev/zero of=/tmp/probe.img bs=1 count=1",
+            "rm -rf /etc",
+            "rm -rf /usr",
+        ],
+    )
+    def test_shared_safety_without_configured_detectors(self, command):
+        findings = run_deep_scan(
+            tool_name="Bash",
+            target=command,
+            tool_type="shell",
+            sensitive_paths=[],
+            detection_rules=[],
+            shell_evasion_checks={},
+        )
+        assert any(
+            f.rule_id == "SAFETY_CHECKS_DESTRUCTIVE_COMMAND" for f in findings
+        )
+
+    def test_shared_safety_only_scans_shell(self):
+        findings = run_deep_scan(
+            tool_name="Read",
+            target="rm -rf /",
+            tool_type="file",
+            sensitive_paths=[],
+            detection_rules=[],
+            shell_evasion_checks={},
+        )
+        assert not findings
+
+    def test_system_power_is_distinct_from_catastrophic(self):
+        findings = run_deep_scan(
+            tool_name="Bash",
+            target="reboot",
+            tool_type="shell",
+            sensitive_paths=[],
+            detection_rules=[],
+            shell_evasion_checks={},
+        )
+        assert [f.rule_id for f in findings] == ["SAFETY_CHECKS_SYSTEM_POWER"]
+
     def test_combines_all_detectors(self, tmp_path):
         ssh_dir = tmp_path / ".ssh"
         ssh_dir.mkdir()
