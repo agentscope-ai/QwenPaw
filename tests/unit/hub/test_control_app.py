@@ -2068,7 +2068,7 @@ def test_hub_native_provider_dispatch_and_settlement(admin_client, protocol):
 
 def test_pawapp_cleanup_cors_uses_explicit_origins(tmp_path):
     origin = "http://localhost:5173"
-    with patch("qwenpaw.hub.control_app.CORS_ORIGINS", origin):
+    with patch.dict("os.environ", {"QWENPAW_CORS_ORIGINS": origin}):
         with _client(tmp_path) as client:
             headers = {
                 "Origin": origin,
