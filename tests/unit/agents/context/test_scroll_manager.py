@@ -2562,3 +2562,47 @@ def test_tool_input_round_trips_to_db(store: HistoryStore):
         "WHERE tool_call_id='call-9'",
     ).fetchone()
     assert row["tool_input"] == '{"pattern": "x"}'
+
+
+def test_input_token_limits_reserve_configured_output():
+    """The provider rejects ``prompt + max_tokens``; reserve the real limit."""
+    agent = FakeAgent([], tokens=1)
+    agent.model.context_size = 100_000
+    agent.model.parameters = SimpleNamespace(max_tokens=30_000)
+
+    window, prompt_budget = scroll_manager_module._input_token_limits(agent)
+
+    assert window == 100_000
+    assert prompt_budget == 70_000
+
+
+def test_input_token_limits_cap_pathological_output():
+    """A misconfigured output limit cannot reserve the whole prompt budget."""
+    agent = FakeAgent([], tokens=1)
+    agent.model.context_size = 100_000
+    agent.model.parameters = SimpleNamespace(max_tokens=90_000)
+
+    _, prompt_budget = scroll_manager_module._input_token_limits(agent)
+
+    assert prompt_budget == 50_000
+
+
+async def test_configured_output_limit_triggers_compaction_earlier(
+    store: HistoryStore,
+):
+    """A high trigger ratio must not plan a prompt that cannot fit beside
+    the configured output limit."""
+    old = [user("old request"), assistant("old response")]
+    current = user("current request")
+    mgr = make_manager(store)
+    agent = FakeAgent([*old, current], tokens=[70_000, 20_000])
+    agent.model.context_size = 100_000
+    agent.model.parameters = SimpleNamespace(max_tokens=30_000)
+    agent.context_config = _RealisticScrollConfig()
+    agent._split_return = (old, [current])
+
+    await mgr.compress(agent)
+
+    # The prompt budget is 70k, so 0.8 * 100k = 80k is capped to 59.5k.
+    # 70k sits below the old trigger but leaves no room for max_tokens.
+    assert mgr.last_compress["evicted"] == len(old)

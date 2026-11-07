@@ -62,6 +62,11 @@ _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
+# A pathological max_tokens must not reserve the whole prompt budget.
+_MAX_OUTPUT_RESERVE_FRACTION = 0.5
+# Never plan to send more than this share of the prompt budget, so provider
+# token-count variance and one step of growth still fit before the next check.
+_TRIGGER_INPUT_MARGIN = 0.85
 _OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 _SummaryRecords = tuple[
     list[tuple[int, str]],
@@ -76,6 +81,35 @@ class _SummaryCandidateError(ValueError):
 
 class _SummaryInputBudgetError(ValueError):
     """The fixed summary prompt cannot fit beside its output reserve."""
+
+
+def _configured_max_tokens(agent: Any) -> int:
+    """Return the output limit the provider adds to every prompt."""
+    parameters = getattr(getattr(agent, "model", None), "parameters", None)
+    value = getattr(parameters, "max_tokens", None)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return 0
+
+
+def _input_token_limits(agent: Any) -> tuple[int, int]:
+    """Return ``(context window, prompt budget)`` for this model.
+
+    Providers reject ``prompt + max_tokens``, not the prompt alone, so the
+    configured output limit must be reserved instead of the fixed 4K default.
+    A misconfigured limit can never reserve more than half the window.
+    """
+    hard_limit = max(1, int(agent.model.context_size))
+    base_reserve = min(
+        _MAX_OUTPUT_RESERVE_TOKENS,
+        max(1, int(hard_limit * _OUTPUT_RESERVE_RATIO)),
+    )
+    configured = _configured_max_tokens(agent)
+    reserve = max(
+        base_reserve,
+        min(configured, int(hard_limit * _MAX_OUTPUT_RESERVE_FRACTION)),
+    )
+    return hard_limit, max(1, hard_limit - reserve)
 
 
 class ScrollContextManager:
@@ -406,7 +440,11 @@ class ScrollContextManager:
 
         self._apply_folded_thinking_filter(agent)
         before = await self._live_tokens(agent)
-        target = base_config.trigger_ratio * agent.model.context_size
+        hard_limit, effective_hard_limit = _input_token_limits(agent)
+        target = min(
+            base_config.trigger_ratio * hard_limit,
+            effective_hard_limit * _TRIGGER_INPUT_MARGIN,
+        )
         # A rejected request cannot be trusted to be below the trigger.
         # Keep the discrepancy so reclaimed tokens are subtracted from this
         # conservative baseline, and subsequent growth retains the margin.
@@ -507,12 +545,7 @@ class ScrollContextManager:
         # Reapply them whenever compression gets a live agent so token counting
         # sees the same request that the provider will receive.
         self._apply_folded_thinking_filter(agent)
-        hard_limit = int(agent.model.context_size)
-        output_reserve = min(
-            _MAX_OUTPUT_RESERVE_TOKENS,
-            max(1, int(hard_limit * _OUTPUT_RESERVE_RATIO)),
-        )
-        effective_hard_limit = hard_limit - output_reserve
+        hard_limit, effective_hard_limit = _input_token_limits(agent)
         t0 = time.perf_counter()
         stage_t0 = t0
         timings: dict[str, float] = {}
@@ -562,7 +595,10 @@ class ScrollContextManager:
         #    still exact, so the steady state pays ONE count per compress.
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
-        trigger = cfg.trigger_ratio * agent.model.context_size
+        trigger = min(
+            cfg.trigger_ratio * hard_limit,
+            effective_hard_limit * _TRIGGER_INPUT_MARGIN,
+        )
         tokens = await self._count_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
