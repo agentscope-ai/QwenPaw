@@ -91,6 +91,13 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
             "context_length",
             "maximum context",
             "too many tokens",
+            # Keep this list aligned with the agent's overflow classifier.
+            "too many input tokens",
+            # Gateways such as Strata phrase it as "prompt (N tokens) + max
+            # tokens (M) exceeds the context (C); requests are never
+            # truncated".
+            "exceeds the context",
+            "requests are never truncated",
         )
     ):
         kind = "context_overflow"
