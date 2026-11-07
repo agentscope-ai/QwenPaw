@@ -177,6 +177,24 @@ describe("WebSearchConfigModal", () => {
     });
   });
 
+  it("lists specstream and loads its credential slot when selected", async () => {
+    hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
+    renderModal();
+
+    await waitFor(() => {
+      expect(selectedProvider()).toBe("tavily");
+    });
+
+    await switchProvider("specstream");
+
+    expect(passwordInput()).not.toBeNull();
+    await waitFor(() => {
+      expect(hoisted.getToolConfig).toHaveBeenLastCalledWith("web_search", {
+        provider: "specstream",
+      });
+    });
+  });
+
   it("re-fetches with the selected provider when switching inside the modal", async () => {
     hoisted.getToolConfig.mockResolvedValueOnce({ provider: "tavily" });
     renderModal();

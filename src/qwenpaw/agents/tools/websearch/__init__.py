@@ -14,6 +14,7 @@ from .anysearch import (
 from .base import SearchProvider, format_search_results
 from .firecrawl import FirecrawlProvider
 from .factory import get_search_provider
+from .specstream import SpecStreamProvider
 from .tavily import TavilyProvider
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "TavilyProvider",
     "AnySearchProvider",
     "FirecrawlProvider",
+    "SpecStreamProvider",
     "get_search_provider",
     "format_search_results",
     "_current_agent_anysearch_key",
