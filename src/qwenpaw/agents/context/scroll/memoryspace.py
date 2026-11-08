@@ -775,7 +775,11 @@ class MemorySpace:
                 _budget=budget,
             )
         except sqlite3.OperationalError as exc:
-            if budget.timed_out or time.monotonic() >= budget.deadline:
+            if (
+                budget.timed_out
+                or getattr(exc, "sqlite_errorcode", None)
+                == sqlite3.SQLITE_INTERRUPT
+            ):
                 raise TimeoutError(
                     "history search exceeded its execution timeout",
                 ) from exc
