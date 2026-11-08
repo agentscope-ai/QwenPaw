@@ -4,6 +4,7 @@ import asyncio
 from contextlib import AsyncExitStack, suppress
 from copy import deepcopy
 from datetime import datetime, timezone
+import logging
 from pathlib import Path as FilePath
 from typing import Any, List, Optional, cast
 
@@ -64,6 +65,8 @@ from .schemas_config import (
 )
 
 router = APIRouter(prefix="/config", tags=["config"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -128,8 +131,17 @@ def _validated_channel_config(
     values: dict,
     *,
     official_description=None,
+    existing=None,
 ):
-    """Use trusted static schemas with or without installed channel code."""
+    """Use trusted static schemas with or without installed channel code.
+
+    ``existing`` is the persisted config for this channel when the caller
+    is updating it: fields omitted from ``values`` keep their persisted
+    values instead of being re-filled from schema defaults (a partial
+    re-save must not silently reset ``enabled`` to ``False``). A
+    genuinely-new channel (``existing`` is None) still gets defaults.
+    Explicitly supplied values always override the persisted ones.
+    """
     from ...plugins.registry import PluginRegistry
     from ...plugins.channel_config import validate_channel_config
     from ...plugins.official_channel_catalog import official_channel_owners
@@ -140,6 +152,11 @@ def _validated_channel_config(
             status_code=422,
             detail="Channel configuration must be an object",
         )
+    if existing is not None:
+        # Merge before validation so _fill_defaults only supplies defaults
+        # for keys with no persisted value. Deep-copy: validation must not
+        # mutate the live config when it later fails.
+        values = {**deepcopy(existing), **values}
     if name == "slack" and values.get("allow_from") is None:
         values = {**values, "allow_from": []}
     row = PluginRegistry().get_channel_catalog_entry(name)
@@ -172,7 +189,11 @@ def _validated_channel_config(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-async def _validated_channel_config_async(name: str, values: dict):
+async def _validated_channel_config_async(
+    name: str,
+    values: dict,
+    existing=None,
+):
     """Prefetch official schemas without moving registry reads off-loop."""
     from ...plugins.registry import PluginRegistry
     from ...plugins.official_channel_catalog import official_channel_owners
@@ -190,6 +211,7 @@ async def _validated_channel_config_async(name: str, values: dict):
         name,
         values,
         official_description=description,
+        existing=existing,
     )
 
 
@@ -202,6 +224,18 @@ def _save_channel_updates(agent_id: str, updates: dict) -> ChannelConfig:
         candidate.channels = ChannelConfig.model_validate(
             {**current, **updates},
         )
+        for channel_name, new_value in updates.items():
+            previous = current.get(channel_name)
+            if previous is None:
+                continue
+            if previous.get("enabled") != new_value.get("enabled"):
+                logger.warning(
+                    "Channel '%s' enabled state changed from %s to %s "
+                    "during config update.",
+                    channel_name,
+                    previous.get("enabled"),
+                    new_value.get("enabled"),
+                )
 
     try:
         saved = mutate_agent_config(agent_id, apply_channels)
@@ -401,7 +435,11 @@ async def put_channels(
     updates = {}
     changed = []
     for key in keys:
-        value = await _validated_channel_config_async(key, incoming[key])
+        value = await _validated_channel_config_async(
+            key,
+            incoming[key],
+            existing=current.get(key),
+        )
         if current.get(key) != value:
             changed.append(key)
         updates[key] = value
@@ -848,7 +886,11 @@ async def put_channel(
         if channel_name == "wechat":
             for key in ("bot_token_file", "base_url"):
                 values.setdefault(key, scope.config.get(key, ""))
-        validated = await _validated_channel_config_async(channel_name, values)
+        validated = await _validated_channel_config_async(
+            channel_name,
+            values,
+            existing=scope.config,
+        )
         channel_config = ChannelConfig.model_validate(
             {channel_name: validated},
         ).model_dump(mode="json")[channel_name]
@@ -905,6 +947,7 @@ async def put_channel(
     channel_config = await _validated_channel_config_async(
         channel_name,
         single_channel_config,
+        existing=current.get(channel_name),
     )
     changed = current.get(channel_name) != channel_config
     sessions = getattr(request.app.state, "channel_qrcode_sessions", None)
