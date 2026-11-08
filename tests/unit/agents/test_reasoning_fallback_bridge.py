@@ -112,6 +112,11 @@ async def test_reasoning_events_carry_fallback_metadata(
     assert len(event_notices) == 1
     assert event_notices[0]["type"] == "model_fallback"
     assert event_notices[0]["to_model_id"] == "fallback"
+    # The Option A fields ride on the same event dicts (#8103).
+    assert event_notices[0]["model_used"] == "fallback"
+    assert event_notices[0]["model_requested"] == "primary"
+    assert event_notices[0]["fallback_reason"] == "rate_limited (429)"
+    assert event_notices[0]["fallback_chain_position"] == 1
     actual = events[0].metadata["qwenpaw_actual_model"]
     assert actual["model_id"] == "fallback"
 
