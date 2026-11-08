@@ -177,7 +177,9 @@ def test_save_file_passes_headers_to_download_request(
     def fake_urlopen(request: urllib.request.Request) -> _Response:
         nonlocal captured_headers, captured_url
         captured_url = request.full_url
-        captured_headers = {key.lower(): value for key, value in request.header_items()}
+        captured_headers = {
+            key.lower(): value for key, value in request.header_items()
+        }
         return _Response(b"zip")
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
@@ -230,6 +232,70 @@ def test_open_workspace_html_opens_the_decoded_local_path(
 
     assert resolved is True
     assert opened == [str(report)]
+
+
+def test_open_workspace_html_keeps_the_file_uri_off_windows(
+    monkeypatch,
+) -> None:
+    """Non-Windows platforms keep receiving the original file URI.
+
+    macOS ``webbrowser.open`` goes through AppleScript ``open location``,
+    which expects a URL — a bare path like ``/tmp/report.html`` breaks
+    HTML preview there (review comment on PR #8524).
+    """
+    opened: list[str] = []
+
+    def fake_browser_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(desktop_cmd.webbrowser, "open", fake_browser_open)
+
+    def fake_urlopen(request: urllib.request.Request) -> _Response:
+        uri = "file:///tmp/report.html"
+        return _Response(json.dumps({"uri": uri}).encode("utf-8"))
+
+    monkeypatch.setattr(desktop_cmd, "urlopen", fake_urlopen)
+    monkeypatch.setattr(desktop_cmd.sys, "platform", "darwin")
+
+    resolved = desktop_cmd.WebViewAPI().open_workspace_html(
+        "http://127.0.0.1:43123/api/workspace/html-file-uri",
+        {},
+    )
+
+    assert resolved is True
+    assert opened == ["file:///tmp/report.html"]
+
+
+def test_open_workspace_html_decodes_unc_uri_with_host(monkeypatch) -> None:
+    """A UNC file URI keeps its host segment after decoding (Windows).
+
+    ``file://server/share/report.html`` carries the host in ``netloc``;
+    decoding only ``path`` produced ``\\share\\report.html`` and lost the
+    ``\\\\server`` prefix (review comment on PR #8524).
+    """
+    opened: list[str] = []
+
+    def fake_browser_open(url: str) -> bool:
+        opened.append(url)
+        return True
+
+    monkeypatch.setattr(desktop_cmd.webbrowser, "open", fake_browser_open)
+
+    def fake_urlopen(request: urllib.request.Request) -> _Response:
+        uri = "file://server/share/report.html"
+        return _Response(json.dumps({"uri": uri}).encode("utf-8"))
+
+    monkeypatch.setattr(desktop_cmd, "urlopen", fake_urlopen)
+    monkeypatch.setattr(desktop_cmd.sys, "platform", "win32")
+
+    resolved = desktop_cmd.WebViewAPI().open_workspace_html(
+        "http://127.0.0.1:43123/api/workspace/html-file-uri",
+        {},
+    )
+
+    assert resolved is True
+    assert opened == ["\\\\server\\share\\report.html"]
 
 
 def test_open_workspace_html_rejects_non_loopback_target() -> None:

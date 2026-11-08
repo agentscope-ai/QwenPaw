@@ -81,14 +81,25 @@ class WebViewAPI:
                 (".html", ".htm"),
             ):
                 return False
+            if sys.platform != "win32":
+                # Only Windows ShellExecute percent-decodes file URLs with
+                # the ANSI code page (GBK on zh systems); every other
+                # platform's webbrowser.open expects a proper file URI —
+                # on macOS `open location` rejects a bare path.
+                return webbrowser.open(uri)
             # Open the decoded local path, not the file:// URL: Windows
-            # ShellExecute percent-decodes with the ANSI code page (GBK on
-            # zh systems), so a UTF-8-percent-encoded URI for a Chinese
-            # workspace path fails with ERROR_FILE_NOT_FOUND.
+            # ShellExecute percent-decodes file URLs with the ANSI code
+            # page (GBK on zh systems), so a UTF-8-percent-encoded URI for
+            # a Chinese workspace path fails with ERROR_FILE_NOT_FOUND.
             # urlparse().path keeps the URI's forward slashes; url2pathname
             # unquotes as UTF-8 and converts them to native separators.
-            local_path = url2pathname(resolved.path)
-            return webbrowser.open(local_path)
+            # A UNC URI (file://server/share/...) carries the host in
+            # netloc, so re-add it as the leading // UNC hint before
+            # decoding — otherwise \\server\share collapses to \share.
+            path_for_decode = resolved.path
+            if resolved.netloc:
+                path_for_decode = f"//{resolved.netloc}{resolved.path}"
+            return webbrowser.open(url2pathname(path_for_decode))
         except Exception:
             logger.exception("open_workspace_html failed")
             return False
@@ -257,7 +268,9 @@ def desktop_cmd(
 
     is_windows = sys.platform == "win32"
     proc = None
-    manually_terminated = False  # Track if we intentionally terminated the process
+    manually_terminated = (
+        False  # Track if we intentionally terminated the process
+    )
     try:
         # Release the held socket just before spawning the subprocess so
         # the child can bind the same port.  This keeps the TOCTOU window
@@ -285,7 +298,9 @@ def desktop_cmd(
             bufsize=1,
             universal_newlines=True,
             creationflags=(
-                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if is_windows else 0
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                if is_windows
+                else 0
             ),
         )
         try:
@@ -330,7 +345,8 @@ def desktop_cmd(
             else:
                 logger.error("Server did not become ready in time.")
                 click.echo(
-                    "Server did not become ready in time; open manually: " + url,
+                    "Server did not become ready in time; open manually: "
+                    + url,
                     err=True,
                 )
                 try:
@@ -345,7 +361,9 @@ def desktop_cmd(
             # - We must not let cleanup exceptions mask the original error
             if proc and proc.poll() is None:  # process still running
                 logger.info("Terminating backend server...")
-                manually_terminated = True  # Mark that we're intentionally terminating
+                manually_terminated = (
+                    True  # Mark that we're intentionally terminating
+                )
                 if _shutdown_backend_process(proc):
                     logger.info("Backend server terminated cleanly.")
                 else:
