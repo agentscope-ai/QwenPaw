@@ -125,6 +125,78 @@ def test_search_default_is_this_agent_cross_session(ms: MemorySpace):
     assert "tanks of another agent" not in contents
 
 
+def test_search_reuses_resolved_turn_boundaries(ms: MemorySpace, monkeypatch):
+    calls = []
+    original = ms._turn_start_seqs
+
+    def counted(rows, budget):
+        calls.extend(int(row["seq"]) for row in rows if "seq" in row)
+        return original(rows, budget)
+
+    monkeypatch.setattr(ms, "_turn_start_seqs", counted)
+    rows = ms.search("tanks")
+
+    assert rows
+    assert calls
+    assert len(calls) == len(set(calls))
+
+
+def test_search_resolves_appended_saved_tool_boundaries(
+    tmp_path: Path,
+    monkeypatch,
+):
+    artifact = tmp_path / "output.txt"
+    artifact.write_text("needle in saved output\n", encoding="utf-8")
+    history = HistoryStore(tmp_path / "history.db")
+    user_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="user",
+        entry=LogEntry(kind="context_msg", role="user", content="question"),
+    )
+    history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="indexed",
+        entry=LogEntry(kind="model_turn", role="assistant", content="needle"),
+    )
+    saved_seq = history.append(
+        session_id="archive",
+        agent_id="ag1",
+        dedup_key="saved",
+        entry=LogEntry(
+            kind="tool_result",
+            role="assistant",
+            content=_saved_tool_notice(artifact),
+            tool_call_id="call",
+        ),
+    )
+    history.close()
+    space = MemorySpace(
+        history_db_path=tmp_path / "history.db",
+        session_id="current",
+        agent_id="ag1",
+    )
+    calls = []
+    original = space._turn_start_seqs
+
+    def counted(rows, budget):
+        calls.extend(int(row["seq"]) for row in rows if "seq" in row)
+        return original(rows, budget)
+
+    monkeypatch.setattr(space, "_turn_start_seqs", counted)
+    try:
+        rows = space.search("needle", k=10)
+    finally:
+        space.close()
+
+    result = next(row for row in rows if row.get("match_seq"))
+    assert result["turn_start_seq"] == user_seq
+    assert saved_seq in result["matched_seqs"]
+    assert saved_seq in calls
+    assert len(calls) == len(set(calls))
+
+
 def test_search_uses_seq_as_stable_bm25_tie_breaker(tmp_path: Path):
     h = HistoryStore(tmp_path / "history.db")
     expected_seqs = []
