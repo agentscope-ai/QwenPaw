@@ -964,6 +964,8 @@ class QwenPawAgent(Agent):
                 "is longer than the model's context length",
             ),
             ("tokens", "exceeds the available context size"),
+            ("max_tokens", "does not fit"),
+            ("prompt", "max tokens", "exceeds the context"),
             (
                 "input token count",
                 "exceeds the maximum number of tokens allowed",
