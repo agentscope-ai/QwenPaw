@@ -4,6 +4,7 @@ import type {
   IAgentScopeRuntimeWebUIMessage,
 } from "@agentscope-ai/chat";
 import { useTurnUsageStore } from "./turnUsageStore";
+import { coalesceSseResponse } from "./coalesceSse";
 import type { TurnUsageToken } from "./turnUsageStore";
 
 export const TURN_USAGE_META_KEY = "qwenpaw_turn_usage";
@@ -346,7 +347,10 @@ export function wrapChatResponseUsageStream(
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
   turn?: TurnUsageToken,
 ): Response {
-  if (!response.body) return response;
+  // Coalesce chunks first: the SDK renders per chunk, and split panes/long
+  // sessions otherwise re-render the conversation for every token.
+  const coalesced = coalesceSseResponse(response);
+  if (!coalesced.body) return coalesced;
 
   const decoder = new TextDecoder();
   let buffer = "";
@@ -384,7 +388,7 @@ export function wrapChatResponseUsageStream(
     else store.setSnapshot(snap);
   }
 
-  const transformed = response.body.pipeThrough(
+  const transformed = coalesced.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         controller.enqueue(chunk);
@@ -421,9 +425,9 @@ export function wrapChatResponseUsageStream(
   );
 
   return new Response(transformed, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
+    status: coalesced.status,
+    statusText: coalesced.statusText,
+    headers: coalesced.headers,
   });
 }
 
