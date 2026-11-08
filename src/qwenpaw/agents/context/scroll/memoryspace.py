@@ -747,9 +747,11 @@ class MemorySpace:
     ) -> list[dict]:
         """Run one bounded history search.
 
-        SQLite VM work is interrupted after ``search_max_seconds``. Complete
-        turn expansion additionally shares one total row and serialized-byte
-        budget across all distinct result turns.
+        SQLite VM work is interrupted after ``search_max_seconds``. A lock
+        or other ``OperationalError`` that the progress handler did not
+        raise is left unchanged, even if that deadline has already passed.
+        Complete turn expansion additionally shares one total row and
+        serialized-byte budget across all distinct result turns.
         """
         budget = _SearchBudget(
             remaining_rows=self._search_turn_max_rows,
@@ -775,7 +777,10 @@ class MemorySpace:
                 _budget=budget,
             )
         except sqlite3.OperationalError as exc:
-            if budget.timed_out or time.monotonic() >= budget.deadline:
+            # Only the progress handler sets timed_out. Do not also key off
+            # the clock: a lock that surfaces after the deadline is not a
+            # query that this handler interrupted.
+            if budget.timed_out:
                 raise TimeoutError(
                     "history search exceeded its execution timeout",
                 ) from exc
