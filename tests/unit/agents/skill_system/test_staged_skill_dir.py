@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from qwenpaw.agents.skill_system.store import (
     _SKILL_STAGE_PREFIX,
+    cleanup_orphan_skill_stages,
+    is_ignored_skill_entry,
     staged_skill_dir,
 )
 from qwenpaw.exceptions import SkillsError
@@ -43,3 +46,30 @@ def test_staged_skill_dir_rejects_unsafe_skill_name(
     with pytest.raises(SkillsError):
         with staged_skill_dir("../escape", root_dir=tmp_path):
             pass
+
+
+def test_is_ignored_skill_entry_skips_stage_dirs() -> None:
+    assert is_ignored_skill_entry(f"{_SKILL_STAGE_PREFIX}stale") is True
+    assert is_ignored_skill_entry("real-skill") is False
+
+
+def test_cleanup_orphan_skill_stages_scans_workspaces(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "agent"
+    skills = workspace / "skills"
+    skills.mkdir(parents=True)
+    orphan = skills / f"{_SKILL_STAGE_PREFIX}stale"
+    (orphan / "demo").mkdir(parents=True)
+    system_temp = tmp_path / "system-temp"
+    system_temp.mkdir()
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.skill_system.registry.list_workspaces",
+        lambda: [{"workspace_dir": str(workspace)}],
+    )
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(system_temp))
+
+    assert cleanup_orphan_skill_stages(max_age_seconds=-1) == 1
+    assert not orphan.exists()
