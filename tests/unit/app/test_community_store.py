@@ -2,6 +2,9 @@
 # pylint: disable=protected-access
 """Community sync durability and account isolation use real atomic file IO."""
 
+import os
+import stat
+
 import pytest
 
 from qwenpaw.app import community_store as store
@@ -92,13 +95,24 @@ async def test_pause_keeps_mail_and_prevents_further_ingest():
 
 
 @pytest.mark.asyncio
-async def test_retention_keeps_tombstones_and_credentials_private(monkeypatch):
+async def test_retention_keeps_tombstones(monkeypatch):
     monkeypatch.setattr(store, "_MAX_VISIBLE_EVENTS", 1)
     await connect()
     await store.ingest("alice", [event("reply:1", 1), event("reply:2", 2)], {})
     assert len(await store.list_events()) == 1
     assert await store.ingest("alice", [event("reply:1", 1)], {}) == 0
-    assert store._STATE_PATH.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows does not expose complete POSIX permission bits",
+)
+@pytest.mark.asyncio
+async def test_credentials_file_keeps_private_posix_permissions():
+    await connect()
+    assert stat.S_IMODE(store._STATE_PATH.stat().st_mode) == 0o600
+    await store.ingest("alice", [event()], {})
+    assert stat.S_IMODE(store._STATE_PATH.stat().st_mode) == 0o600
 
 
 @pytest.mark.asyncio
