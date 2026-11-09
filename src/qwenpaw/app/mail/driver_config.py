@@ -20,7 +20,7 @@ from ...config.config import (
 )
 from ...drivers.contracts import CredentialRef, DriverCard, DriverPolicy
 from ...drivers.errors import DriverCardError
-from ...drivers.storage import dump_card, load_card
+from ...drivers.storage import save_config_card, load_card
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ def generate_qwenpawmail_driver_card(
                 else DriverPolicy(default_effect="ask", rules=[])
             ),
         )
-        dump_card(card, card_path)
+        save_config_card(card, workspace_dir / "drivers")
         return True
     except Exception as exc:  # pylint: disable=broad-except
         logger.warning(

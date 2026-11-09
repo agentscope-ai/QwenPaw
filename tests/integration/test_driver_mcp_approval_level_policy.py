@@ -216,19 +216,19 @@ async def test_mcp_policy_updates_serialize_persistence_and_runtime(
         [PolicyRule(subject="*", effect="deny")],
     )
 
-    original_save = manager.card_store.save
+    original_save = manager.card_store.save_policy
     first_save_started = asyncio.Event()
     release_first_save = asyncio.Event()
     saved_effects: list[str] = []
 
-    async def controlled_save(card: DriverCard) -> Path:
+    async def controlled_save(card: DriverCard) -> DriverCard:
         saved_effects.append(card.policy.rules[0].effect)
         if len(saved_effects) == 1:
             first_save_started.set()
             await release_first_save.wait()
         return await original_save(card)
 
-    monkeypatch.setattr(manager.card_store, "save", controlled_save)
+    monkeypatch.setattr(manager.card_store, "save_policy", controlled_save)
 
     first_update = asyncio.create_task(manager.sync_driver_policy(first_card))
     await asyncio.sleep(0)
