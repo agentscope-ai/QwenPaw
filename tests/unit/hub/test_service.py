@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+import logging
 from collections.abc import Mapping
 from concurrent.futures import Future
 from dataclasses import replace
@@ -589,5 +590,162 @@ def test_user_profile_updates_owned_workspace_paths_on_restart(tmp_path):
         service.restart(record.runtime_id)
         config = json.loads(config_path.read_text(encoding="utf-8"))
         assert config["project_dir"] == "/home/user/projects/demo"
+    finally:
+        service.close()
+
+
+@pytest.mark.parametrize("state", [RuntimeState.STOPPED, RuntimeState.RUNNING])
+def test_restore_running_after_hub_restart(tmp_path: Path, state) -> None:
+    """Restore a lost process even when crash metadata still says running."""
+    service = _service(tmp_path, HubConfig())
+    record = service.create(_spec("runtime-a"))
+    service.start(record.runtime_id)
+    service.close()
+    restored = _service(tmp_path, HubConfig())
+    provisioner = restored.provisioners["local"]
+    stale = restored.get(record.runtime_id)
+    restored.registry.save(replace(stale, state=state))
+    # Simulate the provisioner's observation after the old process exited.
+    provisioner.status = lambda value: replace(
+        value,
+        state=RuntimeState.STOPPED,
+        pid=None,
+    )
+    try:
+        restored.restore_running()
+        assert provisioner.start_calls == 1
+        assert restored.get(record.runtime_id).state is RuntimeState.RUNNING
+    finally:
+        restored.close()
+
+
+def test_restore_running_preserves_stopped_and_disabled(
+    tmp_path: Path,
+) -> None:
+    """Startup must not undo an explicit stop or administrator disable."""
+    service = _service(tmp_path, HubConfig())
+    for index, policy in enumerate(RuntimeStartPolicy):
+        record = service.create(_spec(f"runtime-{index}", f"tenant-{index}"))
+        service.start(record.runtime_id)
+        service.stop(record.runtime_id, start_policy=policy)
+    created = service.create(_spec("never-started", "tenant-new"))
+    try:
+        calls = service.provisioners["local"].start_calls
+        service.restore_running()
+        assert service.provisioners["local"].start_calls == calls
+        assert service.get(created.runtime_id).state is RuntimeState.CREATED
+        for index, policy in enumerate(RuntimeStartPolicy):
+            record = service.get(f"runtime-{index}")
+            assert record.state is RuntimeState.STOPPED
+            assert record.start_policy is policy
+    finally:
+        service.close()
+
+
+def test_restore_running_is_idempotent(tmp_path: Path) -> None:
+    """Healthy runtimes, including surviving containers, are left alone."""
+    service = _service(tmp_path, HubConfig())
+    record = service.create(_spec("runtime-a"))
+    service.start(record.runtime_id)
+    try:
+        service.restore_running()
+        service.restore_running()
+        assert service.provisioners["local"].start_calls == 1
+    finally:
+        service.close()
+
+
+def test_restore_running_isolates_failures_and_redacts_logs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """One bad runtime must not block other tenants or leak credentials."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
+    service = _service(tmp_path, HubConfig())
+    provisioner = service.provisioners["local"]
+    original_start = provisioner.start
+    for name in ("bad", "good"):
+        record = service.create(_spec(name, name))
+        service.registry.save(
+            replace(
+                record,
+                desired_state=RuntimeState.RUNNING,
+                state=RuntimeState.STOPPED,
+            ),
+        )
+
+    def start(record, credentials):
+        if record.runtime_id == "bad":
+            raise RuntimeError("private-recovery-token")
+        return original_start(record, credentials)
+
+    monkeypatch.setattr(provisioner, "start", start)
+    try:
+        service.restore_running()
+        assert service.get("bad").state is RuntimeState.FAILED
+        assert service.get("good").state is RuntimeState.RUNNING
+        assert (
+            "Could not restore Hub runtime bad (RuntimeError)" in caplog.text
+        )
+        assert "private-recovery-token" not in caplog.text
+    finally:
+        service.close()
+
+
+def test_restore_running_obeys_capacity(tmp_path: Path) -> None:
+    """Recovery uses the same admission limit as an explicit start."""
+    service = _service(
+        tmp_path,
+        HubConfig(
+            capacity=RuntimeCapacityConfig(max_running_runtimes=1),
+        ),
+    )
+    for name in ("runtime-a", "runtime-b"):
+        record = service.create(_spec(name, name))
+        service.registry.save(
+            replace(
+                record,
+                desired_state=RuntimeState.RUNNING,
+                state=RuntimeState.STOPPED,
+            ),
+        )
+    try:
+        service.restore_running()
+        assert service.provisioners["local"].start_calls == 1
+        states = [record.state for record in service.registry.list()]
+        assert states.count(RuntimeState.RUNNING) == 1
+    finally:
+        service.close()
+
+
+def test_restore_running_rechecks_stop_under_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale enumeration must not undo an administrator stop."""
+    service = _service(tmp_path, HubConfig())
+    record = service.create(_spec("runtime-a"))
+    service.registry.save(
+        replace(
+            record,
+            desired_state=RuntimeState.RUNNING,
+            state=RuntimeState.STOPPED,
+        ),
+    )
+    original_status = service.status
+
+    def status(runtime_id):
+        service.stop(runtime_id, start_policy=RuntimeStartPolicy.ADMIN_ONLY)
+        return original_status(runtime_id)
+
+    monkeypatch.setattr(service, "status", status)
+    try:
+        service.restore_running()
+        assert service.provisioners["local"].start_calls == 0
+        assert (
+            service.get(record.runtime_id).desired_state
+            is RuntimeState.STOPPED
+        )
     finally:
         service.close()

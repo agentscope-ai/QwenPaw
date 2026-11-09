@@ -400,6 +400,31 @@ class RuntimeService:
                 )
             self.registry.delete(runtime_id)
 
+    def restore_running(self) -> None:
+        """Restore desired-running runtimes without requiring user traffic."""
+        for record in self.registry.list():
+            if record.desired_state is not RuntimeState.RUNNING:
+                continue
+            try:
+                with self._runtime_lock(record.runtime_id):
+                    current = self.status(record.runtime_id)
+                    if (
+                        current.desired_state is not RuntimeState.RUNNING
+                        or current.start_policy
+                        is RuntimeStartPolicy.ADMIN_ONLY
+                        or current.state is RuntimeState.RUNNING
+                    ):
+                        continue
+                    self.start(record.runtime_id)
+            except Exception as exc:
+                # Provisioner errors may contain credentials. Keep detailed
+                # state in the registry, but redact the startup log.
+                logging.getLogger(__name__).warning(
+                    "Could not restore Hub runtime %s (%s)",
+                    record.runtime_id,
+                    type(exc).__name__,
+                )
+
     def close(self) -> None:
         """Close all provisioners and persist the resulting stopped states."""
         self._lifecycle_executor.shutdown(wait=True)
