@@ -25,7 +25,7 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 QwenPaw Local runs models with one of two built-in inference engines. Choose the engine in the **Inference engine** selector on the **Models** page:
 
-- **llama.cpp** works on macOS, Windows, and Linux. On Apple Silicon it uses Metal; CUDA when the installed runtime includes a CUDA backend; otherwise it falls back to CPU.
+- **llama.cpp** works on macOS, Windows, and Linux. On Apple Silicon it uses Metal; CUDA builds (Windows) use the NVIDIA GPU. If the installed runtime has no GPU backend, it falls back to CPU.
 - **MLX** is available on Apple Silicon Macs (macOS 14 or newer) and uses Apple's MLX framework for GPU inference.
 
 Only one local engine can serve a model at a time. Starting a model with one engine stops the other engine's server.

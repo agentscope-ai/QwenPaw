@@ -24,7 +24,7 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 QwenPaw Local 内置两种推理引擎，可在 **模型** 页面的 **推理引擎** 选择器中切换：
 
-- **llama.cpp**：支持 macOS、Windows 和 Linux。Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则回退到 CPU。
+- **llama.cpp**：支持 macOS、Windows 和 Linux。Apple Silicon 上使用 Metal，CUDA 版本（Windows）使用 NVIDIA GPU；如果所安装的运行库没有 GPU 后端，则回退到 CPU。
 - **MLX**：仅支持 Apple Silicon Mac（macOS 14 及以上），使用 Apple MLX 框架进行 GPU 推理。
 
 同一时刻只能由一个本地引擎提供服务；在某个引擎上启动模型会自动停止另一个引擎的服务。
