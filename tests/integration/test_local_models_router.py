@@ -87,14 +87,18 @@ def test_local_models_download_missing_id(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_local_server_status_reports_accelerator_fields(app_server) -> None:
-    """The local status payload exposes accelerator metadata."""
-    response = app_server.api_request("GET", "/api/local-models/server")
+def test_local_engines_endpoint_lists_llamacpp_and_mlx(app_server) -> None:
+    """The engine catalog always exposes both built-in engines."""
+    response = app_server.api_request("GET", "/api/local-models/engines")
     assert response.status_code == 200
-    data = response.json()
-    assert "accelerator" in data
-    assert "device_name" in data
-    assert "version" in data
+    engines = response.json()
+    assert {engine["id"] for engine in engines} == {"llamacpp", "mlx"}
+    for engine in engines:
+        assert "installable" in engine
+        assert "installed" in engine
+        assert "accelerator" in engine
+        assert "device_name" in engine
+        assert "version" in engine
 
 
 @pytest.mark.integration
@@ -117,3 +121,14 @@ def test_local_model_config_auto_update_round_trip(app_server) -> None:
         "/api/local-models/config",
         json={"auto_update": False},
     )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_local_server_rejects_unknown_engine(app_server) -> None:
+    """An unknown engine id is a client error, not a silent fallback."""
+    response = app_server.api_request(
+        "GET",
+        "/api/local-models/server?engine=cuda",
+    )
+    assert response.status_code == 400

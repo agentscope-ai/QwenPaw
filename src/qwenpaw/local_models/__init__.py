@@ -1,16 +1,30 @@
 # -*- coding: utf-8 -*-
 """Local model management and inference."""
 
-from .manager import LocalModelManager
-from .manager import LocalModelConfig
+from .manager import (
+    DEFAULT_LOCAL_ENGINE,
+    LOCAL_ENGINE_IDS,
+    LocalEngineId,
+    LocalModelConfig,
+    LocalModelManager,
+    LocalServerSetupResult,
+    normalize_engine,
+)
 from .model_manager import ModelManager, LocalModelInfo, DownloadSource
 from .llamacpp import LlamaCppBackend
+from .mlx import MlxBackend
 
 __all__ = [
+    "DEFAULT_LOCAL_ENGINE",
     "DownloadSource",
-    "LocalModelInfo",
-    "LocalModelConfig",
-    "LocalModelManager",
-    "ModelManager",
+    "LOCAL_ENGINE_IDS",
     "LlamaCppBackend",
+    "LocalEngineId",
+    "LocalModelConfig",
+    "LocalModelInfo",
+    "LocalModelManager",
+    "LocalServerSetupResult",
+    "MlxBackend",
+    "ModelManager",
+    "normalize_engine",
 ]

@@ -1220,16 +1220,33 @@ class ProviderManager(
         if model_id is None:
             return
 
-        installed, _ = local_manager.check_llamacpp_installation()
+        get_config = getattr(local_manager, "get_config", None)
+        engine = get_config().engine if callable(get_config) else "llamacpp"
+        check_installation = getattr(
+            local_manager,
+            "check_installation",
+            None,
+        )
+        if callable(check_installation):
+            installed, _ = check_installation(engine)
+        else:
+            installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because"
-                " llama.cpp is not installed.",
+                "Skipping local model restore because" " %s is not installed.",
+                engine,
             )
             await _clear_local_provider()
             return
 
-        if not local_manager.is_model_downloaded(model_id):
+        try:
+            downloaded = local_manager.is_model_downloaded(
+                model_id,
+                engine=engine,
+            )
+        except TypeError:
+            downloaded = local_manager.is_model_downloaded(model_id)
+        if not downloaded:
             logger.warning(
                 "Skipping local model restore because"
                 " model is not downloaded: %s",
@@ -1239,7 +1256,13 @@ class ProviderManager(
             return
 
         try:
-            setup_result = await local_manager.setup_server(model_id)
+            try:
+                setup_result = await local_manager.setup_server(
+                    model_id,
+                    engine=engine,
+                )
+            except TypeError:
+                setup_result = await local_manager.setup_server(model_id)
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
             logger.warning(
                 "Failed to restore local model server for %s: %s",
@@ -1250,6 +1273,7 @@ class ProviderManager(
             return
 
         setup_result.model_info.model_type = local_models[0].model_type
+        setup_result.model_info.name = local_models[0].name
         await self.update_provider_async(
             "qwenpaw-local",
             {

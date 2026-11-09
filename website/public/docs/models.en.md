@@ -6,31 +6,39 @@ Before using QwenPaw, you need to configure at least one available model. QwenPa
 
 QwenPaw supports various LLM providers:
 
-- **Local Providers** (llama.cpp / Ollama / LM Studio)
+- **Local Providers** (llama.cpp / MLX / Ollama / LM Studio)
 - **Cloud Providers** (usually require an API Key)
 - **Custom Providers** (if the preset local and cloud providers do not meet your needs)
 
 Currently supported local providers include:
 
 - [QwenPaw Local (llama.cpp)](https://github.com/ggml-org/llama.cpp)
+- QwenPaw Local (MLX, Apple Silicon)
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-QwenPaw Local (llama.cpp) is built into QwenPaw and does not require additional software installation. Ollama and LM Studio require you to install the corresponding software in advance.
+QwenPaw Local (llama.cpp and MLX) is managed by QwenPaw and does not require installing a separate app; the selected runtime is downloaded from the Models page. Ollama and LM Studio require you to install the corresponding software in advance.
 
 QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes 2B, 4B, and 9B variants, with original, 4-bit, and 8-bit versions for different VRAM and performance requirements. These models are open-sourced on [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) and [Hugging Face](https://huggingface.co/agentscope-ai/models). The following sections explain how to use QwenPaw-Flash with each local provider.
 
-## QwenPaw Local (llama.cpp) Configuration
+## QwenPaw Local Configuration
 
-QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
+QwenPaw Local runs models with one of two built-in inference engines. Choose the engine in the **Inference engine** selector on the **Models** page:
 
-QwenPaw Local uses Metal on Apple Silicon, CUDA when the installed runtime includes a CUDA backend, and falls back to CPU otherwise. The engine panel shows the detected accelerator (for example `Metal · Apple M5 Max`). To force CPU inference, open **Advanced local model settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
+- **llama.cpp** works on macOS, Windows, and Linux. On Apple Silicon it uses Metal; CUDA when the installed runtime includes a CUDA backend; otherwise it falls back to CPU.
+- **MLX** is available on Apple Silicon Macs (macOS 14 or newer) and uses Apple's MLX framework for GPU inference.
 
-Runtime auto-update is on by default. Turn off **Automatically update engine runtimes** in **Advanced local model settings** to disable it. When enabled, QwenPaw checks periodically and installs a newer llama.cpp runtime when no local server is running. A running server is left untouched and the update is deferred.
+Only one local engine can serve a model at a time. Starting a model with one engine stops the other engine's server.
+
+Runtime auto-update is on by default. Turn off **Automatically update engine runtimes** in **Advanced local model settings** to disable it. When enabled, QwenPaw checks periodically and installs a newer llama.cpp runtime (from the QwenPaw runtime release) or a newer `mlx-lm` release from PyPI when no local server is running. A running server is left untouched and the update is deferred.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 
-When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
+When configuring QwenPaw Local for the first time, install the selected engine runtime. Click **Install llama.cpp** or **Install MLX**, and QwenPaw downloads and configures the runtime automatically. The engine panel shows the detected accelerator (for example `Metal · Apple M5 Max`) and the installed version.
+
+### GPU acceleration
+
+llama.cpp offloads model layers to the GPU automatically (`--gpu-layers auto`). To force CPU inference, open **Advanced local model settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts. MLX always uses the Apple GPU.
 
 ![Download llama.cpp](https://img.alicdn.com/imgextra/i1/O1CN01VhSJKd1yhtWZ0SgYc_!!6000000006611-2-tps-1530-1290.png)
 
@@ -46,7 +54,11 @@ When you do not need to use a model temporarily, you can click **Stop** to stop 
 
 ![Stop Model](https://img.alicdn.com/imgextra/i2/O1CN01fkeHhn1onG0ItKjT5_!!6000000005269-2-tps-1358-1786.png)
 
-QwenPaw Local will automatically record the model's running state. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model the next time you open QwenPaw, so you do not need to start the model manually each time.
+QwenPaw Local will automatically record the model's running state, including the selected engine. If you close the QwenPaw process while a QwenPaw Local model is running, it will attempt to restart the last used model with the same engine the next time you open QwenPaw, so you do not need to start the model manually each time.
+
+### MLX models
+
+MLX uses directory-based model repositories (for example `mlx-community/Qwen3-4B-Instruct-2507-4bit`) that contain `config.json` and safetensors weights, not GGUF files. QwenPaw recommends 4-bit MLX models based on unified memory. MLX is chat-only; decision models such as Piccolo continue to use llama.cpp.
 
 ## Ollama Configuration
 
@@ -229,7 +241,7 @@ All provider configurations in QwenPaw are saved in the `$QWENPAW_SECRET_DIR/pro
 
 ### Local Models
 
-If you use the QwenPaw Local (llama.cpp) provider, QwenPaw will save the llama.cpp runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`).
+If you use the QwenPaw Local provider, QwenPaw saves the engine runtime, downloaded models and logs in the `$QWENPAW_WORKING_DIR/local_models` folder (default `~/.qwenpaw/local_models`). The llama.cpp runtime lives in `bin/`, the MLX virtual environment in `mlx/venv/`, and models in `models/`.
 
 - **Runtime**: The llama.cpp runtime is saved in the `$QWENPAW_WORKING_DIR/local_models/bin` directory. It includes the executable files and related dynamic libraries for llama.cpp. These files are automatically downloaded and configured by QwenPaw. If you have special requirements for llama.cpp (such as needing acceleration capabilities for specific hardware), you can compile your own version of llama.cpp and directly replace the files in this directory.
 - **Downloaded Models**: Downloaded models are saved in the `$QWENPAW_WORKING_DIR/local_models/models` directory. Each model corresponds to a folder named after its ID, for example, the model with ID `Qwen/Qwen3-0.6B-GGUF` will have a folder at `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`. Inside the model folder, you will find the GGUF file for the model and some metadata files. If you need to use GGUF model files from other sources, you can create a subfolder with the structure `organization/model_name` under the `models` directory, then save the GGUF file in that folder. After refreshing the QwenPaw Local model list, you will see the model in the list (for example, save the `Qwen3-0.6B.gguf` model file to `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`).

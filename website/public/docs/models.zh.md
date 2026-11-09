@@ -16,21 +16,28 @@ QwenPaw 当前支持的本地供应商包括：
 - [Ollama](https://ollama.com/)
 - [LM Studio](https://lmstudio.ai/)
 
-其中 QwenPaw Local (llama.cpp) 内置在 QwenPaw 中，无需额外安装其他软件，Ollama 和 LM Studio 需要用户提前安装好对应的软件。
+其中 QwenPaw Local (llama.cpp 和 MLX) 由 QwenPaw 统一管理，无需安装独立应用；所选运行库会在模型页面按需下载。Ollama 和 LM Studio 需要用户提前安装好对应的软件。
 
 QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包含 2B、4B 和 9B 三个版本；除原始模型外，还提供 4 bit 和 8 bit 量化版本，适合不同的显存环境和性能需求。这些模型已经在 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 和 [Hugging Face](https://huggingface.co/agentscope-ai/models) 上开源，下面分别介绍如何在三种本地供应商中使用 QwenPaw-Flash。
 
-## QwenPaw Local (llama.cpp) 配置
+## QwenPaw Local 配置
 
-QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
+QwenPaw Local 内置两种推理引擎，可在 **模型** 页面的 **推理引擎** 选择器中切换：
 
-QwenPaw Local 在 Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则回退到 CPU。引擎面板会显示检测到的加速器（例如 `Metal · Apple M5 Max`）。如需强制使用 CPU 推理，请打开 **本地模型进阶配置**，关闭 **GPU 加速**；该设置会在下一次启动本地服务时生效。
+- **llama.cpp**：支持 macOS、Windows 和 Linux。Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则回退到 CPU。
+- **MLX**：仅支持 Apple Silicon Mac（macOS 14 及以上），使用 Apple MLX 框架进行 GPU 推理。
 
-运行库自动更新默认开启。可在 **本地模型进阶配置** 中关闭 **自动更新引擎运行库**。开启时，QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 运行库；正在运行的服务不会被中断，更新会延后。
+同一时刻只能由一个本地引擎提供服务；在某个引擎上启动模型会自动停止另一个引擎的服务。
+
+运行库自动更新默认开启。可在 **本地模型进阶配置** 中关闭 **自动更新引擎运行库**。开启时，QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 运行库（来自 QwenPaw 运行库发布）或 PyPI 上较新的 `mlx-lm` 版本；正在运行的服务不会被中断，更新会延后。
 
 ![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 
-初次配置 QwenPaw Local 时，您需要先下载 llama.cpp 运行库，点击 **下载 llama.cpp** 按钮，QwenPaw 会自动下载并配置好 llama.cpp 运行库，下载完成后您就可以使用 QwenPaw Local 提供商了。
+初次配置 QwenPaw Local 时，请先安装所选引擎的运行库。点击 **安装 llama.cpp** 或 **安装 MLX**，QwenPaw 会自动下载并配置运行库。引擎面板会显示检测到的加速器（例如 `Metal · Apple M5 Max`）以及已安装版本。
+
+### GPU 加速
+
+llama.cpp 会自动将模型层卸载到 GPU（`--gpu-layers auto`）。如需强制使用 CPU 推理，请打开 **本地模型进阶配置**，关闭 **GPU 加速**；该设置会在下一次启动本地服务时生效。MLX 始终使用 Apple GPU。
 
 ![下载 llama.cpp](https://img.alicdn.com/imgextra/i2/O1CN01zN4QFs1RGyvkxM8lE_!!6000000002085-2-tps-1550-1308.png)
 
@@ -46,7 +53,11 @@ QwenPaw 团队专门训练了一系列适合本地部署的小模型（QwenPaw-F
 
 ![停止模型](https://img.alicdn.com/imgextra/i4/O1CN01u6zmTW1lCfW2lsXAh_!!6000000004783-2-tps-1354-1796.png)
 
-QwenPaw Local 会自动记录模型启动状态，如果您在关闭 QwenPaw 进程时，QwenPaw Local 模型正在运行，下次打开时会自动尝试重新启动上次使用的模型，从而无需每次启动 QwenPaw 后都手动启动模型。
+QwenPaw Local 会自动记录模型启动状态以及所使用的引擎。如果您在关闭 QwenPaw 进程时，QwenPaw Local 模型正在运行，下次打开时会自动尝试使用同一引擎重新启动上次使用的模型，从而无需每次启动 QwenPaw 后都手动启动模型。
+
+### MLX 模型
+
+MLX 使用目录形式的模型仓库（例如 `mlx-community/Qwen3-4B-Instruct-2507-4bit`），其中包含 `config.json` 与 safetensors 权重，而不是 GGUF 文件。QwenPaw 会根据统一内存容量推荐 4 bit MLX 模型。MLX 仅支持对话模型；Piccolo 等决策模型仍使用 llama.cpp。
 
 ## Ollama 配置
 
@@ -229,10 +240,10 @@ QwenPaw 中所有提供商的配置都会保存在 `$QWENPAW_SECRET_DIR/provider
 
 ### 本地模型
 
-如果使用了 QwenPaw Local (llama.cpp) 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）中保存 llama.cpp 相关的运行库、模型文件以及运行日志，其中
+如果使用了 QwenPaw Local 提供商，QwenPaw 会在 `$QWENPAW_WORKING_DIR/local_models` 文件夹中（默认 `~/.qwenpaw/local_models`）保存引擎运行库、模型文件以及运行日志，其中
 
-- **运行库**保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，包含了 llama.cpp 的可执行文件以及相关的动态链接库，这些文件由 QwenPaw 自动下载和配置，如果用户对 llama.cpp 有特殊需求（例如需要使用特定硬件的加速能力），也可以自行编译 llama.cpp 并直接替换该目录下的文件。
-- **下载的模型**会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件以及一些模型元信息文件，如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 GGUF 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）。
+- **llama.cpp 运行库**保存在 `$QWENPAW_WORKING_DIR/local_models/bin` 目录下，包含 llama.cpp 的可执行文件以及相关的动态链接库，这些文件由 QwenPaw 自动下载和配置。**MLX 运行环境**保存在 `$QWENPAW_WORKING_DIR/local_models/mlx/venv` 目录下，由 QwenPaw 自动创建。
+- **下载的模型**会保存在 `$QWENPAW_WORKING_DIR/local_models/models` 目录下，每个模型会对应一个文件夹，文件夹名称为该模型的 ID，例如模型 ID 为 `Qwen/Qwen3-0.6B-GGUF` 的模型文件夹为 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF`，模型文件夹内会保存该模型的 GGUF 文件（或 MLX 的 config.json 与 safetensors 权重）以及一些模型元信息文件，如果用户需要使用其他来源的 GGUF 模型文件，可以在 `models` 目录下创建 `组织名/模型名` 结构的子文件夹，然后将 GGUF 文件保存到该文件夹中，然后刷新 QwenPaw Local 的模型列表，就可以在 QwenPaw Local 的模型列表中看到该模型了（例如将 `Qwen3-0.6B.gguf` 模型文件保存到 `$QWENPAW_WORKING_DIR/local_models/models/Qwen/Qwen3-0.6B-GGUF/Qwen3-0.6B.gguf`）。
 - **日志文件**保存在 `$QWENPAW_WORKING_DIR/local_models/logs` 目录下，启动 llama.cpp 后日志文件会自动保存在该目录下的 `llama-server.log` 文件中。
 
 ### 生成参数

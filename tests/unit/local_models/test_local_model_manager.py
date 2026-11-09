@@ -220,14 +220,14 @@ async def test_local_model_manager_forwards_async_server_calls(
     await manager.set_port(43110)
 
     ready = await manager.check_llamacpp_server_ready(timeout=7.5)
-    setup_result = await manager.setup_server("demo")
+    setup_result = await manager.setup_server("downloaded-model")
     await manager.shutdown_server()
 
     assert ready is True
     assert setup_result.port == 8080
     assert setup_result.model_info == ModelInfo(
-        id="demo",
-        name="demo",
+        id="downloaded-model",
+        name="downloaded-model",
         supports_multimodal=False,
         supports_image=False,
         supports_video=False,
@@ -235,9 +235,16 @@ async def test_local_model_manager_forwards_async_server_calls(
     )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
+        ("check", None),
         (
             "setup",
-            (Path("/fake/path/demo"), "demo", 131072, 43110, True),
+            (
+                Path("/fake/path/downloaded-model"),
+                "downloaded-model",
+                131072,
+                43110,
+                True,
+            ),
         ),
         ("shutdown", None),
     ]
@@ -267,6 +274,7 @@ async def test_set_max_context_length_persists_local_model_config(
         "port": None,
         "gpu_acceleration": True,
         "auto_update": True,
+        "engine": "llamacpp",
     }
 
 
@@ -294,6 +302,7 @@ async def test_set_gpu_acceleration_persists_local_model_config(
         "port": None,
         "gpu_acceleration": False,
         "auto_update": True,
+        "engine": "llamacpp",
     }
 
 
@@ -321,6 +330,7 @@ async def test_set_auto_update_persists_local_model_config(
         "port": None,
         "gpu_acceleration": True,
         "auto_update": True,
+        "engine": "llamacpp",
     }
 
 
@@ -418,6 +428,7 @@ async def test_set_port_persists_local_model_config(
         "port": 43110,
         "gpu_acceleration": True,
         "auto_update": True,
+        "engine": "llamacpp",
     }
 
 
