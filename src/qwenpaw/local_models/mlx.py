@@ -173,10 +173,7 @@ class MlxBackend:
         ):
             return self._latest_version
         try:
-            async with httpx.AsyncClient(
-                timeout=10.0,
-                trust_env=False,
-            ) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(_PYPI_MLX_URL)
                 response.raise_for_status()
                 payload = response.json()
