@@ -279,6 +279,14 @@ class TestReadFile:
         assert await read_file_safe(str(path)) == "name=锘"
 
     @pytest.mark.asyncio
+    async def test_safe_read_gbk_qiao_not_lossy(self, tmp_path):
+        """GBK ``name=丂`` must not become lossy UTF-8 ``name=\ufffd@``."""
+        path = tmp_path / "qiao.txt"
+        path.write_bytes("name=丂".encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "name=丂"
+
+    @pytest.mark.asyncio
     async def test_safe_read_longer_cp1252_keeps_accent(self, tmp_path):
         """CP1252 ``Cafés`` must not collapse to a lossy UTF-8 replacement."""
         path = tmp_path / "cafes.txt"
@@ -483,6 +491,14 @@ def test_decode_gbk_qijing_not_lossy_utf8():
     assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
 
 
+def test_decode_gbk_qiao_not_lossy_utf8():
+    """Strict GBK must win for ``name=丂`` instead of ``name=\ufffd@``."""
+    raw = "name=丂".encode("gbk")
+    assert raw == b"name=\x81@"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=丂"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
 def test_decode_gbk_axc0a_not_cp1252():
     """Ambiguous ``A\\xc0A`` is valid GBK ``A繟``, not CP1252 ``AÀA``."""
     raw = b"A\xc0A"
@@ -580,6 +596,16 @@ class TestEditFile:
         result = await edit_file(str(f), "name=", "title=")
         assert "Successfully replaced" in result.content[0].text
         assert f.read_text(encoding="utf-8") == "title=如不\n"
+        assert "\ufffd" not in f.read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_qiao_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``丂`` instead of persisting ``\ufffd@``."""
+        f = tmp_path / "qiao.txt"
+        f.write_bytes("name=丂".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_text(encoding="utf-8") == "title=丂"
         assert "\ufffd" not in f.read_text(encoding="utf-8")
 
     @pytest.mark.asyncio

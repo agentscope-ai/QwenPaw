@@ -27,8 +27,8 @@ from ..utils.file_handling import (
     _FallbackSignals,
     _UTF8_BOM,
     _choose_fallback_decoding,
+    _count_cjk_ideographs,
     _feed_gbk_pair_trails,
-    _lossy_has_convincing_cjk,
     _lossy_text_stats,
     single_line_log_value,
 )
@@ -612,21 +612,29 @@ def _select_grep_fallback_decoding(
     bad = 0
     good = 0
     saw_non_ascii = False
-    lossy_parts: list[str] = []
+    lossy_cjk = 0
     other = 0
     letters = 0
     unpaired = 0
+    ascii_letter_trails = 0
     pending_lead: int | None = None
 
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
         for chunk in reader.iter_chunks(raw, cancel, max_bytes):
-            other, letters, unpaired, pending_lead = _feed_gbk_pair_trails(
+            (
+                other,
+                letters,
+                unpaired,
+                pending_lead,
+                ascii_letter_trails,
+            ) = _feed_gbk_pair_trails(
                 chunk,
                 other,
                 letters,
                 unpaired,
                 pending_lead,
+                ascii_letter_trails,
             )
             for probe in probes.values():
                 probe.feed(chunk, final=False)
@@ -635,7 +643,7 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
-            lossy_parts.append(text)
+            lossy_cjk += _count_cjk_ideographs(text)
         if reader.hit_eof:
             for probe in probes.values():
                 probe.feed(b"", final=True)
@@ -644,15 +652,13 @@ def _select_grep_fallback_decoding(
             bad += piece_bad
             good += piece_good
             saw_non_ascii = saw_non_ascii or piece_saw
-            lossy_parts.append(text)
+            lossy_cjk += _count_cjk_ideographs(text)
 
     # Mirror _signals_for_bytes: incidental GBK leftovers (``如不``) must
     # not beat a clean GBK decode; dirty UTF-8 with several ideographs can.
-    if (
-        probes["gbk"].ok
-        and not bom
-        and not _lossy_has_convincing_cjk("".join(lossy_parts))
-    ):
+    # Count CJK and replacements per chunk so a single-file search
+    # (max_bytes=None) does not retain the full lossy decoding.
+    if probes["gbk"].ok and not bom and not (lossy_cjk > bad):
         saw_non_ascii = False
 
     choice = _choose_fallback_decoding(
@@ -664,6 +670,7 @@ def _select_grep_fallback_decoding(
             other_trails=other,
             letter_trails=letters,
             unpaired_ascii_letters=unpaired,
+            ascii_letter_trails=ascii_letter_trails,
             gbk_ok=probes["gbk"].ok,
             cp1252_ok=probes["cp1252"].ok,
         ),
