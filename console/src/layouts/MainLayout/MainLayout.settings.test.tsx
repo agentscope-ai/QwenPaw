@@ -15,6 +15,7 @@ import { menuRegistry, routeRegistry } from "@/plugins/registry/store";
 import { flattenMenu } from "@/layouts/registry/adapter";
 import SettingsCenter from "@/pages/SettingsCenter";
 import { renderWithProviders } from "@/test/common_setup";
+import { useSessionListStore } from "@/stores/sessionListStore";
 import MainLayout from ".";
 
 vi.mock("../Sidebar", () => ({
@@ -162,6 +163,7 @@ function registerSharedPlugin(withMeta = true) {
 }
 
 beforeEach(() => {
+  useSessionListStore.setState({ sessions: [] });
   vi.spyOn(Grid, "useBreakpoint").mockReturnValue({ md: true });
   menuRegistry.__resetForTests();
   routeRegistry.__resetForTests();
@@ -178,7 +180,11 @@ beforeEach(() => {
       path: "/models",
       component: () => <div>Model settings</div>,
     },
-    { id: "core.chat", path: "/chat", component: () => <div>Chat page</div> },
+    {
+      id: "core.chat",
+      path: "/chat/*",
+      component: () => <div>Chat page</div>,
+    },
   ]);
   menuRegistry.addBuiltin([
     {
@@ -194,6 +200,42 @@ beforeEach(() => {
       isGroup: true,
     },
   ]);
+});
+
+describe("browser document titles", () => {
+  it("follows the current chat name and restores route titles after navigation", async () => {
+    useSessionListStore.setState({
+      sessions: [{ id: "chat a", name: "Project plan", messages: [] }],
+    });
+    renderLayout("/chat/chat%20a");
+    expect(document.title).toBe("Project plan · QwenPaw");
+
+    act(() => {
+      useSessionListStore.setState({
+        sessions: [{ id: "chat a", name: "Release notes", messages: [] }],
+      });
+    });
+    expect(document.title).toBe("Release notes · QwenPaw");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open settings" }),
+    );
+    expect(document.title).toBe("Settings · QwenPaw");
+
+    await userEvent.click(screen.getByRole("button", { name: "History back" }));
+    expect(document.title).toBe("Release notes · QwenPaw");
+  });
+
+  it.each(["/chat", "/chat/new", "/chat/missing"])(
+    "uses the default chat title at %s",
+    (path) => {
+      useSessionListStore.setState({
+        sessions: [{ id: "chat-a", name: "Previous chat", messages: [] }],
+      });
+      renderLayout(path);
+      expect(document.title).toBe("Chat · QwenPaw");
+    },
+  );
 });
 
 describe("plugin settings navigation", () => {

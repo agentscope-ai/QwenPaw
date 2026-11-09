@@ -18,6 +18,7 @@ import { PageShell } from "../../components/PageShell";
 import { pickSelectedKey } from "./routeSelection";
 import { RouteDocumentTitle } from "./RouteDocumentTitle";
 import { getRouteTitle } from "./routeTitle";
+import { getSessionIdFromPath } from "../../utils/sessionRoute";
 import {
   buildApprovalNavigationPath,
   type ApprovalNotificationTarget,
@@ -106,7 +107,14 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
         <SettingsSearchNavigation />
-        <RouteDocumentTitle title={pageTitle} />
+        <RouteDocumentTitle
+          title={pageTitle}
+          sessionId={
+            selectedKey === "core.chat"
+              ? getSessionIdFromPath(currentPath)
+              : undefined
+          }
+        />
         <a
           className={styles.skipLink}
           href="#main-content"
