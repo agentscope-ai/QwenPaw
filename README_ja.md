@@ -60,7 +60,7 @@
 
 ## ニュース
 
-- [2026-11-02] **v2.3.0** | 大規模・小規模モデルが連携する Advisor Mode、Code Mode、意思決定モデルの統合。プラグインシステムの再構築、プラグイン SDK、チャネルのプラグイン化。画像の記憶とタグ閲覧、Console とデスクトップの複数ウィンドウ操作の改善。 [v2.3.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+- [2026-11-10] **v2.3.0** | Piccolo ローカル意思決定モデル、QwenPaw Community 連携、大規模・小規模モデルが連携する Advisor Mode、Code Mode。プラグインシステムの再構築、プラグイン SDK、チャネルのプラグイン化。画像の記憶とタグ閲覧、Console とデスクトップの複数ウィンドウ操作の改善。 [v2.3.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
 
 - [2026-10-15] **v2.2.2** | Console の更新、9B/27B/35B-A3B をカバーする新しい QwenPaw-Flash モデル、Codex/Qoder のデータを移行できる PawPort、Creator 2.0.1、Data 0.3.0。 [v2.2.2 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 

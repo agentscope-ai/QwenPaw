@@ -60,7 +60,7 @@
 
 ## 新闻
 
-- [2026-11-02] **v2.3.0** | 新增支持大小模型协同的 Advisor Mode、Code Mode 和决策模型接入；重构插件系统，提供插件 SDK 并将频道插件化；支持图片记忆与标签浏览，改进控制台与桌面多窗口体验。 [v2.3.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+- [2026-11-10] **v2.3.0** | 新增 Piccolo 本地决策模型、QwenPaw 社区接入、支持大小模型协同的 Advisor Mode，Code Mode；重构插件系统，提供插件 SDK 并将频道插件化；支持图片记忆与标签浏览，改进控制台与桌面多窗口体验。 [v2.3.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
 
 - [2026-10-15] **v2.2.2** | 控制台更新、新的 QwenPaw-Flash 模型覆盖 9B/27B/35B-A3B、新增可迁移 Codex/Qoder 数据的 PawPort，以及 Creator 2.0.1 和 Data 0.3.0。 [v2.2.2 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 

@@ -60,7 +60,7 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
-- [2026-11-02] **v2.3.0** | Advisor Mode for collaboration between larger and smaller models, Code Mode, and decision model integration; a rebuilt plugin system, plugin SDK, and channels as plugins; image memory and tag browsing; Console and desktop multi-window improvements. [v2.3.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+- [2026-11-10] **v2.3.0** | Piccolo local decision models, QwenPaw Community integration, Advisor Mode for collaboration between larger and smaller models, Code Mode; plugin-system refactoring, the plugin SDK, and channels as plugins; image memory, tag browsing, and Console and desktop multi-window improvements. [v2.3.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
 
 - [2026-10-15] **v2.2.2** | Console updates, new QwenPaw-Flash models covering 9B/27B/35B-A3B, PawPort for importing Codex/Qoder data, Creator 2.0.1, and Data 0.3.0. [v2.2.2 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 

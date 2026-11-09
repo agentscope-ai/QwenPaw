@@ -60,7 +60,7 @@ Trợ lý AI cá nhân của bạn — triển khai cục bộ hoặc trên đá
 
 ## Tin Tức
 
-- [2026-11-02] **v2.3.0** | Advisor Mode phối hợp mô hình lớn và nhỏ, Code Mode và tích hợp mô hình ra quyết định; tái cấu trúc hệ thống plugin, SDK plugin và chuyển các kênh thành plugin; bộ nhớ hình ảnh và duyệt theo thẻ; cải tiến Console và trải nghiệm nhiều cửa sổ trên desktop. [Ghi chú phát hành v2.3.0 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+- [2026-11-10] **v2.3.0** | Mô hình ra quyết định cục bộ Piccolo, tích hợp QwenPaw Community, Advisor Mode phối hợp mô hình lớn và nhỏ, Code Mode; tái cấu trúc hệ thống plugin, SDK plugin và các kênh dạng plugin; bộ nhớ hình ảnh, duyệt theo thẻ, cải tiến Console và nhiều cửa sổ trên desktop. [Ghi chú phát hành v2.3.0 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
 
 - [2026-10-15] **v2.2.2** | Cập nhật Console, các mẫu QwenPaw-Flash mới gồm 9B/27B/35B-A3B, PawPort để chuyển dữ liệu từ Codex/Qoder, Creator 2.0.1 và Data 0.3.0. [Ghi chú phát hành v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 

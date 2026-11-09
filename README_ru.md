@@ -60,7 +60,7 @@
 
 ## Новости
 
-- [2026-11-02] **v2.3.0** | Advisor Mode для совместной работы больших и малых моделей, Code Mode и интеграция моделей принятия решений; переработанная система плагинов, SDK плагинов и каналы в виде плагинов; память с изображениями и просмотр по тегам; улучшения Console и работы с несколькими окнами. [Release Notes v2.3.0 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+- [2026-11-10] **v2.3.0** | Локальные модели принятия решений Piccolo, интеграция с QwenPaw Community, Advisor Mode для совместной работы больших и малых моделей, Code Mode; переработанная система плагинов, SDK и каналы в виде плагинов; память с изображениями, просмотр по тегам, улучшения Console и работы с несколькими окнами. [Release Notes v2.3.0 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
 
 - [2026-10-15] **v2.2.2** | Обновления Console, новые модели QwenPaw-Flash 9B/27B/35B-A3B, PawPort для переноса данных из Codex/Qoder, Creator 2.0.1 и Data 0.3.0. [Release Notes v2.2.2 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 
