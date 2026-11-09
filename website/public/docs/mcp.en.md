@@ -249,7 +249,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 | File Operations    | `append_file`             | Append content to file end                                    |
 | File Search        | `grep_search`             | Search by content, supports regex and context                 |
 | File Search        | `glob_search`             | Find files by name pattern                                    |
-| Web Search         | `web_search`              | Search the web with Tavily, AnySearch, or Firecrawl            |
+| Web Search         | `web_search`              | Search the web with Tavily, AnySearch, or Firecrawl           |
 | Web Fetch          | `web_fetch`               | Read a web page and convert it to Markdown                    |
 | Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution              |
 | Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                 |
