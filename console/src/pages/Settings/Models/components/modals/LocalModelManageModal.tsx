@@ -182,6 +182,7 @@ export function LocalModelManageModal({
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const engineRef = useRef<LocalEngineId>("llamacpp");
+  const serverStatusRef = useRef<LocalServerStatus | null>(null);
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
   const previousRuntimeStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
@@ -203,6 +204,8 @@ export function LocalModelManageModal({
     }),
     [provider.generate_kwargs],
   );
+  const initialLocalConfigRef = useRef(initialLocalConfig);
+  initialLocalConfigRef.current = initialLocalConfig;
 
   const parseGenerateConfig = useCallback(
     (value?: string) => {
@@ -326,7 +329,7 @@ export function LocalModelManageModal({
       nextServerStatus?: LocalServerStatus | null,
       targetEngine: LocalEngineId = engineRef.current,
     ) => {
-      const effectiveServerStatus = nextServerStatus ?? serverStatus;
+      const effectiveServerStatus = nextServerStatus ?? serverStatusRef.current;
 
       if (
         !effectiveServerStatus?.installable ||
@@ -355,7 +358,7 @@ export function LocalModelManageModal({
         return null;
       }
     },
-    [serverStatus],
+    [],
   );
 
   const refreshStatus = useCallback(
@@ -374,6 +377,7 @@ export function LocalModelManageModal({
             api.getLocalModelDownloadProgress(),
           ]);
 
+        serverStatusRef.current = nextServerStatus;
         setServerStatus((prev) =>
           isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus,
         );
@@ -492,6 +496,7 @@ export function LocalModelManageModal({
         setCatalogSource("huggingface");
         setCustomModelSource("huggingface");
       }
+      serverStatusRef.current = null;
       setServerStatus(null);
       setLocalModels([]);
       setRuntimeDownload(null);
@@ -539,8 +544,11 @@ export function LocalModelManageModal({
     setSavedServerPort(null);
     setGpuAcceleration(true);
     setSavedGpuAcceleration(true);
-    setGenerateKwargsText(initialLocalConfig.generateKwargsText);
-    setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
+    setGenerateKwargsText(initialLocalConfigRef.current.generateKwargsText);
+    setSavedGenerateKwargsText(
+      initialLocalConfigRef.current.generateKwargsText,
+    );
+    serverStatusRef.current = null;
     setServerStatus(null);
     setRuntimeDownload(null);
     setLocalModels([]);
@@ -581,7 +589,6 @@ export function LocalModelManageModal({
     refreshUpdateStatus,
     startPolling,
     stopPolling,
-    initialLocalConfig,
   ]);
 
   const handleSaveMaxContextLength = useCallback(async () => {
