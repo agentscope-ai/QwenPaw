@@ -3997,6 +3997,10 @@
         "name": "查看视频",
         "description": "读取视频，让模型分析视频内容。"
       },
+      "view_audio": {
+        "name": "收听音频",
+        "description": "读取音频，让模型转写或分析音频内容。"
+      },
       "enhance_and_generate_image": {
         "name": "增强并生成图片",
         "description": "完善图片描述，再生成所需画面。"
