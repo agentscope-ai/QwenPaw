@@ -1059,8 +1059,6 @@ export function LocalModelManageModal({
           onEngineChange={handleEngineChange}
           onStart={handleStartRuntimeDownload}
           onCancel={handleCancelRuntimeDownload}
-          onStop={handleStopServer}
-          stopping={stoppingServer}
         />
         {!isRuntimeInstalled ? (
           <div className={styles.localLockedPanel}>

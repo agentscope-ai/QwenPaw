@@ -30,8 +30,6 @@ interface LocalRuntimePanelProps {
   onEngineChange: (engine: LocalEngineId) => void;
   onStart: () => void;
   onCancel: () => void;
-  onStop: () => void;
-  stopping: boolean;
 }
 
 export const LocalRuntimePanel = memo(function LocalRuntimePanel({
