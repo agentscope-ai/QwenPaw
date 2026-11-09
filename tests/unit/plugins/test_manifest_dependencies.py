@@ -500,7 +500,7 @@ def observe(args, *values, **kwargs):
         assert '--constraint' in args
         requirements = Path(args[args.index('-r') + 1])
         commands.append(list(args))
-        inputs.append(requirements.read_text())
+        inputs.append(requirements.read_text(encoding="utf-8-sig"))
     return spawn(args, *values, **kwargs)
 
 subprocess.Popen = observe
