@@ -16,7 +16,7 @@ from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
-from qwenpaw.utils.io_utils import run_sync_io
+from qwenpaw.utils.io_utils import run_async_to_completion, run_sync_io
 
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
@@ -387,8 +387,9 @@ class OllamaProvider(OpenAIProvider):
                     task.cancel()
             if pending:
                 # Drain cancelled shows even if discovery itself is
-                # cancelled, so those probes do not keep running.
-                await asyncio.shield(
+                # cancelled repeatedly, so the caller does not close
+                # AsyncClient before those probes finish unwinding.
+                await run_async_to_completion(
                     asyncio.gather(*pending, return_exceptions=True),
                 )
             for task in done | pending:
