@@ -571,6 +571,10 @@ class LlamaCppBackend:
                     kill_timeout=1.0,
                 )
 
+    def shutdown_install_sync(self) -> None:
+        """Cancel a runtime download during application shutdown."""
+        self._download_controller.cancel()
+
     # -----------------------------
     # Internal helpers
     # -----------------------------

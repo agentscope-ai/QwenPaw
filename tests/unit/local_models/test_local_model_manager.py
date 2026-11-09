@@ -54,6 +54,10 @@ class _FakeLlamaCppBackend:
         self.calls.append(("download_active", None))
         return self.download_active
 
+    def is_server_transitioning(self) -> bool:
+        self.calls.append(("transitioning", None))
+        return False
+
     def get_download_progress(self) -> dict[str, object]:
         self.calls.append(("progress", None))
         return {"status": "downloading"}
@@ -262,7 +266,7 @@ async def test_set_max_context_length_persists_local_model_config(
         "max_context_length": 131072,
         "port": None,
         "gpu_acceleration": True,
-        "auto_update": False,
+        "auto_update": True,
     }
 
 
@@ -289,7 +293,7 @@ async def test_set_gpu_acceleration_persists_local_model_config(
         "max_context_length": 65536,
         "port": None,
         "gpu_acceleration": False,
-        "auto_update": False,
+        "auto_update": True,
     }
 
 
@@ -384,6 +388,7 @@ async def test_auto_update_llamacpp_skips_when_disabled(
         model_manager=cast(ModelManager, _FakeModelManager()),
         llamacpp_backend=cast(LlamaCppBackend, backend),
     )
+    await manager.set_auto_update(False)
 
     assert await manager.auto_update_llamacpp() == "disabled"
     assert not any(call[0] == "download" for call in backend.calls)
@@ -412,7 +417,7 @@ async def test_set_port_persists_local_model_config(
         "max_context_length": 65536,
         "port": 43110,
         "gpu_acceleration": True,
-        "auto_update": False,
+        "auto_update": True,
     }
 
 

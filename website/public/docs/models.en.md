@@ -26,7 +26,7 @@ QwenPaw Local is a local model provider based on llama.cpp. You can configure an
 
 QwenPaw Local uses Metal on Apple Silicon, CUDA when the installed runtime includes a CUDA backend, and falls back to CPU otherwise. The engine panel shows the detected accelerator (for example `Metal · Apple M5 Max`). To force CPU inference, open **Advanced local model settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
 
-Runtime auto-update is opt-in. Enable **Automatically update engine runtimes** in **Advanced local model settings**; QwenPaw then checks periodically and installs a newer llama.cpp runtime when no local server is running. A running server is left untouched and the update is deferred.
+Runtime auto-update is on by default. Turn off **Automatically update engine runtimes** in **Advanced local model settings** to disable it. When enabled, QwenPaw checks periodically and installs a newer llama.cpp runtime when no local server is running. A running server is left untouched and the update is deferred.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 

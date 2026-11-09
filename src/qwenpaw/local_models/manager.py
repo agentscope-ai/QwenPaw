@@ -44,7 +44,7 @@ class LocalModelConfig(BaseModel):
         ),
     )
     auto_update: bool = Field(
-        default=False,
+        default=True,
         description=(
             "Automatically install newer local engine runtimes when idle."
         ),
@@ -183,7 +183,11 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             return "disabled"
         if not self.check_llamacpp_installation()[0]:
             return "not-installed"
+        if not self.check_llamacpp_installability()[0]:
+            return "unsupported"
         if self._llamacpp_backend.get_server_status().get("running"):
+            return "deferred"
+        if self._llamacpp_backend.is_server_transitioning():
             return "deferred"
         if self._llamacpp_backend.is_download_active():
             return "downloading"
@@ -345,6 +349,13 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
     def shutdown_server_sync(self) -> None:
         """Best-effort synchronous shutdown for process teardown paths."""
         self._llamacpp_backend.shutdown_server_sync()
+        shutdown_install = getattr(
+            self._llamacpp_backend,
+            "shutdown_install_sync",
+            None,
+        )
+        if callable(shutdown_install):
+            shutdown_install()
 
     @staticmethod
     def get_instance() -> LocalModelManager:
