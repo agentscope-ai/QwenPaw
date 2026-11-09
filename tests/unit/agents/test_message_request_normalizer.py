@@ -978,3 +978,63 @@ def test_normalize_preserves_originally_empty_tool_result(family):
         target_family=family,
     )
     assert normalized[0].content[1].output == []
+
+
+# -----------------------------------------------------------------------------
+# Omitted-media markers
+# -----------------------------------------------------------------------------
+
+
+def _tool_result_image() -> DataBlock:
+    return DataBlock(
+        source=URLSource(url="file:///tmp/a.png", media_type="image/png"),
+    )
+
+
+def test_partial_strip_marks_the_omission():
+    """Dropping the image must not leave a bare ``Image loaded`` claim."""
+    msg = Msg(
+        name="tool",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="call_1",
+                name="view_image",
+                output=[
+                    _tool_result_image(),
+                    TextBlock(text="Image loaded: a.png"),
+                ],
+            ),
+        ],
+    )
+
+    stripped = _strip_media_blocks_in_place([msg])
+
+    assert stripped == 1
+    output = msg.content[0].output
+    assert isinstance(output, list)
+    assert len(output) == 2
+    assert isinstance(output[0], TextBlock)
+    assert output[0].text == "Image loaded: a.png"
+    assert isinstance(output[1], TextBlock)
+    assert output[1].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+def test_fully_stripped_block_still_uses_placeholder():
+    """The all-media case collapses to a single placeholder string."""
+    msg = Msg(
+        name="tool",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="call_2",
+                name="view_image",
+                output=[_tool_result_image()],
+            ),
+        ],
+    )
+
+    stripped = _strip_media_blocks_in_place([msg])
+
+    assert stripped == 1
+    assert msg.content[0].output == MEDIA_UNSUPPORTED_PLACEHOLDER
