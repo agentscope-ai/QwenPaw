@@ -395,9 +395,13 @@ class LlamaCppBackend:
                     "device_name": device_name or None,
                 }
                 break
-            if name.startswith(("CUDA", "VULKAN", "ROCM")):
+            if name.startswith("CUDA"):
+                # The managed runtime ships Metal and CUDA builds. Unknown
+                # backends (for example a custom Vulkan build) are reported
+                # as CPU rather than claiming an accelerator the UI cannot
+                # represent.
                 info = {
-                    "accelerator": name.split("0")[0].lower(),
+                    "accelerator": "cuda",
                     "device_name": device_name or None,
                 }
                 break

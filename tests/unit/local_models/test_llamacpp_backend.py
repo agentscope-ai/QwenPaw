@@ -477,6 +477,22 @@ async def test_get_accelerator_info_detects_metal(
 
 
 @pytest.mark.asyncio
+async def test_get_accelerator_info_ignores_unknown_backends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fake_list_devices() -> list[str]:
+        return ["Vulkan0: AMD Radeon (16384 MiB, 16384 MiB free)"]
+
+    monkeypatch.setattr(downloader, "list_devices", fake_list_devices)
+    assert await downloader.get_accelerator_info() == {
+        "accelerator": "cpu",
+        "device_name": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_create_server_process_can_force_cpu(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
