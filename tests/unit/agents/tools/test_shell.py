@@ -1636,6 +1636,10 @@ async def test_sandbox_extend_kill_survives_then_cancel_stops(tmp_path):
                 "asyncio.create_subprocess_exec",
                 new=AsyncMock(return_value=proc),
             ),
+            patch(
+                "asyncio.create_subprocess_shell",
+                new=AsyncMock(return_value=proc),
+            ),
             patch.object(sandbox, "stop", new=stop_mock),
         ):
             result = await _execute_in_sandbox(
@@ -1651,7 +1655,7 @@ async def test_sandbox_extend_kill_survives_then_cancel_stops(tmp_path):
         )
 
     async def extend_then_cancel() -> None:
-        await started.wait()
+        await asyncio.wait_for(started.wait(), timeout=3)
         await asyncio.sleep(0.04)
         ok = await coordinator.extend_kill_deadline(
             "call-sandbox-ext",
@@ -1720,6 +1724,10 @@ async def test_none_sandbox_execute_cancel_calls_stop(tmp_path):
     with (
         patch(
             "asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ),
+        patch(
+            "asyncio.create_subprocess_shell",
             new=AsyncMock(return_value=proc),
         ),
         patch.object(sandbox, "stop", new=stop_mock),

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import mimetypes
 import os
 import shutil
@@ -282,7 +283,69 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
                 "Local isolation requires sandbox-exec on macOS.",
             )
         profile_path = record.secret_dir / "runtime.sb"
+        from ..plugins.channel_bootstrap import (
+            plugin_runtime_site,
+            runtime_manifest,
+        )
+        from ..plugins.dependency_maintenance import (
+            canonical,
+            contains_environment_path,
+            host_sites,
+            marker,
+            prepare_reader_scope,
+            state_root,
+        )
+        from ..plugins.execution.environment import shared_dependency_paths
+
+        runtime_root = canonical(_runtime_root(record))
+        runtime = runtime_manifest() if getattr(sys, "frozen", False) else None
+        shared = tuple(runtime[2]) if runtime else shared_dependency_paths()
+        target = plugin_runtime_site(
+            record.working_dir / "plugin_runtime",
+            runtime,
+        )
+        # Match the existing channel target policy; never grant a bundle or
+        # shared prefix write authority because it runs in a sandbox.
+        if (
+            target.is_symlink()
+            or not contains_environment_path(
+                record.working_dir,
+                target,
+            )
+            or any(contains_environment_path(site, target) for site in shared)
+        ):
+            raise ProcessIsolationError("Invalid runtime dependency target.")
+        target = canonical(target)
+        scope = hashlib.sha256(os.fsencode(runtime_root)).hexdigest()
+        sites = tuple(dict.fromkeys((*shared, *host_sites(), target)))
+        reader_directories = prepare_reader_scope(sites, scope)
+        sandbox_environment = dict(environment)
+        sandbox_environment.update(
+            {
+                "QWENPAW_DEPENDENCY_STATE_DIR": str(state_root()),
+                "QWENPAW_DEPENDENCY_READER_SCOPE": scope,
+            },
+        )
         profile = self._profile(record)
+        profile += (
+            '\n(allow file-read* (subpath "'
+            + self._escape(state_root())
+            + '"))'
+        )
+        for directory in (*reader_directories, marker(target).parent):
+            profile += (
+                '\n(allow file-write* (subpath "'
+                + self._escape(directory)
+                + '"))'
+            )
+        for directory in reader_directories:
+            # Preserve the host-owned namespace boundary itself. Members may
+            # create and unlink records, never replace the namespace by a link.
+            profile += (
+                '\n(deny file-write-unlink (literal "'
+                + self._escape(directory)
+                + '"))'
+            )
         endpoint = urlsplit(environment.get("QWENPAW_HUB_MODEL_URL", ""))
         if endpoint.hostname in {"127.0.0.1", "localhost", "::1"}:
             model_port = endpoint.port or (
@@ -297,10 +360,10 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             os.chmod(profile_path, 0o600)
         except OSError:
             pass
-        self._probe(profile_path, record, environment)
+        self._probe(profile_path, record, sandbox_environment)
         return IsolatedLaunch(
             [self._executable, "-f", str(profile_path), *command],
-            dict(environment),
+            sandbox_environment,
         )
 
     def _profile(

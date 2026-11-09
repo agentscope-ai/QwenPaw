@@ -65,7 +65,10 @@ import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import { flattenMenu } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
-import { filterMenuForAgentCapabilities } from "./registry/capabilities";
+import {
+  filterMenuForAgentCapabilities,
+  getAgentMenuCapabilities,
+} from "./registry/capabilities";
 import {
   filterSidebarMenuItems,
   orderSidebarEntries,
@@ -219,16 +222,7 @@ export default function Sidebar({
     [agents],
   );
   const backendCapabilities = useMemo(
-    () =>
-      currentAgent
-        ? {
-            ...currentAgent.backend_capabilities,
-            workspace_ui:
-              currentAgent.backend === "qwenpaw"
-                ? currentAgent.backend_capabilities?.workspace_ui ?? true
-                : false,
-          }
-        : undefined,
+    () => getAgentMenuCapabilities(currentAgent),
     [currentAgent],
   );
 
@@ -504,6 +498,10 @@ export default function Sidebar({
    * navigate to /chat without a session id. The first send creates the session.
    */
   const handleNewChat = useCallback(() => {
+    if (sessionApi.isSessionSwitching) {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-switch-done"));
+    }
     const onChatPage = location.pathname.startsWith("/chat");
     if (onChatPage) {
       window.dispatchEvent(new CustomEvent("qwenpaw:sidebar-new-chat"));
@@ -538,15 +536,34 @@ export default function Sidebar({
     );
   }, []);
 
-  /**
-   * Session click: navigate directly without relying on ChatSessionInitializer.
-   * Resolve realId (backend UUID) to avoid exposing local timestamp in URL.
-   */
+  /** Preload the selected session while sidebar polling is paused. */
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
-      const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
-      navigate(targetPath);
+      const controller = sessionApi.startNewSwitch();
+      void sessionApi
+        .preloadSession(sessionId, controller.signal)
+        .then(({ realId }) => {
+          if (controller.signal.aborted) return;
+          const effectiveId = sessionApi.getEffectiveSessionId(
+            sessionId,
+            realId,
+          );
+          navigate(buildChatPath(effectiveId));
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            sessionApi.finishSessionSwitch();
+            window.dispatchEvent(
+              new CustomEvent("qwenpaw:sidebar-switch-done"),
+            );
+          }
+        });
     },
     [navigate],
   );

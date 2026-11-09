@@ -37,10 +37,9 @@
 ### For Channel Changes (DingTalk, Lark, QQ, Console, etc.)
 
 - [ ] I ran `./scripts/check-channels.sh` (or `./scripts/check-channels.sh --changed`) and it passes
-- [ ] **Contract test** exists in `tests/contract/channels/test_<channel>_contract.py` (REQUIRED)
-- [ ] Contract test implements `create_instance()` with proper channel initialization
-- [ ] All 19 contract verification points pass (see `tests/contract/channels/__init__.py`)
-- [ ] **Optional**: Unit tests in `tests/unit/channels/test_<channel>.py` for complex internal logic
+- [ ] Official channel changes are covered in `tests/unit/channels/test_<channel>.py` (startup, shutdown and message delivery)
+- [ ] Shared host/process changes are covered in `test_channel_host.py` / `tests/unit/plugins/test_plugin_process.py`
+- [ ] Console changes retain the built-in contract checks in `tests/contract/channels/`
 
 ## Testing
 

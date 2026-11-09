@@ -20,6 +20,7 @@ interface AgentSwitchTarget {
 export function useChatRouteResolution(
   referenceId: string | undefined,
   selectedAgent: string,
+  resolutionAgentId: string = selectedAgent,
 ) {
   const [resolution, setResolution] = useState<ResolutionState | null>(null);
   const [retryVersion, setRetryVersion] = useState(0);
@@ -29,6 +30,7 @@ export function useChatRouteResolution(
   // Only canonical Chat IDs and genuine local drafts can skip resolution.
   // Subscribe to sidebar publication without rendering for unchanged polls.
   const known = useSessionListStore(() => {
+    if (resolutionAgentId !== selectedAgent) return false;
     const identity = sessionApi.getSessionIdentity(referenceId);
     return (
       !!identity.sessionId &&
@@ -43,8 +45,14 @@ export function useChatRouteResolution(
   // Re-entering a link or losing its listed identity requires a fresh result
   // from the first render, before the previous effect can be cleaned up.
   const visit = useMemo(
-    () => ({ referenceId, known, retryVersion, invalidationVersion }),
-    [referenceId, known, retryVersion, invalidationVersion],
+    () => ({
+      referenceId,
+      known,
+      retryVersion,
+      invalidationVersion,
+      resolutionAgentId,
+    }),
+    [referenceId, known, retryVersion, invalidationVersion, resolutionAgentId],
   );
   const visitRef = useRef(visit);
   visitRef.current = visit;
@@ -82,7 +90,7 @@ export function useChatRouteResolution(
 
     void api
       .resolveChat(referenceId, {
-        currentAgentId: selectedAgent,
+        currentAgentId: resolutionAgentId,
         signal: controller.signal,
       })
       .then(({ agent_id: agentId, chat }) => {
@@ -106,7 +114,7 @@ export function useChatRouteResolution(
     return () => controller.abort();
     // Losing a listed Chat's identity requires resolution again. Ordinary
     // list refreshes leave this boolean unchanged and keep requests intact.
-  }, [referenceId, selectedAgent, known, visit]);
+  }, [referenceId, selectedAgent, resolutionAgentId, known, visit]);
 
   const retry = useCallback(() => {
     setResolution(null);

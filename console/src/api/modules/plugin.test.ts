@@ -328,3 +328,123 @@ describe("plugin module", () => {
     expect(getApiUrl).toHaveBeenCalledWith("/plugins/missing/status");
   });
 });
+
+describe("dependency upgrade protocol", () => {
+  const operation = {
+    id: "op-review-1",
+    plugin_id: "matrix",
+    status: "needs_confirmation",
+    changes: [
+      {
+        name: "markdown-it-py",
+        current_version: "2.2.0",
+        target_version: "3.0.0",
+      },
+    ],
+    affected_instances: [],
+    requires_restart: false,
+    message: "Review the shared package change",
+    error: null,
+    retryable: true,
+  };
+
+  it.each([
+    ["path install", () => installPlugin("/retained/matrix")],
+    ["ZIP upload", () => uploadPlugin(new File(["zip"], "matrix.zip"))],
+  ])(
+    "%s retains machine-readable confirmation and the exact candidate",
+    async (_, request) => {
+      global.fetch = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 409,
+          json: {
+            detail: {
+              code: "DEPENDENCY_UPGRADE_REQUIRED",
+              message: "Review before upgrading",
+              operation,
+            },
+          },
+        }),
+      );
+
+      const failure = await request().catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).toMatchObject({
+        status: 409,
+        code: "DEPENDENCY_UPGRADE_REQUIRED",
+        operation,
+        message: "Review before upgrading",
+      });
+    },
+  );
+});
+
+describe("dependency upgrade operation transport", () => {
+  beforeEach(() => {
+    vi.mocked(buildAuthHeaders).mockReturnValue({
+      Authorization: "Bearer fixture",
+      "X-Agent-Id": "workspace-a",
+    });
+  });
+
+  it.each([
+    ["fetchDependencyUpgrade", "GET", ""],
+    ["applyDependencyUpgrade", "POST", "/apply"],
+    ["cancelDependencyUpgrade", "DELETE", ""],
+  ] as const)(
+    "%s addresses only the retained operation with current authentication",
+    async (method, verb, suffix) => {
+      const operation = {
+        id: "a/b ?",
+        status: "applying",
+        plugin_id: "matrix",
+      };
+      global.fetch = vi
+        .fn()
+        .mockResolvedValue(
+          mockResponse({ ok: true, status: 200, json: operation }),
+        );
+      const api = await import("./plugin");
+      await expect(api[method]("a/b ?")).resolves.toEqual(operation);
+      expect(fetch).toHaveBeenCalledWith(
+        `http://test/plugins/dependency-upgrades/a%2Fb%20%3F${suffix}`,
+        {
+          method: verb,
+          headers: {
+            Authorization: "Bearer fixture",
+            "X-Agent-Id": "workspace-a",
+          },
+        },
+      );
+    },
+  );
+
+  it("keeps a status refusal actionable without losing its code", async () => {
+    global.fetch = vi.fn().mockResolvedValue(
+      mockResponse({
+        ok: false,
+        status: 409,
+        json: {
+          detail: {
+            code: "DEPENDENCY_PLAN_STALE",
+            message: "Environment changed",
+            instructions: ["Prepare a fresh plan"],
+          },
+        },
+      }),
+    );
+    const api = await import("./plugin");
+    const failure = await api
+      .fetchDependencyUpgrade("op")
+      .catch((error: unknown) => error);
+    expect(failure).toMatchObject({
+      status: 409,
+      code: "DEPENDENCY_PLAN_STALE",
+      instructions: ["Prepare a fresh plan"],
+    });
+    expect((failure as Error).message).toContain("Environment changed");
+    expect((failure as Error).message).toContain("Prepare a fresh plan");
+  });
+});

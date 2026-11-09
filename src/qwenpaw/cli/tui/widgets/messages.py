@@ -11,6 +11,8 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Collapsible, Markdown, Static
 
+from qwenpaw.utils.markdown_cjk import normalize_cjk_emphasis
+
 from ._anim import TICK, pulse, spinner
 from ._format import summarize_params
 
@@ -427,6 +429,18 @@ class AssistantMessage(Widget):
     async def append(self, delta: str) -> None:
         self._text += delta
         await self._md.update(self._text)
+
+    async def finalize(self) -> None:
+        """Repair CJK emphasis boundaries once the answer is complete.
+
+        Streaming deltas are left untouched; only the finished text is
+        normalized so a closing ``**`` that sits after CJK punctuation and
+        before CJK text (e.g. ``**中文。**后``) renders instead of leaking.
+        """
+        repaired = normalize_cjk_emphasis(self._text)
+        if repaired != self._text:
+            self._text = repaired
+            await self._md.update(self._text)
 
     @property
     def text(self) -> str:

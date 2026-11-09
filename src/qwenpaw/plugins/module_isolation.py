@@ -59,11 +59,26 @@ import importlib
 import importlib.abc
 import importlib.machinery
 import importlib.util
+import logging
 import os
 import sys
 import threading
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
+
+
+logger = logging.getLogger(__name__)
+
+
+def refresh_import_caches() -> None:
+    """Refresh discovery caches without aborting plugin operations."""
+    try:
+        importlib.invalidate_caches()
+    except Exception:  # Cache hooks may come from incompatible stdlib copies.
+        logger.warning(
+            "Import cache refresh failed; continuing",
+            exc_info=True,
+        )
 
 
 def clear_plugin_bytecode(source_path: Path) -> None:
@@ -151,7 +166,7 @@ def clear_plugin_bytecode(source_path: Path) -> None:
                         )
                     cursor = cursor.parent
                 target.unlink(missing_ok=True)
-    importlib.invalidate_caches()
+    refresh_import_caches()
 
 
 class _PluginSourceLoader(importlib.machinery.SourceFileLoader):
@@ -217,7 +232,7 @@ class PluginNamespaceFinder(importlib.abc.MetaPathFinder):
         module_name: str,
         plugin_builtins: Dict[str, Any],
     ) -> None:
-        importlib.invalidate_caches()
+        refresh_import_caches()
         self._namespaces[module_name] = plugin_builtins
 
     def unregister(self, module_name: str) -> None:
@@ -606,6 +621,7 @@ def probe_plugin_source(
     spec.loader = source_only_loader(spec.loader)
     module = importlib.util.module_from_spec(spec)
     module.__dict__["__builtins__"] = plugin_builtins
+    previous_paths = list(sys.path)
     try:
         sys.modules[probe_name] = module
         module.__package__ = probe_name
@@ -625,7 +641,31 @@ def probe_plugin_source(
                 "(or a PawApp 'app' instance)",
             )
     finally:
-        finish_probe_import(plugin_id, source_path)
+        try:
+            finish_probe_import(plugin_id, source_path)
+        finally:
+            root = _norm(source_path)
+            current = tuple(sys.path)
+            preserved = set()
+            boundary = len(current)
+            for original in reversed(previous_paths):
+                for index in range(boundary - 1, -1, -1):
+                    if current[index] is original:
+                        preserved.add(index)
+                        boundary = index
+                        break
+            for index in range(len(current) - 1, -1, -1):
+                entry = current[index]
+                if (
+                    index not in preserved
+                    and isinstance(entry, str)
+                    and os.path.isabs(entry)
+                ):
+                    path = _norm(entry)
+                    if path == root or path.startswith(root + os.sep):
+                        # Delete this entry only, preserving other live edits.
+                        if index < len(sys.path) and sys.path[index] is entry:
+                            del sys.path[index]
 
 
 def finish_probe_import(plugin_id: str, source_path: Path) -> None:

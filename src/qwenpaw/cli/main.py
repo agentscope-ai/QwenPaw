@@ -152,6 +152,11 @@ def _looks_like_project_path(value: str) -> bool:
         "clean": ("qwenpaw.cli.clean_cmd", "clean_cmd", ".clean_cmd"),
         "cron": ("qwenpaw.cli.cron_cmd", "cron_group", ".cron_cmd"),
         "env": ("qwenpaw.cli.env_cmd", "env_group", ".env_cmd"),
+        "history": (
+            "qwenpaw.cli.history_cmd",
+            "history_group",
+            ".history_cmd",
+        ),
         "init": ("qwenpaw.cli.init_cmd", "init_cmd", ".init_cmd"),
         "models": (
             "qwenpaw.cli.providers_cmd",
@@ -175,6 +180,11 @@ def _looks_like_project_path(value: str) -> bool:
         "auth": ("qwenpaw.cli.auth_cmd", "auth_group", ".auth_cmd"),
         "agents": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
         "agent": ("qwenpaw.cli.agents_cmd", "agents_group", ".agents_cmd"),
+        "plugins": (
+            "qwenpaw.cli.plugin_commands",
+            "plugin",
+            ".plugin_commands",
+        ),
         "plugin": (
             "qwenpaw.cli.plugin_commands",
             "plugin",

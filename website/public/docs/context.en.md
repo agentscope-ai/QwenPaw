@@ -281,6 +281,7 @@ The Console's **Workspace → Running Config → ReAct Agent** section exposes o
       "scroll_config": {
         "db_filename": "history.db",
         "repl_timeout_s": 300,
+        "summary_timeout_seconds": 300,
         "history_retention_days": 30,
         "allow_unsandboxed": false,
         "offload_dialog": false
@@ -308,10 +309,13 @@ Important fields:
 | `scroll_config.db_filename`                      | `"history.db"` | SQLite file path: relative to the agent workspace, or absolute (including outside the workspace). Supports `..`, `~`, and symlinks. Backslashes are normalized to `/`. Upgrades do not move the database. Backups include a SQLite snapshot; restore places it inside the destination workspace and updates the restored configuration. |
 | `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                                                                                                                                                                                                                                              |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                                                                                                                                                                                                                                           |
+| `scroll_config.summary_timeout_seconds`          | `300`          | Total continuation-summary budget in seconds, including preparation, generation, validation and one quality retry. Must be positive and finite. Increase for slow reasoning models or long conversations.                                                                                                                               |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                                                                                                                                                                                                                                                     |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                                                                                                                                                                                                                                                   |
 
 ## Manual Compaction
+
+Manual `/compact` uses the same effective model selection as ordinary messages under both Scroll and native strategies: explicit request override → conversation model → agent default → global default. Changing the conversation model takes effect immediately for manual compaction; sending a normal message first is unnecessary. Scroll continues to request thinking off for its summary call. Separate long-term-memory jobs retain their own configured model policy.
 
 `/compact` still exists. Under Scroll it forces eligible older turns into durable history while preserving the configured recent tail and active turn. When turns are actually archived, Scroll also updates the continuation summary. The command response reports what changed, but does not expose the internal eviction index, retrieval headlines, or continuation state in the chat transcript. Use `/compact_str` to inspect the current continuation summary; archived originals remain recoverable through Scroll history.
 
@@ -328,6 +332,8 @@ Typical result:
 ```
 
 If no messages are eligible or the context is already small enough, there may be no new eviction.
+
+For slow reasoning models, set `running.light_context_config.scroll_config.summary_timeout_seconds` in the agent configuration (for example, `600` for ten minutes). Automatic compaction and `/compact` use the same budget. Preparation and any quality retry share this total; a retry does not restart the timer. On timeout, Scroll preserves the previous valid summary. Provider connection and stream timeouts still apply independently.
 
 Retrieval headlines and the synthetic `<system-info>` continuation block are model-facing context. The Console hides them both while streaming and when a saved chat is loaded, so they do not appear as assistant text or synthetic user messages.
 

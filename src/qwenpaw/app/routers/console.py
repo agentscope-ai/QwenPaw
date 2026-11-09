@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -32,7 +33,7 @@ from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
 from ...providers.thinking import ThinkingPreference
 from ...services.session_thinking import (
-    decision_settings,
+    decision_model_configured,
     session_model,
     session_preference,
     thinking_view,
@@ -44,6 +45,7 @@ from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
+from ..notification_store import snapshot as notification_snapshot
 from ..utils import check_upload_size
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,8 @@ _bg_lock = asyncio.Lock()
 class MarkInboxReadRequest(BaseModel):
     event_ids: list[str] = []
     all: bool = False
+    source_types: list[str] | None = None
+    agent_id: str | None = None
 
 
 MAX_DEBUG_LOG_LINES = 1000
@@ -144,18 +148,6 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
 
 async def _persist_pending_model_settings(workspace, chat, request_context):
     """Bind first-turn model and reasoning before building the runtime."""
-    pending_decision = request_context.pop("session_decision_enabled", None)
-    if pending_decision is not None:
-        if not isinstance(pending_decision, bool):
-            raise HTTPException(422, "Invalid decision preference")
-        chat = await workspace.chat_manager.set_session_decision(
-            chat.id,
-            pending_decision,
-            only_if_unset=True,
-        )
-        if chat is None:
-            raise HTTPException(409, "Session disappeared before saving")
-
     pending_model = request_context.pop(f"session_model", None)
     if pending_model is not None and session_model(chat.meta) is None:
         try:
@@ -233,16 +225,14 @@ async def _persist_pending_project_dirs(
         request_context,
     )
     if str(request_context.get("approval_level", "")).upper() == "JEV":
-        runtime = (chat.meta or {}).get("runtime_context") or {}
         config = await run_sync_io(load_agent_config, workspace.agent_id)
-        enabled = await run_sync_io(
-            decision_settings,
+        configured = await run_sync_io(
+            decision_model_configured,
             config,
-            runtime.get("decision_enabled"),
         )
-        if not enabled["enabled"]:
+        if not configured:
             # A requested decision review must not become automatic execution
-            # when the model is unavailable or disabled.
+            # when the model is unavailable.
             request_context["approval_level"] = "STRICT"
 
     raw_list = request_context.pop("session_project_dirs", None)
@@ -420,6 +410,7 @@ def _empty_sse_response() -> StreamingResponse:
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -551,6 +542,7 @@ async def post_console_chat(
                     chat_id=chat.id,
                     user_message=first_text,
                     placeholder_name=name,
+                    request=native_payload,
                 ),
             )
 
@@ -574,6 +566,7 @@ async def post_console_chat(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
         },
     )
 
@@ -815,7 +808,11 @@ async def get_push_messages(
         for p in all_pending
     ]
 
-    return {"messages": messages, "pending_approvals": approvals_data}
+    return {
+        f"messages": messages,
+        f"pending_approvals": approvals_data,
+        f"notification_events": notification_snapshot(),
+    }
 
 
 @router.get("/inbox/events")
@@ -827,54 +824,160 @@ async def get_inbox_events(
     status: str | None = Query(None),
     agent_id: str | None = Query(None),
     unread_only: bool = Query(False),
+    exclude_acl_pending: bool = Query(False),
+    event_id: str | None = Query(None),
 ):
     from ..inbox_store import query_events
+    from .. import community_store
 
     selected_sources = set(source_types or [])
     if source_type:
         selected_sources.add(source_type)
-    events, total, unread_count = await query_events(
-        limit=limit,
-        offset=offset,
+    # The local store caps itself at 5000. Combine both sources before
+    # pagination, so filters/counts also cover community history beyond page 1.
+    events, _, _ = await query_events(
+        limit=5000,
         source_types=selected_sources or None,
         status=status,
         agent_id=agent_id,
-        unread_only=unread_only,
+        event_id=event_id,
     )
-    return {
-        "events": events,
-        "total": total,
+    source_errors = {}
+    community_scope = None
+    community_scope_known = False
+    if not agent_id and (
+        not selected_sources or "community" in selected_sources
+    ):
+        try:
+            (
+                community_events,
+                community_scope,
+            ) = await community_store.inbox_snapshot()
+            if any(
+                not isinstance(event, dict)
+                or not isinstance(event.get("created_at"), (int, float))
+                or not math.isfinite(event["created_at"])
+                for event in community_events
+            ):
+                raise ValueError("Invalid community event history")
+            events.extend(
+                e
+                for e in community_events
+                if (not status or e.get("status") == status)
+                and (not event_id or e.get("id") == event_id)
+            )
+            community_scope_known = True
+        except Exception as exc:
+            # A separate credential/history file must not disable local mail.
+            # Keep the corrupt file intact; never include its content in logs.
+            logger.warning(
+                "Community inbox unavailable (%s)",
+                type(exc).__name__,
+            )
+            source_errors["community"] = "community_history_unavailable"
+    if exclude_acl_pending:
+        events = [
+            e
+            for e in events
+            if not isinstance(e.get("payload"), dict)
+            or e["payload"].get("acl_status") != "pending"
+        ]
+    events.sort(key=lambda e: e.get("created_at", 0), reverse=True)
+    unread_count = sum(not bool(e.get("read")) for e in events)
+    if unread_only:
+        events = [e for e in events if not e.get("read")]
+    result = {
+        "events": events[offset : offset + limit],
+        "total": len(events),
         "unread_count": unread_count,
     }
+    if source_errors:
+        result["source_errors"] = source_errors
+    if community_scope_known:
+        result["community_scope"] = community_scope
+    return result
 
 
 @router.post("/inbox/read")
 async def post_mark_inbox_read(payload: MarkInboxReadRequest):
-    from ..inbox_store import mark_all_read, mark_read
+    from ..inbox_store import mark_all_read, mark_read, query_events
+    from .. import community_store
 
+    sources = set(payload.source_types or [])
+    source_errors = {}
     if payload.all:
-        updated = await mark_all_read()
+        updated = 0
+        if not sources and not payload.agent_id:
+            updated = await mark_all_read()
+        elif sources != {"community"}:
+            events, _, _ = await query_events(
+                limit=5000,
+                source_types=sources or None,
+                agent_id=payload.agent_id,
+                unread_only=True,
+            )
+            updated = await mark_read([e["id"] for e in events])
+        if not payload.agent_id and (not sources or "community" in sources):
+            try:
+                updated += await community_store.mark_read()
+            except Exception as exc:
+                if sources == {"community"}:
+                    raise HTTPException(
+                        503,
+                        "community_history_unavailable",
+                    ) from None
+                logger.warning(
+                    "Community inbox unavailable (%s)",
+                    type(exc).__name__,
+                )
+                source_errors["community"] = "community_history_unavailable"
     else:
-        updated = await mark_read(payload.event_ids)
-    return {"updated": updated}
+        local_ids = [
+            key
+            for key in payload.event_ids
+            if not key.startswith("community:")
+        ]
+        community_ids = [
+            key for key in payload.event_ids if key.startswith("community:")
+        ]
+        updated = await mark_read(local_ids) if local_ids else 0
+        if community_ids:
+            try:
+                updated += await community_store.mark_read(community_ids)
+            except Exception as exc:
+                if not local_ids:
+                    raise HTTPException(
+                        503,
+                        "community_history_unavailable",
+                    ) from None
+                logger.warning(
+                    "Community inbox unavailable (%s)",
+                    type(exc).__name__,
+                )
+                source_errors["community"] = "community_history_unavailable"
+    result = {"updated": updated}
+    if source_errors:
+        result["source_errors"] = source_errors
+    return result
 
 
 @router.delete("/inbox/events/{event_id}")
 async def delete_inbox_event(event_id: str):
     from ..inbox_store import delete_event
     from ..inbox_trace_store import delete_trace
+    from .. import community_store
 
+    if event_id.startswith("community:"):
+        if not await community_store.delete_event(event_id):
+            raise HTTPException(status_code=404, detail="event not found")
+        return {"deleted": True, "trace_deleted": False, "run_id": None}
     deleted, run_id, run_id_still_referenced = await delete_event(event_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="event not found")
     trace_deleted = False
     if run_id and not run_id_still_referenced:
         trace_deleted = await delete_trace(run_id)
-    return {
-        "deleted": True,
-        "trace_deleted": trace_deleted,
-        "run_id": run_id,
-    }
+    return {"deleted": True, "trace_deleted": trace_deleted, "run_id": run_id}
 
 
 @router.get("/inbox/traces/{run_id}")

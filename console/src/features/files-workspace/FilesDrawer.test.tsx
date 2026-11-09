@@ -1,10 +1,13 @@
 import { renderWithProviders } from "@/test/common_setup";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { agentsApi } from "../../api/modules/agents";
 import FilesDrawer from "./FilesDrawer";
 import { workspaceApi } from "../../api/modules/workspace";
 import type { FileTarget } from "./types";
+import { useReducer } from "react";
+import { filesDrawerReducer } from "./filesDrawerState";
 
 const clipboardMocks = vi.hoisted(() => ({
   copyText: vi.fn().mockResolvedValue(undefined),
@@ -46,7 +49,9 @@ vi.mock("../../api/modules/workspace", () => ({
 }));
 
 vi.mock("./FilesWorkspace", () => ({
-  default: () => <div data-testid="files-workspace" />,
+  default: ({ initialMemoryTag }: { initialMemoryTag?: string }) => (
+    <div data-testid="files-workspace" data-memory-tag={initialMemoryTag} />
+  ),
 }));
 
 vi.mock("../../utils/downloadFileFromUrl", () => ({
@@ -54,9 +59,190 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
 }));
 
 describe("FilesDrawer", () => {
+  beforeEach(() => {
+    vi.spyOn(agentsApi, "getAgent").mockResolvedValue({
+      id: "default",
+      name: "Default",
+      running: { memory_manager_backend: "remelight" },
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  it("opens Markdown relatives in the same preview root", async () => {
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "[next](./b.md)",
+      etag: "v1",
+    });
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "workspace",
+            root: "workspace",
+            path: "docs/a.md",
+          },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+          chatId: "chat-1",
+        }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "next" }));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "OPEN_PREVIEW",
+      target: { source: "workspace", root: "workspace", path: "docs/b.md" },
+      trigger: null,
+    });
+  });
+
+  it.each(["Escape", "close button"])(
+    "restores the original trigger after Markdown navigation and %s",
+    async (closeMethod) => {
+      vi.mocked(workspaceApi.loadFileText)
+        .mockResolvedValueOnce({ content: "[next](./b.md)", etag: "v1" })
+        .mockResolvedValueOnce({ content: "# Linked document", etag: "v2" });
+      const user = userEvent.setup();
+
+      function PreviewHarness() {
+        const [state, dispatch] = useReducer(filesDrawerReducer, {
+          kind: "closed",
+        });
+        return (
+          <>
+            <button
+              type="button"
+              onClick={(event) =>
+                dispatch({
+                  type: "OPEN_PREVIEW",
+                  target: {
+                    source: "workspace",
+                    root: "workspace",
+                    path: "docs/a.md",
+                  },
+                  trigger: event.currentTarget,
+                })
+              }
+            >
+              Open preview
+            </button>
+            {state.kind !== "closed" && (
+              <FilesDrawer
+                state={state}
+                dispatch={dispatch}
+                scope={{
+                  kind: "session",
+                  agentId: "default",
+                  sessionId: "session-1",
+                  chatId: "chat-1",
+                }}
+              />
+            )}
+          </>
+        );
+      }
+
+      renderWithProviders(<PreviewHarness />);
+      const trigger = screen.getByRole("button", { name: "Open preview" });
+      await user.click(trigger);
+      await user.click(await screen.findByRole("link", { name: "next" }));
+      expect(
+        await screen.findByRole("heading", { name: "Linked document" }),
+      ).toBeInTheDocument();
+
+      if (closeMethod === "Escape") {
+        await user.keyboard("{Escape}");
+      } else {
+        await user.click(screen.getByRole("button", { name: "common.close" }));
+      }
+
+      await waitFor(() => expect(trigger).toHaveFocus());
+      expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(["adbpg", "powercontext"])(
+    "keeps preview tags as text for %s",
+    async (backend) => {
+      vi.mocked(agentsApi.getAgent).mockResolvedValue({
+        id: "default",
+        name: "Default",
+        running: { memory_manager_backend: backend },
+      });
+      vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+        content: "---\nmemory_tags: [Orion]\n---\n# Memory",
+        etag: "v1",
+      });
+      renderWithProviders(
+        <FilesDrawer
+          state={{
+            kind: "preview",
+            target: {
+              source: "workspace",
+              root: "workspace",
+              path: "memory/note.md",
+            },
+            trigger: null,
+          }}
+          dispatch={vi.fn()}
+          scope={{
+            kind: "session",
+            agentId: "default",
+            sessionId: "session-1",
+          }}
+        />,
+      );
+      const tag = await screen.findByText("Orion");
+      expect(tag).toBeInTheDocument();
+      expect(tag.tagName).toBe("SPAN");
+    },
+  );
+
+  it("expands a memory preview and carries the clicked tag into the workspace", async () => {
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "---\nmemory_tags: [赵六, Orion]\n---\n# Memory",
+      etag: "v1",
+    });
+    function PreviewHarness() {
+      const [state, dispatch] = useReducer(filesDrawerReducer, {
+        kind: "preview",
+        target: {
+          source: "workspace",
+          root: "workspace",
+          path: "memory/note.md",
+        },
+        trigger: null,
+      });
+      return state.kind === "closed" ? null : (
+        <FilesDrawer
+          state={state}
+          dispatch={dispatch}
+          scope={{
+            kind: "session",
+            agentId: "default",
+            sessionId: "session-1",
+          }}
+        />
+      );
+    }
+    renderWithProviders(<PreviewHarness />);
+    await waitFor(() =>
+      expect(screen.getByText("Orion").tagName).toBe("BUTTON"),
+    );
+    fireEvent.click(screen.getByText("Orion"));
+    expect(await screen.findByTestId("files-workspace")).toHaveAttribute(
+      "data-memory-tag",
+      "Orion",
+    );
   });
 
   it("copies the complete text file content", async () => {

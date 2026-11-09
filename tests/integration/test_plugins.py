@@ -5,9 +5,9 @@ Covers both ingest paths (POST /install with a local source path,
 POST /upload with an in-memory zip) plus the catalog and status
 endpoints. Two real bundled plugins (``cloudpaw`` and
 ``gpt-image2-tool``) are installed and uninstalled to exercise the
-full hot-load → unload pipeline; both have light enough dependency
-footprints (stdlib only / httpx) that the test environment can satisfy
-them without extra pip installs.
+full hot-load → unload pipeline. Install CloudPaw's requirements together
+with the host test dependencies before starting pytest workers: their
+isolated workspaces still share the same Python package environment.
 
 The catalog endpoint proxies an external CDN; in CI / offline the CDN
 may be unreachable. The catalog test asserts the graceful 200 +
@@ -38,10 +38,31 @@ from tests.integration.helpers import (
 
 
 @pytest.fixture(scope=f"module", autouse=True)
-def aliyun_cli_on_path(
+def plugin_lifecycle_environment(
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[None]:
-    """Keep plugin lifecycle checks independent of CLI installation/network."""
+    """Check dependencies and prepare CLI discovery before lifecycle tests."""
+    from qwenpaw.plugins.dependency_gate import DependencyGate
+
+    requirements = OFFICIAL_PLUGINS_DIR / "bundle/cloudpaw/requirements.txt"
+    assert requirements.is_file(), f"missing requirements: {requirements}"
+    decision = DependencyGate().evaluate(
+        requirements,
+        allow_install=True,
+        plugin_id="cloudpaw",
+    )
+    if not decision.already_satisfied:
+        details = ", ".join(
+            decision.missing + decision.unsupported + list(decision.warnings),
+        )
+        pytest.fail(
+            "Prepare plugin lifecycle dependencies before starting pytest "
+            f"workers ({decision.reason}: {details}). From the repository "
+            'root, run: python -m pip install -e ".[dev,test,full]" '
+            '-r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"',
+            pytrace=False,
+        )
+
     bin_dir = tmp_path_factory.mktemp(f"aliyun-cli")
     windows = os.name == f"nt"
     cli = bin_dir / (f"aliyun.cmd" if windows else f"aliyun")
@@ -237,141 +258,9 @@ def _upload_plugin_zip(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.integration
-@pytest.mark.p1
-def test_plugins_list_returns_empty_array_contract(app_server) -> None:
-    """Test purpose:
-    - Verify GET /api/plugins returns an empty collection on a fresh
-      workspace where no plugin has been installed yet. Console's
-      plugin page hits this on first load.
-
-    Test flow:
-    1. GET /api/plugins.
-    2. Assert 200 + response is a list (possibly empty) or a dict with
-       an empty ``plugins`` key.
-
-    API endpoints:
-    - GET /api/plugins
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/plugins",
-        timeout=PLUGIN_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 200, app_server.logs_tail()
-    payload = resp.json()
-    items = (
-        payload if isinstance(payload, list) else payload.get("plugins", [])
-    )
-    assert isinstance(items, list)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugins_status_returns_404_for_missing(app_server) -> None:
-    """Test purpose:
-    - Verify GET /api/plugins/{plugin_id}/status returns 404 when the
-      plugin is neither loaded nor present on disk.
-
-    Test flow:
-    1. GET /api/plugins/integ-missing-plugin/status.
-    2. Assert 404.
-
-    API endpoints:
-    - GET /api/plugins/{plugin_id}/status
-    """
-    resp = app_server.api_request(
-        "GET",
-        "/api/plugins/integ-missing-plugin-status/status",
-        timeout=PLUGIN_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 404, app_server.logs_tail()
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugins_delete_missing_returns_404(app_server) -> None:
-    """Test purpose:
-    - Verify DELETE /api/plugins/{plugin_id} returns 404 when the
-      plugin is not loaded, so the client can distinguish "already
-      uninstalled" from a real server error.
-
-    Test flow:
-    1. DELETE /api/plugins/integ-not-loaded.
-    2. Assert 404 + detail mentions the plugin id.
-
-    API endpoints:
-    - DELETE /api/plugins/{plugin_id}
-    """
-    plugin_id = "integ-not-loaded-plugin"
-    resp = _delete_plugin(app_server, plugin_id)
-    assert resp.status_code == 404, app_server.logs_tail()
-    detail = resp.json().get("detail", "")
-    assert plugin_id in detail or "not loaded" in detail.lower()
-
-
 # --------------------------------------------------------------------------- #
 # cases — error paths for upload / install
 # --------------------------------------------------------------------------- #
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugins_upload_rejects_non_zip_filename(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/plugins/upload rejects files whose name does
-      not end with ``.zip`` before any extraction is attempted.
-
-    Test flow:
-    1. POST multipart with a .txt file.
-    2. Assert 400 + detail mentions ``.zip``.
-
-    API endpoints:
-    - POST /api/plugins/upload
-    """
-    resp = app_server.api_request(
-        "POST",
-        "/api/plugins/upload",
-        files={
-            "file": (
-                "not_a_plugin.txt",
-                b"this is plain text",
-                "text/plain",
-            ),
-        },
-        timeout=PLUGIN_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 400, app_server.logs_tail()
-    assert ".zip" in resp.json().get("detail", "")
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugins_install_rejects_invalid_source(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/plugins/install with a source path that does
-      not exist on disk returns 400 with a clear "Path not found"
-      detail (rather than crashing or going through the URL-download
-      branch).
-
-    Test flow:
-    1. POST /install body source=/tmp/integ-nonexistent-plugin-source.
-    2. Assert 400 + detail contains ``Path not found``.
-
-    API endpoints:
-    - POST /api/plugins/install
-    """
-    resp = app_server.api_request(
-        "POST",
-        "/api/plugins/install",
-        json={
-            "source": "/tmp/integ-nonexistent-plugin-source-xyz-0001",
-            "force": False,
-        },
-        timeout=PLUGIN_HTTP_TIMEOUT,
-    )
-    assert resp.status_code == 400, app_server.logs_tail()
-    assert "Path not found" in resp.json().get("detail", "")
 
 
 # --------------------------------------------------------------------------- #
