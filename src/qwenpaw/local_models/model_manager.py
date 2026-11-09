@@ -452,10 +452,9 @@ class ModelManager:
         if self._is_download_active():
             raise RuntimeError("A model download is already in progress.")
 
-        resolved_source = (
-            self._resolve_download_source()
-            if source is None or source == DownloadSource.AUTO
-            else source
+        resolved_source = self._resolve_download_source_for_engine(
+            source,
+            engine,
         )
         if engine == "mlx" and resolved_source != DownloadSource.HUGGINGFACE:
             raise ValueError(
@@ -564,6 +563,18 @@ class ModelManager:
             ),
             downloaded_bytes,
         )
+
+    def _resolve_download_source_for_engine(
+        self,
+        source: DownloadSource | None,
+        engine: str,
+    ) -> DownloadSource:
+        """Resolve AUTO without ever selecting ModelScope for MLX."""
+        if source is None or source == DownloadSource.AUTO:
+            if engine == "mlx":
+                return DownloadSource.HUGGINGFACE
+            return self._resolve_download_source()
+        return source
 
     def _resolve_download_source(self) -> DownloadSource:
         """Choose Hugging Face when reachable, otherwise use ModelScope."""

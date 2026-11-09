@@ -207,6 +207,23 @@ def test_mlx_download_rejects_modelscope_source() -> None:
         )
 
 
+def test_mlx_auto_source_prefers_huggingface(monkeypatch) -> None:
+    downloader = ModelManager()
+    monkeypatch.setattr(
+        downloader,
+        "_resolve_download_source",
+        lambda: DownloadSource.MODELSCOPE,
+    )
+
+    assert (
+        downloader._resolve_download_source_for_engine(
+            DownloadSource.AUTO,
+            "mlx",
+        )
+        == DownloadSource.HUGGINGFACE
+    )
+
+
 def test_cancel_download_delegates_to_controller() -> None:
     downloader = ModelManager()
     controller = _FakeController()
