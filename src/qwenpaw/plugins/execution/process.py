@@ -21,7 +21,7 @@ from .bootstrap import (
     NETWORK_PROXY_ENVIRONMENT,
     validate_private_environment,
 )
-from .dependencies import DependencySnapshot
+from .dependencies import DependencyReadEvidence, DependencySnapshot
 from .errors import FrameError, RpcClosedError, RpcTimeoutError
 from .framing import FramedTransport
 from .payloads import PayloadLimits, PayloadStore
@@ -77,7 +77,7 @@ class StopResult:
 class InspectionResult:
     """One-shot evidence is usable only after confirmed child-tree exit."""
 
-    snapshot: DependencySnapshot
+    snapshot: DependencySnapshot | DependencyReadEvidence
     hello: Mapping[str, Any] | None
     cleanup: StopResult
 
@@ -179,7 +179,9 @@ class PluginProcess:
         self._log_bytes = 0
         self._forced = False
         self._mode = "run"
-        self.dependency_snapshot: DependencySnapshot | None = None
+        self.dependency_snapshot: (
+            DependencySnapshot | DependencyReadEvidence | None
+        ) = None
         self.dependency_observer = None
         self.observed_hello: Mapping[str, Any] | None = None
         self.last_cleanup: StopResult | None = None
@@ -259,7 +261,15 @@ class PluginProcess:
             raise self.error_type("DEPENDENCY_METADATA_INVALID")
         if params["identity"] != self._identity(self._spec).to_mapping():
             raise self.error_type("IDENTITY_MISMATCH")
-        snapshot = DependencySnapshot.from_mapping(params["snapshot"])
+        if self._mode == "audit":
+            snapshot = DependencySnapshot.from_mapping(params["snapshot"])
+        else:
+            if (
+                not isinstance(params["snapshot"], Mapping)
+                or params["snapshot"].get("evidence_kind") != "read"
+            ):
+                raise self.error_type("PROTOCOL_MISMATCH")
+            snapshot = DependencyReadEvidence.from_mapping(params["snapshot"])
         excluded = (self._spec.code_root,)
         if any(
             Path(site).is_relative_to(root)

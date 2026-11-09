@@ -147,3 +147,70 @@ describe("audit store ring buffer", () => {
     expect(a).toEqual(b);
   });
 });
+
+describe("chatExtensions.setThemeTokens", () => {
+  it("keeps one winner per token and notifies subscribers", () => {
+    let calls = 0;
+    const off = chatExtensions.subscribe(() => {
+      calls += 1;
+    });
+
+    chatExtensions.setThemeTokens("p1", {
+      border: { light: "#ccc", dark: "#333" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot().border?.pluginId).toBe("p1");
+    expect(calls).toBe(1);
+
+    const second = chatExtensions.setThemeTokens("p2", {
+      border: { light: "#ddd", dark: "#222" },
+      surface: { light: "#fff", dark: "#000" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot().border?.pluginId).toBe("p2");
+
+    second.dispose();
+    // p2's surface is gone; border falls back to p1's registration.
+    expect(chatExtensions.getThemeTokenSnapshot().surface).toBeUndefined();
+    expect(chatExtensions.getThemeTokenSnapshot().border?.pluginId).toBe("p1");
+
+    off();
+    chatExtensions.setThemeTokens("p3", {
+      bg: { light: "#fff", dark: "#000" },
+    });
+    expect(calls).toBe(3);
+  });
+
+  it("records audit entries for set and dispose", () => {
+    const d = chatExtensions.setThemeTokens("p1", {
+      text: { light: "#111", dark: "#eee" },
+    });
+    d.dispose();
+    const kinds = auditStore.overrides().map((r) => r.kind);
+    expect(kinds).toContain("chat.themeTokens.set");
+    expect(kinds).toContain("chat.themeTokens.dispose");
+  });
+
+  it("disposeAll removes one plugin's tokens and keeps the others", () => {
+    chatExtensions.setThemeTokens("p1", {
+      text: { light: "#111", dark: "#eee" },
+    });
+    chatExtensions.setThemeTokens("p2", {
+      text: { light: "#222", dark: "#ddd" },
+    });
+    chatExtensions.disposeAll("p2");
+    expect(chatExtensions.getThemeTokenSnapshot().text?.pluginId).toBe("p1");
+    chatExtensions.disposeAll("p1");
+    expect(chatExtensions.getThemeTokenSnapshot().text).toBeUndefined();
+  });
+
+  it("returns a stable snapshot reference until the next mutation", () => {
+    chatExtensions.setThemeTokens("p1", {
+      bg: { light: "#fff", dark: "#000" },
+    });
+    const a = chatExtensions.getThemeTokenSnapshot();
+    expect(chatExtensions.getThemeTokenSnapshot()).toBe(a);
+    chatExtensions.setThemeTokens("p2", {
+      text: { light: "#111", dark: "#222" },
+    });
+    expect(chatExtensions.getThemeTokenSnapshot()).not.toBe(a);
+  });
+});

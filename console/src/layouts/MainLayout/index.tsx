@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Layout, Spin } from "antd";
-import { Routes, Route, useLocation } from "react-router-dom";
+import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import AmbientLight from "../AmbientLight";
@@ -11,22 +11,68 @@ import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
-import { useRoutes } from "../../plugins/registry/hooks";
+import { useMenuItems, useRoutes } from "../../plugins/registry/hooks";
+import { findMenuItem, flattenMenu } from "../registry/adapter";
 import { Slot } from "../../plugins/registry/Slot";
 import { PageShell } from "../../components/PageShell";
 import { pickSelectedKey } from "./routeSelection";
 import { RouteDocumentTitle } from "./RouteDocumentTitle";
 import { getRouteTitle } from "./routeTitle";
+import {
+  buildApprovalNavigationPath,
+  type ApprovalNotificationTarget,
+} from "../../notifications/approvalNavigation";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
+import { SettingsSearchNavigation } from "../../pages/SettingsCenter/SettingsSearchNavigation";
+import { usePluginSettingsNavigation } from "../../pages/SettingsCenter/usePluginSettingsNavigation";
 
 const { Content } = Layout;
 
 export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const { t, i18n } = useTranslation();
   const location = useLocation();
+  const navigate = useNavigate();
+  const openApprovals = useCallback(
+    (target?: ApprovalNotificationTarget) => {
+      if (target?.rootSessionId?.trim()) {
+        navigate(buildApprovalNavigationPath(target));
+        return;
+      }
+      navigate("/inbox?tab=approvals");
+    },
+    [navigate],
+  );
   const currentPath = location.pathname;
   const routes = useRoutes();
+  const settingsMenu = useMenuItems("primary.settings");
+  const agentMenu = useMenuItems("primary.agentScoped");
+  const SettingsCenterPage = routes.find(
+    (route) => route.id === "core.settings-center",
+  )?.Component;
+  const settingsRouteIds = useMemo(() => {
+    const menuRouteIds = new Set(
+      flattenMenu(settingsMenu, routes, 16).map(
+        (entry) => findMenuItem(settingsMenu, entry.key)?.route,
+      ),
+    );
+    return new Set(
+      routes
+        .filter(
+          (route) => route.source !== "core" && menuRouteIds.has(route.id),
+        )
+        .map((route) => route.id),
+    );
+  }, [routes, settingsMenu]);
+  const agentRouteIds = useMemo(
+    () =>
+      new Set(
+        flattenMenu(agentMenu, routes, 16).map(
+          (entry) => findMenuItem(agentMenu, entry.key)?.route,
+        ),
+      ),
+    [routes, agentMenu],
+  );
 
   // Backend is the source of truth for Coding Mode state — refill the
   // in-memory store every time the selected agent changes.
@@ -36,8 +82,14 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     () => pickSelectedKey(currentPath, routes),
     [currentPath, routes],
   );
-  const settingsCenterActive = selectedKey === "core.settings-center";
   const selectedRoute = routes.find((route) => route.id === selectedKey);
+  const pluginSettingsContext = usePluginSettingsNavigation(
+    selectedRoute,
+    settingsRouteIds.has(selectedKey) && !agentRouteIds.has(selectedKey),
+  );
+  const settingsCenterActive =
+    selectedKey === "core.settings-center" ||
+    Boolean(SettingsCenterPage && pluginSettingsContext);
   const pageTitle = getRouteTitle(selectedRoute, i18n.language);
 
   // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
@@ -53,6 +105,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   return (
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
+        <SettingsSearchNavigation />
         <RouteDocumentTitle title={pageTitle} />
         <a
           className={styles.skipLink}
@@ -73,7 +126,10 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
             tabIndex={-1}
             className="page-container"
           >
-            <ConsolePollService />
+            <ConsolePollService
+              onOpenApprovals={openApprovals}
+              onOpenNotification={navigate}
+            />
             <AgentStatusPollingController />
             <Slot name="content.statusBar" kind="fill" />
             <div className="page-content">
@@ -100,7 +156,16 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
                             title={getRouteTitle(r, i18n.language)}
                             mode="compat"
                           >
-                            <r.Component />
+                            {SettingsCenterPage &&
+                            pluginSettingsContext &&
+                            r.id === selectedKey ? (
+                              <SettingsCenterPage
+                                routeId={r.id}
+                                pluginContext={pluginSettingsContext}
+                              />
+                            ) : (
+                              <r.Component />
+                            )}
                           </PageShell>
                         }
                       />
