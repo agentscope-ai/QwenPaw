@@ -395,11 +395,12 @@ export function LocalModelManageModal({
             : nextModelDownload,
         );
 
-        if (
+        const runtimeJustCompleted =
           (previousRuntimeStatusRef.current === "pending" ||
             previousRuntimeStatusRef.current === "downloading") &&
-          nextRuntimeDownload.status === "completed"
-        ) {
+          nextRuntimeDownload.status === "completed";
+
+        if (runtimeJustCompleted) {
           message.success(
             targetEngine === "mlx"
               ? t("models.localMlxInstallSuccess")
@@ -443,7 +444,8 @@ export function LocalModelManageModal({
 
         if (
           !isBusyDownloadStatus(nextRuntimeDownload.status) &&
-          !isBusyDownloadStatus(nextModelDownload.status)
+          !isBusyDownloadStatus(nextModelDownload.status) &&
+          !runtimeJustCompleted
         ) {
           stopPolling();
         }
