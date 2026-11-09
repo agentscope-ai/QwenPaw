@@ -13,6 +13,7 @@ from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
     _ollama_model_aliases,
     parse_ollama_num_ctx,
+    parse_ollama_served_context_length,
     resolve_ollama_context_window,
 )
 from qwenpaw.providers.provider import ModelInfo
@@ -197,6 +198,25 @@ def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx(["num_ctx 8192"]) is None
     assert parse_ollama_num_ctx(8192) is None
     assert parse_ollama_num_ctx(None) is None
+
+
+def test_parse_ollama_served_context_length_is_strict() -> None:
+    assert parse_ollama_served_context_length(65536) == 65536
+    assert parse_ollama_served_context_length(512) == 512
+    assert parse_ollama_served_context_length("8192") == 8192
+    assert parse_ollama_served_context_length(" 4096 ") == 4096
+    # Bools are ints; do not coerce True to 1.
+    assert parse_ollama_served_context_length(True) is None
+    assert parse_ollama_served_context_length(False) is None
+    # Floats must not be truncated into a window.
+    assert parse_ollama_served_context_length(8192.0) is None
+    assert parse_ollama_served_context_length(12.5) is None
+    assert parse_ollama_served_context_length(0) is None
+    assert parse_ollama_served_context_length(-1) is None
+    assert parse_ollama_served_context_length("invalid") is None
+    assert parse_ollama_served_context_length("8192.0") is None
+    assert parse_ollama_served_context_length({"value": 8192}) is None
+    assert parse_ollama_served_context_length(None) is None
 
 
 def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
@@ -1216,6 +1236,71 @@ async def test_failed_ps_then_unknown_show_retains_previous_auto_detected(
     _patch_list_and_native(
         monkeypatch,
         FailedPsUnknownShowClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected == 65536
+
+
+@pytest.mark.asyncio
+async def test_malformed_ps_entry_then_unknown_show_retains_previous(
+    monkeypatch,
+) -> None:
+    """Invalid /api/ps context_length must not clear a prior window.
+
+    A malformed per-model entry used to be skipped while the overall
+    probe stayed ok=True, so a later show without num_ctx cleared 65536
+    back to the 128k default.
+    """
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=65536,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class MalformedPsUnknownShowClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": model_id,
+                            "model": model_id,
+                            "context_length": "invalid",
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
+
+    _patch_list_and_native(
+        monkeypatch,
+        MalformedPsUnknownShowClient,
         models=[ModelInfo(id=model_id, name=model_id)],
     )
     fetched = await provider.fetch_models()

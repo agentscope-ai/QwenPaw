@@ -43,6 +43,26 @@ def parse_ollama_num_ctx(parameters: Any) -> int | None:
     return value if value >= _MIN_CONTEXT_TOKENS else None
 
 
+def parse_ollama_served_context_length(raw: Any) -> int | None:
+    """Return a positive ``/api/ps`` ``context_length``, or None if invalid.
+
+    Loose ``int(raw)`` coercion used to accept bools (a subclass of
+    ``int``) and truncate floats. Only a real ``int`` or a digit string
+    of at least ``_MIN_CONTEXT_TOKENS`` is treated as a served window.
+    """
+    if isinstance(raw, bool) or raw is None:
+        return None
+    if isinstance(raw, int):
+        return raw if raw >= _MIN_CONTEXT_TOKENS else None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text.isdigit():
+            return None
+        value = int(text)
+        return value if value >= _MIN_CONTEXT_TOKENS else None
+    return None
+
+
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
@@ -96,10 +116,12 @@ def _show_parameters_malformed(show_payload: dict[str, Any]) -> bool:
 class _ServedContexts(NamedTuple):
     """Outcome of an ``/api/ps`` probe.
 
-    ``ok`` is True only for a successful, structurally valid response.
-    A timeout, HTTP error, or malformed body sets ``ok`` to False with an
-    empty ``by_name`` map so callers can tell failure apart from "no
-    models currently loaded".
+    ``ok`` is True only for a successful, structurally valid response
+    whose per-model entries are well-formed. A timeout, HTTP error,
+    malformed body, or an invalid per-model ``context_length`` sets
+    ``ok`` to False so callers can tell that failure apart from "no
+    models currently loaded". Valid entries are still collected into
+    ``by_name``.
     """
 
     ok: bool
@@ -402,24 +424,29 @@ class OllamaProvider(OpenAIProvider):
         if not isinstance(models, (list, tuple)):
             return _ServedContexts(ok=False, by_name={})
         result: dict[str, int] = {}
+        malformed = False
         for row in models:
             if not isinstance(row, dict):
+                # A non-object entry is malformed: do not treat the
+                # overall probe as a successful empty listing.
+                malformed = True
                 continue
             raw = row.get("context_length")
             if raw is None:
                 continue
-            try:
-                value = int(raw)
-            except (TypeError, ValueError):
-                continue
-            if value < _MIN_CONTEXT_TOKENS:
+            value = parse_ollama_served_context_length(raw)
+            if value is None:
+                # Invalid context_length is not "loaded with no window".
+                # Mark the probe unknown so a later show without num_ctx
+                # does not clear a previously detected value.
+                malformed = True
                 continue
             for key in (row.get("name"), row.get("model")):
                 name = str(key or "").strip()
                 if name:
                     result[name] = value
                     result[name.lower()] = value
-        return _ServedContexts(ok=True, by_name=result)
+        return _ServedContexts(ok=not malformed, by_name=result)
 
     async def _enrich_model_context(
         self,
