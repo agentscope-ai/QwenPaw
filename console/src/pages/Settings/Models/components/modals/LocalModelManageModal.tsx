@@ -180,8 +180,8 @@ export function LocalModelManageModal({
   const [savedServerPort, setSavedServerPort] = useState<number | null>(null);
   const [gpuAcceleration, setGpuAcceleration] = useState(true);
   const [savedGpuAcceleration, setSavedGpuAcceleration] = useState(true);
-  const [autoUpdate, setAutoUpdate] = useState(false);
-  const [savedAutoUpdate, setSavedAutoUpdate] = useState(false);
+  const [autoUpdate, setAutoUpdate] = useState(true);
+  const [savedAutoUpdate, setSavedAutoUpdate] = useState(true);
   const [generateKwargsText, setGenerateKwargsText] = useState("");
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
