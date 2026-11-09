@@ -17,6 +17,8 @@ import { useAppMessage } from "../hooks/useAppMessage";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
 
+const BACKGROUND_REFRESH_INTERVAL_MS = 30000;
+
 /**
  * Shallow-compare two session arrays by visible fields.
  * Returns true when the list would look identical, so we can skip
@@ -178,9 +180,11 @@ export function useSessionListData(
     if (!active) return;
     let cancelled = false;
     let inFlight = true;
+    let lastFetchAt = Date.now();
     const owner = sessionApi.getActiveOwner();
 
     const fetchSessions = async () => {
+      lastFetchAt = Date.now();
       setLoading(true);
       try {
         const list = await sessionApi.getSessionList();
@@ -204,8 +208,14 @@ export function useSessionListData(
 
     const timer = setInterval(async () => {
       // Pause polling during session switch to avoid bandwidth contention
-      if (document.hidden || sessionApi.isSessionSwitching || inFlight) return;
+      if (sessionApi.isSessionSwitching || inFlight) return;
+      if (
+        document.hidden &&
+        Date.now() - lastFetchAt < BACKGROUND_REFRESH_INTERVAL_MS
+      )
+        return;
       inFlight = true;
+      lastFetchAt = Date.now();
       try {
         const list = await sessionApi.getSessionList();
         if (!cancelled && sessionApi.isActiveOwner(owner)) {

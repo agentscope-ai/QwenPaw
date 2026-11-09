@@ -21,6 +21,7 @@ describe("sessionListStore", () => {
   beforeEach(() => {
     useSessionListStore.setState({
       sessions: [],
+      resolvedRouteSession: null,
       lastUpdated: 0,
       _setLibrarySessions: null,
     });
@@ -33,6 +34,7 @@ describe("sessionListStore", () => {
   it("starts with an empty session list and lastUpdated 0", () => {
     const state = useSessionListStore.getState();
     expect(state.sessions).toEqual([]);
+    expect(state.resolvedRouteSession).toBeNull();
     expect(state.lastUpdated).toBe(0);
     expect(state._setLibrarySessions).toBeNull();
   });
@@ -140,11 +142,15 @@ describe("sessionListStore", () => {
   it("clears the shared list when the selected agent changes", () => {
     useAgentStore.setState({ selectedAgent: "agent-a" });
     syncSessionsGlobal([makeSession("chat-a")]);
+    useSessionListStore.setState({
+      resolvedRouteSession: makeSession("archived-a"),
+    });
     expect(useSessionListStore.getState().sessions).toHaveLength(1);
 
     useAgentStore.setState({ selectedAgent: "agent-b" });
 
     expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(useSessionListStore.getState().resolvedRouteSession).toBeNull();
   });
 
   it("keeps the list on unrelated agent-store updates", () => {

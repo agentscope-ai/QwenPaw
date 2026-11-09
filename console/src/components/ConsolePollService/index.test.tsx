@@ -580,6 +580,28 @@ describe("ConsolePollService", () => {
 
   // ── title blinking ──────────────────────────────────────────────────────
 
+  it("keeps one completion dot while notification blinking is active", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    render(<ConsolePollService />);
+    await poll(0);
+    act(() => {
+      document.title = "• Project plan · QwenPaw";
+      document.dispatchEvent(
+        new CustomEvent("qwenpaw:document-title-change", {
+          detail: document.title,
+        }),
+      );
+    });
+
+    await poll(800);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+    await poll(800);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+    await poll(AUTO_DISMISS_MS);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+  });
+
   it("does not blink the title while the tab is visible", async () => {
     mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
     render(<ConsolePollService />);

@@ -813,7 +813,7 @@ describe("useSessionListData polling", () => {
     expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
   });
 
-  it("pauses hidden tabs and refreshes immediately when visible", async () => {
+  it("refreshes hidden tabs every thirty seconds and immediately when visible", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     renderActive(vi.fn());
@@ -821,14 +821,42 @@ describe("useSessionListData polling", () => {
     await act(() => vi.advanceTimersByTimeAsync(0));
     const initialCalls = listSpy.mock.calls.length;
     hidden.mockReturnValue(true);
-    await act(() => vi.advanceTimersByTimeAsync(30000));
+    await act(() => vi.advanceTimersByTimeAsync(29999));
     expect(listSpy).toHaveBeenCalledTimes(initialCalls);
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
 
     hidden.mockReturnValue(false);
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 1);
+    expect(listSpy).toHaveBeenCalledTimes(initialCalls + 2);
+  });
+
+  it("refreshes completion metadata for the active archived Chat", async () => {
+    vi.spyOn(api, "listChats").mockResolvedValue([]);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const archived = { ...makeChat(A_CHAT), archived: true };
+    const resolve = vi.spyOn(api, "resolveChat").mockResolvedValue({
+      agent_id: "agent-a",
+      chat: archived,
+    });
+    sessionApi.registerResolvedChat(archived, sessionApi.getActiveOwner());
+    sessionApi.setVisibleSession(A_CHAT);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    resolve.mockResolvedValue({
+      agent_id: "agent-a",
+      chat: { ...archived, last_finished_at: "2026-11-09T10:00:00Z" },
+    });
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(
+      useSessionListStore.getState().resolvedRouteSession?.lastFinishedAt,
+    ).toBe("2026-11-09T10:00:00Z");
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it("does not overlap a slow session refresh", async () => {

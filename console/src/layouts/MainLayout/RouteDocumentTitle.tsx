@@ -1,5 +1,10 @@
-import { useLayoutEffect } from "react";
-import { useSessionListStore } from "../../stores/sessionListStore";
+import { useLayoutEffect, useMemo } from "react";
+import { useSessionAttention } from "../../hooks/useSessionAttention";
+import { useAgentStore } from "../../stores/agentStore";
+import {
+  findSessionByReference,
+  useSessionListStore,
+} from "../../stores/sessionListStore";
 
 export function RouteDocumentTitle({
   title,
@@ -8,32 +13,35 @@ export function RouteDocumentTitle({
   title: string;
   sessionId?: string;
 }) {
-  const sessionName = useSessionListStore((state) =>
+  const agentId = useAgentStore((state) => state.selectedAgent);
+  const session = useSessionListStore((state) =>
     sessionId && sessionId !== "new"
-      ? state.sessions
-          .find(
-            (session) =>
-              session.id === sessionId ||
-              session.realId === sessionId ||
-              session.sessionId === sessionId,
-          )
-          ?.name?.trim()
+      ? findSessionByReference(
+          state.sessions,
+          sessionId,
+          state.resolvedRouteSession,
+        )
       : undefined,
   );
+  const sessions = useMemo(() => (session ? [session] : []), [session]);
+  const unseenSessionIds = useSessionAttention(agentId, sessions, session?.id);
+  const unread = !!session && unseenSessionIds.has(session.id);
+  const sessionName = session?.name?.trim();
 
   useLayoutEffect(() => {
-    const nextTitle = sessionName
+    const baseTitle = sessionName
       ? `${sessionName} · QwenPaw`
       : title === "QwenPaw"
       ? title
       : `${title} · QwenPaw`;
+    const nextTitle = unread ? `• ${baseTitle}` : baseTitle;
     document.title = nextTitle;
     document.dispatchEvent(
       new CustomEvent("qwenpaw:document-title-change", {
         detail: nextTitle,
       }),
     );
-  }, [title, sessionName]);
+  }, [title, sessionName, unread]);
 
   return null;
 }
