@@ -6,7 +6,7 @@
  * under test.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { Link } from "react-router-dom";
 import { renderWithProviders } from "@/test/common_setup";
@@ -15,7 +15,7 @@ import { renderWithProviders } from "@/test/common_setup";
 
 const mocks = vi.hoisted(() => ({
   inboxData: null as unknown,
-  useInboxData: vi.fn(),
+  inboxOptions: null as unknown,
   pendingCount: 0,
   newArrival: false,
   approvals: [] as unknown[],
@@ -35,8 +35,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("./hooks/useInboxData", () => ({
-  useInboxData: (unreadOnly: boolean) => {
-    mocks.useInboxData(unreadOnly);
+  useInboxData: (options: unknown) => {
+    mocks.inboxOptions = options;
     return mocks.inboxData;
   },
   mapEventToPushMessage: (event: { id: string; read: boolean }) => event,
@@ -45,6 +45,13 @@ vi.mock("./hooks/useInboxData", () => ({
 vi.mock("../../api/modules/console", () => ({
   consoleApi: {
     getInboxEvents: (...args: unknown[]) => mocks.getInboxEvents(...args),
+  },
+}));
+
+vi.mock("@/api/modules/community", () => ({
+  communityConnectionApi: {
+    status: () =>
+      Promise.resolve({ status: "disconnected", sync_enabled: false }),
   },
 }));
 
@@ -312,7 +319,6 @@ function makeInboxData(messages: PushMessage[], summaryUnread = 0) {
 }
 
 beforeEach(() => {
-  mocks.useInboxData.mockClear();
   mocks.pendingCount = 0;
   mocks.newArrival = false;
   mocks.approvals = [];
@@ -339,218 +345,96 @@ describe("InboxPage", () => {
     });
   });
 
-  it("defaults to all messages and toggles the unread query", () => {
-    makeInboxData([pushMsg("unread"), pushMsg("read", { read: true })], 1);
+  it("keeps local cards visible with an explicit retryable community source error", () => {
+    makeInboxData([pushMsg("local")]);
+    const data = mocks.inboxData as {
+      pushMessagesError?: Error;
+      refreshPushMessages: ReturnType<typeof vi.fn>;
+    };
+    data.pushMessagesError = new Error("community_history_unavailable");
     renderWithProviders(<InboxPage />);
-    const toggle = screen.getByRole("checkbox", { name: "inbox.unreadOnly" });
-    expect(toggle).not.toBeChecked();
-    expect(mocks.useInboxData).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId("push-card-read")).toBeTruthy();
-
-    fireEvent.click(toggle);
-    expect(toggle).toBeChecked();
-    expect(mocks.useInboxData).toHaveBeenLastCalledWith(true);
-    expect(screen.queryByTestId("push-card-read")).toBeNull();
-    expect(screen.getByTestId("push-card-unread")).toBeTruthy();
-
-    fireEvent.click(toggle);
-    expect(mocks.useInboxData).toHaveBeenLastCalledWith(false);
-    expect(screen.getByTestId("push-card-read")).toBeTruthy();
-  });
-
-  it("returns to the first page of unread messages when toggling", () => {
-    makeInboxData(
-      Array.from({ length: 12 }, (_, index) =>
-        pushMsg(`m${index + 1}`, { read: index < 6 }),
-      ),
-      6,
-    );
-    renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByTestId("inbox-next-page"));
-    expect(screen.getByTestId("push-card-m6")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    expect(screen.getByTestId("push-card-m7")).toBeTruthy();
-    expect(screen.getByTestId("push-card-m11")).toBeTruthy();
-    expect(screen.queryByTestId("push-card-m6")).toBeNull();
-    expect(screen.queryByTestId("push-card-m12")).toBeNull();
-  });
-
-  it("combines unread, agent, and source filters", async () => {
-    makeInboxData(
-      [
-        pushMsg("target", {
-          metadata: { agentId: "agent-a", sourceType: "cron" },
-        }),
-        pushMsg("read", {
-          read: true,
-          metadata: { agentId: "agent-a", sourceType: "cron" },
-        }),
-        pushMsg("other-agent", {
-          metadata: { agentId: "agent-b", sourceType: "cron" },
-        }),
-        pushMsg("other-source", {
-          metadata: { agentId: "agent-a", sourceType: "mail" },
-        }),
-      ],
-      3,
-    );
-    const { container } = renderWithProviders(<InboxPage />);
-    fireEvent.mouseDown(container.querySelectorAll(".ant-select-selector")[0]);
-    fireEvent.click(
-      await screen.findByText("agent-a", {
-        selector: ".ant-select-item-option-content",
-      }),
-    );
-    fireEvent.mouseDown(container.querySelectorAll(".ant-select-selector")[1]);
-    fireEvent.click(
-      await screen.findByText("inbox.sourceTypeCron", {
-        selector: ".ant-select-item-option-content",
-      }),
-    );
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-
-    expect(screen.getByTestId("push-card-target")).toBeTruthy();
-    expect(screen.queryByTestId("push-card-read")).toBeNull();
-    expect(screen.queryByTestId("push-card-other-agent")).toBeNull();
-    expect(screen.queryByTestId("push-card-other-source")).toBeNull();
-  });
-
-  it("clears batch selections when switching the unread filter", () => {
-    makeInboxData([pushMsg("m1")], 1);
-    renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByText("inbox.batchOperation"));
-    fireEvent.click(screen.getByTestId("sel-m1"));
-    expect(screen.getByTestId("sel-m1")).toBeChecked();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    expect(screen.getByTestId("sel-m1")).not.toBeChecked();
+    expect(screen.getByTestId("push-card-local")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
-    ).toBeDisabled();
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(data.refreshPushMessages).toHaveBeenCalled();
   });
 
-  it("hides a message after viewing it and shows the unread empty state", () => {
-    const data = makeInboxData([pushMsg("m1")], 1);
-    const { rerender } = renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    fireEvent.click(screen.getByText("inbox.batchOperation"));
-    fireEvent.click(screen.getByTestId("sel-m1"));
-    fireEvent.click(screen.getByTestId("view-m1"));
-    expect(data.markMessageAsRead).toHaveBeenCalledWith("m1");
-
-    makeInboxData([pushMsg("m1", { read: true })]);
-    rerender(<InboxPage />);
-    expect(screen.queryByTestId("push-card-m1")).toBeNull();
-    expect(screen.getByTestId("inbox-empty")).toHaveTextContent(
-      "inbox.emptyUnread",
-    );
-    expect(screen.getByText('inbox.selectedItems:{"count":0}')).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
-    ).toBeDisabled();
-  });
-
-  it("removes read selections while keeping unread selections across pages", async () => {
-    const messages = Array.from({ length: 6 }, (_, index) =>
-      pushMsg(`m${index + 1}`),
-    );
-    const data = makeInboxData(messages, 6);
-    const { rerender } = renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    fireEvent.click(screen.getByText("inbox.batchOperation"));
-    fireEvent.click(screen.getByTestId("sel-m1"));
-    fireEvent.click(screen.getByTestId("inbox-next-page"));
-    fireEvent.click(screen.getByTestId("sel-m6"));
-    fireEvent.click(screen.getByTestId("view-m6"));
-    expect(data.markMessageAsRead).toHaveBeenCalledWith("m6");
-
-    const updatedData = makeInboxData(
-      messages.map((item) =>
-        item.id === "m6" ? { ...item, read: true } : item,
-      ),
-      5,
-    );
-    rerender(<InboxPage />);
-    expect(screen.queryByTestId("push-card-m6")).toBeNull();
-    expect(screen.getByTestId("sel-m1")).toBeChecked();
-    expect(screen.getByText('inbox.selectedItems:{"count":1}')).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
-    );
-    await waitFor(() => {
-      expect(updatedData.deleteMessages).toHaveBeenCalledWith(["m1"]);
+  it("does not present broken community history as an empty community inbox", () => {
+    makeInboxData([]);
+    (mocks.inboxData as { pushMessagesError?: Error }).pushMessagesError =
+      new Error("community_history_unavailable");
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
     });
-  });
-
-  it("keeps a viewed message selected in the all-messages view", () => {
-    makeInboxData([pushMsg("m1")], 1);
-    const { rerender } = renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByText("inbox.batchOperation"));
-    fireEvent.click(screen.getByTestId("sel-m1"));
-    fireEvent.click(screen.getByTestId("view-m1"));
-
-    makeInboxData([pushMsg("m1", { read: true })]);
-    rerender(<InboxPage />);
-    expect(screen.getByTestId("sel-m1")).toBeChecked();
     expect(
-      screen.getByRole("button", { name: "inbox.batchDeleteButton" }),
-    ).not.toBeDisabled();
+      screen.getByText("communityInbox.historyUnavailable"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("communityInbox.empty")).not.toBeInTheDocument();
   });
 
-  it("clamps the unread page after its last message is marked read", () => {
-    makeInboxData(
-      Array.from({ length: 6 }, (_, index) => pushMsg(`m${index}`)),
-      6,
-    );
-    const { rerender } = renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    fireEvent.click(screen.getByTestId("inbox-next-page"));
-    expect(screen.getByTestId("push-card-m5")).toBeTruthy();
-
-    makeInboxData(
-      Array.from({ length: 6 }, (_, index) =>
-        pushMsg(`m${index}`, { read: index === 5 }),
-      ),
-      5,
-    );
-    rerender(<InboxPage />);
-    expect(screen.getByTestId("push-card-m0")).toBeTruthy();
-    expect(screen.queryByTestId("push-card-m5")).toBeNull();
-  });
-
-  it("shows the unread empty state after marking all messages read", async () => {
-    const data = makeInboxData([pushMsg("m1"), pushMsg("m2")], 2);
-    const { rerender } = renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    fireEvent.click(screen.getByRole("button", { name: "inbox.markAllRead" }));
-    await waitFor(() => {
-      expect(data.markAllMessagesAsRead).toHaveBeenCalledTimes(1);
+  it("opens the community source from a deep link and disables the Agent filter", async () => {
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />, {
+      initialEntries: ["/inbox?source=community"],
     });
-
-    makeInboxData([
-      pushMsg("m1", { read: true }),
-      pushMsg("m2", { read: true }),
-    ]);
-    rerender(<InboxPage />);
-    expect(screen.getByTestId("inbox-empty")).toHaveTextContent(
-      "inbox.emptyUnread",
+    await waitFor(() =>
+      expect(
+        screen.getByText("communityInbox.connectHint"),
+      ).toBeInTheDocument(),
     );
-    expect(screen.queryByTestId("push-card-m1")).toBeNull();
-    expect(screen.queryByTestId("push-card-m2")).toBeNull();
     expect(
-      screen.getByText("inbox.markAllRead").closest("button"),
+      screen.getByRole("combobox", { name: "inbox.filterByAgent" }),
     ).toBeDisabled();
+    expect(mocks.inboxOptions).toEqual({
+      sourceType: "community",
+      agentId: undefined,
+      page: 1,
+      pageSize: 5,
+      unreadOnly: false,
+    });
+    expect(screen.getByText("communityInbox.markAllRead")).toBeInTheDocument();
   });
 
-  it("keeps the loading state while the unread query is pending", () => {
-    const data = makeInboxData([]);
-    data.pushMessagesLoading = true;
+  it("requests a different server page while retaining the server total", async () => {
+    makeInboxData([pushMsg("m1")]);
+    (
+      mocks.inboxData as { summary: { pushMessages: { total: number } } }
+    ).summary.pushMessages.total = 405;
     renderWithProviders(<InboxPage />);
-    fireEvent.click(screen.getByRole("checkbox", { name: "inbox.unreadOnly" }));
-    expect(screen.getByRole("status")).toHaveTextContent("common.loading");
-    expect(screen.queryByTestId("inbox-empty")).toBeNull();
+    fireEvent.click(screen.getByTestId("inbox-next-page"));
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({ page: 2, pageSize: 5 }),
+      ),
+    );
+  });
+
+  it("selects community in an already open Inbox when an OS notification is clicked", async () => {
+    localStorage.setItem("qwenpaw.inbox.activeTab", "approvals");
+    makeInboxData([]);
+    renderWithProviders(<InboxPage />);
+    act(() =>
+      window.dispatchEvent(
+        new CustomEvent("qwenpaw:inbox-open", {
+          detail: { tab: "messages", sourceType: "community" },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({
+          sourceType: "community",
+          agentId: undefined,
+          page: 1,
+        }),
+      ),
+    );
+    expect(screen.getByTestId("inbox-tab-messages")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
   });
 
   it("renders the messages tab with push cards", async () => {
@@ -560,6 +444,28 @@ describe("InboxPage", () => {
       expect(screen.getByTestId("push-card-m1")).toBeTruthy();
       expect(screen.getByTestId("push-card-m2")).toBeTruthy();
     });
+  });
+
+  it("toggles the unreadOnly filter and passes it to the hook", async () => {
+    makeInboxData([pushMsg("m1")]);
+    renderWithProviders(<InboxPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("push-card-m1")).toBeTruthy();
+    });
+    // Initially unreadOnly is false
+    expect(mocks.inboxOptions).toEqual(
+      expect.objectContaining({ unreadOnly: false }),
+    );
+    // Toggle the checkbox
+    const toggle = screen.getByRole("checkbox", { name: "inbox.unreadOnly" });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    await waitFor(() =>
+      expect(mocks.inboxOptions).toEqual(
+        expect.objectContaining({ unreadOnly: true, page: 1 }),
+      ),
+    );
   });
 
   it("shows the empty state when there are no messages", async () => {
