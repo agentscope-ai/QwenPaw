@@ -730,31 +730,6 @@ async def clear_chat_project_dirs(
     return await _project_dirs_response(updated, workspace)
 
 
-@router.put("/{chat_id}/decision-settings")
-async def set_decision_settings(
-    chat_id: str,
-    enabled: bool = Body(..., strict=True),
-    mgr: ChatManager = Depends(get_chat_manager),
-    workspace=Depends(get_workspace),
-):
-    """Save a decision preference for an existing session."""
-    from ...config.config import load_agent_config
-    from ...services.session_thinking import decision_settings
-
-    if await mgr.get_chat(chat_id) is None:
-        raise HTTPException(404, "Chat not found")
-    config = await asyncio.to_thread(load_agent_config, workspace.agent_id)
-    settings = await asyncio.to_thread(decision_settings, config, enabled)
-    if enabled and not settings["configured"]:
-        raise HTTPException(
-            422,
-            "No agent or global decision model configured",
-        )
-    if await mgr.set_session_decision(chat_id, enabled) is None:
-        raise HTTPException(404, "Chat not found")
-    return settings
-
-
 @router.get(f"/thinking-default")
 async def get_default_thinking(
     provider_id: str | None = None,

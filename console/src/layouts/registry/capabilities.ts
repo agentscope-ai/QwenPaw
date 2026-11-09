@@ -1,3 +1,4 @@
+import type { AgentSummary } from "../../api/types/agents";
 import type { MenuItem } from "../../plugins/registry/types";
 
 interface AgentMenuCapabilities {
@@ -21,11 +22,25 @@ const NATIVE_WORKSPACE_MENU_IDS = new Set([
   "core.agent-stats",
 ]);
 
-export function filterMenuForAgentCapabilities(
-  items: MenuItem[],
+export function getAgentMenuCapabilities(
+  agent: AgentSummary | undefined,
+): AgentMenuCapabilities | undefined {
+  if (!agent) return undefined;
+  return {
+    ...agent.backend_capabilities,
+    workspace_ui:
+      agent.backend === "qwenpaw"
+        ? agent.backend_capabilities?.workspace_ui ?? true
+        : false,
+  };
+}
+
+export function isAgentMenuItemAvailable(
+  id: string,
   capabilities: AgentMenuCapabilities | undefined,
-): MenuItem[] {
-  if (capabilities?.workspace_ui !== false) return items;
+): boolean {
+  if (capabilities?.workspace_ui !== false) return true;
+  if (NATIVE_WORKSPACE_MENU_IDS.has(id)) return false;
   const showSkills = Boolean(
     capabilities.native_skills_ui ||
       capabilities.qwenpaw_skills_projection ||
@@ -37,14 +52,20 @@ export function filterMenuForAgentCapabilities(
       capabilities.qwenpaw_mcp_projection ||
       capabilities.provider_mcp_discovery,
   );
-  const showAgentGroup = showSkills || showTools || showMcp;
+  if (id === "core.agent-group") return showSkills || showTools || showMcp;
+  if (id === "core.skills") return showSkills;
+  if (id === "core.tools") return showTools;
+  if (id === "core.mcp") return showMcp;
+  return true;
+}
 
+export function filterMenuForAgentCapabilities(
+  items: MenuItem[],
+  capabilities: AgentMenuCapabilities | undefined,
+): MenuItem[] {
+  if (capabilities?.workspace_ui !== false) return items;
   return items.flatMap((item) => {
-    if (NATIVE_WORKSPACE_MENU_IDS.has(item.id)) return [];
-    if (item.id === "core.agent-group" && !showAgentGroup) return [];
-    if (item.id === "core.skills" && !showSkills) return [];
-    if (item.id === "core.tools" && !showTools) return [];
-    if (item.id === "core.mcp" && !showMcp) return [];
+    if (!isAgentMenuItemAvailable(item.id, capabilities)) return [];
 
     const treeItem = item as MenuTreeItem;
     if (!treeItem.__children) return [item];
