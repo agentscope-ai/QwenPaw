@@ -1401,3 +1401,65 @@ async def test_fetch_models_registry_port_alias_matches_served_context(
     )
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected == 32768
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_repeated_cancel_drains_probes_before_aclose(
+    monkeypatch,
+) -> None:
+    """A second cancel during cleanup must not close the client early."""
+    provider = _make_provider()
+    state = {
+        "started": 0,
+        "unwound": 0,
+        "aclose": 0,
+        "aclose_before_unwind": 0,
+    }
+    started = asyncio.Event()
+    unwind_started = asyncio.Event()
+    release_unwind = asyncio.Event()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            if state["unwound"] < state["started"]:
+                state["aclose_before_unwind"] += 1
+            state["aclose"] += 1
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            del json
+            state["started"] += 1
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                unwind_started.set()
+                await release_unwind.wait()
+                state["unwound"] += 1
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+
+    task = asyncio.create_task(provider.fetch_models(timeout=30))
+    await started.wait()
+    task.cancel()
+    await unwind_started.wait()
+    for _ in range(2):
+        task.cancel()
+        await asyncio.sleep(0)
+    finished_early = task.done()
+
+    release_unwind.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert finished_early is False
+    assert state["started"] == 1
+    assert state["unwound"] == 1
+    assert state["aclose"] == 1
+    assert state["aclose_before_unwind"] == 0
