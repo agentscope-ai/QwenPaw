@@ -38,6 +38,8 @@ import { rootApi } from "@/api/modules/root";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 import { getMarketAppState } from "@/utils/marketAppState";
 import type { InstalledPluginIdentity } from "@/utils/marketPluginIdentity";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
+import { pluginMarketResource } from "@/utils/communityResources";
 import styles from "./index.module.less";
 import { InteractiveCard } from "@/components/interaction/InteractiveCard";
 import { SettingsDrawer } from "@/components/interaction/SettingsDrawer";
@@ -76,7 +78,7 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 // Curated featured apps use pinned artwork because the market API may not
 // provide an icon for them.
 const FEATURED_APP_ICONS: Record<string, string> = {
-  "@agentscope/qwenpaw-creator": "/creator-logo.png",
+  "@agentscope/qwenpaw-creator": `${import.meta.env.BASE_URL}creator-logo.png`,
 };
 // The upstream market entry ships the same English text under every locale
 // key, so curated apps carry their real translations here (keyed by language
@@ -499,16 +501,23 @@ export function AppMarket({
                     style={{ borderRadius: 20, height: "100%" }}
                   >
                     <Card className={styles.appCard}>
-                      <div className={styles.cardIcon}>
-                        {iconSrc ? (
-                          <img
-                            src={iconSrc}
-                            alt=""
-                            className={styles.marketLogo}
-                          />
-                        ) : (
-                          <AppWindow size={24} strokeWidth={1.75} />
-                        )}
+                      <div className={styles.cardTopRow}>
+                        <div className={styles.cardIcon}>
+                          {iconSrc ? (
+                            <img
+                              src={iconSrc}
+                              alt=""
+                              className={styles.marketLogo}
+                            />
+                          ) : (
+                            <AppWindow size={24} strokeWidth={1.75} />
+                          )}
+                        </div>
+                        <CommunityFeedback
+                          origin={pluginMarketResource(entry)?.origin}
+                          resourceName={entry.display_name}
+                          variant="inline"
+                        />
                       </div>
                       <div className={styles.cardBody}>
                         <div className={styles.cardHeader}>

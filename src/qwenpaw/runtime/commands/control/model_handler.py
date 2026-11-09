@@ -10,6 +10,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ....exceptions import ProviderError
+from ....providers.model_selection import request_model_override
+from ....services.session_thinking import (
+    get_session_chat,
+    select_chat_model,
+)
+
 from ....utils.io_utils import run_sync_io
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
@@ -101,6 +108,42 @@ class ModelCommandHandler(BaseControlCommandHandler):
             "🎥 - Supports video input"
         )
 
+    @staticmethod
+    async def _conversation_model(context: ControlContext):
+        """Read a request or persisted conversation override, if present."""
+        chat = await get_session_chat(context)
+        selected, source = select_chat_model(
+            chat.meta if chat else None,
+            model_override=request_model_override(context.payload),
+        )
+        return selected, f"{source} override" if source else None
+
+    async def _current_model(self, context: ControlContext):
+        """Report the same effective selection as normal conversation turns."""
+        selected, source = await self._conversation_model(context)
+        if selected:
+            return selected, source
+        active = context.workspace.config.active_model
+        if active and active.provider_id:
+            return active, "agent-specific"
+        from ....providers.provider_manager import ProviderManager
+
+        active = await run_sync_io(
+            ProviderManager.get_instance().get_active_model,
+        )
+        return active, "global default"
+
+    async def _override_notice(self, context: ControlContext) -> str:
+        """Explain why an agent-default update cannot replace an override."""
+        selected, source = await self._conversation_model(context)
+        if selected is None:
+            return ""
+        return (
+            f"\n\nThis conversation keeps its {source}: "
+            f"`{selected.provider_id}:{selected.model}`. "
+            "The agent default applies to conversations that inherit it."
+        )
+
     async def _show_current_model(self, context: ControlContext) -> str:
         """Show current active model for this agent.
 
@@ -110,30 +153,14 @@ class ModelCommandHandler(BaseControlCommandHandler):
         Returns:
             Formatted response with current model info
         """
-        workspace = context.workspace
-        agent_config = workspace.config
-
-        # Get agent-level active model
-        active_model = agent_config.active_model
-
+        active_model, source = await self._current_model(context)
         if active_model is None or not active_model.provider_id:
-            # Fallback to global active model
-            from ....providers.provider_manager import ProviderManager
-
-            manager = ProviderManager.get_instance()
-            active_model = await run_sync_io(manager.get_active_model)
-
-            if active_model is None or not active_model.provider_id:
-                return (
-                    "**No Active Model**\n\n"
-                    "No model is currently configured.\n\n"
-                    "Use `/model list` to see available models, "
-                    "then use `/model <provider>:<model>` to select one."
-                )
-
-            source = "global default"
-        else:
-            source = "agent-specific"
+            return (
+                "**No Active Model**\n\n"
+                "No model is currently configured.\n\n"
+                "Use `/model list` to see available models, "
+                "then use `/model <provider>:<model>` to select one."
+            )
 
         return (
             f"**Current Model** ({source})\n\n"
@@ -153,12 +180,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        workspace = context.workspace
-
-        # Get current active model
-        active_model = workspace.config.active_model
-        if active_model is None:
-            active_model = await run_sync_io(manager.get_active_model)
+        active_model, _source = await self._current_model(context)
 
         # Get all provider infos
         all_provider_infos = await manager.list_provider_info()
@@ -196,7 +218,11 @@ class ModelCommandHandler(BaseControlCommandHandler):
 
             # Get all models for this provider (both built-in and user-added)
             extra_models = list(provider_info.extra_models)
-            all_models = list(provider_info.models) + extra_models
+            all_models = [
+                m
+                for m in list(provider_info.models) + extra_models
+                if m.model_type == "chat"
+            ]
             extra_model_ids = {m.id for m in extra_models}
 
             lines.append(f"\n**Provider: {provider_name}** (`{provider_id}`)")
@@ -329,7 +355,9 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"**Model Switched**\n\n"
             f"Provider: `{provider_id}`\n"
             f"Model: `{model_id}`\n\n"
-            f"The new model will be used for subsequent messages."
+            f"The new agent default will be used for subsequent messages "
+            f"that inherit it."
+            f"{await self._override_notice(context)}"
         )
 
     async def _reset_model(self, context: ControlContext) -> str:
@@ -385,6 +413,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
             f"Agent now uses global default model:\n"
             f"Provider: `{global_model.provider_id}`\n"
             f"Model: `{global_model.model}`"
+            f"{await self._override_notice(context)}"
         )
 
     async def _show_model_info(  # pylint: disable=unused-argument
@@ -512,4 +541,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
                 f"Model `{model_id}` not found in provider `{provider_id}`.",
             )
 
+        try:
+            provider.validate_chat_model(model_id)
+        except ProviderError as exc:
+            return False, str(exc)
         return True, ""

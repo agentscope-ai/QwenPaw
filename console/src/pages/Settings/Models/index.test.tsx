@@ -22,6 +22,7 @@ const providersMock = vi.hoisted(() => ({
   error: null as string | null,
   fetchAll: vi.fn(),
 }));
+const modalPropsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("./useProviders", () => ({
   useProviders: () => providersMock,
@@ -107,7 +108,10 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
     ...original,
     Input: antd.Input,
     Button: antd.Button,
-    Modal: antd.Modal,
+    Modal: (props: React.ComponentProps<typeof antd.Modal>) => {
+      modalPropsMock(props);
+      return React.createElement(antd.Modal, props);
+    },
   };
 });
 
@@ -172,6 +176,7 @@ describe("ModelsPage", () => {
       .closest("[data-page-header]");
     expect(header).toHaveClass(styles.pageHeader);
     expect(screen.queryByText("nav.settings")).not.toBeInTheDocument();
+    expect(screen.queryByText("models.scope.agent")).not.toBeInTheDocument();
   });
 
   it("shows the loading state while fetching", () => {
@@ -225,8 +230,13 @@ describe("ModelsPage", () => {
     // Default tab is cloud
     expect(screen.getByTestId("provider-card:openai")).toBeInTheDocument();
 
-    await user.click(screen.getByText(/models\.localCustomGroup/));
+    const localTab = screen.getByRole("tab", {
+      name: /models\.localCustomGroup/,
+    });
+    expect(localTab).toHaveAttribute("aria-selected", "false");
+    await user.click(localTab);
     expect(screen.getByTestId("provider-card:loc")).toBeInTheDocument();
+    expect(localTab).toHaveAttribute("aria-selected", "true");
     expect(localStorage.getItem("models_tab")).toBe("local");
   });
 
@@ -264,6 +274,23 @@ describe("ModelsPage", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("shows a search-specific empty state instead of setup guidance", async () => {
+    const user = userEvent.setup();
+    setProviders([
+      makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" }),
+    ]);
+    renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
+
+    const search = screen.getByPlaceholderText("models.searchPlaceholder");
+    await user.click(search);
+    await user.type(search, "missing");
+
+    await waitFor(() =>
+      expect(screen.getByText(/^models\.noSearchResults/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText("models.noConfigured")).not.toBeInTheDocument();
+  });
+
   it("refreshes providers via the refresh button", async () => {
     const user = userEvent.setup();
     setProviders([
@@ -271,7 +298,7 @@ describe("ModelsPage", () => {
     ]);
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
 
-    await user.click(screen.getByTitle("common.refresh"));
+    await user.click(screen.getByRole("button", { name: "common.refresh" }));
     expect(providersMock.fetchAll).toHaveBeenCalled();
   });
 
@@ -323,6 +350,60 @@ describe("ModelsPage", () => {
     );
   });
 
+  it("tears down the variant selector and supports reopening it", async () => {
+    const user = userEvent.setup();
+    setProviders([
+      makeProvider({
+        id: "azure-a",
+        name: "Azure A",
+        provider_group: "azure",
+        provider_group_name: "Azure",
+        api_key: "",
+      }),
+      makeProvider({
+        id: "azure-b",
+        name: "Azure B",
+        provider_group: "azure",
+        provider_group_name: "Azure",
+        api_key: "",
+      }),
+    ]);
+    renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
+
+    const trigger = screen.getByTestId("icon:azure-a").closest("button");
+    expect(trigger).not.toBeNull();
+
+    await user.click(trigger!);
+    await screen.findByText(/models\.selectVariant/);
+    expect(modalPropsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ destroyOnHidden: true }),
+    );
+    expect(modalPropsMock.mock.lastCall?.[0]).not.toHaveProperty(
+      "destroyOnClose",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() =>
+      expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ open: false }),
+      ),
+    );
+    await user.click(trigger!);
+    await waitFor(() =>
+      expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+        expect.objectContaining({ open: true }),
+      ),
+    );
+    await user.click(await screen.findByText("Azure B"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("config-modal:azure-b")).toBeInTheDocument(),
+    );
+    expect(modalPropsMock.mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ open: false }),
+    );
+  });
+
   it("auto-opens the config modal from the provider URL param", async () => {
     setProviders([makeProvider({ id: "openai", name: "OpenAI", api_key: "" })]);
     renderWithProviders(<ModelsPage />, {
@@ -345,16 +426,24 @@ describe("ModelsPage", () => {
     );
   });
 
-  it("renders the default LLM pill with the active model", () => {
+  it("renders the chat and decision model defaults", () => {
     setProviders(
       [makeProvider({ id: "openai", name: "OpenAI", api_key: "sk-x" })],
       {
         active_llm: { provider_id: "openai", model: "gpt-x" },
+        default_models: {
+          chat: { provider_id: "openai", model: "gpt-x" },
+          decision: null,
+        },
       },
     );
     renderWithProviders(<ModelsPage />, { initialEntries: ["/models"] });
-    expect(screen.getByText(/models\.defaultLlm/)).toBeInTheDocument();
-    expect(screen.getByText(/gpt-x/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "models.defaultChatModel" }),
+    ).toHaveTextContent("OpenAI / gpt-x");
+    expect(
+      screen.getByRole("button", { name: "models.defaultDecisionModel" }),
+    ).toHaveTextContent("models.notSet");
   });
 
   it("groups configured cloud providers by provider_group", () => {

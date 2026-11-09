@@ -13,12 +13,29 @@ export interface SessionModel {
 }
 const key = (agent: string, session: string) =>
   `qwenpaw-session-model:${agent}:${session}`;
+type PendingModelSettings = Partial<SessionModel>;
+function readPendingSettings(
+  agent: string,
+  session: string,
+): PendingModelSettings {
+  return JSON.parse(sessionStorage.getItem(key(agent, session)) || "{}");
+}
+function updatePendingSettings(
+  agent: string,
+  session: string,
+  changes: PendingModelSettings,
+) {
+  sessionStorage.setItem(
+    key(agent, session),
+    JSON.stringify({ ...readPendingSettings(agent, session), ...changes }),
+  );
+}
 export function readPendingModel(
   agent: string,
   session: string,
 ): SessionModel | null {
-  const raw = sessionStorage.getItem(key(agent, session));
-  return raw ? JSON.parse(raw) : null;
+  const { provider_id, model } = readPendingSettings(agent, session);
+  return provider_id && model ? { provider_id, model } : null;
 }
 export function clearPendingModel(agent: string, session: string) {
   sessionStorage.removeItem(key(agent, session));
@@ -107,16 +124,20 @@ export async function loadSessionModel(
 export async function saveSessionModel(
   agent: string,
   scope: SessionModelScope,
-  model: SessionModel,
+  model: SessionModel | null,
 ) {
   if (!scope.chatId) {
+    if (!model) {
+      clearPendingModel(agent, scope.sessionId);
+      return loadSessionModel(agent, scope);
+    }
     const view = await request<ThinkingView>(
       `/chats/thinking-default?${new URLSearchParams({ ...model })}`,
       {
         headers: { "X-Agent-Id": agent },
       },
     );
-    sessionStorage.setItem(key(agent, scope.sessionId), JSON.stringify(model));
+    updatePendingSettings(agent, scope.sessionId, model);
     return activeModels(view);
   }
   const view = await request<ThinkingView>(
@@ -135,20 +156,7 @@ export async function resetSessionModel(
   agent: string,
   scope: SessionModelScope,
 ) {
-  if (!scope.chatId) {
-    clearPendingModel(agent, scope.sessionId);
-    clearPendingThinking(agent, scope.sessionId);
-    return loadSessionModel(agent, scope);
-  }
-  const view = await request<ThinkingView>(
-    `/chats/${encodeURIComponent(scope.chatId)}/model`,
-    {
-      method: "PUT",
-      headers: { "X-Agent-Id": agent },
-      body: "null",
-    },
-  );
-  clearPendingModel(agent, scope.sessionId);
+  const models = await saveSessionModel(agent, scope, null);
   clearPendingThinking(agent, scope.sessionId);
-  return activeModels(view);
+  return models;
 }

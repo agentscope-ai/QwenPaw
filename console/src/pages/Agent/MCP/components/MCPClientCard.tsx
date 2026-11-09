@@ -80,7 +80,7 @@ export const MCPClientCard = React.memo(function MCPClientCard({
     setJsonModalOpen(true);
   };
 
-  const { schedule: scheduleJson, flush: flushJson } = useAutoSave(async () => {
+  const { schedule: scheduleJson, requestClose } = useAutoSave(async () => {
     const parsed = readConnection(editedJson);
     if (!parsed || connectionError(parsed)) return false;
     const updates = { ...parsed };
@@ -167,18 +167,12 @@ export const MCPClientCard = React.memo(function MCPClientCard({
         }}
         title={`${client.name} · ${t("common.configure")}`}
         open={jsonModalOpen}
-        onCancel={() => {
-          void flushJson().then((saved) => {
-            if (saved) setJsonModalOpen(false);
-          });
-        }}
+        onCancel={() => void requestClose(() => setJsonModalOpen(false))}
         footer={
           <div style={{ textAlign: "right" }}>
             <Button
               onClick={() => {
-                void flushJson().then((saved) => {
-                  if (saved) setJsonModalOpen(false);
-                });
+                void requestClose(() => setJsonModalOpen(false));
               }}
               style={{ marginRight: 8 }}
             >

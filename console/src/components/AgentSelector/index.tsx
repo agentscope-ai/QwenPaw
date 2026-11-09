@@ -340,7 +340,7 @@ export default function AgentSelector({
         onOpenChange={setDropdownOpen}
         placement="rightTop"
         trigger="click"
-        overlayClassName={styles.collapsedAgentPopover}
+        classNames={{ root: styles.collapsedAgentPopover }}
         content={
           <div
             className={`${styles.dropdownContent} ${styles.collapsedAgentContent}`}
@@ -502,7 +502,7 @@ export default function AgentSelector({
         className={styles.agentSelector}
         placeholder={t("agent.selectAgent")}
         optionLabelProp="label"
-        popupClassName={styles.agentSelectorDropdown}
+        classNames={{ popup: { root: styles.agentSelectorDropdown } }}
         onOpenChange={setDropdownOpen}
         suffixIcon={
           dropdownOpen ? <SparkUpLine size={20} /> : <SparkDownLine size={20} />

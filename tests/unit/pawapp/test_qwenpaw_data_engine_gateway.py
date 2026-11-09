@@ -74,6 +74,9 @@ def test_engine_gateway_normalizes_paths(path: str, expected: str) -> None:
         "/api",
         "/api/v2/sessions",
         "/metrics",
+        "/api/v1/submissions",
+        "/api/v1/submissions/sub_1/commands",
+        "/api/v1/%73ubmissions/",
         "/api/v1/../secrets",
         "/api/v1/%2e%2e/secrets",
         "/api/v1/%252e%252e/secrets",
@@ -262,3 +265,38 @@ def test_unready_service_maps_to_503() -> None:
     with pytest.raises(HTTPException) as exc:
         gateway._build_request("GET", "/api/v1/sessions")
     assert exc.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_proxy_refuses_engine_without_session_scope_capability():
+    gateway = _gateway_class()(
+        SimpleNamespace(is_external=False, base_url="http://engine"),
+        "test-token",
+    )
+    seen = []
+
+    async def handle(request):
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"protocol_version": 1})
+
+    gateway._client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    try:
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/api/v1/sessions",
+                "headers": [],
+                "query_string": b"",
+            },
+        )
+        with pytest.raises(HTTPException) as error:
+            await gateway.proxy(
+                "api/v1/sessions",
+                request,
+                user_id="alice-sales",
+            )
+        assert error.value.status_code == 503
+        assert seen == ["/api/v1/console/capabilities"]
+    finally:
+        await gateway.stop()

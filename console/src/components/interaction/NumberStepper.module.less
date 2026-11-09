@@ -1,32 +1,37 @@
 .stepper {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0;
   min-width: 0;
-  max-width: 100%;
-  padding: 6px;
-  border-radius: 16px;
-  border: 1px solid var(--app-border-subtle);
-  background: var(--app-fill-faint);
+  max-width: 180px;
+  padding: 1px;
+  border-radius: 8px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
   &:focus-within {
     border-color: var(--app-accent);
   }
   > button {
     display: grid;
     place-items: center;
-    flex: 0 0 36px;
-    height: 36px;
+    flex: 0 0 var(--app-control-sm);
+    height: var(--app-control-sm);
     border: 0;
-    border-radius: 11px;
-    background: var(--app-surface);
+    border-radius: 6px;
+    background: transparent;
     color: var(--app-text);
     cursor: pointer;
+    &:hover:not(:disabled) {
+      background: var(--app-fill-subtle);
+    }
     &:disabled {
-      opacity: 0.3;
+      color: var(--app-disabled-text);
+      background: var(--app-disabled-bg);
       cursor: not-allowed;
     }
     &:focus-visible {
-      outline: 2px solid var(--app-focus-ring);
+      outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+      outline-offset: var(--app-focus-ring-offset);
     }
   }
   :global(.ant-input-number),
@@ -34,25 +39,28 @@
     flex: 1;
     width: 100% !important;
     min-width: 0;
-    font-size: 22px;
-    font-weight: 550;
+    background: transparent;
+    font-size: var(--app-font-body) !important;
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
   }
   :global(.ant-input-number-input),
   :global(.qwenpaw-input-number-input) {
-    font-size: 22px !important;
-    font-weight: 550;
+    height: var(--app-control-sm);
+    background: transparent;
+    font-size: var(--app-font-body) !important;
+    font-weight: 500;
     text-align: center;
     padding: 0;
   }
   &[data-disabled] {
-    opacity: 0.5;
+    opacity: var(--app-disabled-opacity);
   }
 }
 
-@media (pointer: coarse) {
+@media (any-pointer: coarse) {
   .stepper > button {
-    flex-basis: 44px;
-    height: 44px;
+    flex-basis: var(--app-hit-touch);
+    height: var(--app-hit-touch);
   }
 }

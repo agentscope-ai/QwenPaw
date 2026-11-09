@@ -51,6 +51,20 @@ _config_lock = threading.RLock()
 _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
+_root_publication_revision = 0
+_agent_publication_revision = 0
+
+
+def config_publication_revision() -> tuple[int, int]:
+    """Snapshot supported config publications without filesystem I/O."""
+    return _root_publication_revision, _agent_publication_revision
+
+
+def _record_agent_config_publication() -> None:
+    """Called after publication while holding _agent_config_lock."""
+    global _agent_publication_revision
+    _agent_publication_revision += 1
+
 
 # Unknown root fields are normally discarded on save. These non-secret keys
 # remain only long enough for an optional plugin to adopt pre-plugin state.
@@ -404,12 +418,19 @@ def get_available_channels() -> Tuple[str, ...]:
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
-    all_keys = tuple(registry.keys())
+    from ..plugins.registry import PluginRegistry
+
+    static_keys = [
+        key
+        for key, row in PluginRegistry().get_channel_catalog().items()
+        if row.runtime_settings is not None
+    ]
+    all_keys = tuple(dict.fromkeys([*registry, *static_keys]))
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:
         enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k in enabled) or all_keys
+        return tuple(k for k in all_keys if k in enabled)
 
     raw_disabled = EnvVarLoader.get_str(
         "QWENPAW_DISABLED_CHANNELS",
@@ -417,7 +438,7 @@ def get_available_channels() -> Tuple[str, ...]:
     ).strip()
     if raw_disabled:
         disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k not in disabled) or all_keys
+        return tuple(k for k in all_keys if k not in disabled)
 
     return all_keys
 
@@ -689,7 +710,7 @@ def strict_validate_config_file(
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     """Atomically save a detached config and publish it to the cache."""
-    global _config_cache, _config_mtime
+    global _config_cache, _config_mtime, _root_publication_revision
 
     if config_path is None:
         config_path = get_config_path()
@@ -712,6 +733,7 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
             config_path,
             payload,
         )
+        _root_publication_revision += 1
         _config_cache = candidate.model_copy(deep=True)
         try:
             _config_mtime = config_path.stat().st_mtime

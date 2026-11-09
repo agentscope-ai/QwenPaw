@@ -19,17 +19,27 @@ import logging
 from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterator,
+    Mapping,
+    Set,
+)
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk, ToolResponse
 
+from ..config.context import current_script_tool_call
 from .tools.utils import (
     DEFAULT_MAX_BYTES,
     ToolResultPruner,
 )
 from ..constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
@@ -40,6 +50,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+
+
+def _is_auto_memory_recall_msg(msg: Any) -> bool:
+    """Return True if ``msg`` is the synthetic auto-memory-recall payload."""
+    meta = getattr(msg, "metadata", None)
+    if not isinstance(meta, Mapping):
+        return False
+    return bool(meta.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY))
+
+
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
 _MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
@@ -232,7 +252,7 @@ class MemoryMiddleware(MiddlewareBase):
 
         source_context: list[Msg] = []
         pending_markers: list[str] = []
-        compression_state: tuple[Any, tuple[str, ...]] | None = None
+        compression_state: tuple[Any, tuple[str, ...], int] | None = None
         try:
             pending_markers = list(
                 self._auto_memory_turn_state(agent)["pending"],
@@ -540,18 +560,23 @@ class MemoryMiddleware(MiddlewareBase):
     @staticmethod
     def _compression_state(
         agent: "Agent",
-    ) -> tuple[Any, tuple[str, ...]]:
+    ) -> tuple[Any, tuple[str, ...], int]:
         return (
             agent.state.summary,
             tuple(msg.id for msg in agent.state.context),
+            getattr(agent, "_decision_compaction_revision", 0),
         )
 
     @classmethod
     def _did_compress_context(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]],
+        before: tuple[Any, tuple[str, ...], int],
     ) -> bool:
+        # Decision compaction preserves message IDs and summary.
+        # Preserve the original memory snapshots for this lighter pass too.
+        if getattr(agent, "_decision_compaction_revision", 0) != before[2]:
+            return True
         context_manager = getattr(agent, "_context_manager", None)
         stats = getattr(context_manager, "last_compress", None)
         if isinstance(stats, dict):
@@ -562,7 +587,7 @@ class MemoryMiddleware(MiddlewareBase):
     def _compression_changed(
         cls,
         agent: "Agent",
-        before: tuple[Any, tuple[str, ...]] | None,
+        before: tuple[Any, tuple[str, ...], int] | None,
     ) -> bool:
         """Best-effort compression inspection for exception cleanup paths."""
         if before is None:
@@ -595,6 +620,7 @@ class MemoryMiddleware(MiddlewareBase):
             and (
                 msg.has_content_blocks("tool_call")
                 or msg.has_content_blocks("tool_result")
+                or _is_auto_memory_recall_msg(msg)
             )
         ]
 
@@ -765,6 +791,11 @@ class ToolResultPruningMiddleware(MiddlewareBase):
         input_kwargs: dict[str, Any],  # pylint: disable=unused-argument
         next_handler: Callable[..., AsyncGenerator[Any, None]],
     ) -> AsyncGenerator[Any, None]:
+        if current_script_tool_call.get():
+            # Python selects evidence before the model-context budget applies.
+            async for event in next_handler():
+                yield event
+            return
         events: list[Any] = []
         async for event in next_handler():
             if isinstance(event, ToolResponse):

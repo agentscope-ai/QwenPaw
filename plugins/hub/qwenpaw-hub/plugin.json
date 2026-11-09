@@ -1,6 +1,7 @@
 {
   "id": "qwenpaw-hub",
-  "name": "QwenPaw Hub",
+  "name": "QwenPaw Skill Hub",
+  "publish": false,
   "version": "1.0.0",
   "type": "hub",
   "description": "QwenPaw Skill marketplace source.",

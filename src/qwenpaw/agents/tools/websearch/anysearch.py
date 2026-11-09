@@ -8,25 +8,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-import threading
 
 import httpx
 
 from ....config.context import get_current_workspace_dir
 from ....drivers.credentials.store import AsyncCredentialStore
 from ....drivers.credentials.types import CredentialRecord
-from ....drivers.errors import CredentialNotFoundError
 from .base import SearchProvider, _post
+from .credentials import read_optional_api_key
 
 logger = logging.getLogger(__name__)
 
 _CREDENTIAL_REF = "tool/web_search/anysearch"
-
-# mtime-keyed cache for the per-agent AnySearch key: the credential YAML is
-# re-read (and re-decrypted) only when the file changes, mirroring the agent
-# config cache in config.utils.
-_key_cache: dict[str, tuple[float, str]] = {}
-_key_cache_lock = threading.RLock()
 
 
 async def _current_agent_anysearch_key() -> str:
@@ -36,28 +29,7 @@ async def _current_agent_anysearch_key() -> str:
     (``get_current_workspace_dir``), pointing at the same
     ``credentials.yaml`` that ``DriverConfigService``'s fallback path uses.
     """
-    workspace_dir = get_current_workspace_dir()
-    if not workspace_dir:
-        return ""
-    path = workspace_dir / "credentials.yaml"
-    try:
-        current_mtime = path.stat().st_mtime
-    except OSError:
-        current_mtime = 0.0
-    cache_key = str(path)
-    with _key_cache_lock:
-        cached = _key_cache.get(cache_key)
-        if cached is not None and cached[0] == current_mtime:
-            return cached[1]
-    store = AsyncCredentialStore(path)
-    try:
-        record = await store.get(_CREDENTIAL_REF)
-        key = str(record.secrets.get("api_key") or "")
-    except CredentialNotFoundError:
-        key = ""
-    with _key_cache_lock:
-        _key_cache[cache_key] = (current_mtime, key)
-    return key
+    return (await read_optional_api_key(_CREDENTIAL_REF)) or ""
 
 
 _CRED_LINE_RE = re.compile(

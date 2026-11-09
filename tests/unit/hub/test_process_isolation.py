@@ -567,9 +567,43 @@ def test_runtime_parent_thread_survives_request_worker(
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Requires Seatbelt")
-def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
+def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path, monkeypatch):
     """Run the actual CLI inside its server's native sandbox."""
+    from qwenpaw.plugins import dependency_maintenance as maintenance
+    from qwenpaw.plugins.channel_bootstrap import plugin_runtime_site
+
+    state = tmp_path / "dependency-state"
+    monkeypatch.setattr(maintenance, "_STATE_ROOT", state)
+    monkeypatch.setenv("QWENPAW_DEPENDENCY_STATE_DIR", str(state))
+    shared = Path(sys.base_prefix)
+    reader_site = Path(
+        next(path for path in sys.path if Path(path).name == "site-packages"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.plugins.execution.environment.shared_dependency_paths",
+        lambda: (shared, reader_site),
+    )
+    foreign_scope = "f" * 64
+    foreign_dir = maintenance.prepare_reader_scope([shared], foreign_scope)[0]
+    foreign = foreign_dir / "999999-stale.lease"
+    foreign.write_text("foreign")
+    controls = [maintenance.marker(shared), maintenance.repair_marker(shared)]
+    for path in controls:
+        path.write_text("control")
+    protected = list(
+        map(
+            str,
+            [
+                maintenance._gate(shared),
+                maintenance._admission_gate(shared),
+                *controls,
+                foreign,
+            ],
+        ),
+    )
     record = _record(tmp_path, port=allocate_loopback_port())
+    overlay = plugin_runtime_site(record.working_dir / "plugin_runtime")
+    overlay.mkdir(parents=True, exist_ok=True)
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
         record,
         {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "sandbox-test-token"},
@@ -586,9 +620,52 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
             import asyncio
             import errno
             import socket
+            import os
+            from pathlib import Path
+            from qwenpaw.plugins import dependency_maintenance as maintenance
+            assert maintenance.state_root() == Path({str(state)!r})
+            scope = maintenance.reader_scope()
+            assert len(scope) == 64
+            assert all(c in "0123456789abcdef" for c in scope)
+            # Host controls can be read, but every mutation is denied.
+            protected = {protected!r}
+            for name in protected:
+                path = Path(name)
+                for mutate in (lambda: path.write_text("tampered"), path.unlink):
+                    try:
+                        mutate()
+                    except PermissionError:
+                        pass
+                    else:
+                        raise AssertionError("shared custody writable: " + name)
+            shared = Path({str(shared)!r})
+            assert maintenance.live_readers([shared]) == []
+            own_shared_directory = maintenance._readers_dir(shared) / scope
+            assert list(own_shared_directory.iterdir()) == []
+            try:
+                own_shared_directory.rmdir()
+            except PermissionError:
+                pass
+            else:
+                raise AssertionError("shared namespace boundary removable")
+            assert Path({str(foreign)!r}).read_text() == "foreign"
+            for name in {list(map(str, controls))!r}:
+                Path(name).read_text()
+            reader_site = Path({str(reader_site)!r})
+            maintenance.lease_environment([reader_site])
+            assert any(row["pid"] == os.getpid()
+                       for row in maintenance.live_readers([reader_site]))
+            own_directory = maintenance._readers_dir(reader_site) / scope
+            assert list(own_directory.glob("*.lease"))
+            overlay = Path({str(overlay)!r})
+            maintenance.lease_environment([overlay])
+            assert any(row["pid"] == os.getpid()
+                       for row in maintenance.live_readers([overlay]))
+            with maintenance.file_lock(maintenance._gate(overlay)):
+                maintenance.marker(overlay).write_text("private")
+                maintenance.marker(overlay).unlink()
             from qwenpaw.agents.tools.shell import _execute_in_sandbox
             from qwenpaw.sandbox import SandboxConfig, SandboxMode
-            import os
             from http.server import BaseHTTPRequestHandler
             from socketserver import TCPServer
             from threading import Thread
@@ -631,6 +708,8 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
             [sys.executable, "-c", script],
             environment,
         )
+        assert launch.environment["QWENPAW_DEPENDENCY_STATE_DIR"] == str(state)
+        assert len(launch.environment["QWENPAW_DEPENDENCY_READER_SCOPE"]) == 64
         result = subprocess.run(
             launch.command,
             env=launch.environment,

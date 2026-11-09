@@ -63,6 +63,24 @@ afterEach(() => {
 });
 
 describe("useTraceViewer", () => {
+  it("does not load or synthesize an Agent trace for a community notification", () => {
+    const { result } = renderHook(() =>
+      useTraceViewer(mocks.markMessageAsRead),
+    );
+    act(() =>
+      result.current.openMessageDetail(
+        pushMessage({
+          metadata: {
+            sourceType: "community",
+            payload: { run_id: "not-an-agent-run" },
+          },
+        }),
+      ),
+    );
+    expect(result.current.detailOpen).toBe(true);
+    expect(result.current.traceEvents).toEqual([]);
+    expect(mocks.getInboxTrace).not.toHaveBeenCalled();
+  });
   it("starts closed with no trace", () => {
     const { result } = renderHook(() =>
       useTraceViewer(mocks.markMessageAsRead),

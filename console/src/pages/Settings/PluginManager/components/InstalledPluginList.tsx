@@ -8,21 +8,15 @@ import {
   Input,
   Spin,
   Table,
-  Tag,
   Typography,
 } from "antd";
-import {
-  CheckCircle,
-  Package,
-  RefreshCw,
-  Trash2,
-  Upload,
-  XCircle,
-} from "lucide-react";
+import { Package, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import type { PluginInfo, PluginUpdateInfo } from "@/api/modules/plugin";
 import { usePluginColumns } from "../hooks/usePluginColumns";
 import { PluginTypeTag } from "./PluginTypeTag";
+import { PluginStatusTag } from "./PluginStatusTag";
 import { PluginViewToggle, type PluginViewMode } from "./PluginViewToggle";
 import cardStyles from "./MarketPluginList.module.less";
 import rowStyles from "./OfficialPluginList.module.less";
@@ -71,35 +65,6 @@ export function InstalledPluginList({
       (plugin) => !keyword || plugin.name.toLocaleLowerCase().includes(keyword),
     );
   }, [plugins, search]);
-
-  const renderStatus = (plugin: PluginInfo) =>
-    plugin.loaded ? (
-      <Tag
-        icon={<CheckCircle size={12} />}
-        color="success"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 4,
-          margin: 0,
-        }}
-      >
-        {t("pluginManager.statusLoaded")}
-      </Tag>
-    ) : (
-      <Tag
-        icon={<XCircle size={12} />}
-        color="default"
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 4,
-          margin: 0,
-        }}
-      >
-        {t("pluginManager.statusUnloaded")}
-      </Tag>
-    );
 
   const renderUpdateAction = (plugin: PluginInfo) => {
     const update = updates.get(plugin.id);
@@ -189,7 +154,16 @@ export function InstalledPluginList({
                   <div className={cardStyles.cardIcon}>
                     <Package size={18} />
                   </div>
-                  {renderStatus(plugin)}
+                  <div className={cardStyles.cardTopActions}>
+                    <CommunityFeedback
+                      origin={plugin.installation_origin}
+                      installedPluginId={plugin.id}
+                      installedVersion={plugin.version}
+                      resourceName={plugin.name}
+                      variant="inline"
+                    />
+                    <PluginStatusTag plugin={plugin} style={{ margin: 0 }} />
+                  </div>
                 </div>
                 <div className={cardStyles.cardTitleRow}>
                   <Text
@@ -248,9 +222,16 @@ export function InstalledPluginList({
                   </div>
                   <div className={rowStyles.catalogInfo}>
                     <div className={rowStyles.catalogNameRow}>
+                      <CommunityFeedback
+                        origin={plugin.installation_origin}
+                        installedPluginId={plugin.id}
+                        installedVersion={plugin.version}
+                        resourceName={plugin.name}
+                        variant="inline"
+                      />
                       <Text strong>{plugin.name}</Text>
                       <PluginTypeTag type={plugin.plugin_type ?? "general"} />
-                      {renderStatus(plugin)}
+                      <PluginStatusTag plugin={plugin} style={{ margin: 0 }} />
                     </div>
                     {plugin.description && (
                       <div className={rowStyles.catalogDescription}>

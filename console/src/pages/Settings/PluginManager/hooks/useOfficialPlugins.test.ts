@@ -22,6 +22,7 @@ vi.mock("@/api/modules/plugin", () => ({
 }));
 
 import { useOfficialPlugins } from "./useOfficialPlugins";
+import { notifyPluginChange } from "@/utils/pluginChangeEvents";
 
 const ENTRY = {
   id: "e1",
@@ -51,7 +52,10 @@ const RESULT = {
 beforeEach(() => {
   vi.clearAllMocks();
   h.fetchPluginCatalog.mockResolvedValue(CATALOG);
-  h.installPlugin.mockResolvedValue(RESULT);
+  h.installPlugin.mockImplementation(async () => {
+    notifyPluginChange();
+    return RESULT;
+  });
 });
 
 describe("useOfficialPlugins catalog load", () => {
@@ -235,7 +239,7 @@ describe("useOfficialPlugins handleInstall", () => {
     expect(result.current.installingId).toBeNull();
   });
 
-  it("awaits an async onInstalled callback before reloading", async () => {
+  it("awaits onInstalled and refreshes once through the install event", async () => {
     const order: string[] = [];
     const onInstalled = vi.fn(async () => {
       await Promise.resolve();
@@ -251,7 +255,7 @@ describe("useOfficialPlugins handleInstall", () => {
     await act(async () => {
       await result.current.handleInstall(ENTRY);
     });
-    expect(order).toEqual(["onInstalled", "reload"]);
+    expect(order).toEqual(["reload", "onInstalled"]);
   });
 
   it("reports an Error message when the install fails and does not reload", async () => {

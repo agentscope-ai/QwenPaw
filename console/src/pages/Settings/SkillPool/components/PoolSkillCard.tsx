@@ -15,6 +15,10 @@ import {
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
+import {
+  CommunityFeedback,
+  hasCommunityFeedback,
+} from "@/components/CommunityFeedback";
 import styles from "../index.module.less";
 
 interface PoolSkillCardProps {
@@ -147,6 +151,13 @@ export function PoolSkillCard({
             {skill.description || t("skills.noDescription")}
           </InlineHelp>
         </div>
+        {hasCommunityFeedback(skill.installation_origin) && (
+          <CommunityFeedback
+            origin={skill.installation_origin}
+            resourceName={skill.name}
+            variant="inline"
+          />
+        )}
         <div className={cardStyles.metadata}>
           <span
             className={`${styles.statusBadge} ${styles[`status_${syncTone}`]}`}

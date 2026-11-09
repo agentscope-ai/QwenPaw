@@ -9,6 +9,7 @@ from ....app.agent_context import get_current_agent_id
 from ....config.config import load_agent_config
 from .anysearch import AnySearchProvider
 from .base import SearchProvider
+from .firecrawl import FirecrawlProvider
 from .tavily import TavilyProvider
 
 
@@ -16,8 +17,8 @@ def get_search_provider() -> SearchProvider:
     """Return the active search provider from the current agent's Console
     tool configuration.
 
-    Defaults to ``tavily`` (the keyless backend) when unset. Unknown
-    values raise ``ValueError`` instead of silently routing.
+    Defaults to ``anysearch`` when unset. Unknown values raise ``ValueError``
+    instead of silently routing.
     """
     agent_id = get_current_agent_id()
     try:
@@ -34,13 +35,15 @@ def get_search_provider() -> SearchProvider:
         )
     except Exception:
         choice = ""
-    if choice in {"", "tavily"}:
+    if choice == "tavily":
         return TavilyProvider()
-    if choice == "anysearch":
+    if choice in {"", "anysearch"}:
         return AnySearchProvider()
+    if choice == "firecrawl":
+        return FirecrawlProvider()
     raise ValueError(
         f"Unknown web_search provider: {choice!r} "
-        "(expected 'tavily' or 'anysearch')",
+        "(expected 'tavily', 'anysearch' or 'firecrawl')",
     )
 
 

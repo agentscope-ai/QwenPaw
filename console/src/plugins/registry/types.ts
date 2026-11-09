@@ -18,6 +18,13 @@
  * Both surfaces share the single audit log in `./audit.ts`.
  */
 import type React from "react";
+import type { ChatCodeBlockProps } from "../types/qwenpaw";
+
+export interface ChatCodeBlockItem {
+  id: string;
+  language: string;
+  render: React.ComponentType<ChatCodeBlockProps>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Disposable
@@ -146,6 +153,8 @@ export interface Route {
   id: string;
   /** URL path. Supports react-router patterns, including "/chat/*". */
   path: string;
+  /** Match path casing exactly. Defaults to case-insensitive matching. */
+  caseSensitive?: boolean;
   /** Lazy or eager component. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: React.ComponentType<any>;
@@ -271,8 +280,8 @@ export interface ChatRequestPayloadTransformItem {
 
 // Chat scalar / list field name unions are defined in `./slotKeys.ts` for
 // single-source-of-truth ergonomics; re-exported here for caller convenience.
-export type { ChatScalarField, ChatListField } from "./slotKeys";
-import type { ChatScalarField, ChatListField } from "./slotKeys";
+export type { ChatScalarField, ChatListField, ThemeTokenKey } from "./slotKeys";
+import type { ChatScalarField, ChatListField, ThemeTokenKey } from "./slotKeys";
 
 export interface ChatScalarValues {
   "welcome.greeting"?: Localized<React.ReactNode>;
@@ -374,6 +383,27 @@ export interface ChatApprovalRendererItem {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Theme tokens — plugin-facing semantic role overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One token's value in both schemes.
+ *
+ * Both members are required: a plugin that supplies only one could leave the
+ * other scheme unreadable, so the SDK rejects partial values instead of
+ * silently mixing the plugin's colour with the host's.
+ */
+export interface ThemeTokenValue {
+  light: string;
+  dark: string;
+}
+
+/** Map of semantic role → { light, dark }. Keys are validated by the SDK. */
+export type ThemeTokenOverrides = Partial<
+  Record<ThemeTokenKey, ThemeTokenValue>
+>;
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Audit — unified across console + chat registries
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -398,6 +428,8 @@ export type AuditKind =
   | "chat.scalar.dispose"
   | "chat.list.add"
   | "chat.list.dispose"
+  | "chat.themeTokens.set"
+  | "chat.themeTokens.dispose"
   | "chat.error";
 
 export interface OverrideRecord {

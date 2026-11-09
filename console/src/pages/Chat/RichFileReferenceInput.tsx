@@ -12,7 +12,6 @@ import {
   DecoratorNode,
   KEY_ENTER_COMMAND,
   PASTE_COMMAND,
-  type EditorConfig,
   type LexicalEditor,
   type LexicalNode,
   type NodeKey,
@@ -117,7 +116,7 @@ class FileReferenceNode extends DecoratorNode<ReactNode> {
     };
   }
 
-  createDOM(_config: EditorConfig) {
+  createDOM() {
     const element = document.createElement("span");
     element.className = styles.atomicNode;
     return element;
@@ -193,7 +192,7 @@ class CodeSnippetNode extends DecoratorNode<ReactNode> {
     };
   }
 
-  createDOM(_config: EditorConfig) {
+  createDOM() {
     const element = document.createElement("span");
     element.className = styles.atomicNode;
     return element;
@@ -274,7 +273,7 @@ function CodeSnippetChip({
     <Popover
       trigger="click"
       placement="topLeft"
-      overlayClassName={styles.codePopover}
+      classNames={{ root: styles.codePopover }}
       content={
         <div className={styles.codePreview}>
           <div className={styles.codePreviewHeader}>{language}</div>
@@ -630,6 +629,10 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
     },
     ref,
   ) {
+    // Ant Design-only props are intentionally removed before the remaining
+    // attributes are forwarded to the hidden native textarea.
+    void _autoSize;
+    void _variant;
     const { token } = theme.useToken();
     const rawValue = String(value ?? "");
     const hiddenTextarea = useRef<HTMLTextAreaElement>(null);

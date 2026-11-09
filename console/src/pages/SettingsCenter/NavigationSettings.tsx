@@ -163,7 +163,7 @@ export default function NavigationSettings() {
     );
     scheduleSave();
   };
-  const { schedule: scheduleSave, flush } = useAutoSave(async () => {
+  const { schedule: scheduleSave, requestClose } = useAutoSave(async () => {
     const editableIds = new Set(entries.map((entry) => entry.key));
     setFocusItemIds([
       ...draft,
@@ -183,9 +183,7 @@ export default function NavigationSettings() {
     );
   });
   const finish = () => {
-    void flush().then((saved) => {
-      if (saved) setEditing(false);
-    });
+    void requestClose(() => setEditing(false));
   };
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);

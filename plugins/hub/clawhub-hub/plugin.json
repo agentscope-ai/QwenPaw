@@ -1,6 +1,7 @@
 {
   "id": "clawhub-hub",
-  "name": "ClawHub Hub",
+  "name": "ClawHub Skill Hub",
+  "publish": false,
   "version": "1.0.0",
   "type": "hub",
   "description": "ClawHub Skill marketplace source.",

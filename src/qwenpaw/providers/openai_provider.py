@@ -29,6 +29,7 @@ from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
 from .multimodal_prober import evaluate_video_probe_answer
+from .thinking import model_default_thinking
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
 
@@ -286,6 +287,16 @@ class OpenAIProvider(Provider):
                 message="Empty model ID",
             )
 
+        model = self.get_model_info(model_id)
+        if model is None:
+            model = self.get_discovered_model_info(model_id)
+        if model is not None and model.model_type == "decision":
+            success, message = await self.check_connection(timeout=timeout)
+            return ModelConnectionResult(
+                success=success,
+                message=message or "Only provider connectivity was checked",
+                verification="provider_only",
+            )
         if _is_non_chat_model(model_id):
             return await self._check_non_chat_model_connection(
                 model_id,
@@ -323,25 +334,25 @@ class OpenAIProvider(Provider):
             return ModelConnectionResult(success=True)
         except APIError as exc:
             detail = self.connection_error_message(exc)
-            if any(
+            dedicated_api = any(
                 marker in detail.lower()
                 for marker in _API_TYPE_MISMATCH_MARKERS
-            ):
-                return ModelConnectionResult(
-                    success=True,
-                    message=(
-                        f"Model '{model_id}' requires a dedicated non-chat "
-                        "API; endpoint and credentials verified"
-                    ),
-                )
+            )
             status = getattr(exc, "status_code", "unknown")
             return ModelConnectionResult(
-                success=False,
+                success=dedicated_api,
                 message=(
-                    f"API error when connecting to model '{model_id}' "
+                    f"Model '{model_id}' requires a dedicated non-chat "
+                    "API; endpoint and credentials verified"
+                    if dedicated_api
+                    else f"API error when connecting to model '{model_id}' "
                     f"(status={status}): {detail}"
                 ),
-                http_status=status if isinstance(status, int) else None,
+                http_status=(
+                    status
+                    if not dedicated_api and isinstance(status, int)
+                    else None
+                ),
             )
         except Exception as exc:
             return ModelConnectionResult(
@@ -511,6 +522,32 @@ class OpenAIProvider(Provider):
             "provider connectivity instead of a chat probe",
         )
 
+    def _apply_thinking_config(self, model_id: str, effective: dict) -> None:
+        """Serialize configured model defaults before request overrides."""
+        info = self.resolve_model_info(model_id)
+        if all(
+            value is None
+            for value in (
+                info.thinking_enabled,
+                info.thinking_budget,
+                info.reasoning_effort,
+            )
+        ):
+            return
+        preference = model_default_thinking(
+            effective,
+            self.thinking_control(model_id),
+            default_enabled=info.thinking_enabled,
+            default_effort=info.reasoning_effort,
+            default_budget=info.thinking_budget,
+        )
+        override = self.get_agent_thinking_kwargs(
+            model_id,
+            preference.level,
+            preference.budget_tokens,
+        )
+        self._replace_thinking_kwargs(effective, override)
+
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential
         from agentscope.model import OpenAIChatModel
@@ -540,23 +577,20 @@ class OpenAIProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         gen_kwargs = self.get_effective_generate_kwargs(model_id)
-        max_tokens = gen_kwargs.pop("max_tokens", None)
-        if _uses_max_completion_tokens(model_id):
-            if max_tokens is not None:
-                gen_kwargs.setdefault(
-                    "max_completion_tokens",
-                    max_tokens,
-                )
-            max_tokens = None
+        # AgentScope unconditionally turns Parameters.max_tokens into
+        # max_completion_tokens. Keep output caps in the compatibility layer
+        # so it can normalize defaults and per-call overrides together.
         parameters = OpenAIChatModel.Parameters(
-            max_tokens=max_tokens,
             temperature=gen_kwargs.pop("temperature", None),
             top_p=gen_kwargs.pop("top_p", None),
         )
+        disable_kwargs = self.get_agent_thinking_kwargs(model_id, "off")
+        disable_kwargs.pop("disable_thinking", None)
 
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            disable_thinking_kwargs=disable_kwargs,
             usage_guard=lambda: self.check_model_billing(model_id),
             request_policy=self.prepare_request,
             capture_cache_status=self.capture_cache_headers,

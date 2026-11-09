@@ -20,8 +20,10 @@ import asyncio
 import inspect
 import json
 import logging
+import math
 import sqlite3
 import time
+import weakref
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -34,7 +36,7 @@ from ....constant import (
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
 from ....utils.io_utils import run_sync_io
-from . import _as_internals as as_internals
+from .. import _as_internals as as_internals
 from .continuation_summary import (
     ContinuationSummary,
     SummaryMode,
@@ -46,7 +48,7 @@ from .continuation_summary import (
 from .eviction_index import EvictionIndex, Leaf, render_live_turn_banner
 from .history import HistoryStore
 from .serialize import msg_to_entries
-from ..types import ContextWindowUnfitError
+from ..types import DECISION_COMPACTED, ContextWindowUnfitError
 from ...utils.tool_message_utils import _remove_unpaired_tool_messages
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,6 @@ _PRE_TRIM_MIN_CHARS = 200
 _PROTECTED_RECENT_TOOL_RESULTS = 5
 _OUTPUT_RESERVE_RATIO = 0.05
 _MAX_OUTPUT_RESERVE_TOKENS = 4096
-_SUMMARY_UPDATE_TIMEOUT_SECONDS = 60.0
 _OVERFLOW_FORCE_TRIGGER_RATIO = 1e-6
 _SummaryRecords = tuple[
     list[tuple[int, str]],
@@ -96,10 +97,21 @@ class ScrollContextManager:
         compact_tool_result_max_bytes: int | None = None,
         tool_results_dir: str | None = None,
         recall_loop_guard: Any = None,
+        owns_history: bool = True,
+        summary_timeout_seconds: float = 300.0,
     ) -> None:
         self._history = history
+        self._owns_history = owns_history
+        self._closed = False
+        self._history_release = None
+        if not owns_history:
+            history.acquire()
+            # Explicit close is the normal path. Also release when a cancelled
+            # or failed agent build discards a manager before attaching it.
+            self._history_release = weakref.finalize(self, history.release)
         self._session_id = session_id
         self._agent_id = agent_id
+        self._summary_timeout_seconds = summary_timeout_seconds
         # Kept for constructor compatibility with older integrations. Scroll
         # no longer folds live tool results at a fixed byte threshold; it
         # reclaims them only while the rebuilt context remains under pressure.
@@ -162,6 +174,10 @@ class ScrollContextManager:
         }
         # Warn once per overflow episode, not once per reasoning step.
         self._overflow_warned = False
+        # Provider-confirmed correction, checkpointed for the same model key.
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
+        self._token_estimate_context_size = None
 
     @staticmethod
     def should_compress(tokens: float, trigger: float) -> bool:
@@ -336,7 +352,7 @@ class ScrollContextManager:
         # Teardown race: a stop/cancel can close the store while a final
         # ``on_save`` is still in flight. The connection was retired on
         # purpose, so skip the write quietly instead of degrading durability.
-        if self._history.closed:
+        if self._closed or self._history.closed:
             return True
         try:
             self._persist_new(agent)
@@ -390,6 +406,21 @@ class ScrollContextManager:
 
         self._apply_folded_thinking_filter(agent)
         before = await self._live_tokens(agent)
+        target = base_config.trigger_ratio * agent.model.context_size
+        # A rejected request cannot be trusted to be below the trigger.
+        # Keep the discrepancy so reclaimed tokens are subtracted from this
+        # conservative baseline, and subsequent growth retains the margin.
+        baseline = max(before, math.ceil(target))
+        margin = baseline - before
+        self._token_estimate_margin += margin
+        if margin:
+            logger.warning(
+                "scroll: provider rejected locally underestimated input; "
+                "raising recovery baseline from %d to %d tokens",
+                before,
+                before + margin,
+            )
+        before = baseline
         await self.compress(agent, forced_config)
         # A provider rejection is authoritative even when local visual-token
         # estimates are below the hard limit. Reuse result folding, without
@@ -420,7 +451,6 @@ class ScrollContextManager:
         if not changed:
             return False
         after = await self._live_tokens(agent)
-        target = base_config.trigger_ratio * agent.model.context_size
         # Eviction counts do not prove that the provider request shrank.
         # Require restored headroom before retrying a rejected request.
         if after >= before or after > target:
@@ -515,7 +545,7 @@ class ScrollContextManager:
             mark("persist")
             kwargs = await as_internals.prepare_model_input(agent)
             mark("prepare_input")
-            tokens = await self._count_model_input_tokens(agent, kwargs)
+            tokens = await self._count_input_tokens(agent, kwargs)
             mark("count_tokens")
             if tokens > effective_hard_limit:
                 log_timings("persist_failed_unfit")
@@ -533,7 +563,7 @@ class ScrollContextManager:
         kwargs = await as_internals.prepare_model_input(agent)
         mark("prepare_input")
         trigger = cfg.trigger_ratio * agent.model.context_size
-        tokens = await self._count_model_input_tokens(agent, kwargs)
+        tokens = await self._count_input_tokens(agent, kwargs)
         mark("count_tokens")
         if not self.should_compress(tokens, trigger):
             self._overflow_warned = False
@@ -556,6 +586,54 @@ class ScrollContextManager:
         )
         is_forced_compaction = float(cfg.trigger_ratio) < base_trigger_ratio
         if not is_forced_compaction:
+            if getattr(agent, "decision_compaction_enabled", False):
+                # Results are already durable; only expose references whose
+                # rows still exist after retention or session recovery.
+                results = [
+                    entry
+                    for msg in agent.state.context
+                    for entry in msg_to_entries(msg)
+                    if entry.kind == "tool_result"
+                    and entry.tool_call_id in self._seq_by_tcid
+                    and not entry.metadata.get(DECISION_COMPACTED)
+                    and not str(entry.content or "").startswith(
+                        (_FOLD_MARK, _RECALL_FOLD_MARK),
+                    )
+                ]
+                contents = await run_sync_io(
+                    self._history.contents_by_seqs,
+                    {
+                        self._seq_by_tcid[entry.tool_call_id]
+                        for entry in results
+                        if entry.tool_call_id is not None
+                    },
+                )
+                refs = {}
+                for entry in results:
+                    tcid = entry.tool_call_id
+                    if tcid is None:
+                        continue
+                    seq = self._seq_by_tcid[tcid]
+                    if seq in contents and contents[seq] == entry.content:
+                        refs[tcid] = (
+                            "recall_history(op='recall_tool', "
+                            f"tool_call_id={tcid!r})"
+                        )
+                result = await agent.try_decision_compact(
+                    # Candidate counts are raw estimates. Compare like with
+                    # like so the safety margin cannot hide negative savings.
+                    tokens=tokens - self._token_estimate_margin,
+                    source_refs=refs,
+                )
+                tokens = (
+                    self._adjust_token_estimate(result.tokens_after)
+                    if result.changed
+                    else await self._live_tokens(agent)
+                )
+                if result.changed and tokens <= trigger:
+                    self._overflow_warned = False
+                    log_timings("decision_compaction_below_trigger")
+                    return
             pre_folded, tokens = await self._batch_fold_completed_tool_results(
                 agent,
                 tokens=tokens,
@@ -839,7 +917,9 @@ class ScrollContextManager:
                 if not durable_key:
                     durable_key = f"{mid}#anon{anonymous_position}"
                     anonymous_position += 1
-                if str(entry.content or "").startswith(
+                if entry.metadata.get(DECISION_COMPACTED) or str(
+                    entry.content or "",
+                ).startswith(
                     (_FOLD_MARK, _RECALL_FOLD_MARK),
                 ):
                     seq = self._seq_by_tcid.get(str(durable_key))
@@ -1346,7 +1426,7 @@ class ScrollContextManager:
     ) -> None:
         """Update the summary within one end-to-end timeout."""
         try:
-            async with asyncio.timeout(_SUMMARY_UPDATE_TIMEOUT_SECONDS):
+            async with asyncio.timeout(self._summary_timeout_seconds):
                 await self._update_continuation_summary_inner(
                     agent,
                     middle,
@@ -1357,7 +1437,7 @@ class ScrollContextManager:
             logger.warning(
                 "scroll: continuation summary update timed out after "
                 "%g seconds; preserving the previous valid summary",
-                _SUMMARY_UPDATE_TIMEOUT_SECONDS,
+                self._summary_timeout_seconds,
                 exc_info=(type(exc), exc, exc.__traceback__),
             )
 
@@ -1413,7 +1493,7 @@ class ScrollContextManager:
         repair_issues: tuple[str, ...] = ()
         updated: ContinuationSummary | None = None
         failure: Exception | None = None
-        deadline = time.monotonic() + _SUMMARY_UPDATE_TIMEOUT_SECONDS
+        deadline = time.monotonic() + self._summary_timeout_seconds
         for attempt in range(2):
             summary_mode: SummaryMode = (
                 "update" if previous is not None else "initial"
@@ -1446,7 +1526,7 @@ class ScrollContextManager:
             except asyncio.TimeoutError:
                 failure = TimeoutError(
                     "continuation summary generation timed out after "
-                    f"{_SUMMARY_UPDATE_TIMEOUT_SECONDS:g} seconds",
+                    f"{self._summary_timeout_seconds:g} seconds",
                 )
                 # The timeout is a provider/connection failure, not a quality
                 # issue that a repair prompt can fix. Preserve a still-valid
@@ -1481,26 +1561,31 @@ class ScrollContextManager:
         self._continuation_summary = updated
         self._summary_update_failed = False
 
-    @staticmethod
-    async def _count_model_input_tokens(agent: Any, kwargs: dict) -> int:
-        """Count the formatter's omission view without altering model input."""
-        get_formatter = getattr(agent, "_get_active_formatter", None)
-        formatter = get_formatter() if callable(get_formatter) else None
-        project = getattr(
-            formatter,
-            "_prepare_messages_for_token_counting",
-            None,
-        )
-        if callable(project):
-            kwargs = {**kwargs, "messages": project(kwargs["messages"])}
-        return await agent.model.count_tokens(**kwargs)
-
     async def _live_tokens(self, agent: Any) -> int:
-        """Token count of the live context as the model would receive it."""
-        return await self._count_model_input_tokens(
+        """Estimate live input tokens, retaining provider-rejection margin."""
+        return await self._count_input_tokens(
             agent,
             await as_internals.prepare_model_input(agent),
         )
+
+    async def _count_input_tokens(self, agent: Any, kwargs: dict) -> int:
+        # Wrapped production models expose provider_id:model_name. Models
+        # without a stable key keep only an instance-local correction.
+        model_key = getattr(agent.model, "model_key", None) or agent.model
+        if (
+            self._token_estimate_model_key != model_key
+            or self._token_estimate_context_size != agent.model.context_size
+        ):
+            self._token_estimate_margin = 0
+            self._token_estimate_model_key = model_key
+            self._token_estimate_context_size = agent.model.context_size
+        tokens = await as_internals.count_model_input_tokens(agent, kwargs)
+        return self._adjust_token_estimate(tokens)
+
+    def _adjust_token_estimate(self, current_estimate: int) -> int:
+        # Equivalent to max(current, baseline - (before - current)); the
+        # nonnegative margin preserves net savings and subsequent growth.
+        return current_estimate + self._token_estimate_margin
 
     @staticmethod
     def _block_type(block: Any) -> str | None:
@@ -2010,6 +2095,8 @@ class ScrollContextManager:
     @staticmethod
     def _is_folded_stub(block: Any) -> bool:
         """True if this result's output is already a fold stub."""
+        if ScrollContextManager._block_metadata(block).get(DECISION_COMPACTED):
+            return True
         out = getattr(block, "output", None)
         if isinstance(out, str):
             return out.startswith((_FOLD_MARK, _RECALL_FOLD_MARK))
@@ -2188,6 +2275,15 @@ class ScrollContextManager:
         durable instead of re-appending it.
         """
         return {
+            "token_estimate": (
+                {
+                    "margin": self._token_estimate_margin,
+                    "model_key": self._token_estimate_model_key,
+                    "context_size": self._token_estimate_context_size,
+                }
+                if isinstance(self._token_estimate_model_key, str)
+                else None
+            ),
             "persisted_ids": sorted(self._persisted_ids),
             "persisted_tcids": sorted(self._persisted_tcids),
             "seen_tool_result_ids": sorted(self._seen_tool_result_ids),
@@ -2222,6 +2318,21 @@ class ScrollContextManager:
         freshly-constructed empty default."""
         if not isinstance(data, dict):
             return
+        self._token_estimate_margin = 0
+        self._token_estimate_model_key = None
+        self._token_estimate_context_size = None
+        estimate = data.get("token_estimate")
+        if (
+            isinstance(estimate, dict)
+            and isinstance(estimate.get("margin"), int)
+            and estimate["margin"] >= 0
+            and isinstance(estimate.get("model_key"), str)
+            and isinstance(estimate.get("context_size"), int)
+            and estimate["context_size"] > 0
+        ):
+            self._token_estimate_margin = estimate["margin"]
+            self._token_estimate_model_key = estimate["model_key"]
+            self._token_estimate_context_size = estimate["context_size"]
         self._persisted_ids = set(data.get("persisted_ids", ()))
         self._persisted_tcids = set(data.get("persisted_tcids", ()))
         self._seen_tool_result_ids = set(
@@ -2274,4 +2385,9 @@ class ScrollContextManager:
         ).isoformat()
 
     def close(self) -> None:
-        self._history.close()
+        """Retire this request; only standalone managers close the database."""
+        self._closed = True
+        if self._history_release is not None:
+            self._history_release()
+        elif self._owns_history:
+            self._history.close()

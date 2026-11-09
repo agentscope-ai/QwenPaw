@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
+from agentscope.model import OpenAIChatModel
 import pytest
 
 from qwenpaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
@@ -14,6 +18,42 @@ def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
         api_key="EMPTY",
         chat_model="OpenAIChatModel",
     )
+
+
+async def test_summary_uses_declared_disable_thinking_wire(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="strict-model",
+            name="Strict model",
+            thinking_control=ThinkingControl(
+                kind="budget",
+                budget_min=1,
+                budget_max=8192,
+                supports_off=True,
+                wire="compat_budget",
+            ),
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("strict-model")
+    result = await model._call_api(
+        "strict-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured == {"extra_body": {"enable_thinking": False}}
 
 
 @pytest.mark.parametrize(

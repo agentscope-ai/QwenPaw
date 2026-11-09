@@ -29,6 +29,7 @@ export interface ThinkingControlSpec {
   budget_default?: number | null;
 }
 export interface ThinkingView {
+  decision_model_configured?: boolean;
   model_source?: "session" | "agent" | "global";
   provider_id?: string | null;
   model_key?: string;

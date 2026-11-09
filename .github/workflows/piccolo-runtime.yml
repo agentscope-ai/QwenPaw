@@ -1,0 +1,149 @@
+name: Piccolo runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/piccolo-runtime.yml'
+      - 'docs/patches/piccolo-llama.cpp.patch'
+      - 'src/qwenpaw/local_models/runtime-release.json'
+      - 'scripts/piccolo_runtime.py'
+      - 'scripts/test_piccolo_runtime.py'
+      - 'scripts/test_piccolo_install.py'
+      - 'scripts/pack-tauri/sign_macos_bundle.sh'
+  push:
+    tags: ['llama-cpp-piccolo-v*']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Single runtime target (leave empty to build all platforms)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-24.04
+    outputs:
+      targets: ${{ steps.targets.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: targets
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          args=()
+          if [ -n "$TARGET" ]; then args+=(--target "$TARGET"); fi
+          echo "value=$(python scripts/piccolo_runtime.py matrix "${args[@]}")" >> "$GITHUB_OUTPUT"
+      - name: Check release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          assert os.environ['RELEASE_TAG'] == 'llama-cpp-' + config['release']
+          PY
+
+  build:
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.matrix.outputs.targets) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.backend == 'cuda' && 240 || 90 }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build and model-download tools
+        run: python -m pip install cmake ninja huggingface_hub
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.arch }}
+          toolset: ${{ matrix.cuda == '12.4.1' && '14.29' || '' }}
+      - name: Build pinned source and package runtime
+        run: python scripts/piccolo_runtime.py build --target "${{ matrix.id }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: piccolo-runtime-bundle-${{ matrix.id }}
+          path: dist/piccolo-runtime/
+          if-no-files-found: error
+      - name: Download public smoke-test models
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from huggingface_hub import snapshot_download
+          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          for role, model in config['smoke_models'].items():
+              snapshot_download(model['repo'], revision=model['revision'], local_dir=f'var/models/{role}', allow_patterns=model['files'])
+          PY
+      - name: Use x64 Python for Windows ARM application dependencies
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - name: Install production installer dependencies
+        run: >-
+          python -m pip install httpx pydantic python-dotenv psutil
+          'agentscope[model-ollama,classifier-jev]==2.0.10'
+          'apscheduler>=3.11.2,<4' filelock fastapi jsonschema pyjwt
+          google-genai pillow keyring cryptography python-socks tiktoken
+          json-repair shortuuid
+      - name: Check Flash, Piccolo and switching back using packaged files
+        run: |
+          python - <<'PY'
+          import json, subprocess, sys
+          from pathlib import Path
+          config = json.loads(Path('src/qwenpaw/local_models/runtime-release.json').read_text())
+          target = '${{ matrix.id }}'
+          extension = 'zip' if target.startswith('win-') else 'tar.gz'
+          archive = Path('dist/piccolo-runtime') / f"llama-{config['release']}-bin-{target}.{extension}"
+          flash = next(Path('var/models/flash').glob('*.gguf'))
+          piccolo = next(Path('var/models/piccolo').glob('*.gguf'))
+          subprocess.run([sys.executable, 'scripts/test_piccolo_install.py', '--target', target, '--archive', str(archive), '--flash', str(flash), '--piccolo', str(piccolo)], check=True)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: piccolo-runtime-smoke-${{ matrix.id }}
+          path: var/runtime-smoke/
+
+  publish:
+    needs: build
+    if: github.repository == 'agentscope-ai/QwenPaw' && startsWith(github.ref, 'refs/tags/llama-cpp-piccolo-v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: piccolo-runtime-bundle-*
+          merge-multiple: true
+          path: dist/piccolo-runtime
+      - run: python -m pip install oss2
+      - name: Publish all bundles and the completed release manifest
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+        run: python scripts/piccolo_runtime.py publish
+
+  ready:
+    name: Runtime available for installer
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every platform bundle is published before merging the installer
+        run: python scripts/piccolo_runtime.py verify-public

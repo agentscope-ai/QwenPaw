@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from .agents import router as agents_router
 from .config import router as config_router
+from .chatgpt import router as chatgpt_router
 from .local_models import router as local_models_router
 from .providers import router as providers_router
 from .market import router as market_router
@@ -37,9 +38,16 @@ from .provider_oauth import router as provider_oauth_router
 from .pawapps import router as pawapps_router
 from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
+from .community import router as community_router
+from .community_connection import router as community_connection_router
+from .community_report import router as community_report_router
 from .terminal import router as terminal_router
 
 router = APIRouter()
+router.include_router(community_router)
+router.include_router(community_connection_router)
+router.include_router(community_report_router)
+router.include_router(chatgpt_router)
 
 router.include_router(agents_router)
 router.include_router(config_router)

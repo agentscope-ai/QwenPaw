@@ -1,0 +1,659 @@
+# -*- coding: utf-8 -*-
+"""Validate a bounded, complete set of plain local wheel additions."""
+
+from __future__ import annotations
+
+import base64
+import csv
+from dataclasses import dataclass
+from email.parser import BytesParser
+import hashlib
+import io
+import logging
+import os
+from pathlib import Path, PurePosixPath
+import re
+import shlex
+import stat
+import threading
+from typing import Mapping
+import zipfile
+
+from packaging.utils import canonicalize_name, parse_wheel_filename
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
+
+from .execution.dependencies import (
+    DependencySnapshot,
+    dependency_error,
+    valid_metadata_headers,
+)
+
+
+logger = logging.getLogger(__name__)
+_MAX_WHEEL_UNPACKED_BYTES = 512 * 1024 * 1024
+
+
+def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
+    """Keep public errors unchanged; correlate fixed reasons with the caller."""
+    logger.info(
+        "Wheel validation rejected: thread=%s reason=%s",
+        threading.get_ident(),
+        reason,
+    )
+    error = dependency_error(code)
+    if detail is not None:
+        error.args = (f"{code}: {detail}",)
+    return error
+
+
+@dataclass(frozen=True)
+class WheelAddition:
+    """A trusted local wheel and its independently supplied expected hash."""
+
+    path: Path
+    sha256: str
+
+
+class WheelFiles(dict[str, bytes]):
+    """Validated target-relative files and their executable script paths."""
+
+    def __init__(self):
+        super().__init__()
+        self.executable_paths: set[str] = set()
+
+
+# lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
+# Retain expanded byte limits while allowing ordinary large SDK wheels.
+def _members(addition: WheelAddition) -> dict[str, bytes]:
+    path = Path(addition.path)
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_size > 128 * 1024 * 1024
+    ):
+        raise _reject("wheel file invalid")
+    # Validate and publish these immutable bytes; never reopen the path.
+    content = path.read_bytes()
+    if hashlib.sha256(content).hexdigest() != addition.sha256:
+        raise _reject("wheel hash mismatch")
+    result = WheelFiles()
+    normalized = set()
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        expanded = sum(info.file_size for info in archive.infolist())
+        if (
+            len(archive.infolist()) > 50000
+            or expanded > _MAX_WHEEL_UNPACKED_BYTES
+        ):
+            logger.info(
+                "Wheel archive exceeds resource budget: artifact=%s "
+                "actual_bytes=%s limit_bytes=%s entries=%s",
+                ascii(path.name)[1:-1][:160],
+                expanded,
+                _MAX_WHEEL_UNPACKED_BYTES,
+                len(archive.infolist()),
+            )
+            raise _reject(
+                "archive size limit exceeded",
+                detail=(
+                    f"wheel archive size {expanded} bytes (limit "
+                    f"{_MAX_WHEEL_UNPACKED_BYTES}); entries "
+                    f"{len(archive.infolist())} (limit 50000)"
+                ),
+            )
+        for info in archive.infolist():
+            name = info.filename
+            relative = PurePosixPath(name)
+            # Reject every unsafe archive path form before reading members.
+            # pylint: disable=too-many-boolean-expressions
+            if (
+                not name
+                or "\\" in name
+                or ":" in name
+                or relative.is_absolute()
+                or any(
+                    part in {"", ".", ".."}
+                    for part in name.rstrip("/").split("/")
+                )
+                or stat.S_ISLNK(info.external_attr >> 16)
+            ):
+                raise _reject("unsafe archive path")
+            if info.is_dir():
+                continue
+            key = os.path.normcase(name).casefold()
+            # Entry-point declarations remain metadata; no launchers are made.
+            if key in normalized or name.endswith(".pth"):
+                raise _reject("duplicate archive path or pth payload")
+            normalized.add(key)
+            result[name] = archive.read(info)
+            if info.external_attr >> 16 & 0o111:
+                result.executable_paths.add(name)
+    if any(
+        str(parent) in result
+        for name in result
+        for parent in PurePosixPath(name).parents
+        if str(parent) != "."
+    ):
+        raise _reject("archive paths overlap")
+    return result
+
+
+def _validate_record(files: Mapping[str, bytes], record: str) -> None:
+    rows = list(csv.reader(io.StringIO(files[record].decode("utf-8"))))
+    seen = set()
+    for row in rows:
+        if len(row) != 3 or row[0] in seen or row[0] not in files:
+            raise _reject("RECORD rows invalid")
+        name, digest, length = row
+        seen.add(name)
+        if name == record:
+            if digest or length:
+                raise _reject("RECORD self entry invalid")
+            continue
+        expected = (
+            base64.urlsafe_b64encode(hashlib.sha256(files[name]).digest())
+            .decode()
+            .rstrip("=")
+        )
+        if digest != "sha256=" + expected or length != str(len(files[name])):
+            raise _reject("RECORD hash mismatch")
+    if seen != set(files):
+        raise _reject("RECORD files incomplete")
+
+
+def _script_bytes(content, executable, windows):
+    """Bind wheel Python scripts to the audited interpreter without running."""
+    first, _, rest = content.partition(b"\n")
+    if first.rstrip(b"\r") not in {b"#!python", b"#!pythonw"}:
+        return content, False
+    if any(character in executable for character in "\r\n\x00"):
+        raise _reject("unsafe interpreter path")
+    encoded = os.fsencode(executable)
+    if windows:
+        if '"' in executable:
+            raise _reject("unsafe Windows interpreter path")
+        if any(character.isspace() for character in executable):
+            encoded = b'"' + encoded + b'"'
+        header = b"#!" + encoded + b"\n"
+    elif any(character.isspace() for character in executable) or (
+        len(encoded) + 3 > 127
+    ):
+        if "\\" in executable:
+            raise _reject("unsafe shell interpreter path")
+        cookie, _, body = rest.partition(b"\n")
+        if re.match(rb"[ \t\f]*#.*?coding[:=][ \t]*[-\w.]+", cookie):
+            rest = body
+            cookie += b"\n"
+        else:
+            cookie = b""
+        header = (
+            b"#!/bin/sh\n"
+            + cookie
+            + b"'''exec' "
+            + os.fsencode(shlex.quote(executable))
+            + b" \"$0\" \"$@\"\n' '''\n"
+        )
+    else:
+        header = b"#!" + encoded + b"\n"
+    return header + rest, True
+
+
+def _unsafe_target_component(component, windows):
+    """Apply the same portable name restrictions to scripts and data."""
+    return (
+        component.endswith((".", " "))
+        or any(ord(character) < 32 for character in component)
+        or (
+            windows
+            and (
+                any(character in '<>"|?*' for character in component)
+                or component.split(".", 1)[0].upper()
+                in {"CON", "PRN", "AUX", "NUL"}
+                | {
+                    f"{prefix}{number}"
+                    for prefix in ("COM", "LPT")
+                    for number in range(1, 10)
+                }
+            )
+        )
+    )
+
+
+def _install_data(members, info, snapshot):
+    """Relocate verified wheel data areas within the target installation."""
+    # pylint: disable=too-many-boolean-expressions
+    directory = (
+        "Scripts"
+        if snapshot.marker_environment.get("os_name") == "nt"
+        or snapshot.marker_environment.get("sys_platform") == "win32"
+        else "bin"
+    )
+    data = info.removesuffix(".dist-info") + ".data"
+    installed = WheelFiles()
+    scripts = set()
+    destinations = set()
+    relocated = False
+    for path, content in members.items():
+        parts = PurePosixPath(path).parts
+        destination = path
+        if parts[0].casefold().endswith(".data"):
+            if (
+                len(parts) < 3
+                or parts[0] != data
+                or parts[1] not in {"scripts", "data"}
+                or any(
+                    _unsafe_target_component(part, directory == "Scripts")
+                    for part in parts[2:]
+                )
+            ):
+                raise _reject("unsupported wheel data payload")
+            relocated = True
+            if parts[1] == "scripts":
+                if (
+                    len(parts) != 3
+                    or parts[2].split(".", 1)[0].casefold() == "__init__"
+                ):
+                    raise _reject("unsupported script payload")
+                destination = f"{directory}/{parts[2]}"
+                scripts.add(destination)
+                content, python_script = _script_bytes(
+                    content,
+                    snapshot.executable,
+                    directory == "Scripts",
+                )
+                if (python_script and directory == "bin") or (
+                    path in members.executable_paths
+                ):
+                    installed.executable_paths.add(destination)
+            else:
+                if (
+                    parts[2]
+                    .casefold()
+                    .endswith(
+                        (".dist-info", ".egg-info", ".data"),
+                    )
+                ):
+                    raise _reject("data payload introduces metadata or scheme")
+                destination = "/".join(parts[2:])
+                if path in members.executable_paths:
+                    installed.executable_paths.add(destination)
+        if destination.casefold() in destinations:
+            raise _reject("wheel data paths overlap")
+        destinations.add(destination.casefold())
+        installed[destination] = content
+        if path in members.executable_paths:
+            installed.executable_paths.add(destination)
+    if relocated:
+        directories = {}
+        for parent in _directories(installed):
+            key = parent.casefold()
+            if key in destinations or (
+                key in directories and directories[key] != parent
+            ):
+                raise _reject("wheel data paths overlap")
+            directories[key] = parent
+        record = f"{info}/RECORD"
+        rows = io.StringIO(newline="")
+        writer = csv.writer(rows, lineterminator="\n")
+        for path, content in installed.items():
+            if path != record:
+                digest = (
+                    base64.urlsafe_b64encode(
+                        hashlib.sha256(content).digest(),
+                    )
+                    .decode()
+                    .rstrip("=")
+                )
+                writer.writerow((path, "sha256=" + digest, len(content)))
+        writer.writerow((record, "", ""))
+        installed[record] = rows.getvalue().encode("utf-8")
+    return installed, scripts, directory
+
+
+def _check_script_paths(scripts, directory, snapshot, target):
+    """Allow shared script directories without merging import providers."""
+    key = directory.casefold()
+    if any(
+        key in {top.casefold() for top in row["top_level"]}
+        for row in snapshot.distributions.values()
+    ):
+        raise _reject(
+            "script directory conflicts with installed provider",
+            "DEPENDENCY_RESTART_REQUIRED",
+        )
+    for site in snapshot.sites:
+        root = Path(site)
+        for child in root.iterdir() if root.is_dir() else ():
+            if child.name.casefold() == key:
+                if (
+                    child.is_symlink()
+                    or not child.is_dir()
+                    or any(
+                        path.name.casefold().startswith("__init__.")
+                        for path in child.iterdir()
+                    )
+                    or (root == target and child.name != directory)
+                ):
+                    raise _reject(
+                        "script directory is unsafe",
+                        "DEPENDENCY_RESTART_REQUIRED",
+                    )
+            elif child.name.split(".", 1)[0].casefold() == key and (
+                child.suffix.lower() in {".py", ".pyc", ".so", ".pyd"}
+            ):
+                raise _reject(
+                    "script directory conflicts with installed module",
+                    "DEPENDENCY_RESTART_REQUIRED",
+                )
+    destination = target / directory
+    existing = (
+        {path.name.casefold() for path in destination.iterdir()}
+        if destination.is_dir()
+        else set()
+    )
+    if any(
+        PurePosixPath(path).name.casefold() in existing for path in scripts
+    ):
+        raise _reject(
+            "script already installed",
+            "DEPENDENCY_RESTART_REQUIRED",
+        )
+
+
+def _directories(files):
+    return {
+        str(parent)
+        for path in files
+        for parent in PurePosixPath(path).parents
+        if str(parent) != "."
+    }
+
+
+def _check_overlap(left, left_dirs, right, right_dirs, reason):
+    """Only implicit namespace directories may belong to two providers."""
+    left, right = (
+        {path.casefold() for path in paths} for paths in (left, right)
+    )
+    left_dirs, right_dirs = (
+        {path.casefold() for path in paths}
+        for paths in (left_dirs, right_dirs)
+    )
+    shared = left_dirs & right_dirs
+    initializers = {
+        str(PurePosixPath(path).parent)
+        for path in left | right
+        if PurePosixPath(path).name.startswith("__init__.")
+    }
+
+    def modules(paths):
+        return {
+            str(
+                PurePosixPath(path).with_name(
+                    PurePosixPath(path).name.split(".", 1)[0],
+                ),
+            )
+            for path in paths
+            if PurePosixPath(path).suffix in {".py", ".pyc", ".so", ".pyd"}
+        }
+
+    left_modules, right_modules = modules(left), modules(right)
+    if (
+        left & (right | right_dirs)
+        or right & left_dirs
+        or shared & initializers
+        or left_modules & (right_modules | right_dirs)
+        or right_modules & left_dirs
+    ):
+        raise _reject("archive paths overlap", reason)
+
+
+def _check_installed_tree(
+    files,
+    directories,
+    sites,
+    *,
+    replaced=(),
+    reason="DEPENDENCY_RESTART_REQUIRED",
+):
+    """Inspect only intersecting directories, retaining namespace siblings."""
+    replaced = {Path(path) for path in replaced}
+    owned_dirs = {parent for path in replaced for parent in path.parents}
+
+    def retained(path):
+        if path.is_symlink():
+            return True
+        if path in replaced:
+            return False
+        if replaced and path.name == "__pycache__" and path.is_dir():
+            # Orphaned bytecode is not an import provider. Keep the actual
+            # files for collision checks; replacement does not own them.
+            return any(
+                child.is_symlink()
+                or not child.is_file()
+                or child.suffix != ".pyc"
+                for child in path.iterdir()
+            )
+        if path in owned_dirs and path.is_dir():
+            return any(retained(child) for child in path.iterdir())
+        return True
+
+    for site in sites:
+        root = Path(site)
+        existing, existing_dirs = set(), set()
+        for relative in {".", *directories}:
+            directory = root / relative
+            if directory.is_symlink():
+                raise _reject("installed directory is linked", reason)
+            if not directory.is_dir():
+                continue
+            with os.scandir(directory) as entries:
+                for entry in entries:
+                    if not retained(Path(entry.path)):
+                        continue
+                    path = str(PurePosixPath(relative) / entry.name)
+                    if entry.is_dir(follow_symlinks=False):
+                        existing_dirs.add(path)
+                    else:
+                        existing.add(path)
+        _check_overlap(
+            files,
+            directories,
+            existing,
+            existing_dirs,
+            reason,
+        )
+
+
+# Whole-set archive and collision validation is deliberately fail-closed.
+# pylint: disable=too-many-branches,too-many-boolean-expressions,too-many-statements
+def validate_additions(
+    additions: tuple[WheelAddition, ...],
+    snapshot: DependencySnapshot,
+    target: Path,
+) -> tuple[dict[str, bytes], DependencySnapshot]:
+    """Return verified bytes and proposed metadata for closure checks."""
+    files = WheelFiles()
+    distributions = dict(snapshot.distributions)
+    occupied = set()
+    script_directories = set()
+    script_paths = set()
+    artifact, stage = "<unknown>", "wheel filename"
+    try:
+        for addition in additions:
+            artifact, stage = "<unknown>", "wheel filename"
+            artifact = Path(addition.path).name
+            name, version, _, tags = parse_wheel_filename(artifact)
+            name = str(name)
+            if name in distributions:
+                raise _reject(
+                    "distribution already installed",
+                    "DEPENDENCY_RESTART_REQUIRED",
+                )
+            if not {str(tag) for tag in tags}.intersection(
+                snapshot.supported_tags,
+            ):
+                raise _reject("wheel tags incompatible")
+            stage = "archive"
+            members = _members(addition)
+            stage = "metadata"
+            infos = {
+                path.split("/", 1)[0]
+                for path in members
+                if path.split("/", 1)[0].endswith(".dist-info")
+            }
+            if len(infos) != 1:
+                raise _reject("dist-info directory count invalid")
+            info = infos.pop()
+            info_name, _, info_version = info.removesuffix(
+                ".dist-info",
+            ).rpartition("-")
+            metadata = BytesParser().parsebytes(members[f"{info}/METADATA"])
+            wheel = BytesParser().parsebytes(members[f"{info}/WHEEL"])
+            if not valid_metadata_headers(
+                metadata,
+                ("Name", "Version"),
+                ("Requires-Python",),
+            ) or not valid_metadata_headers(
+                wheel,
+                ("Wheel-Version", "Root-Is-Purelib"),
+                ("Build",),
+            ):
+                raise _reject("metadata headers invalid")
+            if (
+                canonicalize_name(metadata["Name"]) != name
+                or Version(metadata["Version"]) != version
+                or canonicalize_name(info_name) != name
+                or Version(info_version) != version
+                or wheel["Wheel-Version"] != "1.0"
+                or wheel["Root-Is-Purelib"] not in {"true", "false"}
+                or set(wheel.get_all("Tag", [])) != {str(tag) for tag in tags}
+            ):
+                raise _reject("distribution identity mismatch")
+            requires_python = metadata.get("Requires-Python")
+            if requires_python and not SpecifierSet(requires_python).contains(
+                snapshot.marker_environment["python_full_version"],
+                prereleases=True,
+            ):
+                raise _reject("Requires-Python incompatible")
+            stage = "RECORD"
+            _validate_record(members, f"{info}/RECORD")
+            tops = {
+                path.split("/", 1)[0]
+                for path in members
+                if not path.split("/", 1)[0].endswith(".data")
+            }
+            has_data = any(
+                path.startswith(
+                    info.removesuffix(".dist-info") + ".data/data/",
+                )
+                for path in members
+            )
+            stage = "wheel data"
+            members, scripts, directory = _install_data(
+                members,
+                info,
+                snapshot,
+            )
+            provider_tops = [
+                top.split(".", 1)[0] for top in tops if top != info
+            ]
+            if has_data:
+                # Match the unchanged fresh audit for newly accepted data
+                # wheels, including conservative namespace import roots.
+                provider_tops = set(
+                    members.get(f"{info}/top_level.txt", b"")
+                    .decode("utf-8")
+                    .split(),
+                ) or {name.replace("-", "_")}
+                for path in members:
+                    parts = path.split("/")
+                    part = parts[0]
+                    if (
+                        len(parts) == 2
+                        and part in {"bin", "Scripts"}
+                        and not parts[1].casefold().startswith("__init__.")
+                    ):
+                        continue
+                    if not part.endswith((".dist-info", ".egg-info")):
+                        provider_tops.add(part.split(".", 1)[0])
+                tops = {*provider_tops, info}
+            stems = {top.split(".", 1)[0] for top in tops}
+            if (
+                {stem.casefold() for stem in stems} & script_directories
+                or (
+                    scripts
+                    and directory.casefold()
+                    in {stem.casefold() for stem in stems | occupied}
+                )
+                or {path.casefold() for path in scripts} & script_paths
+            ):
+                raise _reject("script paths overlap")
+            if scripts:
+                _check_script_paths(scripts, directory, snapshot, target)
+                script_directories.add(directory.casefold())
+                script_paths.update(path.casefold() for path in scripts)
+            stage = "ownership"
+            directories = _directories(members)
+            _check_overlap(
+                members,
+                directories,
+                files,
+                _directories(files),
+                "DEPENDENCY_PLAN_UNVERIFIED",
+            )
+            _check_installed_tree(members, directories, snapshot.sites)
+            for site in snapshot.sites:
+                for origin in Path(site).glob("*.dist-info"):
+                    text = origin / "METADATA"
+                    installed = (
+                        BytesParser().parsebytes(text.read_bytes())
+                        if text.is_file()
+                        else {}
+                    )
+                    claimed = installed.get("Name")
+                    if (
+                        claimed and canonicalize_name(claimed) == name
+                    ) or origin.name.lower().replace("_", "-").startswith(
+                        name + "-",
+                    ):
+                        raise _reject(
+                            "installed distribution identity conflicts",
+                            "DEPENDENCY_RESTART_REQUIRED",
+                        )
+            occupied.update(stems)
+            files.update(members)
+            files.executable_paths.update(members.executable_paths)
+            distributions[name] = {
+                "version": str(version),
+                "metadata_path": str(target / info),
+                "requires_dist": tuple(metadata.get_all("Requires-Dist", [])),
+                "top_level": tuple(sorted(provider_tops)),
+            }
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        OSError,
+        zipfile.BadZipFile,
+    ) as exc:
+        logger.info(
+            "Wheel validation failed: thread=%s artifact=%s stage=%s "
+            "exception=%s errno=%s",
+            threading.get_ident(),
+            ascii(artifact)[1:-1][:160],
+            stage,
+            type(exc).__name__,
+            exc.errno if isinstance(exc, OSError) else None,
+        )
+        if hasattr(exc, "reason_code"):
+            raise
+        raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED") from None
+    return files, DependencySnapshot(
+        snapshot.executable,
+        snapshot.prefix,
+        snapshot.sites,
+        snapshot.marker_environment,
+        snapshot.supported_tags,
+        distributions,
+        snapshot.dependency_sites,
+    )
