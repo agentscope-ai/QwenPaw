@@ -77,7 +77,7 @@ def test_sqlite_uri_rejects_verbatim_volume_paths():
         r"\\?\GLOBALROOT\Device\HarddiskVolume3\history.db",
         r"\\?\volume{lower-case-guid}\history.db",
     ):
-        with pytest.raises(ValueError, match="verbatim path"):
+        with pytest.raises(ValueError, match="absolute path"):
             sqlite_uri(PureWindowsPath(raw), "ro")
 
 
