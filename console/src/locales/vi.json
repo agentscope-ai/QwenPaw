@@ -1341,6 +1341,27 @@
       "copyBackend": "Sao chép nhật ký"
     }
   },
+  "approvalNotifications": {
+    "settingTitle": "Thông báo phê duyệt trên desktop",
+    "openApprovals": "Xem các phê duyệt đang chờ",
+    "description": "Nhận thông báo hệ thống khi có yêu cầu phê duyệt trong lúc QwenPaw chạy ở chế độ nền.",
+    "title": "QwenPaw · Cần phê duyệt",
+    "body": "{{tool}} đang chờ bạn phê duyệt. Mở QwenPaw để xem xét.",
+    "failed": "Không thể gửi thông báo. Hãy kiểm tra cài đặt thông báo.",
+    "permission": {
+      "default": "Cần cấp quyền khi bật",
+      "granted": "Đã được trình duyệt cấp quyền",
+      "denied": "Đã chặn — hãy cho phép thông báo trong cài đặt trang web của trình duyệt",
+      "native": "Được quản lý bởi cài đặt thông báo của hệ thống",
+      "checking": "Đang kiểm tra quyền thông báo",
+      "unavailable": "Không thể kiểm tra quyền thông báo hệ thống. Hãy mở lại ứng dụng desktop.",
+      "nativeDefault": "Cần cấp quyền hệ thống khi bật",
+      "nativeGranted": "Đã được cấp quyền thông báo hệ thống",
+      "nativeDenied": "Đã chặn — hãy cho phép QwenPaw trong cài đặt thông báo hệ thống",
+      "unsupported": "Trình duyệt này không hỗ trợ thông báo desktop",
+      "insecure": "Mở qua HTTPS hoặc localhost để bật thông báo"
+    }
+  },
   "inbox": {
     "title": "Hộp thư",
     "tabApprovals": "Phê duyệt",
@@ -1935,6 +1956,7 @@
       "internal": "Do QwenPaw quản lý nội bộ."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Bảo vệ bộ nhớ cho cây tiến trình shell: 0 để tắt, auto sử dụng một nửa bộ nhớ khả dụng (tối đa 4096 MiB), hoặc nhập giới hạn là số nguyên dương theo MiB. Giới hạn được chỉ định cũng không vượt quá một nửa bộ nhớ khả dụng. Thay đổi có hiệu lực từ lần gọi shell tiếp theo; các lệnh đang chạy giữ nguyên giới hạn ban đầu. Bảo vệ bằng kiểm tra định kỳ không phải là giới hạn bộ nhớ cứng do hệ điều hành áp đặt.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Thời gian chờ tối đa cho nội dung stream đầu tiên; đặt 0 để tắt giám sát.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Thời gian chờ tối đa giữa các phần stream; đặt 0 để tắt giám sát."
     },
@@ -2027,6 +2049,10 @@
       "view_video": {
         "name": "Xem video",
         "description": "Tải video để mô hình phân tích."
+      },
+      "view_audio": {
+        "name": "Nghe âm thanh",
+        "description": "Tải âm thanh để mô hình phiên âm hoặc phân tích."
       },
       "enhance_and_generate_image": {
         "name": "Cải thiện và tạo hình ảnh",
@@ -2805,6 +2831,8 @@
     "rubricPrompt": "Tiêu chí hoàn thành bằng ngôn ngữ tự nhiên",
     "rubricPromptTooltip": "Prompt được chèn để yêu cầu agent đánh giá hoàn thành nhiệm vụ",
     "rubricDesc": "Áp dụng tiêu chí hoàn thành bằng ngôn ngữ tự nhiên cho phản hồi văn bản không có lệnh gọi công cụ và yêu cầu agent tiếp tục nếu còn việc.",
+    "rubricUseDecisionModel": "Dùng mô hình quyết định để hỗ trợ tự kiểm tra",
+    "rubricUseDecisionModelHelp": "Cuộc trò chuyện và kết quả công cụ được gửi đến mô hình quyết định đã chọn. Mô hình có thể chỉ ra điều bị bỏ sót để tác tử kiểm tra. Nếu không có gợi ý hoặc mô hình không khả dụng, tác tử vẫn tự kiểm tra như thường lệ.",
     "rubricPromptPlaceholder": "Bạn không gọi công cụ nào. Nếu nhiệm vụ hoàn thành, hãy xác nhận. Nếu không, tiếp tục với các lệnh gọi công cụ.",
     "rubricMaxInterventions": "Số vòng đánh giá tối đa",
     "rubricMaxInterventionsTooltip": "Số lần kiểm tra hoàn thành tối đa cho phản hồi văn bản không có lệnh gọi công cụ trong một lượt.",
@@ -3560,7 +3588,7 @@
     "fieldWebSocketHost": "Máy chủ WebSocket",
     "fieldWebSocketPort": "Cổng WebSocket",
     "matrixUserHelp": "Nhập MXID đầy đủ (như @bot:matrix.org) hoặc tên cục bộ (bot).",
-    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element) và cài: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Sau khi bật, xác minh thiết bị trong Matrix (như Element).",
     "matrixDeviceHelp": "Tên thiết bị Matrix cố định. Mặc định: qwenpaw-worker.",
     "messageTypeHelp": "markdown: tin nhắn thường; card: thẻ AI tương tác.",
     "scheduledMessageTypeHelp": "Loại tin nhắn theo lịch, độc lập với định dạng trò chuyện.",

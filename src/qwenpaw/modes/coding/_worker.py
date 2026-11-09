@@ -69,7 +69,7 @@ class Worker:
             if not future.done():
                 future.set_exception(RuntimeError(f"Code host disconnected"))
 
-    async def call(self, name: str, *args, **kwargs):
+    async def call(self, name: str, /, *args, **kwargs):
         self.sequence += 1
         call_id = self.sequence
         future = self.loop.create_future()

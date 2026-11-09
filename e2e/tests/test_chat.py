@@ -905,11 +905,7 @@ class TestToolApproval:
         def set_decision_state(route):
             response = route.fetch()
             view = response.json()
-            view["decision"] = {
-                "configured": True,
-                "enabled": decision_enabled,
-                "override": decision_enabled,
-            }
+            view["decision_model_configured"] = decision_enabled
             route.fulfill(response=response, json=view)
 
         thinking_url = re.compile(

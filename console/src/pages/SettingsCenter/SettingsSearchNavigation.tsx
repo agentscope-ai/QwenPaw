@@ -4,7 +4,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import type { SettingsSearchTarget } from "@/plugins/settingsSearch";
 import { useSettingsSearchTarget } from "./useSettingsSearchTarget";
 
-/** Plugin pages keep their registered routes outside the settings shell. */
+/** Locate plugin settings fields at their original registered URLs. */
 export function SettingsSearchNavigation() {
   const location = useLocation();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);

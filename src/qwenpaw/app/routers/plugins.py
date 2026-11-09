@@ -50,13 +50,30 @@ def dependency_http_error(exc):
                 "operation": exc.operation,
             },
         )
+    code = exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED"
+    instructions = {
+        "DEPENDENCY_UNSATISFIED": "Resolve the missing dependency requirements, then retry installation.",
+        "DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED": (
+            "The dependency environment changed; verify the active "
+            "environment, then retry installation."
+        ),
+        "DEPENDENCY_REPAIR_REQUIRED": "Complete the pending dependency repair before retrying installation.",
+        "DEPENDENCY_RESTART_REQUIRED": (
+            "Restart the backend to release the affected dependencies, "
+            "then retry installation."
+        ),
+    }
+    logger.info("Plugin dependency refusal: code=%s", _log_safe(code))
     return HTTPException(
         status_code=409,
         detail={
-            "code": exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED",
+            "code": code,
             "message": str(exc),
             "instructions": [
-                "Resolve the shared dependency requirements, then retry installation.",
+                instructions.get(
+                    code,
+                    "Review the dependency preparation error before retrying installation.",
+                ),
             ],
         },
     )
@@ -884,7 +901,8 @@ async def unload_plugin_keep_config(
     summary="Repair plugin dependencies",
     description=(
         "Explicitly install missing plugin dependencies, then load. "
-        "Host-package upgrades are rejected and require a backend restart."
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
     ),
 )
 async def repair_plugin_dependencies(plugin_id: str, request: Request):

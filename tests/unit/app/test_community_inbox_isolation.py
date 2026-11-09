@@ -13,6 +13,59 @@ pytestmark = [pytest.mark.unit, pytest.mark.p0]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "event_id, expected_ids, unread_count",
+    [
+        ("local-event", ["local-event"], 1),
+        ("community:read", ["community:read"], 0),
+        ("community:unread", ["community:unread"], 1),
+        ("missing-event", [], 0),
+    ],
+)
+@pytest.mark.parametrize("unread_only", [False, True])
+async def test_notification_lookup_filters_both_inbox_sources(
+    monkeypatch,
+    event_id,
+    expected_ids,
+    unread_count,
+    unread_only,
+):
+    monkeypatch.setattr(
+        inbox_store,
+        "_load_events",
+        lambda: [
+            {"id": "local-event", "created_at": 1, "read": False},
+            {"id": "other-local", "created_at": 5, "read": False},
+        ],
+    )
+
+    async def community_snapshot():
+        return [
+            {"id": "community:read", "created_at": 2, "read": True},
+            {"id": "community:unread", "created_at": 3, "read": False},
+        ], "account-scope"
+
+    monkeypatch.setattr(community_store, "inbox_snapshot", community_snapshot)
+    result = await console.get_inbox_events(
+        limit=1,
+        offset=0,
+        source_type=None,
+        source_types=None,
+        status=None,
+        agent_id=None,
+        unread_only=unread_only,
+        exclude_acl_pending=False,
+        event_id=event_id,
+    )
+    if unread_only and not unread_count:
+        expected_ids = []
+    assert [event["id"] for event in result["events"]] == expected_ids
+    assert result["total"] == len(expected_ids)
+    assert result["unread_count"] == unread_count
+    assert result["community_scope"] == "account-scope"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "contents",
     [
         "broken json",
@@ -52,6 +105,7 @@ async def test_corrupt_community_history_keeps_local_events(
         agent_id=None,
         unread_only=False,
         exclude_acl_pending=False,
+        event_id=None,
     )
     assert [event["id"] for event in result["events"]] == ["local-event"]
     assert result["unread_count"] == 1
