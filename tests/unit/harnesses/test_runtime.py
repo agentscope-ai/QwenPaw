@@ -396,3 +396,36 @@ async def test_runtime_handles_host_clear_for_every_backend(
 
     assert adapter.reset_session_id == "chat-1"
     assert output[-1].output[-1].metadata["clear_history"] is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_treats_unknown_slash_text_as_prompt(
+    tmp_path: Path,
+) -> None:
+    runtime = HarnessRuntime(tmp_path)
+    adapter = CommandAdapter()
+    runtime._adapters["codex"] = adapter
+    prompt = "/app/working/workspaces/<agent>/report.md"
+    request = AgentRequest(
+        session_id="chat-1",
+        input=[
+            Message(
+                role=Role.USER,
+                content=[TextContent(text=prompt)],
+            ),
+        ],
+    )
+
+    output = [
+        item
+        async for item in runtime.stream(
+            backend="codex",
+            request=request,
+            cwd=tmp_path.resolve(),
+        )
+    ]
+
+    assert adapter.command == ""
+    assert adapter.prompt == prompt
+    assert output[-1].status == "completed"
+    assert output[-1].output[-1].content[0].text == "Fixed"
