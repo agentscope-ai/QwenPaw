@@ -307,6 +307,9 @@ async def test_management_replaces_instances_and_preserves_user_data(
         "codex",
         "qoder",
     }
+    assert all(
+        row["status"] == "available" for row in catalog.json()["providers"]
+    )
     assert plugin(host).created == []
     created = await host.request(
         "POST",
@@ -323,13 +326,19 @@ async def test_management_replaces_instances_and_preserves_user_data(
     assert (await host.harness_status("codex", workspace_id="third")).installed
     old = plugin(host).created[0]
     old_context = old.calls[0]
+    registry = host._loader.registry.backend_registry
+    old_owner = registry.require("codex").owner
     assert (await host.set_enabled("qwenpaw-harness-codex", False)).ok
     assert old.closed
+    assert registry.describe("codex").status == "disabled"
     assert (await host.harness_status("qoder", workspace_id="third")).installed
     assert (await host.set_enabled("qwenpaw-harness-codex", True)).ok
     assert (await host.harness_status("codex", workspace_id="third")).installed
     new = plugin(host).created[0]
     assert new is not old and new.context is not old.context
+    with pytest.raises(StaleContextError):
+        registry.require("codex", owner=old_owner)
+    assert registry.describe("codex").status == "available"
     for scope in (old.context.resources, old_context.resources):
         with pytest.raises((ResourceError, StaleContextError)):
             scope.defer(lambda: None)
@@ -795,6 +804,12 @@ async def test_cancel_releases_busy_owner_and_next_turn_runs(host):
         with pytest.raises(PluginBusyError):
             await host._loader.unload_plugin("qwenpaw-harness-codex")
         assert not plugin(host).created[0].closed
+        assert (
+            host._loader.registry.backend_registry.describe(
+                "codex",
+            ).status
+            == "available"
+        )
     finally:
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -856,6 +871,14 @@ async def test_pawport_requires_plugin_before_scan_then_reads_history(
         }
         scan.assert_not_called()
     assert (await host.install(tmp_path / "source-codex")).ok
+    assert (await host.set_enabled("qwenpaw-harness-codex", False)).ok
+    with monkeypatch.context() as scoped:
+        scoped.setattr(providers, "resolve_source_location", scan)
+        with pytest.raises(providers.HarnessPluginRequiredError) as caught:
+            providers.create_migration_provider("codex", workspace)
+        assert caught.value.detail["state"] == "disabled"
+        scan.assert_not_called()
+    assert (await host.set_enabled("qwenpaw-harness-codex", True)).ok
     provider = providers.create_migration_provider(
         "codex",
         workspace,

@@ -84,15 +84,11 @@ class BackendExecution:
         if self._closed:
             raise StaleContextError("Workspace backend runtime is closed")
         try:
-            entry = self._registry.get(backend_id)
+            entry = self._registry.require(backend_id)
         except StaleContextError as exc:
             raise StaleContextError(
                 f"backend_unavailable: Backend {backend_id!r}: {exc}",
             ) from exc
-        if entry is None or entry._context is None:
-            raise SDKError(
-                f"backend_unavailable: Backend {backend_id!r} is unavailable",
-            )
         return entry
 
     async def _instance(self, entry, settings):

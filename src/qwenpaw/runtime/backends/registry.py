@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -13,6 +14,7 @@ from ...plugins.errors import SDKError, StaleContextError
 from ...plugins.harnesses import HarnessCapabilities, HarnessSpec
 from ...plugins.resources import Registration, ResourceOwner
 from ...plugins.activity import PluginBusyError
+from ...plugins.tools import ConfigField
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,8 @@ class BackendDescriptor:
     plugin_id: str
     capabilities: HarnessCapabilities | None = None
     registered: bool = False
+    status: str = "disabled"
+    config_fields: tuple[ConfigField, ...] = ()
 
 
 @dataclass
@@ -35,23 +39,20 @@ class _BackendRegistration:
     _admitted: bool = True
 
     def assert_active(self):
-        if (
-            not self._admitted
-            or self._registry._entries.get(self.spec.id) is not self
-        ):
-            raise StaleContextError(
-                f"Harness {self.spec.id!r} has been released",
-            )
-        if self._guard is not None:
-            self._guard()
+        self._registry._validate(self)
 
 
 class BackendRegistry:
     """Own each declaration by plugin generation and context identity."""
 
-    def __init__(self, manifests: Callable[[], dict] | None = None):
+    def __init__(
+        self,
+        manifests: Callable[[], dict] | None = None,
+        states: Callable[[], dict] | None = None,
+    ):
         self._entries: dict[str, _BackendRegistration] = {}
         self._manifests = manifests or dict
+        self._states = states or dict
 
     def register(
         self,
@@ -96,20 +97,112 @@ class BackendRegistry:
                 entry._guard = guard
                 entry._context = context
 
-    def get(self, backend_id: str) -> _BackendRegistration | None:
+    def _validate(self, entry, *, owner: ResourceOwner | None = None):
+        if (
+            not entry._admitted
+            or self._entries.get(entry.spec.id) is not entry
+        ):
+            raise StaleContextError(
+                f"Harness {entry.spec.id!r} has been released",
+            )
+        if owner is not None and entry.owner != owner:
+            raise StaleContextError(
+                f"Harness {entry.spec.id!r} owner has been replaced",
+            )
+        if entry._context is None or entry._guard is None:
+            raise StaleContextError(
+                f"Harness {entry.spec.id!r} context is not bound",
+            )
+        resources = getattr(entry._context, "resources", None)
+        if getattr(resources, "owner", None) != entry.owner:
+            raise StaleContextError(
+                f"Harness {entry.spec.id!r} context owner does not match",
+            )
+        entry._guard()
+
+    def require(
+        self,
+        backend_id: str,
+        *,
+        owner: ResourceOwner | None = None,
+    ) -> _BackendRegistration:
         entry = self._entries.get(backend_id)
-        if entry is not None:
-            entry.assert_active()
+        if entry is None:
+            raise SDKError(
+                f"backend_unavailable: Backend {backend_id!r} is unavailable",
+            )
+        self._validate(entry, owner=owner)
         return entry
 
-    def descriptors(self) -> tuple[BackendDescriptor, ...]:
-        rows = {
-            entry.spec.id: BackendDescriptor(
+    def _descriptor(self, backend_id, label, plugin_id, entry=None):
+        status = "disabled"
+        if entry is not None:
+            try:
+                self._validate(entry)
+                status = "available"
+            except SDKError:
+                instance = getattr(entry._context, "_instance", None)
+                if instance is not None and instance.state.value == "failed":
+                    status = "failed"
+        if status == "disabled" and self._states().get(plugin_id) == "failed":
+            status = "failed"
+        return BackendDescriptor(
+            id=backend_id,
+            label=label,
+            plugin_id=plugin_id,
+            capabilities=(
+                deepcopy(entry.spec.capabilities)
+                if entry is not None
+                else None
+            ),
+            registered=entry is not None,
+            status=status,
+            config_fields=(
+                deepcopy(entry.spec.config_fields) if entry is not None else ()
+            ),
+        )
+
+    def describe(
+        self,
+        backend_id: str,
+        *,
+        plugin_id: str | None = None,
+    ) -> BackendDescriptor | None:
+        entry = self._entries.get(backend_id)
+        if entry is not None and (
+            plugin_id is None or entry.owner.plugin_id == plugin_id
+        ):
+            return self._descriptor(
                 entry.spec.id,
                 entry.spec.label,
                 entry.owner.plugin_id,
-                entry.spec.capabilities,
-                True,
+                entry,
+            )
+        for declared_plugin, manifest in self._manifests().items():
+            if plugin_id is not None and declared_plugin != plugin_id:
+                continue
+            declarations = (manifest.get("meta") or {}).get("harnesses")
+            if not isinstance(declarations, list):
+                continue
+            for declared in declarations:
+                if (
+                    isinstance(declared, dict)
+                    and declared.get("id") == backend_id
+                ):
+                    return self._descriptor(
+                        backend_id,
+                        declared.get("label", backend_id),
+                        declared_plugin,
+                    )
+        return None
+
+    def descriptors(self) -> tuple[BackendDescriptor, ...]:
+        rows = {
+            entry.spec.id: self._descriptor(
+                entry.spec.id,
+                entry.spec.label,
+                entry.owner.plugin_id,
+                entry,
             )
             for entry in self._entries.values()
         }
@@ -123,14 +216,12 @@ class BackendRegistry:
                     str,
                 ):
                     continue
-                rows.setdefault(
-                    declared["id"],
-                    BackendDescriptor(
+                if declared["id"] not in rows:
+                    rows[declared["id"]] = self._descriptor(
                         declared["id"],
                         declared.get("label", declared["id"]),
                         plugin_id,
-                    ),
-                )
+                    )
         return tuple(rows[key] for key in sorted(rows))
 
     def unregister_owner(self, owner: ResourceOwner) -> None:

@@ -208,6 +208,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
             self._backend_registry = BackendRegistry(
                 self.get_harness_manifests,
+                self.get_harness_states,
             )
         return self._backend_registry
 

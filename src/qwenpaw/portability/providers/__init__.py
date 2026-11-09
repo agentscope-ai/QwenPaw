@@ -31,28 +31,16 @@ class HarnessPluginRequiredError(RuntimeError):
 
 def harness_plugin_state(source: str) -> tuple[str, str]:
     """Read current ownership from memory without discovering source data."""
-    from ...plugins.errors import SDKError
     from ...plugins.registry import PluginRegistry
 
     source = canonical_provider_id(source)
     plugin_id = _REQUIRED_PLUGINS[source]
     registry = PluginRegistry()
-    state = registry.get_harness_states().get(plugin_id, "missing")
-    # Retained failed cleanup owners must remain unavailable as well.
-    # pylint: disable=protected-access
-    entry = registry.backend_registry._entries.get(source)
-    if (
-        entry is not None
-        and entry.owner.plugin_id == plugin_id
-        and entry._context is not None
-    ):
-        try:
-            entry.assert_active()
-            return plugin_id, "available"
-        except SDKError:
-            if entry._context._instance.state.value == "failed":
-                state = "failed"
-    # pylint: enable=protected-access
+    descriptor = registry.backend_registry.describe(
+        source,
+        plugin_id=plugin_id,
+    )
+    state = descriptor.status if descriptor is not None else "missing"
     return plugin_id, state
 
 

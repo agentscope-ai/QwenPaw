@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """One host-owned management gateway for active harness contributions."""
 
-# HTTP integration rechecks private SDK owner and generation state.
+# HTTP integration bridges SDK contexts to host-owned route registration.
 # pylint: disable=protected-access
 
 from dataclasses import asdict
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from .activity import PluginBusyError
 from .errors import SDKError
 from .harnesses import HarnessLogin, HarnessOperationNotSupportedError
+from .resources import ResourceOwner
 
 
 class _Settings(BaseModel):
@@ -32,43 +33,19 @@ def backend_catalog(registry):
             "config_fields": [],
         },
     ]
-    states = registry.get_harness_states()
     for descriptor in registry.backend_registry.descriptors():
-        entry = registry.backend_registry._entries.get(descriptor.id)
-        available = False
-        if entry is not None:
-            try:
-                entry.assert_active()
-                available = True
-            except SDKError:
-                pass
-        failed = (
-            entry is not None
-            and entry._context is not None
-            and entry._context._instance.state.value == "failed"
-        )
         rows.append(
             {
                 "id": descriptor.id,
                 "label": descriptor.label,
                 "plugin_id": descriptor.plugin_id,
-                "status": (
-                    "available"
-                    if available
-                    else (
-                        "failed"
-                        if failed
-                        else states.get(descriptor.plugin_id, "disabled")
-                    )
-                ),
+                "status": descriptor.status,
                 "capabilities": (
                     asdict(descriptor.capabilities)
                     if descriptor.capabilities
                     else {}
                 ),
-                "config_fields": (
-                    list(entry.spec.config_fields) if entry is not None else []
-                ),
+                "config_fields": list(descriptor.config_fields),
             },
         )
     return rows
@@ -77,7 +54,7 @@ def backend_catalog(registry):
 class _Gateway:
     def __init__(self, registry, app):
         self.registry, self.app = registry, app
-        self.entries = {}
+        self.entries: dict[str, ResourceOwner] = {}
         self.routes = []
 
     def refresh(self):
@@ -89,21 +66,17 @@ class _Gateway:
         snapshot = dict(self.entries)
         router = APIRouter(prefix="/harnesses", tags=["harnesses"])
 
-        def owner(provider_id):
-            entry = snapshot.get(provider_id)
-            if entry is None:
-                raise HTTPException(
-                    404,
-                    {"code": "backend_unavailable", "backend_id": provider_id},
-                )
+        def owner(provider_id, expected_owner):
             try:
-                entry.assert_active()
+                return self.registry.backend_registry.require(
+                    provider_id,
+                    owner=expected_owner,
+                )
             except SDKError as exc:
                 raise HTTPException(
                     409,
                     {"code": "backend_unavailable", "backend_id": provider_id},
                 ) from exc
-            return entry
 
         async def dispatch(
             provider_id,
@@ -115,26 +88,34 @@ class _Gateway:
             # Resolve the trusted Agent before constructing any backend.
             from ..app.agent_context import get_agent_for_request
 
-            entry = owner(provider_id)
+            expected_owner = snapshot.get(provider_id)
+            if expected_owner is None:
+                raise HTTPException(
+                    404,
+                    {"code": "backend_unavailable", "backend_id": provider_id},
+                )
+            owner(provider_id, expected_owner)
             workspace = await get_agent_for_request(request)
+            owner(provider_id, expected_owner)
             values = settings
             if values is None:
                 from ..config.config import load_agent_config_async
 
                 config = await load_agent_config_async(workspace.agent_id)
+                owner(provider_id, expected_owner)
                 values = (
                     dict(config.backend_settings)
                     if config.backend == provider_id
                     else {}
                 )
             try:
-                entry.assert_active()
                 result = await workspace.backend_runtime.call(
                     provider_id,
                     operation,
                     values,
                     **arguments,
                 )
+                entry = owner(provider_id, expected_owner)
             except HarnessOperationNotSupportedError as exc:
                 raise HTTPException(
                     409,
@@ -169,6 +150,8 @@ class _Gateway:
             )
             return {
                 **asdict(result),
+                # Host admission is separate from vendor install/login state.
+                "available": True,
                 "id": entry.spec.id,
                 "name": entry.spec.label,
                 "capabilities": asdict(entry.spec.capabilities),
@@ -241,9 +224,7 @@ def activate_gateway(context, backend_id):
     if app is None:
         return
     gateway = install_gateway(registry, app)
-    gateway.entries[backend_id] = registry.backend_registry._entries[
-        backend_id
-    ]
+    gateway.entries[backend_id] = context.resources.owner
     gateway.refresh()
 
 
@@ -251,7 +232,6 @@ def release_gateway(context, backend_id):
     registry = context._api._registry
     gateway = getattr(registry, "_harness_gateway", None)
     if gateway is not None:
-        entry = gateway.entries.get(backend_id)
-        if entry is not None and entry.owner == context.resources.owner:
+        if gateway.entries.get(backend_id) == context.resources.owner:
             del gateway.entries[backend_id]
             gateway.refresh()
