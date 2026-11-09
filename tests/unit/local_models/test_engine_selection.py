@@ -193,6 +193,19 @@ async def test_missing_model_does_not_stop_the_other_engine(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_missing_target_runtime_does_not_stop_the_other_engine(tmp_path):
+    manager, llama, mlx = _manager(tmp_path)
+    llama.running = True
+    mlx.installed = False
+
+    with pytest.raises(RuntimeError, match="not installed"):
+        await manager.setup_server("demo", engine="mlx")
+
+    assert llama.shutdown_calls == 0
+    assert llama.running is True
+
+
+@pytest.mark.asyncio
 async def test_starting_mlx_stops_llama_and_persists_engine(tmp_path):
     manager, llama, mlx = _manager(tmp_path)
     llama.running = True
