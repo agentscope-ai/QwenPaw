@@ -74,6 +74,18 @@ class ServerStatus(BaseModel):
         default=None,
         description="Additional info if the server is not available",
     )
+    accelerator: Optional[str] = Field(
+        default=None,
+        description="Active accelerator: metal, cuda, or cpu",
+    )
+    device_name: Optional[str] = Field(
+        default=None,
+        description="Human-readable accelerator device name",
+    )
+    version: Optional[str] = Field(
+        default=None,
+        description="Installed llama.cpp runtime version",
+    )
 
 
 class DownloadProgressResponse(BaseModel):
@@ -143,6 +155,10 @@ class LocalModelConfigRequest(BaseModel):
         default=None,
         description=("Additional generation parameters for local models."),
     )
+    gpu_acceleration: Optional[bool] = Field(
+        default=None,
+        description="Whether llama.cpp may offload layers to the GPU.",
+    )
 
 
 # =========================================================================
@@ -163,6 +179,8 @@ async def server_available(
 ) -> ServerStatus:
     """Check if the local model server is properly installed and ready."""
     installable, install_message = manager.check_llamacpp_installability()
+    accelerator = await manager.get_llamacpp_accelerator()
+    version = await manager.get_llamacpp_version()
 
     if not installable:
         return ServerStatus(
@@ -175,6 +193,9 @@ async def server_available(
                 install_message
                 or "Current environment does not support llama.cpp"
             ),
+            accelerator=accelerator["accelerator"],
+            device_name=accelerator["device_name"],
+            version=version,
         )
 
     installed, message = manager.check_llamacpp_installation()
@@ -188,6 +209,9 @@ async def server_available(
             port=None,
             model_name=None,
             message=message or install_message,
+            accelerator=accelerator["accelerator"],
+            device_name=accelerator["device_name"],
+            version=version,
         )
 
     server_state = manager.get_llamacpp_server_status()
@@ -218,6 +242,9 @@ async def server_available(
         port=server_state["port"],
         model_name=server_state["model_name"],
         message=message,
+        accelerator=accelerator["accelerator"],
+        device_name=accelerator["device_name"],
+        version=version,
     )
 
 
@@ -474,6 +501,9 @@ async def configure_local_model_settings(
 
     if "port" in payload.model_fields_set:
         await local_manager.set_port(payload.port)
+
+    if payload.gpu_acceleration is not None:
+        await local_manager.set_gpu_acceleration(payload.gpu_acceleration)
 
     if payload.generate_kwargs is not None:
         await provider_manager.update_provider_async(

@@ -457,6 +457,52 @@ Available devices:
 
 
 @pytest.mark.asyncio
+async def test_get_accelerator_info_detects_metal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+
+    async def fake_list_devices() -> list[str]:
+        return ["MTL0: Apple M5 Max (110100 MiB, 110100 MiB free)"]
+
+    monkeypatch.setattr(downloader, "list_devices", fake_list_devices)
+    assert await downloader.get_accelerator_info() == {
+        "accelerator": "metal",
+        "device_name": "Apple M5 Max",
+    }
+    assert await downloader.get_accelerator_info() == {
+        "accelerator": "metal",
+        "device_name": "Apple M5 Max",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_server_process_can_force_cpu(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    commands: list[list[str]] = []
+
+    async def fake_start(command, **_kwargs):
+        commands.append(list(command))
+        return _FakeServerProcess()
+
+    monkeypatch.setattr(downloader_module, "start_command_async", fake_start)
+    await downloader._create_server_process(
+        tmp_path / "demo.gguf",
+        None,
+        "demo-model",
+        9001,
+        4096,
+        {},
+        gpu_acceleration=False,
+    )
+    command = commands[0]
+    assert command[command.index("--gpu-layers") + 1] == "0"
+
+
+@pytest.mark.asyncio
 async def test_get_version_reads_stderr_output(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

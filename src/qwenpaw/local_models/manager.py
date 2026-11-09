@@ -36,6 +36,13 @@ class LocalModelConfig(BaseModel):
         ge=1,
         le=65535,
     )
+    gpu_acceleration: bool = Field(
+        default=True,
+        description=(
+            "Whether llama.cpp may offload layers to the GPU. Disable to "
+            "force CPU inference."
+        ),
+    )
 
 
 class LocalModelManager:  # pylint: disable=too-many-public-methods
@@ -119,6 +126,12 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             self._config.port = port
             await self._save_config()
 
+    async def set_gpu_acceleration(self, enabled: bool) -> None:
+        """Persist whether llama.cpp should offload layers to the GPU."""
+        async with self._server_lifecycle_lock:
+            self._config.gpu_acceleration = bool(enabled)
+            await self._save_config()
+
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
@@ -157,6 +170,25 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
     ) -> bool:
         """Return whether the llama.cpp server is ready."""
         return await self._llamacpp_backend.server_ready(timeout=timeout)
+
+    async def get_llamacpp_accelerator(self) -> dict[str, str | None]:
+        """Return the accelerator backing the llama.cpp runtime."""
+        try:
+            return await self._llamacpp_backend.get_accelerator_info()
+        except (RuntimeError, ValueError, OSError) as exc:
+            logger.debug("Failed to read llama.cpp accelerator: %s", exc)
+            return {"accelerator": None, "device_name": None}
+
+    async def get_llamacpp_version(self) -> str | None:
+        """Return the installed llama.cpp runtime version, when available."""
+        installed, _ = self.check_llamacpp_installation()
+        if not installed:
+            return None
+        try:
+            return await self._llamacpp_backend.get_version()
+        except (RuntimeError, ValueError, OSError) as exc:
+            logger.debug("Failed to read llama.cpp version: %s", exc)
+            return None
 
     def get_llamacpp_download_progress(self) -> dict[str, Any]:
         """Return the current llama.cpp download progress."""
@@ -219,6 +251,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 model_name=model_id,
                 max_context_length=self._config.max_context_length,
                 port=self._config.port,
+                gpu_acceleration=self._config.gpu_acceleration,
             )
 
     async def shutdown_server(self) -> None:

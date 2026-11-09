@@ -61,6 +61,7 @@ class _FakeLlamaCppBackend:
         model_name: str,
         max_context_length: int | None = None,
         port: int | None = None,
+        gpu_acceleration: bool | None = None,
     ) -> LlamaCppServerSetupResult:
         self.calls.append(
             (
@@ -72,6 +73,7 @@ class _FakeLlamaCppBackend:
                         model_name,
                         max_context_length,
                         port,
+                        gpu_acceleration,
                     )
                     if value is not None
                 ),
@@ -219,7 +221,10 @@ async def test_local_model_manager_forwards_async_server_calls(
     )
     assert fake_llamacpp_backend.calls == [
         ("server_ready", 7.5),
-        ("setup", (Path("/fake/path/demo"), "demo", 131072, 43110)),
+        (
+            "setup",
+            (Path("/fake/path/demo"), "demo", 131072, 43110, True),
+        ),
         ("shutdown", None),
     ]
 
@@ -246,6 +251,33 @@ async def test_set_max_context_length_persists_local_model_config(
     assert json.loads(config_path.read_text(encoding="utf-8")) == {
         "max_context_length": 131072,
         "port": None,
+        "gpu_acceleration": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_set_gpu_acceleration_persists_local_model_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        local_model_manager_module,
+        "DEFAULT_LOCAL_PROVIDER_DIR",
+        tmp_path,
+    )
+    manager = LocalModelManager(
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
+    )
+
+    await manager.set_gpu_acceleration(False)
+
+    assert manager.get_config().gpu_acceleration is False
+    config_path = tmp_path / LocalModelManager.CONFIG_FILE_NAME
+    assert json.loads(config_path.read_text(encoding="utf-8")) == {
+        "max_context_length": 65536,
+        "port": None,
+        "gpu_acceleration": False,
     }
 
 
@@ -271,6 +303,7 @@ async def test_set_port_persists_local_model_config(
     assert json.loads(config_path.read_text(encoding="utf-8")) == {
         "max_context_length": 65536,
         "port": 43110,
+        "gpu_acceleration": True,
     }
 
 
