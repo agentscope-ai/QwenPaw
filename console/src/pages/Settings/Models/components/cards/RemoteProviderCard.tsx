@@ -136,6 +136,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         <button
           type="button"
           className={styles.selectedModelsLink}
+          data-settings-target="models.manageModels"
           onClick={() => onOpenModels(provider)}
         >
           <span>

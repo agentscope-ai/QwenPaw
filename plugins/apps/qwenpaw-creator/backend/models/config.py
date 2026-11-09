@@ -13,6 +13,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 from models.model_capability_cache import get_capability_cache
 from services.runtime_files.errors import LockTimeoutError
@@ -780,6 +781,43 @@ def protocol_requires_api_key(protocol: str) -> bool:
     return is_anthropic_protocol(protocol) or is_gemini_protocol(protocol)
 
 
+# MaaS hosts serve the Bailian/DashScope API, including the model-bound
+# temporary upload that local media travels through, so they belong with
+# DashScope rather than with the generic gateways.
+_MAAS_HOST = "maas.aliyuncs.com"
+
+
+def is_maas_endpoint(base_url: str) -> bool:
+    """True when *base_url*'s host is maas.aliyuncs.com or a subdomain.
+
+    Hostname parsing (instead of substring matching) keeps lookalike
+    URLs such as ``https://evil.example/.maas.aliyuncs.com`` from
+    selecting the DashScope transport, which would carry the bearer key
+    to whoever owns that host.
+    """
+    candidate = base_url if "://" in base_url else f"//{base_url}"
+    try:
+        hostname = (urlsplit(candidate).hostname or "").casefold()
+    except ValueError:
+        return False
+    return hostname == _MAAS_HOST or hostname.endswith(f".{_MAAS_HOST}")
+
+
+def is_token_plan_protocol(protocol: str) -> bool:
+    """True when *protocol* names the Aliyun Token Plan credential surface.
+
+    Token Plan speaks the DashScope wire format on a ``maas.aliyuncs.com``
+    host, so neither the host nor the API shape separates it from a Bailian
+    deployment. Its key, though, is refused by the model-bound temporary
+    upload API (``GET /api/v1/uploads?action=getPolicy`` answers 401), which
+    is exactly why media bound for it has to stay on the inline Base64
+    budget. Several call sites decide on that difference, so the label match
+    lives here once instead of being spelled out per module.
+    """
+    lowered = (protocol or "").casefold()
+    return "token plan" in lowered or "tokenplan" in lowered
+
+
 # Gateways that reject any explicit ``temperature`` for a model. The seed
 # list omits the field up front for known cases (no wasted first request);
 # ``learn_temperature_unsupported`` records any others at runtime from the
@@ -1085,6 +1123,29 @@ def get_web_grounding_model_name() -> str:
     return _grounding_explicit(
         "model",
         ("WEB_GROUNDING_LLM_MODEL_NAME", "WEB_GROUNDING_VLM_MODEL_NAME"),
+    )
+
+
+def get_web_grounding_model_protocol() -> str:
+    """Protocol label of the credential the grounding verifier borrows.
+
+    The verifier overrides the key, the base URL and the model, and nothing
+    named the protocol, so a grounding section pointed at the LLM's Token
+    Plan credential was judged by the VLM section's protocol: the crop was
+    routed to the model-bound temporary upload that the borrowed key cannot
+    use (``getPolicy`` answers 401), and the request itself was assembled for
+    a wire format the endpoint may not speak. The upload identity and the
+    wire format both belong to the credential, so this reads the protocol
+    from the same source as the other three fields.
+    """
+    source = get_web_grounding_validation_source()
+    if source == "llm":
+        return get_text_protocol()
+    if source == "vlm":
+        return get_vlm_protocol()
+    return _grounding_explicit(
+        "protocol",
+        ("WEB_GROUNDING_LLM_PROTOCOL", "WEB_GROUNDING_VLM_PROTOCOL"),
     )
 
 
@@ -1818,7 +1879,7 @@ def video_backend_for_protocol(protocol: str) -> str | None:
     if not protocol:
         return None
     lowered = protocol.casefold()
-    if "token plan" in lowered or "tokenplan" in lowered:
+    if is_token_plan_protocol(protocol):
         return "wan"
     if "dashscope" in lowered or "百炼" in protocol:
         return "wan"

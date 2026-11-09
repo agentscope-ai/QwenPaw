@@ -373,6 +373,13 @@ async def test_request_cancellation_finishes_delegated_resources(tmp_path):
                 "closed": False,
                 "text": "scoped-reply",
             }
+            # Result publication precedes scope exit and task deregistration.
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while True:
+                    state = host.resource_snapshot("extension-contract")
+                    if not state["resources"] and not state["active_calls"]:
+                        break
+                    await asyncio.sleep(0.01)
             host.assert_quiescent("extension-contract")
         finally:
             if not pending.done():

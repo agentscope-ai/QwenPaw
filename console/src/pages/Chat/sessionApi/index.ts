@@ -685,6 +685,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         throw new DOMException("Aborted", "AbortError");
       }
 
+      // Pending inputs are provisional; a reset can erase them before selection.
+      if ([sessionId, realId].some((id) => id && loadPendingUserMessage(id))) {
+        return { session, realId };
+      }
+
       // Cache the result so subsequent getSession calls return immediately.
       const entry = { session, owner };
       this.sessionResultCache.set(sessionId, entry);
@@ -1004,6 +1009,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       // A runtime session_id can belong to other users/channels or Agents;
       // it must never be used as a shared pending-message cache key.
       this.invalidateConvertedCache(sessionId);
+      this.sessionResultCache.delete(sessionId);
       if (content && content.length > 0) {
         savePendingUserMessage(sessionId, { text, content, clientMessageId });
       } else if (clientMessageId) {
@@ -1123,6 +1129,18 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       if (!generating) {
         pendingIds.forEach(clearPendingUserMessage);
       }
+      return false;
+    }
+
+    // Reset commands erase their own turn, so empty idle history is final.
+    if (
+      !generating &&
+      messages.length === 0 &&
+      ["/clear", "/new"].includes(
+        cached.text.trim().split(" ", 1)[0].toLowerCase(),
+      )
+    ) {
+      pendingIds.forEach(clearPendingUserMessage);
       return false;
     }
 
@@ -1670,6 +1688,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const patchedPending = this.patchLastUserMessage(messages, generating, [
       backendId,
       displayId,
+      listEntry?.id,
       listEntry?.realId,
     ]);
 
