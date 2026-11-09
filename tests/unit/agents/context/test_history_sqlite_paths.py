@@ -59,6 +59,28 @@ def test_sqlite_uri_handles_filesystem_paths(path, expected):
     assert sqlite_uri(path, "rw") == expected + "?mode=rw"
 
 
+def test_sqlite_uri_rejects_relative_paths():
+    """A relative path would land in the URI authority slot."""
+    for relative in (
+        PurePosixPath("history.db"),
+        PureWindowsPath("history.db"),
+        PureWindowsPath("logs/history.db"),
+    ):
+        with pytest.raises(ValueError, match="absolute path"):
+            sqlite_uri(relative, "ro")
+
+
+def test_sqlite_uri_rejects_verbatim_volume_paths():
+    """Dropping ``\\?\\`` would leave a name that no longer hits the volume."""
+    for raw in (
+        r"\\?\Volume{dad3333c-0000-0000-0000-500600000000}\history.db",
+        r"\\?\GLOBALROOT\Device\HarddiskVolume3\history.db",
+        r"\\?\volume{lower-case-guid}\history.db",
+    ):
+        with pytest.raises(ValueError, match="verbatim path"):
+            sqlite_uri(PureWindowsPath(raw), "ro")
+
+
 @pytest.mark.parametrize("mode", ["ro", "rw", "rwc"])
 def test_sqlite_uri_preserves_connection_modes(tmp_path, mode):
     path = tmp_path / "history.db"
