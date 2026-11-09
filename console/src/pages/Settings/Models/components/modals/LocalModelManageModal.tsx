@@ -54,6 +54,7 @@ function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
   maxContextLength: number;
   port: number | null;
   gpuAcceleration: boolean;
+  autoUpdate: boolean;
 } {
   return {
     maxContextLength:
@@ -70,6 +71,7 @@ function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
         ? config.port
         : null,
     gpuAcceleration: config?.gpu_acceleration !== false,
+    autoUpdate: config?.auto_update === true,
   };
 }
 
@@ -178,6 +180,8 @@ export function LocalModelManageModal({
   const [savedServerPort, setSavedServerPort] = useState<number | null>(null);
   const [gpuAcceleration, setGpuAcceleration] = useState(true);
   const [savedGpuAcceleration, setSavedGpuAcceleration] = useState(true);
+  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [savedAutoUpdate, setSavedAutoUpdate] = useState(false);
   const [generateKwargsText, setGenerateKwargsText] = useState("");
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -288,6 +292,8 @@ export function LocalModelManageModal({
       setSavedServerPort(normalizedConfig.port);
       setGpuAcceleration(normalizedConfig.gpuAcceleration);
       setSavedGpuAcceleration(normalizedConfig.gpuAcceleration);
+      setAutoUpdate(normalizedConfig.autoUpdate);
+      setSavedAutoUpdate(normalizedConfig.autoUpdate);
       return { ...normalizedConfig, engine: config?.engine };
     } catch {
       const fallbackConfig = getInitialLocalModelConfig();
@@ -297,6 +303,8 @@ export function LocalModelManageModal({
       setSavedServerPort(fallbackConfig.port);
       setGpuAcceleration(fallbackConfig.gpuAcceleration);
       setSavedGpuAcceleration(fallbackConfig.gpuAcceleration);
+      setAutoUpdate(fallbackConfig.autoUpdate);
+      setSavedAutoUpdate(fallbackConfig.autoUpdate);
       return {
         ...fallbackConfig,
         engine: undefined as LocalEngineId | undefined,
@@ -548,6 +556,8 @@ export function LocalModelManageModal({
     setSavedServerPort(null);
     setGpuAcceleration(true);
     setSavedGpuAcceleration(true);
+    setAutoUpdate(false);
+    setSavedAutoUpdate(false);
     setGenerateKwargsText(initialLocalConfigRef.current.generateKwargsText);
     setSavedGenerateKwargsText(
       initialLocalConfigRef.current.generateKwargsText,
@@ -684,6 +694,26 @@ export function LocalModelManageModal({
       setAdvancedSaving(false);
     }
   }, [gpuAcceleration, message, refreshStatus, t]);
+
+  const handleSaveAutoUpdate = useCallback(async () => {
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        auto_update: autoUpdate,
+      });
+      setSavedAutoUpdate(autoUpdate);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [autoUpdate, message, t]);
 
   const handleSaveGenerateKwargs = useCallback(async () => {
     let parsed: Record<string, unknown> = {};
@@ -1428,6 +1458,37 @@ export function LocalModelManageModal({
               />
               <div className={styles.localAdvancedConfigHint}>
                 {t("models.localServerPortHint")}
+              </div>
+            </div>
+            <div
+              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+            >
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.localAutoUpdateLabel")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined size="1em" />}
+                  loading={advancedSaving}
+                  disabled={autoUpdate === savedAutoUpdate}
+                  onClick={() => {
+                    if (autoUpdate !== savedAutoUpdate) {
+                      void handleSaveAutoUpdate();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
+              </div>
+              <Switch
+                checked={autoUpdate}
+                onChange={setAutoUpdate}
+                aria-label={t("models.localAutoUpdateLabel")}
+              />
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localAutoUpdateHint")}
               </div>
             </div>
 

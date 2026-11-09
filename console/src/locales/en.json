@@ -3172,7 +3172,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "No GPU was detected for this runtime, so inference runs on the CPU.",
     "localGpuAccelerationLabel": "GPU acceleration",
-    "localGpuAccelerationHint": "Turn off to force llama.cpp to run on the CPU. Takes effect the next time the local server starts."
+    "localGpuAccelerationHint": "Turn off to force llama.cpp to run on the CPU. Takes effect the next time the local server starts.",
+    "localAutoUpdateLabel": "Automatically update engine runtimes",
+    "localAutoUpdateHint": "When enabled, QwenPaw checks periodically and installs newer llama.cpp or MLX runtimes while no local server is running. A running server is updated on the next idle check."
   },
   "files": {
     "title": "Files",

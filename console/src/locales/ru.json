@@ -2348,7 +2348,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "GPU не обнаружен, поэтому вывод выполняется на CPU.",
     "localGpuAccelerationLabel": "Ускорение GPU",
-    "localGpuAccelerationHint": "Отключите, чтобы llama.cpp работал только на CPU. Применится при следующем запуске локального сервера."
+    "localGpuAccelerationHint": "Отключите, чтобы llama.cpp работал только на CPU. Применится при следующем запуске локального сервера.",
+    "localAutoUpdateLabel": "Автоматически обновлять среды выполнения",
+    "localAutoUpdateHint": "Если включено, QwenPaw периодически проверяет и устанавливает новые среды llama.cpp или MLX, когда локальный сервер не запущен. Работающий сервер обновится при следующей проверке простоя."
   },
   "files": {
     "title": "Файлы",

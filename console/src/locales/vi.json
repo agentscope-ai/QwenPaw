@@ -3266,7 +3266,9 @@
     "localRuntimeUpdateConfirmTitle": "Cập nhật {{engine}}",
     "localRuntimeUpdateConfirmContent": "Cập nhật sẽ thay thế môi trường {{engine}} đã cài đặt. Phiên bản mới nhất sẽ được tải xuống và cài đặt.",
     "localRuntimeUpdateConfirmContentWithServer": "Cập nhật sẽ thay thế môi trường {{engine}} đã cài đặt và dừng mô hình đang chạy ({{model}}). Phiên bản mới nhất sẽ được tải xuống và cài đặt.",
-    "localServerPortHint": "Để trống để công cụ tự chọn cổng trống khi khởi động. Cấu hình có hiệu lực từ lần khởi động máy chủ cục bộ tiếp theo."
+    "localServerPortHint": "Để trống để công cụ tự chọn cổng trống khi khởi động. Cấu hình có hiệu lực từ lần khởi động máy chủ cục bộ tiếp theo.",
+    "localAutoUpdateLabel": "Tự động cập nhật môi trường chạy",
+    "localAutoUpdateHint": "Khi bật, QwenPaw sẽ kiểm tra định kỳ và cài đặt môi trường llama.cpp hoặc MLX mới hơn khi không có máy chủ cục bộ nào đang chạy. Máy chủ đang chạy sẽ được cập nhật ở lần kiểm tra rảnh tiếp theo."
   },
   "security": {
     "parent": "Cài đặt",

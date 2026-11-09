@@ -4183,7 +4183,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "GPU tidak terdeteksi, sehingga inferensi berjalan di CPU.",
     "localGpuAccelerationLabel": "Akselerasi GPU",
-    "localGpuAccelerationHint": "Matikan untuk memaksa llama.cpp berjalan di CPU. Berlaku saat server lokal berikutnya dimulai."
+    "localGpuAccelerationHint": "Matikan untuk memaksa llama.cpp berjalan di CPU. Berlaku saat server lokal berikutnya dimulai.",
+    "localAutoUpdateLabel": "Perbarui runtime secara otomatis",
+    "localAutoUpdateHint": "Saat diaktifkan, QwenPaw memeriksa secara berkala dan memasang runtime llama.cpp atau MLX yang lebih baru saat tidak ada server lokal yang berjalan. Server yang berjalan akan diperbarui pada pemeriksaan idle berikutnya."
   },
   "files": {
     "title": "File",

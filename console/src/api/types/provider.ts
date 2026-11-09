@@ -246,6 +246,7 @@ export interface LocalModelConfig {
   max_context_length: number;
   port: number | null;
   gpu_acceleration?: boolean;
+  auto_update?: boolean;
   engine?: LocalEngineId;
 }
 
@@ -254,6 +255,7 @@ export interface LocalModelConfigRequest {
   port?: number | null;
   generate_kwargs?: Record<string, unknown>;
   gpu_acceleration?: boolean;
+  auto_update?: boolean;
 }
 
 /* ---- Local models ---- */

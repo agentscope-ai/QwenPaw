@@ -2574,7 +2574,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "Nenhuma GPU foi detectada, então a inferência usa a CPU.",
     "localGpuAccelerationLabel": "Aceleração por GPU",
-    "localGpuAccelerationHint": "Desative para forçar o llama.cpp a usar somente a CPU. Vale na próxima inicialização do servidor local."
+    "localGpuAccelerationHint": "Desative para forçar o llama.cpp a usar somente a CPU. Vale na próxima inicialização do servidor local.",
+    "localAutoUpdateLabel": "Atualizar automaticamente os runtimes",
+    "localAutoUpdateHint": "Quando ativado, o QwenPaw verifica periodicamente e instala runtimes mais recentes do llama.cpp ou MLX quando nenhum servidor local estiver em execução. Um servidor em execução será atualizado na próxima verificação ociosa."
   },
   "files": {
     "title": "Arquivos",

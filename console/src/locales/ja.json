@@ -2331,7 +2331,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "このランタイムでは GPU が検出されないため、CPU で推論します。",
     "localGpuAccelerationLabel": "GPU アクセラレーション",
-    "localGpuAccelerationHint": "オフにすると llama.cpp は CPU のみで動作します。次回のローカルサーバー起動時に反映されます。"
+    "localGpuAccelerationHint": "オフにすると llama.cpp は CPU のみで動作します。次回のローカルサーバー起動時に反映されます。",
+    "localAutoUpdateLabel": "エンジンランタイムを自動更新",
+    "localAutoUpdateHint": "有効にすると、QwenPaw は定期的に確認し、ローカルサーバーが実行されていないときに新しい llama.cpp または MLX ランタイムをインストールします。実行中のサーバーは次回のアイドルチェックで更新されます。"
   },
   "files": {
     "title": "ファイル",

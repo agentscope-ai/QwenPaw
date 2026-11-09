@@ -286,6 +286,7 @@ const mockUpdateStatus: LocalServerUpdateStatus = {
 const mockConfig: LocalModelConfig = {
   max_context_length: 65536,
   port: 8080,
+  auto_update: false,
 };
 
 // Helper to setup default API mocks
@@ -856,7 +857,7 @@ describe("LocalModelManageModal", () => {
       await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
       await user.click(screen.getByText("models.localAdvancedConfigTitle"));
 
-      const gpuSwitch = screen.getByRole("checkbox");
+      const gpuSwitch = screen.getAllByRole("checkbox")[0];
       await user.click(gpuSwitch);
 
       const saveButtons = screen.getAllByRole("button", {
@@ -867,6 +868,28 @@ describe("LocalModelManageModal", () => {
       await waitFor(() => {
         expect(api.configureLocalModelSettings).toHaveBeenCalledWith({
           gpu_acceleration: false,
+        });
+      });
+    });
+
+    it("保存自动更新开关", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const autoUpdateSwitch = screen.getAllByRole("checkbox")[1];
+      await user.click(autoUpdateSwitch);
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[3]);
+
+      await waitFor(() => {
+        expect(api.configureLocalModelSettings).toHaveBeenCalledWith({
+          auto_update: true,
         });
       });
     });

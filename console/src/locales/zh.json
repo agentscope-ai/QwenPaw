@@ -3030,7 +3030,9 @@
     "localRuntimeAcceleratorGpu": "GPU",
     "localRuntimeAcceleratorCpuHint": "当前运行时未检测到 GPU，将使用 CPU 推理。",
     "localGpuAccelerationLabel": "GPU 加速",
-    "localGpuAccelerationHint": "关闭后 llama.cpp 将仅使用 CPU 推理，适用于显存不足或兼容性排查；下次启动本地服务时生效。"
+    "localGpuAccelerationHint": "关闭后 llama.cpp 将仅使用 CPU 推理，适用于显存不足或兼容性排查；下次启动本地服务时生效。",
+    "localAutoUpdateLabel": "自动更新引擎运行库",
+    "localAutoUpdateHint": "开启后，QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 或 MLX 运行库；正在运行的服务会在下次空闲检查时更新。"
   },
   "files": {
     "title": "文件",
