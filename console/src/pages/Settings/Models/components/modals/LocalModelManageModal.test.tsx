@@ -135,6 +135,15 @@ vi.mock("@agentscope-ai/design", () => {
     }),
     Select: selectLike,
     Tooltip: passThrough,
+    Switch: (props: Record<string, unknown>) =>
+      React.createElement("input", {
+        type: "checkbox",
+        checked: Boolean(props.checked),
+        onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+          (props.onChange as ((value: boolean) => void) | undefined)?.(
+            event.target.checked,
+          ),
+      }),
     Tag: passThrough,
     Spin: passThrough,
     Form: Object.assign(passThrough, {
@@ -150,15 +159,16 @@ vi.mock("@agentscope-ai/design", () => {
 // Mock API
 vi.mock("../../../../../api", () => ({
   default: {
+    getLocalEngines: vi.fn(),
     listRecommendedLocalModels: vi.fn(),
     getLocalModelConfig: vi.fn(),
     getLocalServerStatus: vi.fn(),
     getLocalServerUpdateStatus: vi.fn(),
-    getLlamacppDownloadProgress: vi.fn(),
+    getLocalEngineDownloadProgress: vi.fn(),
     getLocalModelDownloadProgress: vi.fn(),
     configureLocalModelSettings: vi.fn(),
-    startLlamacppDownload: vi.fn(),
-    cancelLlamacppDownload: vi.fn(),
+    startLocalEngineDownload: vi.fn(),
+    cancelLocalEngineDownload: vi.fn(),
     startLocalModelDownload: vi.fn(),
     cancelLocalModelDownload: vi.fn(),
     startLocalServer: vi.fn(),
@@ -280,11 +290,41 @@ const mockConfig: LocalModelConfig = {
 
 // Helper to setup default API mocks
 function setupDefaultMocks() {
+  vi.mocked(api.getLocalEngines).mockResolvedValue([
+    {
+      id: "llamacpp",
+      name: "llama.cpp",
+      installable: true,
+      installed: true,
+      running: false,
+      available: false,
+      port: null,
+      model_name: null,
+      message: null,
+      accelerator: "metal",
+      device_name: "Apple M5 Max",
+      version: "0.9.0",
+    },
+    {
+      id: "mlx",
+      name: "MLX",
+      installable: true,
+      installed: false,
+      running: false,
+      available: false,
+      port: null,
+      model_name: null,
+      message: null,
+      accelerator: "metal",
+      device_name: "Apple M5 Max",
+      version: null,
+    },
+  ]);
   vi.mocked(api.listRecommendedLocalModels).mockResolvedValue(mockModels);
   vi.mocked(api.getLocalModelConfig).mockResolvedValue(mockConfig);
   vi.mocked(api.getLocalServerStatus).mockResolvedValue(mockServerStatus);
   vi.mocked(api.getLocalServerUpdateStatus).mockResolvedValue(mockUpdateStatus);
-  vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(
+  vi.mocked(api.getLocalEngineDownloadProgress).mockResolvedValue(
     mockLlamacppProgress,
   );
   vi.mocked(api.getLocalModelDownloadProgress).mockResolvedValue(
@@ -321,7 +361,7 @@ describe("LocalModelManageModal", () => {
   });
 
   it("disables model startup during an inference engine update", async () => {
-    vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue({
+    vi.mocked(api.getLocalEngineDownloadProgress).mockResolvedValue({
       ...mockLlamacppProgress,
       status: "downloading",
     });
@@ -371,11 +411,15 @@ describe("LocalModelManageModal", () => {
         ),
       );
       if (downloaded) {
-        expect(api.startLocalServer).toHaveBeenCalledWith({ model_id: ms.id });
+        expect(api.startLocalServer).toHaveBeenCalledWith({
+          model_id: ms.id,
+          engine: "llamacpp",
+        });
       } else {
         expect(api.startLocalModelDownload).toHaveBeenCalledWith(
           ms.id,
           "modelscope",
+          "llamacpp",
         );
       }
       await userEvent.click(
@@ -427,6 +471,7 @@ describe("LocalModelManageModal", () => {
       );
       expect(api.startLocalServer).toHaveBeenCalledWith({
         model_id: decision.id,
+        engine: "llamacpp",
       });
     },
   );
@@ -483,6 +528,7 @@ describe("LocalModelManageModal", () => {
         await waitFor(() => {
           expect(api.startLocalServer).toHaveBeenCalledWith({
             model_id: model.id,
+            engine: "llamacpp",
           });
         });
         expect(api.startLocalModelDownload).not.toHaveBeenCalled();
@@ -579,6 +625,7 @@ describe("LocalModelManageModal", () => {
         expect(api.startLocalModelDownload).toHaveBeenCalledWith(
           "custom/model",
           "huggingface",
+          "llamacpp",
         );
       });
     });
@@ -635,6 +682,7 @@ describe("LocalModelManageModal", () => {
         expect(api.startLocalModelDownload).toHaveBeenCalledWith(
           "custom/model",
           "modelscope",
+          "llamacpp",
         );
       });
     });
@@ -725,8 +773,8 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      // the first save button belongs to max context length
-      await user.click(saveButtons[0]);
+      // the first save button belongs to GPU acceleration
+      await user.click(saveButtons[1]);
 
       // the settings API must be called
       await waitFor(() => {
@@ -759,8 +807,8 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      // the second save button belongs to server port
-      await user.click(saveButtons[1]);
+      // the third save button belongs to server port
+      await user.click(saveButtons[2]);
 
       // the settings API must be called
       await waitFor(() => {
@@ -780,7 +828,47 @@ describe("LocalModelManageModal", () => {
       });
 
       // the runtime panel (translation key) must be shown
-      expect(screen.getByText("models.localLlamacppName")).toBeInTheDocument();
+      expect(
+        screen.getByText("models.localEngineSelectorLabel"),
+      ).toBeInTheDocument();
+    });
+
+    it("切换到 MLX 后按引擎重新获取状态和模型", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => {
+        expect(api.getLocalServerStatus).toHaveBeenCalledWith("llamacpp");
+      });
+
+      await user.click(screen.getByText("models.localEngineMlx"));
+
+      await waitFor(() => {
+        expect(api.getLocalServerStatus).toHaveBeenCalledWith("mlx");
+        expect(api.listRecommendedLocalModels).toHaveBeenCalledWith("mlx");
+      });
+    });
+
+    it("保存 GPU 加速开关", async () => {
+      const user = userEvent.setup();
+      renderModal();
+
+      await waitFor(() => expect(api.getLocalModelConfig).toHaveBeenCalled());
+      await user.click(screen.getByText("models.localAdvancedConfigTitle"));
+
+      const gpuSwitch = screen.getByRole("checkbox");
+      await user.click(gpuSwitch);
+
+      const saveButtons = screen.getAllByRole("button", {
+        name: /models.save/i,
+      });
+      await user.click(saveButtons[0]);
+
+      await waitFor(() => {
+        expect(api.configureLocalModelSettings).toHaveBeenCalledWith({
+          gpu_acceleration: false,
+        });
+      });
     });
 
     it("当 runtime 未安装时显示锁定面板", async () => {
@@ -902,7 +990,7 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      await user.click(saveButtons[0]);
+      await user.click(saveButtons[1]);
 
       // the API must be called (the error is handled internally)
       await waitFor(() => {
@@ -920,7 +1008,7 @@ describe("LocalModelManageModal", () => {
         total_bytes: 5000000,
       };
 
-      vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue(
+      vi.mocked(api.getLocalEngineDownloadProgress).mockResolvedValue(
         downloadingProgress,
       );
 
@@ -1002,7 +1090,7 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      await user.click(saveButtons[0]);
+      await user.click(saveButtons[1]);
 
       // Below the minimum, the save API must NOT be called
       await new Promise((r) => setTimeout(r, 50));
@@ -1022,7 +1110,7 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      await user.click(saveButtons[0]);
+      await user.click(saveButtons[1]);
 
       await new Promise((r) => setTimeout(r, 50));
       expect(api.configureLocalModelSettings).not.toHaveBeenCalled();
@@ -1041,8 +1129,8 @@ describe("LocalModelManageModal", () => {
       const saveButtons = screen.getAllByRole("button", {
         name: /models.save/i,
       });
-      // the second save button belongs to server port
-      await user.click(saveButtons[1]);
+      // the third save button belongs to server port
+      await user.click(saveButtons[2]);
 
       await new Promise((r) => setTimeout(r, 50));
       expect(api.configureLocalModelSettings).not.toHaveBeenCalled();

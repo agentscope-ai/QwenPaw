@@ -3,39 +3,87 @@ import type {
   LocalActionResponse,
   LocalDownloadProgress,
   LocalDownloadSource,
+  LocalEngineId,
+  LocalEngineInfo,
   LocalModelInfo,
   LocalServerStatus,
   LocalServerUpdateStatus,
   StartLocalServerRequest,
 } from "../types";
 
+function engineQuery(engine?: LocalEngineId): string {
+  return engine ? `?engine=${encodeURIComponent(engine)}` : "";
+}
+
 export const localModelApi = {
-  getLocalServerStatus: () =>
-    request<LocalServerStatus>("/local-models/server"),
+  getLocalEngines: () => request<LocalEngineInfo[]>("/local-models/engines"),
 
-  getLocalServerUpdateStatus: () =>
-    request<LocalServerUpdateStatus>("/local-models/server/update"),
+  getLocalServerStatus: (engine?: LocalEngineId) =>
+    request<LocalServerStatus>(`/local-models/server${engineQuery(engine)}`),
 
-  startLlamacppDownload: () =>
-    request<LocalActionResponse>("/local-models/server/download", {
-      method: "POST",
-    }),
+  getLocalServerUpdateStatus: (engine?: LocalEngineId) =>
+    request<LocalServerUpdateStatus>(
+      `/local-models/server/update${engineQuery(engine)}`,
+    ),
 
-  getLlamacppDownloadProgress: () =>
-    request<LocalDownloadProgress>("/local-models/server/download"),
+  // Backwards-compatible aliases for the llama.cpp-only API.
+  startLlamacppDownload: (engine?: LocalEngineId) =>
+    request<LocalActionResponse>(
+      `/local-models/server/download${engineQuery(engine)}`,
+      {
+        method: "POST",
+      },
+    ),
 
-  cancelLlamacppDownload: () =>
-    request<LocalActionResponse>("/local-models/server/download", {
-      method: "DELETE",
-    }),
+  getLlamacppDownloadProgress: (engine?: LocalEngineId) =>
+    request<LocalDownloadProgress>(
+      `/local-models/server/download${engineQuery(engine)}`,
+    ),
 
-  listRecommendedLocalModels: () =>
-    request<LocalModelInfo[]>("/local-models/models"),
+  cancelLlamacppDownload: (engine?: LocalEngineId) =>
+    request<LocalActionResponse>(
+      `/local-models/server/download${engineQuery(engine)}`,
+      {
+        method: "DELETE",
+      },
+    ),
 
-  startLocalModelDownload: (modelName: string, source: LocalDownloadSource) =>
+  startLocalEngineDownload: (engine?: LocalEngineId) =>
+    request<LocalActionResponse>(
+      `/local-models/server/download${engineQuery(engine)}`,
+      {
+        method: "POST",
+      },
+    ),
+
+  getLocalEngineDownloadProgress: (engine?: LocalEngineId) =>
+    request<LocalDownloadProgress>(
+      `/local-models/server/download${engineQuery(engine)}`,
+    ),
+
+  cancelLocalEngineDownload: (engine?: LocalEngineId) =>
+    request<LocalActionResponse>(
+      `/local-models/server/download${engineQuery(engine)}`,
+      {
+        method: "DELETE",
+      },
+    ),
+
+  listRecommendedLocalModels: (engine?: LocalEngineId) =>
+    request<LocalModelInfo[]>(`/local-models/models${engineQuery(engine)}`),
+
+  startLocalModelDownload: (
+    modelName: string,
+    source: LocalDownloadSource,
+    engine?: LocalEngineId,
+  ) =>
     request<LocalActionResponse>("/local-models/models/download", {
       method: "POST",
-      body: JSON.stringify({ model_name: modelName, source }),
+      body: JSON.stringify({
+        model_name: modelName,
+        source,
+        engine,
+      }),
     }),
 
   getLocalModelDownloadProgress: () =>
@@ -46,9 +94,11 @@ export const localModelApi = {
       method: "DELETE",
     }),
 
-  deleteLocalModel: (modelId: string) =>
+  deleteLocalModel: (modelId: string, engine?: LocalEngineId) =>
     request<LocalActionResponse>(
-      `/local-models/models/${encodeURIComponent(modelId)}`,
+      `/local-models/models/${encodeURIComponent(modelId)}${engineQuery(
+        engine,
+      )}`,
       {
         method: "DELETE",
       },
@@ -60,8 +110,8 @@ export const localModelApi = {
       body: JSON.stringify(body),
     }),
 
-  stopLocalServer: () =>
-    request<LocalActionResponse>("/local-models/server", {
+  stopLocalServer: (engine?: LocalEngineId) =>
+    request<LocalActionResponse>(`/local-models/server${engineQuery(engine)}`, {
       method: "DELETE",
     }),
 };

@@ -39,7 +39,9 @@ export const LocalModelRow = memo(function LocalModelRow({
   onDeleteModel,
 }: LocalModelRowProps) {
   const { t } = useTranslation();
-  const isRunning = currentRunningModelName === model.id;
+  const isRunning =
+    currentRunningModelName === model.id ||
+    (Boolean(model.local_path) && currentRunningModelName === model.local_path);
   const isStarting = startingModelName === model.id;
   const isDeleting = deletingModelName === model.id;
 
