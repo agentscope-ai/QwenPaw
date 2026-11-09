@@ -430,10 +430,14 @@ export function LocalModelManageModal({
 
         if (
           previousRuntimeStatusRef.current !== "failed" &&
-          nextRuntimeDownload.status === "failed" &&
-          nextRuntimeDownload.error
+          nextRuntimeDownload.status === "failed"
         ) {
-          message.error(nextRuntimeDownload.error);
+          message.error(
+            nextRuntimeDownload.error ||
+              (targetEngine === "mlx"
+                ? t("models.localMlxInstallFailed")
+                : t("models.localLlamacppInstallFailed")),
+          );
         }
         if (
           previousModelStatusRef.current !== "failed" &&

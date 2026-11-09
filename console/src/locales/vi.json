@@ -3249,7 +3249,7 @@
     "localMlxInstallSuccess": "Đã cài đặt môi trường MLX",
     "localMlxInstallFailed": "Cài đặt môi trường MLX thất bại",
     "localMlxInstalling": "Đang cài đặt môi trường MLX…",
-    "localMlxUnsupported": "MLX chỉ hỗ trợ Apple Silicon (macOS arm64).",
+    "localMlxUnsupported": "MLX yêu cầu Apple Silicon và macOS 14 trở lên.",
     "localMlxCustomModelHint": "Nhập ID kho mô hình MLX có config.json và trọng số safetensors.",
     "localMlxRepoIdPlaceholder": "ví dụ: mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "Bộ tăng tốc",

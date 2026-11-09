@@ -3020,7 +3020,7 @@
     "localMlxInstallSuccess": "MLX 运行时安装成功",
     "localMlxInstallFailed": "MLX 运行时安装失败",
     "localMlxInstalling": "正在安装 MLX 运行时…",
-    "localMlxUnsupported": "MLX 仅支持 Apple Silicon（macOS arm64）。",
+    "localMlxUnsupported": "MLX 需要 Apple Silicon 和 macOS 14 及以上。",
     "localMlxCustomModelHint": "填写包含 config.json 与 safetensors 权重的 MLX 模型仓库 ID。",
     "localMlxRepoIdPlaceholder": "例如 mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "加速器",

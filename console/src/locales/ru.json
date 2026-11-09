@@ -2338,7 +2338,7 @@
     "localMlxInstallSuccess": "Среда MLX установлена",
     "localMlxInstallFailed": "Не удалось установить среду MLX",
     "localMlxInstalling": "Установка среды MLX…",
-    "localMlxUnsupported": "MLX поддерживается только на Apple Silicon (macOS arm64).",
+    "localMlxUnsupported": "MLX требует Apple Silicon и macOS 14 или новее.",
     "localMlxCustomModelHint": "Укажите ID репозитория MLX-модели с config.json и весами safetensors.",
     "localMlxRepoIdPlaceholder": "например, mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "Ускоритель",

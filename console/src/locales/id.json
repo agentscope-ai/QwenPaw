@@ -4173,7 +4173,7 @@
     "localMlxInstallSuccess": "Runtime MLX terinstal",
     "localMlxInstallFailed": "Instalasi runtime MLX gagal",
     "localMlxInstalling": "Menginstal runtime MLX…",
-    "localMlxUnsupported": "MLX memerlukan Apple Silicon (macOS arm64).",
+    "localMlxUnsupported": "MLX memerlukan Apple Silicon dan macOS 14 atau lebih baru.",
     "localMlxCustomModelHint": "Masukkan ID repositori model MLX yang berisi config.json dan bobot safetensors.",
     "localMlxRepoIdPlaceholder": "mis. mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "Akselerator",

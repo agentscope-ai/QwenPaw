@@ -2564,7 +2564,7 @@
     "localMlxInstallSuccess": "Ambiente MLX instalado",
     "localMlxInstallFailed": "Falha ao instalar o ambiente MLX",
     "localMlxInstalling": "Instalando o ambiente MLX…",
-    "localMlxUnsupported": "O MLX exige Apple Silicon (macOS arm64).",
+    "localMlxUnsupported": "O MLX requer Apple Silicon e macOS 14 ou mais recente.",
     "localMlxCustomModelHint": "Informe um ID de repositório de modelo MLX com config.json e pesos safetensors.",
     "localMlxRepoIdPlaceholder": "ex.: mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "Acelerador",

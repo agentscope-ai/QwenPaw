@@ -171,6 +171,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
       </div>
 
       <div
+        aria-label={t("models.localRuntimeAcceleratorLabel")}
         className={
           accelerator && accelerator !== "cpu"
             ? styles.localSectionNotice
@@ -185,9 +186,11 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           )}
           {acceleratorLabel}
         </span>
-        {accelerator === "cpu" ? (
-          <span>{t("models.localRuntimeAcceleratorCpuHint")}</span>
-        ) : null}
+        <span>
+          {accelerator === "cpu"
+            ? t("models.localRuntimeAcceleratorCpuHint")
+            : t("models.localRuntimeComputeHint")}
+        </span>
       </div>
 
       <div className={styles.localEngineStatusRow}>

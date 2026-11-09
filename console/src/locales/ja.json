@@ -2321,7 +2321,7 @@
     "localMlxInstallSuccess": "MLX ランタイムをインストールしました",
     "localMlxInstallFailed": "MLX ランタイムのインストールに失敗しました",
     "localMlxInstalling": "MLX ランタイムをインストールしています…",
-    "localMlxUnsupported": "MLX は Apple Silicon（macOS arm64）でのみ利用できます。",
+    "localMlxUnsupported": "MLX は Apple Silicon と macOS 14 以降が必要です。",
     "localMlxCustomModelHint": "config.json と safetensors の重みを含む MLX モデルのリポジトリ ID を入力してください。",
     "localMlxRepoIdPlaceholder": "例: mlx-community/Qwen3-4B-Instruct-2507-4bit",
     "localRuntimeAcceleratorLabel": "アクセラレータ",
