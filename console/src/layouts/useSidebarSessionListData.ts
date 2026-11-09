@@ -11,44 +11,13 @@ import {
   type ContextMenuItem,
 } from "../components/ContextMenu";
 import { getChannelLabel } from "../utils/channel";
-import { syncSessionsGlobal } from "../stores/sessionListStore";
-import { useAgentStore } from "../stores/agentStore";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+} from "../stores/sessionListStore";
 import { useAppMessage } from "../hooks/useAppMessage";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
-
-const BACKGROUND_REFRESH_INTERVAL_MS = 30000;
-
-/**
- * Shallow-compare two session arrays by visible fields.
- * Returns true when the list would look identical, so we can skip
- * the state update and avoid a full re-render cascade.
- */
-function sessionsEqual(
-  prev: ExtendedChatSession[],
-  next: ExtendedChatSession[],
-): boolean {
-  if (prev.length !== next.length) return false;
-  for (let i = 0; i < prev.length; i++) {
-    const a = prev[i];
-    const b = next[i];
-    if (
-      a.id !== b.id ||
-      a.name !== b.name ||
-      a.updatedAt !== b.updatedAt ||
-      a.lastFinishedAt !== b.lastFinishedAt ||
-      a.pinned !== b.pinned ||
-      a.generating !== b.generating ||
-      a.status !== b.status ||
-      a.archived !== b.archived ||
-      a.groupId !== b.groupId ||
-      a.source !== b.source
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /** Sessions from QwenPaw backend include extra fields beyond the runtime UI type */
 export interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
@@ -95,8 +64,6 @@ export const formatCreatedAt = (raw: string | null | undefined): string => {
 };
 
 interface UseSessionListDataOptions {
-  /** Whether the sidebar list should fetch sessions. */
-  active: boolean;
   /** Current session id — used to determine active item and block no-op clicks */
   currentSessionId: string | undefined;
   /** Called when user clicks a session; the hook itself does NOT navigate */
@@ -139,13 +106,8 @@ export function useSessionListData(
 ): SessionListData {
   const { t } = useTranslation();
   const { message } = useAppMessage();
-  const { active, currentSessionId, onSessionClick } = opts;
-  // Re-fetch immediately when the selected agent changes — the shared store
-  // is cleared synchronously on the switch and must be repopulated for the
-  // new agent without waiting for the next poll tick.
-  const selectedAgent = useAgentStore((s) => s.selectedAgent);
-
-  const [loading, setLoading] = useState(true);
+  const { currentSessionId, onSessionClick } = opts;
+  const loading = useSessionListStore((state) => state.loading);
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
     null,
   );
@@ -157,8 +119,6 @@ export function useSessionListData(
     string | null
   >(null);
 
-  /** Cache last polled sessions to skip no-op state updates */
-  const lastSessionsRef = useRef<ExtendedChatSession[]>([]);
   const currentSessionIdRef = useRef(currentSessionId);
   currentSessionIdRef.current = currentSessionId;
 
@@ -175,78 +135,6 @@ export function useSessionListData(
       console.error("useSessionListData: failed to fetch sessions", err);
     }
   }, [setSessions]);
-
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    let inFlight = true;
-    let lastFetchAt = Date.now();
-    const owner = sessionApi.getActiveOwner();
-
-    const fetchSessions = async () => {
-      lastFetchAt = Date.now();
-      setLoading(true);
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && sessionApi.isActiveOwner(owner)) {
-          const extended = list as ExtendedChatSession[];
-          if (!sessionsEqual(lastSessionsRef.current, extended)) {
-            lastSessionsRef.current = extended;
-            setSessions(extended);
-            syncSessionsGlobal(extended);
-          }
-        }
-      } catch (err) {
-        console.error("useSessionListData: failed to fetch sessions", err);
-      } finally {
-        inFlight = false;
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void fetchSessions();
-
-    const timer = setInterval(async () => {
-      // Pause polling during session switch to avoid bandwidth contention
-      if (sessionApi.isSessionSwitching || inFlight) return;
-      if (
-        document.hidden &&
-        Date.now() - lastFetchAt < BACKGROUND_REFRESH_INTERVAL_MS
-      )
-        return;
-      inFlight = true;
-      lastFetchAt = Date.now();
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && sessionApi.isActiveOwner(owner)) {
-          const extended = list as ExtendedChatSession[];
-          if (!sessionsEqual(lastSessionsRef.current, extended)) {
-            lastSessionsRef.current = extended;
-            setSessions(extended);
-            syncSessionsGlobal(extended);
-          }
-        }
-      } catch {
-        // ignore polling errors
-      } finally {
-        inFlight = false;
-      }
-    }, 10000);
-
-    const onVisibility = () => {
-      if (!document.hidden && !inFlight && !sessionApi.isSessionSwitching) {
-        inFlight = true;
-        void fetchSessions();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [active, setSessions, selectedAgent]);
 
   const resolvedSessions = useMemo(() => {
     return sessions.filter((s) => {

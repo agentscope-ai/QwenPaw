@@ -21,6 +21,7 @@ describe("sessionListStore", () => {
   beforeEach(() => {
     useSessionListStore.setState({
       sessions: [],
+      loading: true,
       resolvedRouteSession: null,
       lastUpdated: 0,
       _setLibrarySessions: null,
@@ -34,6 +35,7 @@ describe("sessionListStore", () => {
   it("starts with an empty session list and lastUpdated 0", () => {
     const state = useSessionListStore.getState();
     expect(state.sessions).toEqual([]);
+    expect(state.loading).toBe(true);
     expect(state.resolvedRouteSession).toBeNull();
     expect(state.lastUpdated).toBe(0);
     expect(state._setLibrarySessions).toBeNull();
@@ -144,12 +146,14 @@ describe("sessionListStore", () => {
     syncSessionsGlobal([makeSession("chat-a")]);
     useSessionListStore.setState({
       resolvedRouteSession: makeSession("archived-a"),
+      loading: false,
     });
     expect(useSessionListStore.getState().sessions).toHaveLength(1);
 
     useAgentStore.setState({ selectedAgent: "agent-b" });
 
     expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(useSessionListStore.getState().loading).toBe(true);
     expect(useSessionListStore.getState().resolvedRouteSession).toBeNull();
   });
 

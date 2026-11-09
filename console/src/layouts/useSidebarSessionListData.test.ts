@@ -4,7 +4,7 @@
  * user switches to agent B, while same-agent CRUD keeps working.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { render, renderHook, act, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import React from "react";
 import { App } from "antd";
@@ -18,6 +18,7 @@ import sessionApi from "../pages/Chat/sessionApi";
 import { useAgentStore } from "../stores/agentStore";
 import { useSessionListStore } from "../stores/sessionListStore";
 import { useMessageQueueStore } from "../stores/messageQueueStore";
+import { SessionListPollingController } from "../components/SessionListPollingController";
 import {
   useSessionListData,
   getBackendId,
@@ -65,7 +66,6 @@ function renderListData(sessions: ExtendedChatSession[]) {
   const hook = renderHook(
     () =>
       useSessionListData(sessions, setSessions, {
-        active: false,
         currentSessionId: A_CHAT,
         onSessionClick: vi.fn(),
       }),
@@ -79,6 +79,7 @@ beforeEach(() => {
   useAgentStore.setState({ selectedAgent: "agent-a", lastChatIdByAgent: {} });
   useSessionListStore.setState({
     sessions: [],
+    loading: true,
     lastUpdated: 0,
     _setLibrarySessions: null,
   });
@@ -170,17 +171,8 @@ describe("useSessionListData cross-agent ownership", () => {
   it("refetches the list immediately when the selected agent changes", async () => {
     sessionApi.setActiveAgent("agent-a");
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
-    const setSessions = vi.fn();
 
-    renderHook(
-      () =>
-        useSessionListData([], setSessions, {
-          active: true,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper },
-    );
+    render(React.createElement(SessionListPollingController));
     await waitFor(() => expect(listSpy).toHaveBeenCalledTimes(1));
 
     act(() => {
@@ -208,7 +200,6 @@ describe("useSessionListData switchingSessionId lifecycle (#5354)", () => {
           [makeSession(A_CHAT), makeSession(OTHER_CHAT)],
           setSessions,
           {
-            active: false,
             currentSessionId: current,
             onSessionClick,
           },
@@ -670,7 +661,6 @@ describe("useSessionListData context menu", () => {
     const hook = renderHook(
       () =>
         useSessionListData([makeSession(A_CHAT)], setSessions, {
-          active: false,
           currentSessionId: undefined,
           onSessionClick,
         }),
@@ -725,9 +715,9 @@ describe("useSessionListData context menu", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Polling: initial fetch, 3s interval, no-op skip, switch pause, errors
+// Layout polling: cadence, no-op skip, switch pause, errors and cleanup
 // ---------------------------------------------------------------------------
-describe("useSessionListData polling", () => {
+describe("SessionListPollingController", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     sessionApi.setActiveAgent("agent-a");
@@ -738,16 +728,42 @@ describe("useSessionListData polling", () => {
   });
 
   function renderActive(setSessions: (s: unknown[]) => void) {
-    return renderHook(
-      () =>
-        useSessionListData([], setSessions, {
-          active: true,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper },
-    );
+    useSessionListStore.setState({ _setLibrarySessions: setSessions });
+    return render(React.createElement(SessionListPollingController));
   }
+
+  it("keeps one polling chain while the sidebar list mounts and unmounts", async () => {
+    const list = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    const { hook } = renderListData([]);
+
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(list).toHaveBeenCalledTimes(2);
+    hook.unmount();
+    await act(() => vi.advanceTimersByTimeAsync(10000));
+    expect(list).toHaveBeenCalledTimes(3);
+  });
+
+  it("drops a previous agent's pending list without clearing current loading", async () => {
+    const previous = deferred<ChatSpec[]>();
+    const current = deferred<ChatSpec[]>();
+    vi.spyOn(api, "listChats")
+      .mockReturnValueOnce(previous.promise)
+      .mockReturnValueOnce(current.promise);
+    const setSessions = vi.fn();
+    renderActive(setSessions);
+
+    act(() => useAgentStore.setState({ selectedAgent: "agent-b" }));
+    await act(async () => previous.resolve([makeChat("old-chat")]));
+    expect(useSessionListStore.getState().sessions).toEqual([]);
+    expect(useSessionListStore.getState().loading).toBe(true);
+    expect(setSessions).not.toHaveBeenCalled();
+
+    await act(async () => current.resolve([makeChat("current-chat")]));
+    expect(useSessionListStore.getState().sessions[0]?.id).toBe("current-chat");
+    expect(useSessionListStore.getState().loading).toBe(false);
+  });
 
   it("fetches on activation, skips identical updates, applies changed lists", async () => {
     const listSpy = vi
@@ -880,13 +896,13 @@ describe("useSessionListData polling", () => {
       .spyOn(api, "listChats")
       .mockRejectedValue(new Error("down"));
     const setSessions = vi.fn();
-    const hook = renderActive(setSessions);
+    renderActive(setSessions);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(consoleSpy).toHaveBeenCalled();
-    expect(hook.result.current.loading).toBe(false);
+    expect(useSessionListStore.getState().loading).toBe(false);
 
     // Polling errors are swallowed silently and polling continues
     consoleSpy.mockClear();
@@ -904,13 +920,12 @@ describe("useSessionListData polling", () => {
     consoleSpy.mockRestore();
   });
 
-  it("does not fetch while inactive", async () => {
+  it("does not start polling from the sidebar hook", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
     const setSessions = vi.fn();
     renderHook(
       () =>
         useSessionListData([], setSessions, {
-          active: false,
           currentSessionId: undefined,
           onSessionClick: vi.fn(),
         }),
@@ -924,29 +939,21 @@ describe("useSessionListData polling", () => {
     expect(setSessions).not.toHaveBeenCalled();
   });
 
-  it("stops polling after deactivation", async () => {
+  it("stops polling after the controller unmounts", async () => {
     const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
     const setSessions = vi.fn();
-    const hook = renderHook(
-      ({ active }: { active: boolean }) =>
-        useSessionListData([], setSessions, {
-          active,
-          currentSessionId: undefined,
-          onSessionClick: vi.fn(),
-        }),
-      { wrapper, initialProps: { active: true } },
-    );
+    const controller = renderActive(setSessions);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    hook.rerender({ active: false });
-    const callsAfterDeactivate = listSpy.mock.calls.length;
+    controller.unmount();
+    const callsAfterUnmount = listSpy.mock.calls.length;
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30000);
     });
-    expect(listSpy.mock.calls.length).toBe(callsAfterDeactivate);
+    expect(listSpy.mock.calls.length).toBe(callsAfterUnmount);
   });
 });
 
@@ -1109,7 +1116,6 @@ describe("useSessionListData owner guards and misc edges", () => {
     const hook = renderHook(
       ({ current }: { current: string }) => ({
         data: useSessionListData(sessions, setSessions, {
-          active: false,
           currentSessionId: current,
           onSessionClick: vi.fn(),
         }),
@@ -1176,7 +1182,6 @@ describe("useSessionListData owner guards and misc edges", () => {
         const hook = renderHook(
           () =>
             useSessionListData(sessions, vi.fn(), {
-              active: false,
               currentSessionId: currentRoute,
               onSessionClick: vi.fn(),
             }),
@@ -1243,7 +1248,6 @@ describe("useSessionListData owner guards and misc edges", () => {
     const hook = renderHook(
       () =>
         useSessionListData([session], setSessions, {
-          active: false,
           currentSessionId: runtimeId,
           onSessionClick: vi.fn(),
         }),
@@ -1281,7 +1285,6 @@ describe("useSessionListData owner guards and misc edges", () => {
         const hook = renderHook(
           ({ current }: { current: string }) =>
             useSessionListData(sessions, vi.fn(), {
-              active: false,
               currentSessionId: current,
               onSessionClick: vi.fn(),
             }),
@@ -1350,7 +1353,6 @@ describe("useSessionListData owner guards and misc edges", () => {
     const hook = renderHook(
       ({ current }: { current: string }) =>
         useSessionListData(sessions, setSessions, {
-          active: false,
           currentSessionId: current,
           onSessionClick: vi.fn(),
         }),

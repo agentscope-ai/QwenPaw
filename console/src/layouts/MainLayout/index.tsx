@@ -7,6 +7,7 @@ import AmbientLight from "../AmbientLight";
 import Header from "../Header";
 import ConsolePollService from "../../components/ConsolePollService";
 import { AgentStatusPollingController } from "../../components/AgentStatusPollingController";
+import { SessionListPollingController } from "../../components/SessionListPollingController";
 import { ChunkErrorBoundary } from "../../components/ChunkErrorBoundary";
 import { ChunkRecoverySuspense } from "../../components/ChunkRecoverySuspense";
 import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
@@ -107,6 +108,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     <HubModeContext.Provider value={hubMode}>
       <Layout className={styles.mainLayout}>
         <SettingsSearchNavigation />
+        <SessionListPollingController />
         <RouteDocumentTitle
           title={pageTitle}
           sessionId={

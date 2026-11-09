@@ -36,6 +36,7 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 
 interface SessionListStore {
   sessions: ExtendedSession[];
+  loading: boolean;
   /** Resolved route metadata, including Chats absent from the sidebar. */
   resolvedRouteSession: ExtendedSession | null;
   /** Timestamp of last update — used to detect staleness */
@@ -88,6 +89,7 @@ export function findSessionByReference<
 
 export const useSessionListStore = create<SessionListStore>((set, get) => ({
   sessions: [],
+  loading: true,
   resolvedRouteSession: null,
   lastUpdated: 0,
   _setLibrarySessions: null,
@@ -125,6 +127,7 @@ useAgentStore.subscribe((state, prevState) => {
   if (state.selectedAgent !== prevState.selectedAgent) {
     useSessionListStore.setState({
       sessions: [],
+      loading: true,
       resolvedRouteSession: null,
       lastUpdated: Date.now(),
     });
