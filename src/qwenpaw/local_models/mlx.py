@@ -106,6 +106,7 @@ class MlxBackend:
 
     def check_installation(self) -> tuple[bool, str]:
         """Return whether the MLX runtime is installed."""
+        self._recover_install_state()
         marker = self.venv_dir / _MLX_MARKER
         if not self.venv_python.is_file():
             return False, "MLX runtime is not installed"
@@ -215,6 +216,23 @@ class MlxBackend:
             }
         return {"accelerator": "cpu", "device_name": None}
 
+    def _recover_install_state(self) -> None:
+        """Restore the previous venv if an update was interrupted mid-swap."""
+        if self.venv_dir.exists():
+            return
+        backups = sorted(
+            self.venv_dir.parent.glob(f"{self.venv_dir.name}.backup-*"),
+        )
+        if not backups:
+            return
+        try:
+            backups[-1].rename(self.venv_dir)
+        except OSError:
+            logger.debug(
+                "Failed to recover MLX runtime backup: %s",
+                backups[-1],
+            )
+
     def _installed_version(self) -> str:
         """Read the version recorded after a successful install."""
         return (
@@ -293,7 +311,10 @@ class MlxBackend:
             log_path = self.log_dir / "mlx-install.log"
             base_python = self._base_python()
 
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            for stale in self.venv_dir.parent.glob(
+                f"{self.venv_dir.name}.staging-*",
+            ):
+                shutil.rmtree(stale, ignore_errors=True)
             await self._run_install_command(
                 [str(base_python), "-m", "venv", str(staging_dir)],
                 log_path,

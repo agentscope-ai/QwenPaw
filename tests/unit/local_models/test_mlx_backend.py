@@ -76,6 +76,23 @@ def test_build_model_info_uses_absolute_path_as_served_id(tmp_path):
     assert info.model_type == "chat"
 
 
+def test_check_installation_recovers_interrupted_swap(tmp_path):
+    backend = MlxBackend()
+    backend.target_dir = tmp_path / "mlx"
+    backend.venv_dir = backend.target_dir / "venv"
+    backup = backend.target_dir / "venv.backup-test"
+    (backup / "bin").mkdir(parents=True)
+    (backup / "bin" / "python").write_text("", encoding="utf-8")
+    (backup / ".qwenpaw-mlx-lm-version").write_text(
+        MLX_LM_VERSION,
+        encoding="utf-8",
+    )
+
+    assert backend.check_installation() == (True, "")
+    assert backend.venv_dir.exists()
+    assert not backup.exists()
+
+
 @pytest.mark.asyncio
 async def test_has_update_compares_installed_and_latest(
     monkeypatch,
