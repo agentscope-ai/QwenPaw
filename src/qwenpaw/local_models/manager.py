@@ -395,7 +395,10 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Return whether a llama.cpp update is available for download."""
         return await self.has_engine_update("llamacpp")
 
-    async def auto_update_engine(self, engine: str | None = None) -> str:
+    async def auto_update_engine(  # pylint: disable=too-many-return-statements
+        self,
+        engine: str | None = None,
+    ) -> str:
         """Start an engine update only when it is safe to do so."""
         engine_id = normalize_engine(engine)
         backend = self._backends[engine_id]
@@ -473,19 +476,16 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         initial_delay: float,
     ) -> None:
         """Periodically check for runtime updates without blocking startup."""
-        try:
-            await asyncio.sleep(max(0, initial_delay))
-            while True:
-                try:
-                    await self.run_auto_update_once()
-                except Exception as exc:  # pylint: disable=broad-except
-                    logger.warning(
-                        "Local runtime auto-update check failed: %s",
-                        exc,
-                    )
-                await asyncio.sleep(max(60, interval_seconds))
-        except asyncio.CancelledError:
-            raise
+        await asyncio.sleep(max(0, initial_delay))
+        while True:
+            try:
+                await self.run_auto_update_once()
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Local runtime auto-update check failed: %s",
+                    exc,
+                )
+            await asyncio.sleep(max(60, interval_seconds))
 
     async def check_llamacpp_server_ready(
         self,

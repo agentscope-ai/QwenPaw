@@ -1233,7 +1233,7 @@ class ProviderManager(
             installed, _ = local_manager.check_llamacpp_installation()
         if not installed:
             logger.info(
-                "Skipping local model restore because" " %s is not installed.",
+                "Skipping local model restore because %s is not installed.",
                 engine,
             )
             await _clear_local_provider()

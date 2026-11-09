@@ -428,6 +428,7 @@ class ModelManager:
         engine: str | None = None,
     ) -> None:
         """Delete a downloaded local model by repo id or directory name."""
+        del engine
         model_path = self.get_model_dir(model_id)
         if model_path.exists():
             self._cleanup_path(model_path)

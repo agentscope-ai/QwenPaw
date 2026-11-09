@@ -15,6 +15,8 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -413,6 +415,8 @@ class MlxBackend:
         port: int | None = None,
     ) -> MlxServerSetupResult:
         """Start the MLX server for a downloaded model directory."""
+        # MLX uses the model's native context window.
+        del max_context_length
         if self.is_download_active():
             raise RuntimeError(
                 "Wait for the MLX runtime install to finish before starting "
