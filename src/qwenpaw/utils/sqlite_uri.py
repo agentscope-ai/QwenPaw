@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """SQLite URI paths shared with the stdlib-only recall and backup workers."""
 
+from os import fsencode
 from pathlib import PurePath, PureWindowsPath
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote_from_bytes
 
 _VERBATIM_PREFIX = "\\\\?\\"
 _UNC_VERBATIM_PREFIX = "\\\\?\\UNC\\"
@@ -35,4 +36,6 @@ def sqlite_uri(
     if isinstance(path, PureWindowsPath) and not filename.startswith("/"):
         filename = "/" + filename
     # Keep UNC hosts in the path; SQLite rejects non-local URI authorities.
-    return f"file://{quote(filename, safe='/:')}?mode={mode}"
+    return (
+        f"file://{quote_from_bytes(fsencode(filename), safe='/:')}?mode={mode}"
+    )

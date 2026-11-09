@@ -29,6 +29,14 @@ from qwenpaw.utils.sqlite_uri import sqlite_uri
             PurePosixPath("/tmp/history ?#%.db"),
             "file:///tmp/history%20%3F%23%25.db",
         ),
+        pytest.param(
+            PurePosixPath("/tmp/history-\udcff.db"),
+            "file:///tmp/history-%FF.db",
+            marks=pytest.mark.skipif(
+                os.name == "nt",
+                reason="POSIX filename byte encoding",
+            ),
+        ),
         (
             PureWindowsPath(r"C:\Users\runneradmin\history.db"),
             "file:///C:/Users/runneradmin/history.db",
@@ -106,23 +114,36 @@ def test_sqlite_uri_preserves_connection_modes(tmp_path, mode):
 
 
 @pytest.mark.parametrize(
-    "verbatim",
+    ("verbatim", "filename"),
     [
-        False,
+        (False, "记忆 #%.db"),
         pytest.param(
             True,
+            "记忆 #%.db",
             marks=pytest.mark.skipif(
                 os.name != "nt",
                 reason="Verbatim filesystem paths require Windows",
             ),
         ),
+        pytest.param(
+            False,
+            "history-\udcff.db",
+            marks=pytest.mark.skipif(
+                sys.platform != "linux",
+                reason="Non-UTF-8 filesystem names require Linux",
+            ),
+        ),
     ],
 )
-def test_history_connections_support_special_paths(tmp_path, verbatim):
+def test_history_connections_support_special_paths(
+    tmp_path,
+    verbatim,
+    filename,
+):
     root = tmp_path.resolve()
     if verbatim and not str(root).startswith("\\\\?\\"):
         root = Path("\\\\?\\" + str(root))
-    source = root / "记忆 #%.db"
+    source = root / filename
     destination = root / "snapshot #%.db"
     store = HistoryStore(source)
     try:
