@@ -302,6 +302,35 @@ async def test_blocked_sdk_start_keeps_parent_loop_responsive(
     assert stopped.exited and stopped.forced and not alive(health["pid"])
 
 
+@pytest.mark.parametrize("readonly", [False, True])
+def test_source_backup_and_restore_preserve_contents_and_mode(
+    tmp_path,
+    readonly,
+):
+    from qwenpaw.plugins.dependency_transaction import (
+        backup_source,
+        restore_source,
+    )
+
+    target = tmp_path / "installed"
+    target.mkdir()
+    source = target / "plugin.py"
+    content = b"VALUE = 'original'\n"
+    source.write_bytes(content)
+    source.chmod(stat.S_IREAD if readonly else 0o755)
+    mode = stat.S_IMODE(source.stat().st_mode)
+    operation = tmp_path / "operation"
+    operation.mkdir()
+    before = backup_source(operation, target)
+    assert source.read_bytes() == content
+    assert stat.S_IMODE(source.stat().st_mode) == mode
+    source.chmod(mode | stat.S_IWRITE)
+    source.write_bytes(b"VALUE = 'changed'\n")
+    restore_source(operation, {"source_before": before})
+    assert source.read_bytes() == content
+    assert stat.S_IMODE(source.stat().st_mode) == mode
+
+
 @pytest.mark.asyncio
 async def test_forced_stop_reaps_uncooperative_process_tree(tmp_path, process):
     spec, marker = launch(tmp_path, mode="tree", restart_limit=2)
