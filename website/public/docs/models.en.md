@@ -24,7 +24,7 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-QwenPaw Local uses Metal on Apple Silicon, CUDA on supported NVIDIA systems, and falls back to CPU when no GPU is available. The engine panel shows the detected accelerator (for example `Metal · Apple M5 Max`). To force CPU inference, open **Advanced local model settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
+QwenPaw Local uses Metal on Apple Silicon, CUDA when the installed runtime includes a CUDA backend, and falls back to CPU otherwise. The engine panel shows the detected accelerator (for example `Metal · Apple M5 Max`). To force CPU inference, open **Advanced local model settings** and turn off **GPU acceleration**; the setting applies the next time the local server starts.
 
 ![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 
