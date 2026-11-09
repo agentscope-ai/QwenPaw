@@ -5053,6 +5053,8 @@
     "delegateExternalAgent": "Делегировать {{runner}}",
     "delegateExternalAgentDefault": "Делегировать внешнему агенту",
     "shell": "Выполнить {{command}}",
+    "shellCompleted": "Выполнено: {{command}}",
+    "shellCompletedDefault": "Команда выполнена",
     "shellDefault": "Выполнить команду",
     "formatTable": {
       "file": "Файл",

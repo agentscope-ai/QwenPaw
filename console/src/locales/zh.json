@@ -5747,6 +5747,8 @@
     "delegateExternalAgent": "委派 {{runner}}",
     "delegateExternalAgentDefault": "委派 外部代理",
     "shell": "执行 {{command}}",
+    "shellCompleted": "已执行 {{command}}",
+    "shellCompletedDefault": "已执行命令",
     "shellDefault": "执行 命令",
     "runToolBatch": "运行工作流 {{workflow}}",
     "runToolBatchRunning": "正在运行预存工作流",

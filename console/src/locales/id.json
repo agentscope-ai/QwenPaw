@@ -3672,6 +3672,8 @@
     "delegateExternalAgent": "Delegasikan {{runner}}",
     "delegateExternalAgentDefault": "Delegasikan ke agen eksternal",
     "shell": "Jalankan {{command}}",
+    "shellCompleted": "Telah menjalankan {{command}}",
+    "shellCompletedDefault": "Perintah telah dijalankan",
     "shellDefault": "Jalankan perintah",
     "formatTable": {
       "file": "File",

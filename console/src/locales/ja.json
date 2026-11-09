@@ -5036,6 +5036,8 @@
     "delegateExternalAgent": "{{runner}} に委任",
     "delegateExternalAgentDefault": "外部エージェントに委任",
     "shell": "{{command}} を実行",
+    "shellCompleted": "{{command}} を実行済み",
+    "shellCompletedDefault": "コマンドを実行済み",
     "shellDefault": "コマンドを実行",
     "formatTable": {
       "file": "ファイル",
