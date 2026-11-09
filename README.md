@@ -419,6 +419,8 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
 
+In the Console, `/clear` and a successful `/new` leave the chat empty when you reopen it or reload the page. See [Magic commands](https://qwenpaw.agentscope.io/docs/commands).
+
 Full documentation: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 
 ---

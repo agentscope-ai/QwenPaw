@@ -15,16 +15,18 @@ Python variables do not persist across calls; derived tables do, because the
 
 import asyncio
 import shlex
+import sqlite3
 import sys
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 
 from ...tools.utils import truncate_text_output  # repo-standard output bound
 from ....runtime.tool_registry import ToolDescriptor
+from ....utils.io_utils import run_sync_io
 
 # Directory holding memoryspace.py — added to the cell's sys.path so the
 # sandboxed process imports it by bare module name.
@@ -93,6 +95,7 @@ def make_recall_history_python(
     scratch_root: str,
     timeout_s: int = 300,
     allow_unsandboxed: bool = False,
+    on_database_error: Optional[Callable[[BaseException], None]] = None,
 ):
     """Build a ``recall_history_python`` tool bound to one session's history.
 
@@ -114,11 +117,19 @@ def make_recall_history_python(
     scratch_db = str(Path(scratch_root) / "repl" / "scratch.db")
     cells_dir = Path(scratch_root) / "cells"
 
-    def _build_cell(source: str) -> Path:
+    def _build_cell(source: str, corruption_marker: str) -> Path:
         # sqlite3.connect won't create missing parent dirs, so make the
         # scratch DB's holding dir before MemorySpace opens it.
         preamble = (
             "import sys\n"
+            "import sqlite3\n"
+            "def _report_history_error(kind, exc, tb):\n"
+            "    code = getattr(exc, 'sqlite_errorcode', 0)\n"
+            "    if isinstance(exc, sqlite3.DatabaseError) and "
+            "(code & 0xff) == sqlite3.SQLITE_CORRUPT:\n"
+            f"        print({corruption_marker!r}, file=sys.stderr)\n"
+            "    sys.__excepthook__(kind, exc, tb)\n"
+            "sys.excepthook = _report_history_error\n"
             f"sys.path.insert(0, {_PKG_DIR!r})\n"
             "from pathlib import Path\n"
             "from memoryspace import MemorySpace\n"
@@ -166,7 +177,8 @@ def make_recall_history_python(
                 ],
                 state=ToolResultState.DENIED,
             )
-        cell = _build_cell(source)
+        corruption_marker = f"QWENPAW_HISTORY_CORRUPT:{uuid.uuid4().hex}"
+        cell = _build_cell(source, corruption_marker)
         argv = [sys.executable, str(cell)]
         try:
             if sandbox_config is not None:
@@ -194,6 +206,18 @@ def make_recall_history_python(
             except OSError:
                 pass
 
+        if corruption_marker in stderr.splitlines():
+            stderr = "\n".join(
+                line
+                for line in stderr.splitlines()
+                if line != corruption_marker
+            )
+            if on_database_error is not None:
+                # This is a request to verify the database, never proof that
+                # it should be rebuilt. The parent performs the real probe.
+                error = sqlite3.DatabaseError("Recall reported corruption")
+                error.sqlite_errorcode = sqlite3.SQLITE_CORRUPT
+                await run_sync_io(on_database_error, error)
         text = _format_observation(stdout, stderr, code)
         # The subprocess has finished, so this is a terminal chunk — RUNNING
         # would leave it looking perpetually in-flight to tool coordination,

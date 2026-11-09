@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
@@ -47,13 +48,30 @@ def dependency_http_error(exc):
                 "operation": exc.operation,
             },
         )
+    code = exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED"
+    instructions = {
+        "DEPENDENCY_UNSATISFIED": "Resolve the missing dependency requirements, then retry installation.",
+        "DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED": (
+            "The dependency environment changed; verify the active "
+            "environment, then retry installation."
+        ),
+        "DEPENDENCY_REPAIR_REQUIRED": "Complete the pending dependency repair before retrying installation.",
+        "DEPENDENCY_RESTART_REQUIRED": (
+            "Restart the backend to release the affected dependencies, "
+            "then retry installation."
+        ),
+    }
+    logger.info("Plugin dependency refusal: code=%s", _log_safe(code))
     return HTTPException(
         status_code=409,
         detail={
-            "code": exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED",
+            "code": code,
             "message": str(exc),
             "instructions": [
-                "Resolve the shared dependency requirements, then retry installation.",
+                instructions.get(
+                    code,
+                    "Review the dependency preparation error before retrying installation.",
+                ),
             ],
         },
     )
@@ -116,6 +134,80 @@ def _interrupt_options(interrupt_tasks: bool) -> dict[str, Any]:
 def _log_safe(value: object) -> str:
     """Strip CR/LF so request-derived values cannot forge log entries."""
     return str(value).replace("\r", "").replace("\n", "")
+
+
+# Marker file dropped into a plugin's install directory when it was
+# installed from the AgentScope plugin market.  Remembers the scoped
+# market id (e.g. ``@owner/name``) so update checks can match the
+# installed plugin back to its market entry exactly instead of
+# re-deriving identity from the free-form ``author`` field, which
+# frequently differs from the market owner login (#8176).
+_MARKET_MARKER_FILE = ".qwenpaw-market.json"
+
+# ``{market}/plugins/{owner}/{name}/archive/zip/{ref}`` download URLs
+# (the shape both ``buildMarketDownloadUrl`` and the update flow use).
+_MARKET_ARCHIVE_URL_RE = re.compile(
+    r"^/plugins/(?P<owner>[^/\s]+)/(?P<name>[^/\s]+)/archive/zip/[^/\s]+$",
+)
+
+
+def _market_id_from_source(source: str) -> Optional[str]:
+    """Return the scoped market id for an official-market archive URL.
+
+    Any other source (local path, third-party host, non-archive market
+    path) returns ``None`` so provenance is only recorded when the
+    plugin verifiably came from the official market.
+    """
+    value = str(source or "").strip()
+    if not value.startswith(("http://", "https://")):
+        return None
+    parsed = urlsplit(value)
+    market_host = urlsplit(_PLUGIN_MARKET_BASE_URL).hostname or ""
+    if not market_host or (parsed.hostname or "") != market_host:
+        return None
+    match = _MARKET_ARCHIVE_URL_RE.match(parsed.path)
+    if match is None:
+        return None
+    return f"@{match.group('owner')}/{match.group('name')}"
+
+
+def _read_market_id(plugin_dir: Path) -> Optional[str]:
+    """Read the recorded market id from a plugin's install directory."""
+    try:
+        payload = json.loads(
+            (plugin_dir / _MARKET_MARKER_FILE).read_text(encoding="utf-8"),
+        )
+    except (OSError, ValueError, TypeError):
+        return None
+    market_id = payload.get("market_id") if isinstance(payload, dict) else None
+    if isinstance(market_id, str) and market_id.strip():
+        return market_id.strip()
+    return None
+
+
+async def _stamp_market_provenance(source_path: Path, source: str) -> None:
+    """Record market provenance inside a freshly extracted plugin tree.
+
+    Called before the loader copies the tree into the plugins directory,
+    so the marker is carried into the install, replaced on update, and
+    removed with the plugin on uninstall.  Non-market sources are left
+    untouched.
+    """
+    market_id = _market_id_from_source(source)
+    if market_id is None:
+        return
+    payload = json.dumps(
+        {"schema_version": 1, "market_id": market_id},
+        sort_keys=True,
+    )
+
+    def _write() -> None:
+        (source_path / _MARKET_MARKER_FILE).write_text(
+            payload,
+            encoding="utf-8",
+        )
+
+    await asyncio.to_thread(_write)
 
 
 class UnquiescentUnloadError(RuntimeError):
@@ -221,6 +313,7 @@ def _list_plugins_from_disk() -> list[dict]:
                 "frontend_entry": manifest.entry.frontend,
                 "sdk_harnesses": "harnesses"
                 in (manifest.sdk or {}).get("capabilities", []),
+                "market_id": _read_market_id(item),
             },
         )
     return result
@@ -375,6 +468,7 @@ async def list_plugins(request: Request):
             "diagnostics": list(record.diagnostics or []),
             "plugin_type": manifest.plugin_type,
             "frontend_entry": manifest.entry.frontend,
+            "market_id": _read_market_id(record.source_path),
         }
 
     return list(result.values())
@@ -450,6 +544,7 @@ async def install_plugin_source(
             source_path = await asyncio.to_thread(Path(normalized).resolve)
             if not await asyncio.to_thread(source_path.exists):
                 raise FileNotFoundError(f"Path not found: {normalized}")
+        await _stamp_market_provenance(source_path, normalized)
         return await _load_plugin_with_optional_force_reinstall(
             loader,
             request,
@@ -780,7 +875,8 @@ async def unload_plugin_keep_config(
     summary="Repair plugin dependencies",
     description=(
         "Explicitly install missing plugin dependencies, then load. "
-        "Host-package upgrades are rejected and require a backend restart."
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
     ),
 )
 async def repair_plugin_dependencies(plugin_id: str, request: Request):

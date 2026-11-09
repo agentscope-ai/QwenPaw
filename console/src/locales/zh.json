@@ -443,6 +443,24 @@
     "backToApp": "返回应用",
     "searchPlaceholder": "搜索设置",
     "noResults": "没有匹配的设置",
+    "searchSelectTask": "请选择要编辑的任务；没有任务时可先创建，进入表单后将定位到目标设置。",
+    "searchSelectChannel": "请选择频道，随后将定位到该频道的目标设置。",
+    "searchSelectObject": "请选择要配置的对象并打开详情；部分字段需要先选择适用的模式。",
+    "searchChooseLoop": "请选择对应的 Loop 模式；部分参数在启用相关选项后显示。",
+    "searchConditionalSetting": "选择适用的模式或启用对应功能后，可配置此项。",
+    "mcpJsonConfig": "高级 JSON 配置",
+    "searchToolAvailability": "工具是否可用取决于当前智能体、已安装插件和运行模式。",
+    "searchNativeContextOnly": "仅适用于使用旧版 Native 上下文策略的配置。",
+    "searchScrollContextOnly": "适用于 Scroll 上下文策略。",
+    "searchReMeOnly": "选择 ReMe Light 记忆后端后可配置此项。",
+    "searchBuiltinSkillLanguage": "请选择提供多语言版本的内置技能，再打开详情设置语言。",
+    "searchBuiltinSkillUpdate": "请选择内置技能，再打开详情配置自动更新。",
+    "searchBackupSecrets": "进入创建或恢复备份表单，选择对应范围后可配置密钥信息。",
+    "searchWhisperProvider": "选择 Whisper API 转写后端后，可配置其 API 提供商。",
+    "searchAgentTaskOnly": "此设置仅适用于智能体任务，当前消息任务不可配置。",
+    "searchEnableFallback": "启用“失败时使用备用模型”后可配置备用模型列表。",
+    "searchUnsupportedChannel": "当前频道不支持这些访问控制设置，请选择支持的频道。",
+    "searchUnsupportedBackend": "模型路由设置适用于 QwenPaw 智能体，当前智能体后端不支持。",
     "groups": {
       "application": "应用设置",
       "agentConfiguration": "智能体配置",
@@ -558,6 +576,61 @@
       "refreshBackend": "刷新后端日志",
       "refreshSuccess": "日志已刷新",
       "copyBackend": "复制后端日志"
+    }
+  },
+  "systemNotifications": {
+    "heading": "通知",
+    "enabled": "桌面通知",
+    "help": "通知帮助",
+    "categories": "通知类型",
+    "background": "后台消息",
+    "backgroundDescription": "定时任务、心跳和邮件，仅在后台提醒",
+    "allEnabled": "全部开启",
+    "selectedCount": "已开启 {{count}} 项",
+    "systemBlocked": "通知被系统关闭",
+    "browserBlocked": "通知被浏览器阻止",
+    "allowInSettings": "前往开启",
+    "showBrowserHelp": "查看开启方法",
+    "permissionRequired": "需要授权后才能接收通知",
+    "authorize": "授权通知",
+    "conversation": "回复完成",
+    "conversationDescription": "Agent 完成回复时提醒",
+    "conversationComplete": "Agent 已完成一轮回复",
+    "approval": "审批提醒",
+    "approvalDescription": "需要你授权时提醒",
+    "cron": "定时任务",
+    "heartbeat": "心跳检查",
+    "mail": "邮件通知",
+    "systemSettings": "系统通知设置",
+    "systemSettingsDescription": "在系统设置中管理 QwenPaw 的通知权限、横幅和声音。",
+    "browserHelp": "在浏览器地址栏的站点设置中管理通知权限。浏览器需要保持运行。",
+    "openSettings": "打开系统设置",
+    "openFailed": "无法打开系统通知设置，请手动进入系统设置 → 通知。",
+    "mode": {
+      "off": "关闭",
+      "background": "仅在后台",
+      "always": "始终提醒"
+    }
+  },
+  "approvalNotifications": {
+    "settingTitle": "审批桌面通知",
+    "openApprovals": "查看待审批",
+    "description": "QwenPaw 在后台运行时，通过系统通知提醒你处理新审批。",
+    "title": "QwenPaw · 需要审批",
+    "body": "{{tool}} 正在等待你的审批，请打开 QwenPaw 及时处理。",
+    "failed": "通知发送失败，请检查通知设置。",
+    "permission": {
+      "default": "开启时申请通知权限",
+      "granted": "浏览器已授权",
+      "denied": "通知已被阻止，请在浏览器的网站设置中允许通知",
+      "native": "由系统通知设置管理",
+      "checking": "正在检查通知授权",
+      "unavailable": "暂时无法读取系统通知权限，请重新打开桌面端",
+      "nativeDefault": "开启时申请系统通知授权",
+      "nativeGranted": "系统通知已授权",
+      "nativeDenied": "通知已被系统阻止，请在系统通知设置中允许 QwenPaw",
+      "unsupported": "当前浏览器不支持桌面通知",
+      "insecure": "请通过 HTTPS 或 localhost 访问以开启通知"
     }
   },
   "inbox": {
@@ -2085,7 +2158,7 @@
     "fieldWebSocketHost": "WebSocket 主机",
     "fieldWebSocketPort": "WebSocket 端口",
     "matrixUserHelp": "可填写完整 MXID（如 @bot:matrix.org）或本地名称（如 bot）。",
-    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备，并安装 matrix-nio[e2e]：pip install matrix-nio[e2e]。",
+    "matrixEncryptionHelp": "启用后需在 Matrix 客户端（如 Element）验证设备。",
     "matrixDeviceHelp": "Matrix 客户端的固定设备名称，留空时使用 qwenpaw-worker。",
     "messageTypeHelp": "markdown：普通消息；card：AI 交互卡片。",
     "scheduledMessageTypeHelp": "定时任务发送的消息类型，与聊天消息类型独立。",
@@ -2213,6 +2286,7 @@
       "internal": "由 QwenPaw 内部管理。"
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Shell 进程树内存保护：0 关闭，auto 使用可用内存的一半（最高 4096 MiB），或填写正整数 MiB 上限。指定上限也不超过可用内存的一半。修改从下一次 Shell 调用生效，运行中的命令保持原限制。轮询保护不等同于系统硬内存限制。",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "等待首个有效流式内容的最长时间；设为 0 可关闭检测。",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "两个有效流式内容之间的最长等待时间；设为 0 可关闭检测。"
     },
@@ -2708,6 +2782,8 @@
     "localServerSwitchConfirm": "当前服务正在运行 {{current}}。确认切换到 {{next}}？",
     "localSwitchModel": "切换",
     "localModelPathMissing": "该已下载模型缺少本地路径信息。",
+    "localChatModelsTitle": "对话模型",
+    "localDecisionModelsTitle": "决策模型",
     "localModelsSectionTitle": "本地模型",
     "localModelsSectionDescription": "下载后即可启动；当前只允许一个模型下载任务和一个本地服务实例。",
     "localModelsLockedHint": "请先安装 llama.cpp",
@@ -3303,6 +3379,8 @@
     "rubricPrompt": "自然语言完成标准",
     "rubricPromptTooltip": "注入的提示语，要求 Agent 评估任务完成情况",
     "rubricDesc": "当 Agent 给出不包含工具调用的文本答复时，按自然语言完成标准检查，并在仍有工作时要求 Agent 继续。",
+    "rubricUseDecisionModel": "使用决策模型辅助自检",
+    "rubricUseDecisionModelHelp": "对话和工具结果会发送给选定的决策模型。它可以提示智能体核实可能遗漏的问题。没有提示或模型不可用时，智能体照常自检。",
     "rubricPromptPlaceholder": "你上一轮没有调用任何工具。如果任务已完成请确认，否则请继续使用工具完成。",
     "rubricMaxInterventions": "最多判断轮数",
     "rubricMaxInterventionsTooltip": "单个 Turn 内，对不包含工具调用的文本答复最多进行多少轮完成度检查。",
@@ -3663,10 +3741,10 @@
       "smartDesc": "低风险工具调用和外部文件访问操作自动执行，中高风险需审批",
       "jev": "决策模型模式",
       "jevDesc": "先执行本地安全规则，规则外操作由决策模型评估风险",
-      "jevRequiresDecision": "请先打开「使用决策模型」",
+      "jevRequiresDecision": "请先在模型设置中配置决策模型",
       "decisionModelPrivacy": "工具名、操作、目标和参数名可能发送给决策模型提供商；不会发送聊天记录或文件正文。",
-      "decisionModelConnected": "已配置决策模型提供商的 API Key",
-      "decisionModelNotConnected": "决策模型提供商尚未配置 API Key；旧版决策模型密钥仍可临时使用，请在模型页面统一管理。",
+      "decisionModelConnected": "已配置决策模型提供商",
+      "decisionModelNotConnected": "尚未配置决策模型。可在模型页面配置本地 Piccolo 或 TypeSafe 决策模型。",
       "decisionModelConfigure": "配置决策模型提供商",
       "auto": "自动模式",
       "autoDesc": "仅命中工具和文件审批规则的操作需审批（默认）",
@@ -3769,7 +3847,7 @@
     "contextStrategyNative": "Native",
     "decisionCompactLabel": "决策模型压缩",
     "decisionCompactEnabled": "启用决策模型压缩",
-    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天决策开关，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
+    "decisionCompactDescription": "默认关闭，复用智能体的决策模型，未选择时使用全局默认决策模型，请在模型设置中配置。自动触发上下文压缩时，ReMe 先将低相关性工具结果替换为带恢复引用的短预览，再继续现有压缩流程。支持 Scroll 和原生策略，独立于长期记忆及聊天的工具审批模式，需要开启自动上下文压缩。决策请求会将有界的对话证据发送至配置的供应商。",
     "decisionCompactAdvanced": "请求限制",
     "decisionCompact_drop_threshold": "低相关性阈值",
     "decisionCompact_drop_thresholdHelp": "仅缩短相关性概率不高于该值的结果；数值越低，保留原文越多。",
@@ -3872,6 +3950,10 @@
       "view_video": {
         "name": "查看视频",
         "description": "读取视频，让模型分析视频内容。"
+      },
+      "view_audio": {
+        "name": "收听音频",
+        "description": "读取音频，让模型转写或分析音频内容。"
       },
       "enhance_and_generate_image": {
         "name": "增强并生成图片",
@@ -4003,10 +4085,6 @@
     "system": "跟随系统"
   },
   "chat": {
-    "sessionSettings": {
-      "advanced": "高级选项",
-      "decisionEnabled": "使用决策模型"
-    },
     "longTextPaste": {
       "title": "粘贴长文本",
       "asText": "粘贴为文本",

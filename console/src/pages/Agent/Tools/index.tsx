@@ -353,6 +353,7 @@ export default function ToolsPage() {
                   className={styles.section}
                   key={group.label}
                   aria-label={group.label}
+                  data-settings-target={`tools.groups.${group.key}`}
                 >
                   <h2 className={styles.sectionTitle}>
                     {group.label}
@@ -379,7 +380,11 @@ export default function ToolsPage() {
                           index={index}
                           animate={!entered.current}
                         >
-                          <InteractiveCard className={styles.toolCard} tilt={2}>
+                          <InteractiveCard
+                            className={styles.toolCard}
+                            tilt={2}
+                            data-settings-target={`tool:${tool.name}`}
+                          >
                             <div className={styles.cardHeader}>
                               <span className={styles.toolIcon}>
                                 <Icon
@@ -469,6 +474,11 @@ export default function ToolsPage() {
                                 <div className={styles.rowActions}>
                                   {canConfigure && (
                                     <Button
+                                      data-settings-open={
+                                        WEBSEARCH_TOOL_NAMES.has(tool.name)
+                                          ? "web-search"
+                                          : undefined
+                                      }
                                       data-press
                                       className={styles.toggleButton}
                                       aria-label={`${t(
@@ -503,6 +513,7 @@ export default function ToolsPage() {
                                     data-press
                                     className={styles.toggleButton}
                                     aria-pressed={tool.async_execution}
+                                    data-settings-target="tools.asyncExecution"
                                     onClick={() => toggleAsyncExecution(tool)}
                                     disabled={batchLoading}
                                     icon={

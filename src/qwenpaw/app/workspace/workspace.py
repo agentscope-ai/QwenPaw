@@ -31,6 +31,9 @@ from ...utils.io_utils import run_async_to_completion
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
+    create_history_service,
+    prepare_history_service,
+    history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -48,6 +51,7 @@ from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from ...memory import MemoryBackendContext
 
 logger = logging.getLogger(__name__)
@@ -135,7 +139,7 @@ def _memory_manager_reuse_compatible(
     )
 
 
-class Workspace:
+class Workspace:  # pylint: disable=too-many-public-methods
     """Single agent workspace with complete runtime components.
 
     Each Workspace is an independent agent instance with its own:
@@ -188,6 +192,7 @@ class Workspace:
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
         self.cron_start_paused = False
+        self._history_retention_days = 0
         self._started = False
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
@@ -204,6 +209,11 @@ class Workspace:
         )
 
     # Service access via properties (delegates to ServiceManager)
+    @property
+    def history_store(self) -> Optional["HistoryStore"]:
+        """Shared Scroll store; request context managers only borrow it."""
+        return self._service_manager.services.get("history_store")
+
     @property
     def session(self) -> Optional[SafeJSONSession]:
         """Get session instance from ServiceManager."""
@@ -436,6 +446,11 @@ class Workspace:
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        from ...schemas import AgentRequest
+
+        if isinstance(request, dict):
+            request = AgentRequest(**request)
+
         config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -549,6 +564,21 @@ class Workspace:
                 },
                 priority=10,
                 concurrent_init=False,
+            ),
+        )
+
+        # Close after request-producing services. Reload transfers this store
+        # only when its configured path and file identity still match.
+        sm.register(
+            ServiceDescriptor(
+                name="history_store",
+                create_service=create_history_service,
+                post_init=prepare_history_service,
+                stop_method="shutdown",
+                reusable=True,
+                reuse_compatibility=history_service_reuse_compatible,
+                require_clean_stop=True,
+                priority=15,
             ),
         )
 
@@ -711,6 +741,13 @@ class Workspace:
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
 
+    async def start_history_retention(self) -> None:
+        """Apply maintenance only after this workspace owns the agent."""
+        if self.history_store is not None:
+            await self.history_store.start_retention(
+                self._history_retention_days,
+            )
+
     async def start(self):
         """Start workspace and initialize all components."""
         if self._started:
@@ -744,6 +781,10 @@ class Workspace:
         try:
             # 1. Load agent configuration
             self._config = load_agent_config(self.agent_id)
+            lcc = self._config.running.light_context_config
+            self._history_retention_days = (
+                lcc.scroll_config.history_retention_days
+            )
             logger.debug(
                 "Loaded config for agent: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -757,6 +798,9 @@ class Workspace:
             await self._service_manager.start_all()
 
             self._started = True
+            # Reload candidates activate maintenance after ownership commits.
+            if not self.cron_start_paused:
+                await self.start_history_retention()
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -846,6 +890,27 @@ class Workspace:
                 sanitize_log_value(exc),
             )
 
+    async def cancel_active_requests(self) -> None:
+        """Cancel this workspace's requests and finish their cleanup."""
+        tasks = list(
+            (
+                await self.task_tracker.snapshot_active_tasks(owner=self)
+            ).values(),
+        )
+        if asyncio.current_task() in tasks:
+            raise RuntimeError("A workspace request cannot await its own stop")
+
+        async def cancel_and_drain() -> None:
+            for task in tasks:
+                if not task.done() and (
+                    not isinstance(task, asyncio.Task) or not task.cancelling()
+                ):
+                    task.cancel("workspace shutdown")
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Repeated cancellation of the caller must not interrupt final writes.
+        await run_async_to_completion(cancel_and_drain())
+
     async def stop(
         self,
         final: bool = True,
@@ -872,6 +937,11 @@ class Workspace:
             "Stopping agent instance: "
             f"{sanitize_log_value(self.agent_id)} (final={final})",
         )
+
+        if final:
+            # Keep services available until request persistence and cleanup
+            # complete. Reloads drain naturally and must not cancel requests.
+            await self.cancel_active_requests()
 
         # Revoke this instance's plugin bindings while its managers are alive.
         # Reload candidates and draining old instances may share an agent id.

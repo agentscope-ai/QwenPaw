@@ -16,6 +16,11 @@ import { LongTextPasteInput } from "./LongTextPaste";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
+import {
+  getPendingProjectDirectory,
+  setPendingProjectDirectory,
+} from "../../features/project-directory/pendingProjectDirectory";
+import { listenForProjectDirectoryChanges } from "../../features/project-directory/projectDirectoryChangeEvent";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -676,7 +681,9 @@ describe("ChatPage coverage", () => {
     const location = useLocation();
     return (
       <>
-        <output data-testid="chat-path">{location.pathname}</output>
+        <output data-testid="chat-path">
+          {location.pathname + location.search}
+        </output>
         <ChatPage />
       </>
     );
@@ -1670,6 +1677,42 @@ describe("ChatPage coverage", () => {
     expect(clear).not.toHaveBeenCalled();
   });
 
+  it("preserves the latest approval target when normalizing a runtime alias", async () => {
+    const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
+    function NotificationRouteHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button
+            onClick={() =>
+              navigate(`/chat/${runtimeId}?approval=second&agent=default`)
+            }
+          >
+            Open notification
+          </button>
+          <RouteHarness />
+        </>
+      );
+    }
+    renderWithProviders(<NotificationRouteHarness />, {
+      initialEntries: [`/chat/${runtimeId}?approval=first&agent=default`],
+    });
+    await screen.findByTestId("chat-ui");
+    fireEvent.click(screen.getByRole("button", { name: "Open notification" }));
+    const session = (await import("./sessionApi")).default;
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) =>
+      id === runtimeId ? chatId : id,
+    );
+
+    await act(async () => session.onSessionSelected?.(runtimeId, chatId));
+
+    expect(screen.getByTestId("chat-path")).toHaveTextContent(
+      `/chat/${chatId}?approval=second&agent=default`,
+    );
+    vi.mocked(session.getEffectiveSessionId).mockImplementation((id) => id);
+  });
+
   it("migrates a queued runtime alias before selecting its Chat UUID", async () => {
     const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
     const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
@@ -2215,6 +2258,56 @@ describe("ChatPage coverage", () => {
       user_id: "user-a",
     });
   });
+
+  it.each([true, false])(
+    "confirms pending directories only after a successful first request (ok=%s)",
+    async (ok) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/sdk-chat-uuid"],
+      });
+      await screen.findByTestId("chat-ui");
+      setPendingProjectDirectory("default", "sdk-chat-uuid", [
+        { path: "/projects/custom", label: null },
+      ]);
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok,
+        status: ok ? 200 : 500,
+        body: null,
+      } as Response);
+      const onDirectoryChanged = vi.fn();
+      const unsubscribe = listenForProjectDirectoryChanges(onDirectoryChanged);
+      const submission = {
+        session_id: "sdk-chat-uuid",
+        input: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      };
+      try {
+        await capturedOptions.api.fetch(submission);
+
+        expect(getPendingProjectDirectory("default", "sdk-chat-uuid")).toBe(
+          ok ? null : "/projects/custom",
+        );
+        if (ok) {
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        } else {
+          expect(onDirectoryChanged).not.toHaveBeenCalled();
+          await capturedOptions.api.fetch(submission);
+          expect(
+            getPendingProjectDirectory("default", "sdk-chat-uuid"),
+          ).toBeNull();
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        }
+      } finally {
+        unsubscribe();
+        setPendingProjectDirectory("default", "sdk-chat-uuid", null);
+      }
+    },
+  );
 
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {

@@ -304,3 +304,9 @@ class ConnectionTestResponse(StrictModel):
     error: str | None = None
     detail: str | None = None
     suggestion: str | None = None
+    # A green test is really two facts: the credential was accepted, and this
+    # model can serve the modality. A free read-only probe proves only the
+    # first — three dead ASR routes stayed behind a passing model-list call —
+    # so the UI must not report one as the other. ``None`` means the path
+    # cannot tell, which keeps the field from inventing a verdict.
+    capability_verified: bool | None = None

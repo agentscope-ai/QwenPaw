@@ -1,3 +1,4 @@
+import { message } from "antd";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ModelConfigModal, {
@@ -309,6 +310,74 @@ describe("ModelConfigModal configuration lifecycle", () => {
         screen.getByRole("checkbox", { name: /复用 LLM 配置/ }),
       ).toBeChecked(),
     );
+  });
+
+  /** Opens the LLM card and answers its connectivity test with *probe*. */
+  async function testLlmCardProbe(probe: Record<string, unknown>) {
+    installMockFetch([
+      ...configRoutes(
+        {
+          ...emptyConfig,
+          llm: {
+            ...emptyConfig.llm,
+            model_name: "qwen3.7-plus",
+            api_key: "saved-secret",
+            base_url: "https://provider.test/v1",
+          },
+        },
+        probe,
+      ),
+      {
+        match: "/models/real-api-key/llm",
+        method: "GET",
+        response: { json: { apiKey: "saved-secret" } },
+      },
+    ]);
+    render(<ModelConfigModal open onClose={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getAllByText("qwen3.7-plus").length).toBeGreaterThan(0),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /测试连通性/ }));
+  }
+
+  it("downgrades a credential-only probe to a separate verdict", async () => {
+    // A free read-only request proves the key and nothing about the
+    // modality, so a green light must not be worded as a verified model.
+    // The toast itself is spied rather than queried: antd keeps an earlier
+    // test's message mounted, which would satisfy a DOM absence check by
+    // accident and hide the branch this is meant to pin down.
+    const warned = vi
+      .spyOn(message, "warning")
+      .mockImplementation(() => undefined);
+    const passed = vi
+      .spyOn(message, "success")
+      .mockImplementation(() => undefined);
+
+    await testLlmCardProbe({ ok: true, ms: 8, capability_verified: false });
+
+    await waitFor(() =>
+      expect(warned).toHaveBeenCalledWith(
+        zh.modelConfig.connectionTestCredentialOnly,
+      ),
+    );
+    expect(passed).not.toHaveBeenCalledWith(
+      zh.modelConfig.connectionTestSuccess,
+    );
+    warned.mockRestore();
+    passed.mockRestore();
+  });
+
+  it("keeps reporting a real request as a verified capability", async () => {
+    const passed = vi
+      .spyOn(message, "success")
+      .mockImplementation(() => undefined);
+
+    await testLlmCardProbe({ ok: true, ms: 8, capability_verified: true });
+
+    await waitFor(() =>
+      expect(passed).toHaveBeenCalledWith(zh.modelConfig.connectionTestSuccess),
+    );
+    passed.mockRestore();
   });
 
   it("stays unconfigured until the user tests and saves entered model data", async () => {

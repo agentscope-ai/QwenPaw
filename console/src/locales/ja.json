@@ -1627,7 +1627,7 @@
     "fieldWebSocketHost": "WebSocketホスト",
     "fieldWebSocketPort": "WebSocketポート",
     "matrixUserHelp": "完全なMXID（例：@bot:matrix.org）またはローカル名（例：bot）を入力できます。",
-    "matrixEncryptionHelp": "有効化後、Matrixクライアント（Elementなど）でデバイスを検証し、pip install matrix-nio[e2e] を実行してください。",
+    "matrixEncryptionHelp": "有効化後、Matrixクライアント（Elementなど）でデバイスを検証してください。",
     "matrixDeviceHelp": "Matrixクライアントの固定デバイス名。空欄の場合は qwenpaw-worker。",
     "messageTypeHelp": "markdown：通常のメッセージ、card：AI対話カード。",
     "scheduledMessageTypeHelp": "定期タスクの送信形式。チャットの形式とは独立しています。",
@@ -1752,6 +1752,7 @@
       "internal": "QwenPaw が内部で管理します。"
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "シェルのプロセスツリーのメモリ保護：0 で無効、auto で利用可能なメモリの半分（最大 4096 MiB）を使用します。MiB 単位の上限を正の整数で指定することもできます。指定した上限も利用可能なメモリの半分を超えません。変更は次回のシェル呼び出しから適用され、実行中のコマンドは開始時の上限を維持します。定期的な監視による保護は、OS が強制する厳密なメモリ制限ではありません。",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "最初の有効なストリーム内容を待つ最大時間です。0 で監視を無効化します。",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "有効なストリームチャンク間の最大待機時間です。0 で監視を無効化します。"
     },
@@ -1830,6 +1831,9 @@
     "retry": "再試行"
   },
   "modelSelector": {
+    "subagentModel": "サブエージェントモデル",
+    "chooseFallback": "フォールバックモデル",
+    "enableFallback": "失敗時にフォールバックモデルを使用",
     "noFallback": "使用しない",
     "selectModel": "モデルを選択",
     "noConfiguredModels": "設定済みモデルがありません",
@@ -1865,6 +1869,7 @@
     "searchCandidates": "Search candidate models..."
   },
   "models": {
+    "primaryModel": "メインモデル",
     "disableBtn": "無効化",
     "modelType": "モデルタイプ",
     "modelTypeChat": "チャット",
@@ -2639,6 +2644,8 @@
     "rubricPrompt": "自然言語の完了基準",
     "rubricPromptTooltip": "タスク完了評価を求めるために注入されるプロンプト",
     "rubricDesc": "ツール呼び出しのないテキスト応答に自然言語の完了基準を適用し、作業が残る場合は続行させます。",
+    "rubricUseDecisionModel": "判断モデルで自己確認を補助",
+    "rubricUseDecisionModelHelp": "会話とツールの結果を選択した判断モデルに送り、見落としの可能性があればエージェントに伝えます。指摘がない場合やモデルが使えない場合も、通常どおり自己確認を行います。",
     "rubricPromptPlaceholder": "前のターンでツールを呼び出しませんでした。タスクが完了している場合は確認してください。そうでなければツールを使って続行してください。",
     "rubricMaxInterventions": "最大判定回数",
     "rubricMaxInterventionsTooltip": "1ターン内で、ツール呼び出しのないテキスト応答に対して行う完了チェックの最大回数です。",
@@ -2916,7 +2923,7 @@
       "smart": "スマートモード",
       "smartDesc": "低リスクのツール呼び出しと外部ファイルアクセスは自動実行され、中〜高リスクの操作には承認が必要です",
       "jev": "判断モデルモード",
-      "jevRequiresDecision": "先に判断モデルを有効にしてください",
+      "jevRequiresDecision": "先にモデル設定で判断モデルを設定してください",
       "auto": "自動モード",
       "autoDesc": "ツールとファイルの承認ルールに一致する操作のみ承認が必要です（デフォルト）",
       "off": "オフモード",
@@ -3010,6 +3017,10 @@
       "view_video": {
         "name": "動画を確認",
         "description": "モデルが分析できるよう動画を読み込みます。"
+      },
+      "view_audio": {
+        "name": "音声を確認",
+        "description": "モデルが文字起こしや分析できるよう音声を読み込みます。"
       },
       "enhance_and_generate_image": {
         "name": "プロンプトを改善して画像を生成",
@@ -3195,6 +3206,24 @@
     "backToApp": "アプリに戻る",
     "searchPlaceholder": "設定を検索",
     "noResults": "一致する設定はありません",
+    "searchSelectTask": "この設定を見つけるには、編集するタスクを選択するか、新しいタスクを作成してください。",
+    "searchSelectChannel": "この設定を見つけるには、チャンネルを選択してください。",
+    "searchSelectObject": "項目を選択して設定を開いてください。一部のフィールドは選択したモードによって異なります。",
+    "searchChooseLoop": "該当する Loop モードを選択してください。一部のパラメーターは関連するオプションを有効にすると表示されます。",
+    "searchConditionalSetting": "この設定を行うには、該当するモードを選択するか、関連するオプションを有効にしてください。",
+    "mcpJsonConfig": "詳細 JSON 設定",
+    "searchToolAvailability": "ツールの利用可否は、エージェント、インストール済みのプラグイン、現在のモードによって異なります。",
+    "searchNativeContextOnly": "従来の Native コンテキスト戦略を使用するプロファイルでのみ利用できます。",
+    "searchScrollContextOnly": "Scroll コンテキスト戦略で利用できます。",
+    "searchReMeOnly": "ReMe Light メモリバックエンドを選択すると利用できます。",
+    "searchBuiltinSkillLanguage": "複数の言語バージョンがある組み込みスキルを選択し、詳細を開いてください。",
+    "searchBuiltinSkillUpdate": "組み込みスキルを選択して、自動更新を設定してください。",
+    "searchBackupSecrets": "バックアップの作成または復元フォームを開き、該当する範囲を選択してシークレットを設定してください。",
+    "searchWhisperProvider": "文字起こしプロバイダーとして Whisper API を選択すると、その API プロバイダーを設定できます。",
+    "searchAgentTaskOnly": "この設定はエージェントタスクでのみ利用できます。",
+    "searchEnableFallback": "フォールバックモデルを有効にして、フォールバックリストを設定してください。",
+    "searchUnsupportedChannel": "このチャンネルはこれらのアクセス制御設定に対応していません。",
+    "searchUnsupportedBackend": "モデルルーティングは QwenPaw エージェントで利用できます。",
     "groups": {
       "application": "アプリ設定",
       "agentConfiguration": "エージェント設定",
@@ -4671,6 +4700,27 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
+    }
+  },
+  "approvalNotifications": {
+    "settingTitle": "承認のデスクトップ通知",
+    "openApprovals": "保留中の承認を表示",
+    "description": "QwenPaw がバックグラウンドにある間に承認が届いたとき、システム通知で知らせます。",
+    "title": "QwenPaw · 承認が必要です",
+    "body": "{{tool}} が承認を待っています。QwenPaw を開いて確認してください。",
+    "failed": "通知を送信できませんでした。通知設定を確認してください。",
+    "permission": {
+      "default": "有効にすると権限が必要です",
+      "granted": "ブラウザの通知が許可されています",
+      "denied": "ブロックされています — ブラウザのサイト設定で通知を許可してください",
+      "native": "システムの通知設定で管理されます",
+      "checking": "通知権限を確認しています",
+      "unavailable": "システムの通知権限を確認できませんでした。デスクトップアプリを開き直してください。",
+      "nativeDefault": "有効にするとシステム権限が必要です",
+      "nativeGranted": "システムの通知が許可されています",
+      "nativeDenied": "ブロックされています — システムの通知設定で QwenPaw を許可してください",
+      "unsupported": "このブラウザはデスクトップ通知に対応していません",
+      "insecure": "通知を有効にするには HTTPS または localhost で開いてください"
     }
   },
   "inbox": {
