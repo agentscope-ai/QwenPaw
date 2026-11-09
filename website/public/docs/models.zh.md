@@ -57,7 +57,7 @@ QwenPaw Local 会自动记录模型启动状态以及所使用的引擎。如果
 
 ### MLX 模型
 
-MLX 使用目录形式的模型仓库（例如 `mlx-community/Qwen3-4B-Instruct-2507-4bit`），其中包含 `config.json` 与 safetensors 权重，而不是 GGUF 文件。QwenPaw 会根据统一内存容量推荐 4 bit MLX 模型。MLX 仅支持对话模型；Piccolo 等决策模型仍使用 llama.cpp。
+MLX 使用目录形式的模型仓库（例如 `mlx-community/Qwen3-4B-Instruct-2507-4bit`），其中包含 `config.json` 与 safetensors 权重，而不是 GGUF 文件。QwenPaw 会根据统一内存容量推荐 4 bit MLX 模型。MLX 仅支持对话模型；Piccolo 等决策模型仍使用 llama.cpp。MLX 使用模型自身的上下文窗口，进阶配置中的最大上下文长度仅适用于 llama.cpp。
 
 ## Ollama 配置
 

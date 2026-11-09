@@ -58,7 +58,7 @@ QwenPaw Local will automatically record the model's running state, including the
 
 ### MLX models
 
-MLX uses directory-based model repositories (for example `mlx-community/Qwen3-4B-Instruct-2507-4bit`) that contain `config.json` and safetensors weights, not GGUF files. QwenPaw recommends 4-bit MLX models based on unified memory. MLX is chat-only; decision models such as Piccolo continue to use llama.cpp.
+MLX uses directory-based model repositories (for example `mlx-community/Qwen3-4B-Instruct-2507-4bit`) that contain `config.json` and safetensors weights, not GGUF files. QwenPaw recommends 4-bit MLX models based on unified memory. MLX is chat-only; decision models such as Piccolo continue to use llama.cpp. MLX uses the model's native context window; the advanced max context setting applies to llama.cpp.
 
 ## Ollama Configuration
 
