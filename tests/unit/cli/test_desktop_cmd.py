@@ -197,6 +197,10 @@ def test_save_file_passes_headers_to_download_request(
     assert captured_headers["x-agent-id"] == "agent-a"
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="the decoded-path branch only runs on Windows",
+)
 def test_open_workspace_html_opens_the_decoded_local_path(
     monkeypatch,
 ) -> None:
@@ -267,6 +271,10 @@ def test_open_workspace_html_keeps_the_file_uri_off_windows(
     assert opened == ["file:///tmp/report.html"]
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="the UNC decode branch only runs on Windows",
+)
 def test_open_workspace_html_decodes_unc_uri_with_host(monkeypatch) -> None:
     """A UNC file URI keeps its host segment after decoding (Windows).
 
