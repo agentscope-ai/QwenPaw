@@ -51,7 +51,9 @@ def dependency_python(root):
             destination = library / entry.name
             if not destination.exists():
                 # Audits resolve metadata origins within the observed site.
-                if entry.suffix == ".dist-info" and entry.is_dir():
+                if (
+                    entry.suffix == ".dist-info" or entry.name == "share"
+                ) and entry.is_dir():
                     shutil.copytree(entry, destination)
                 else:
                     expose(entry, destination)

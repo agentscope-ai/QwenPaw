@@ -163,6 +163,14 @@
   min-height: 32px;
 }
 
+.loadingSpin {
+  // Explicit centered loader for the empty initial-load state.
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+}
+
 @media (max-width: 768px) {
   .cardGrid {
     grid-template-columns: 1fr;
@@ -193,4 +201,12 @@
   .cardFooter {
     transition: none;
   }
+}
+
+.cardTopActions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }

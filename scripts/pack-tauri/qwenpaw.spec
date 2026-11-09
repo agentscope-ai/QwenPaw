@@ -94,6 +94,12 @@ datas.append(
         "qwenpaw/browser/control_link/injected",
     ),
 )
+datas.append(
+    (
+        str(SRC / "local_models/runtime-release.json"),
+        "qwenpaw/local_models",
+    ),
+)
 
 # Include ReMe package data files (configs, tool yamls, plugin manifests, etc.).
 # The plugin packages are discovered through importlib.metadata entry points,
@@ -154,8 +160,16 @@ datas.append(
     ),
 )
 
-# The native Code Mode worker runs under the bundled standalone CPython.
-datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
+# Standalone workers need readable sources outside the frozen module archive.
+for relative in (
+    "modes/coding/_worker.py",
+    "agents/context/scroll/memoryspace.py",
+    "backup/_ops/sqlite_snapshot.py",
+    "utils/sqlite_uri.py",
+):
+    datas.append(
+        (str(SRC / relative), str(Path("qwenpaw") / Path(relative).parent)),
+    )
 
 # The dependency gate needs complete host metadata, not only the packages
 # that query their own versions. Both desktop builds install qwenpaw[full].

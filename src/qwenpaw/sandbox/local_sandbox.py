@@ -18,6 +18,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+from ..utils.shell_resources import communicate_shell_process
+
 from .config import (
     ExecutionResult,
     SandboxConfig,
@@ -211,8 +213,23 @@ class NoneSandbox(LocalSandbox):
 
         start = time.monotonic()
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                *_shell_argv(shell, cmd),
+            if (
+                sys.platform == "win32"
+                and _shell_basename(shell) in _CMD_NAMES
+            ):
+                # Windows exec serializes argv with list2cmdline, escaping
+                # embedded quotes with backslashes. cmd.exe needs raw shell
+                # text; subprocess_shell supplies its /c wrapper directly.
+                spawn = asyncio.create_subprocess_shell
+                args = (cmd,)
+                options = {"executable": shell}
+            else:
+                spawn = asyncio.create_subprocess_exec
+                args = tuple(_shell_argv(shell, cmd))
+                options = {}
+            self._process = await spawn(
+                *args,
+                **options,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -221,7 +238,7 @@ class NoneSandbox(LocalSandbox):
                 start_new_session=True,
             )
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                self._process.communicate(),
+                communicate_shell_process(self._process),
                 timeout=self._config.timeout_seconds,
             )
             duration_ms = int((time.monotonic() - start) * 1000)

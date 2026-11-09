@@ -19,6 +19,7 @@ from typing import Any
 
 from ..types import LogEntry
 from ....utils.io_utils import run_async_to_completion, run_sync_io
+from ....utils.sqlite_uri import sqlite_uri
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +215,7 @@ def validate_history_database(
     if not path.is_file():
         raise FileNotFoundError(path)
     conn = sqlite3.connect(
-        path.as_uri() + "?mode=ro",
+        sqlite_uri(path, "ro"),
         uri=True,
         timeout=_BUSY_TIMEOUT_MS / 1000,
     )
@@ -256,7 +257,7 @@ def backup_history_database(
     target.parent.mkdir(parents=True, exist_ok=True)
 
     conn = sqlite3.connect(
-        source_path.as_uri() + "?mode=ro",
+        sqlite_uri(source_path, "ro"),
         uri=True,
         timeout=_BUSY_TIMEOUT_MS / 1000,
     )
@@ -358,8 +359,7 @@ class HistoryStore:
     def _open(self, *, initialize: bool) -> None:
         # Maintenance opens an existing schema without creating or upgrading it.
         self._conn = sqlite3.connect(
-            self._path.resolve().as_uri()
-            + ("?mode=rwc" if initialize else "?mode=rw"),
+            sqlite_uri(self._path.resolve(), "rwc" if initialize else "rw"),
             uri=True,
             check_same_thread=False,
             timeout=_BUSY_TIMEOUT_MS / 1000,

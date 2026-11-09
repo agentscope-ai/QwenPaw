@@ -41,6 +41,7 @@ vi.mock("../../plugins/registry/hooks", async () => {
   if (!acpRoute || !acpAliasRoute) throw new Error("ACP routes are required");
 
   return {
+    useMenuItems: () => [],
     useRoutes: () => [
       {
         id: "core.chat",

@@ -704,7 +704,7 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 
 ## 工具环境变量
 
-部分工具和 MCP 服务需要额外的 API Key（如网络搜索用的 `TAVILY_API_KEY`）。有三种管理方式：
+部分工具和 MCP 服务需要额外的 API Key（如 Tavily MCP 客户端使用的 `TAVILY_API_KEY`）。有三种管理方式：
 
 - **`qwenpaw init`** — 初始化时会问 "Configure environment variables?"
 - **控制台 UI** — 在设置页面编辑
