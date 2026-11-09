@@ -1104,6 +1104,23 @@ def test_walk_and_grep_gbk_qiao_finds_character(temp_dir):
     assert all("\ufffd" not in line for line in matches)
 
 
+def test_walk_and_grep_gbk_shang_finds_character(temp_dir):
+    """Pattern 丄 matches GBK ``name=丄`` instead of lossy ``name=\ufffdA``."""
+    target = temp_dir / "shang.txt"
+    target.write_bytes("name=丄".encode("gbk"))
+    matches, status = _walk_and_grep(
+        target,
+        re.compile("丄"),
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches
+    assert any("丄" in line for line in matches)
+    assert all("\ufffd" not in line for line in matches)
+
+
 def test_walk_and_grep_gbk_yi_nuo_finds_characters(temp_dir):
     """Pattern 一锘 matches GBK bytes that also look like short UTF-8."""
     target = temp_dir / "yi.txt"

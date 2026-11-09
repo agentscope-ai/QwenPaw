@@ -146,7 +146,8 @@ def _feed_gbk_pair_trails(
     unpaired_ascii: int,
     pending_lead: int | None,
     ascii_letter_trails: int = 0,
-) -> tuple[int, int, int, int | None, int]:
+    pending_letter_trail: bool = False,
+) -> tuple[int, int, int, int | None, int, bool]:
     """Count GBK pairs and unpaired ASCII letters across chunks.
 
     A pair is a lead in 0x81-0xFE and a trail in 0x40-0x7E or 0x80-0xFE.
@@ -154,10 +155,17 @@ def _feed_gbk_pair_trails(
     (0xC0-0xFF): ``Cafés`` pairs ``é`` with ``s``. Leads in 0x81-0xBF
     with an ASCII-letter trail (``name=檔``,
     ``\\x99\\x74\\x8c\\x48``) count as *other* so GBK keeps priority.
-    ``ascii_letter_trails`` counts every pair whose trail is an ASCII
-    letter, regardless of lead. Unpaired ASCII letters are those not
-    consumed as a trail.
+    ``ascii_letter_trails`` counts a letter-trail pair only when the
+    next byte is also an ASCII letter, i.e. the pair ate the start of
+    an ASCII word (``hello\\x81world``). A lone letter trail such as
+    ``name=丄`` (``\\x81A``) is not counted. Unpaired ASCII letters
+    are those not consumed as a trail.
     """
+    if pending_letter_trail:
+        if data:
+            if _is_ascii_letter_byte(data[0]):
+                ascii_letter_trails += 1
+            pending_letter_trail = False
     if pending_lead is not None:
         data = bytes((pending_lead,)) + data
         pending_lead = None
@@ -171,13 +179,24 @@ def _feed_gbk_pair_trails(
             index += 1
             continue
         if index + 1 >= size:
-            return other, letters, unpaired_ascii, lead, ascii_letter_trails
+            return (
+                other,
+                letters,
+                unpaired_ascii,
+                lead,
+                ascii_letter_trails,
+                pending_letter_trail,
+            )
         trail = data[index + 1]
         if not (0x40 <= trail <= 0x7E or 0x80 <= trail <= 0xFE):
             index += 1
             continue
         if _is_ascii_letter_byte(trail):
-            ascii_letter_trails += 1
+            if index + 2 < size:
+                if _is_ascii_letter_byte(data[index + 2]):
+                    ascii_letter_trails += 1
+            else:
+                pending_letter_trail = True
         if _is_ascii_letter_byte(trail) and lead >= 0xC0:
             # Western CP1252 letter lead (é, ö, …) + ASCII trail.
             letters += 1
@@ -185,19 +204,27 @@ def _feed_gbk_pair_trails(
             # GBK/symbol lead (0x81-0xBF) even when the trail is a letter.
             other += 1
         index += 2
-    return other, letters, unpaired_ascii, None, ascii_letter_trails
+    return (
+        other,
+        letters,
+        unpaired_ascii,
+        None,
+        ascii_letter_trails,
+        pending_letter_trail,
+    )
 
 
 def _gbk_pair_trail_kinds(
     data: bytes,
 ) -> tuple[int, int, int, int]:
-    """Return other, C0 letter trails, unpaired ASCII, any letter trails."""
+    """Return other, C0 letter trails, unpaired ASCII, word-breaking trails."""
     (
         other,
         letters,
         unpaired,
         _pending,
         ascii_letter_trails,
+        _pending_letter_trail,
     ) = _feed_gbk_pair_trails(
         data,
         0,
@@ -240,9 +267,11 @@ def _choose_fallback_decoding(
     GBK. GBK leads below 0xC0 with a letter trail (``name=檔``,
     ``\x99\x74\x8c\x48``) count as *other*, so GBK keeps priority over
     CP1252. A dirty lead that CP1252 rejects (``hello\x81world``) still
-    yields lossy UTF-8 when that lead ate an ASCII letter. A valid GBK
-    pair whose trail is not a letter (``name=丂`` → ``\x81@``) keeps
-    strict GBK instead of ``name=\ufffd@``.
+    yields lossy UTF-8 when that lead ate the start of an ASCII word
+    (letter trail followed by another letter). A valid GBK pair whose
+    trail is a lone letter (``name=丄`` → ``\x81A``) keeps strict GBK
+    instead of ``name=\ufffdA``. A pair whose trail is not a letter
+    (``name=丂`` → ``\x81@``) also keeps strict GBK.
     """
     ratio_ok = _lossy_ratio_ok(
         signals.bad,
@@ -266,9 +295,10 @@ def _choose_fallback_decoding(
         return ("utf-8-sig", True)
     if signals.cp1252_ok and suspicious:
         return ("cp1252", False)
-    # Dirty lead: GBK paired an ASCII letter into CJK but CP1252 rejected
-    # the bytes — keep sparse lossy UTF-8 (``hello\x81world``). A pair
-    # whose trail is not a letter (``name=丂``) is valid GBK, not dirty.
+    # Dirty lead: GBK ate the start of an ASCII word (``hello\x81world``,
+    # trail ``w`` followed by ``orld``) and CP1252 rejected the bytes —
+    # keep sparse lossy UTF-8. A lone letter trail (``name=丄``) or a
+    # non-letter trail (``name=丂``) is valid GBK, not dirty.
     if ratio_ok and dirty_gbk_pair:
         return ("utf-8-sig", True)
     if signals.gbk_ok and not (suspicious and ratio_ok):

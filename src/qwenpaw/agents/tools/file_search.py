@@ -618,6 +618,7 @@ def _select_grep_fallback_decoding(
     unpaired = 0
     ascii_letter_trails = 0
     pending_lead: int | None = None
+    pending_letter_trail = False
 
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
@@ -628,6 +629,7 @@ def _select_grep_fallback_decoding(
                 unpaired,
                 pending_lead,
                 ascii_letter_trails,
+                pending_letter_trail,
             ) = _feed_gbk_pair_trails(
                 chunk,
                 other,
@@ -635,6 +637,7 @@ def _select_grep_fallback_decoding(
                 unpaired,
                 pending_lead,
                 ascii_letter_trails,
+                pending_letter_trail,
             )
             for probe in probes.values():
                 probe.feed(chunk, final=False)

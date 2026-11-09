@@ -287,6 +287,24 @@ class TestReadFile:
         assert await read_file_safe(str(path)) == "name=丂"
 
     @pytest.mark.asyncio
+    async def test_safe_read_gbk_shang_not_lossy(self, tmp_path):
+        """GBK ``name=丄`` must not become lossy UTF-8 ``name=\ufffdA``."""
+        path = tmp_path / "shang.txt"
+        path.write_bytes("name=丄".encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "name=丄"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_capped_gbk_shang_not_lossy(self, tmp_path):
+        """A capped read of GBK ``name=丄`` must keep the ideograph."""
+        raw = "name=丄".encode("gbk")
+        path = tmp_path / "shang-capped.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        assert await read_file_safe(str(path), max_bytes=len(raw)) == "name=丄"
+        assert _read_file_safe_sync(str(path), len(raw)) == "name=丄"
+
+    @pytest.mark.asyncio
     async def test_safe_read_longer_cp1252_keeps_accent(self, tmp_path):
         """CP1252 ``Cafés`` must not collapse to a lossy UTF-8 replacement."""
         path = tmp_path / "cafes.txt"
@@ -499,6 +517,14 @@ def test_decode_gbk_qiao_not_lossy_utf8():
     assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
 
 
+def test_decode_gbk_shang_not_lossy_utf8():
+    """Strict GBK must win for ``name=丄`` instead of ``name=\ufffdA``."""
+    raw = "name=丄".encode("gbk")
+    assert raw == b"name=\x81A"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=丄"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
 def test_decode_gbk_axc0a_not_cp1252():
     """Ambiguous ``A\\xc0A`` is valid GBK ``A繟``, not CP1252 ``AÀA``."""
     raw = b"A\xc0A"
@@ -606,6 +632,16 @@ class TestEditFile:
         result = await edit_file(str(f), "name=", "title=")
         assert "Successfully replaced" in result.content[0].text
         assert f.read_text(encoding="utf-8") == "title=丂"
+        assert "\ufffd" not in f.read_text(encoding="utf-8")
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_shang_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``丄`` instead of persisting ``\ufffdA``."""
+        f = tmp_path / "shang.txt"
+        f.write_bytes("name=丄".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_text(encoding="utf-8") == "title=丄"
         assert "\ufffd" not in f.read_text(encoding="utf-8")
 
     @pytest.mark.asyncio
