@@ -5,9 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import HTTPException
+from ...config.utils import get_config_path, load_config
 
 from ..driver_config_service import (
     DriverConfigService,
@@ -48,9 +53,17 @@ from ...drivers.constants import (
     PROTOCOL_MCP,
 )
 from ...drivers.contracts import (
+    CredentialRef,
     DriverCard,
     iter_credential_refs,
 )
+from ...drivers.credential_commit import (
+    commit_credential_binding,
+    cleanup_credential_candidates,
+)
+from ...drivers.errors import CredentialNotFoundError, DriverCardError
+from ...plugins._drivers import workspace_is_current
+from ...plugins.registry import PluginRegistry
 from ...drivers.policy_types import (
     DriverPolicy,
     PolicyPrincipal,
@@ -59,6 +72,8 @@ from ...drivers.policy_types import (
 )
 
 logger = logging.getLogger(__name__)
+_CREDENTIAL_OWNER = "mcp-config-static"
+_CREDENTIAL_TTL = 600
 
 MCP_PROTOCOL = PROTOCOL_MCP
 MCP_TOOL_KIND = CAPABILITY_KIND_TOOL
@@ -171,10 +186,15 @@ class MCPConfigService:
             client_key: The MCP client identifier.
             tools: List of tool names to whitelist, or None to remove.
         """
-        card = await self.load_card(client_key)
-        card.config = dict(card.config)
-        card.config["tools"] = tools
-        await self._driver_config.save_card(card, reload_driver=False)
+        previous = await self.load_card(client_key)
+        card = replace(previous, config={**previous.config, "tools": tools})
+        await self._commit_client(
+            card,
+            None,
+            previous=previous,
+            expected={},
+            reload_driver=False,
+        )
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None:
             try:
@@ -259,12 +279,24 @@ class MCPConfigService:
         client_key: str,
         access: MCPAccessPolicy,
     ) -> MCPAccessPolicy:
-        card = await self.load_card(client_key)
-        card.policy = driver_policy_from_mcp_access_update(
-            card.policy,
-            access,
+        previous = await self.load_card(client_key)
+        card = replace(
+            previous,
+            policy=driver_policy_from_mcp_access_update(
+                previous.policy,
+                access,
+            ),
         )
-        await self._driver_config.save_policy(card)
+        await self._commit_client(
+            card,
+            None,
+            previous=previous,
+            expected={},
+            reload_driver=False,
+        )
+        manager = getattr(self._workspace, "driver_manager", None)
+        if manager is not None:
+            await manager.sync_driver_policy(card, persist=False)
         return mcp_access_policy_from_card(card)
 
     async def create_client(
@@ -272,6 +304,7 @@ class MCPConfigService:
         client_key: str,
         client: MCPClientCreateRequest,
     ) -> MCPClientInfo:
+        await self._cleanup_credentials()
         validate_client_key(client_key)
         path = self._driver_config.card_path(
             client_key,
@@ -290,17 +323,18 @@ class MCPConfigService:
         )
 
         credential = build_mcp_credential_record(client_key, client)
+        credential = (
+            self._versioned_credential(credential, client_key)
+            if credential.secrets
+            else None
+        )
         card = build_mcp_driver_card(
             client_key,
             client,
-            mcp_credential_ref(client_key),
+            credential.ref if credential else "",
             credential_record=credential,
         )
-        if credential.secrets:
-            await self._driver_config.credential_store.put(credential)
-        else:
-            await self._driver_config.credential_store.delete(credential.ref)
-        await self._driver_config.save_card(card)
+        await self._commit_client(card, credential, previous=None, expected={})
         return await self.build_info_from_card(card)
 
     async def update_client(
@@ -308,7 +342,25 @@ class MCPConfigService:
         client_key: str,
         updates: MCPClientUpdateRequest,
     ) -> MCPClientInfo:
+        await self._cleanup_credentials()
         existing_card = await self.load_card(client_key)
+        binding = _credential_ref_by_alias_or_kind(
+            iter_credential_refs(existing_card),
+            alias=CREDENTIAL_ALIAS_STATIC,
+            kind=CREDENTIAL_KIND_STATIC,
+        )
+        existing_credential, expected = None, {}
+        if binding is not None and not binding.ref.startswith("env:"):
+            try:
+                (
+                    existing_credential,
+                    revision,
+                ) = await self._driver_config.credential_store.get_versioned(
+                    binding.ref,
+                )
+            except CredentialNotFoundError:
+                revision = None
+            expected[binding.ref] = revision
         existing_info = await self.build_info_from_card(existing_card)
         merged_client = merge_update_with_existing(existing_info, updates)
         await ensure_mcp_display_name_unique(
@@ -319,50 +371,188 @@ class MCPConfigService:
             ),
             client_key=client_key,
         )
-        existing_credential = (
-            await self._driver_config.load_optional_credential(
-                mcp_credential_ref(client_key),
-            )
-        )
         credential = build_mcp_credential_record(
             client_key,
             merged_client,
             existing=existing_credential,
         )
+        if existing_credential is not None and not (
+            {"headers", "env", "transport"} & updates.model_fields_set
+        ):
+            # OAuth can hide a static fallback from the masked response.
+            credential = replace(
+                credential,
+                public=dict(existing_credential.public),
+                secrets=dict(existing_credential.secrets),
+            )
         card = build_mcp_driver_card(
             client_key,
             merged_client,
-            mcp_credential_ref(client_key),
+            (
+                binding.ref
+                if existing_credential
+                else mcp_credential_ref(client_key)
+            ),
             credential_record=credential,
             existing=existing_card,
         )
-        if credential.secrets:
-            await self._driver_config.credential_store.put(credential)
+        if credential.secrets and (
+            existing_credential is None
+            or credential.secrets != existing_credential.secrets
+            or credential.public != existing_credential.public
+            or _credential_context(card) != _credential_context(existing_card)
+        ):
+            credential = self._versioned_credential(credential, client_key)
+            card = replace(
+                card,
+                credentials={
+                    **card.credentials,
+                    CREDENTIAL_ALIAS_STATIC: CredentialRef(
+                        credential.kind,
+                        credential.ref,
+                    ),
+                },
+            )
         else:
-            await self._driver_config.credential_store.delete(credential.ref)
-        await self._driver_config.save_card(card)
+            credential = None
+        await self._commit_client(
+            card,
+            credential,
+            previous=existing_card,
+            expected=expected,
+        )
         return await self.build_info_from_card(card)
 
+    @staticmethod
+    def _versioned_credential(record, client_key):
+        return replace(
+            record,
+            ref=f"{mcp_credential_ref(client_key)}/static/{uuid4().hex}",
+            meta={
+                **record.meta,
+                "candidate_owner": _CREDENTIAL_OWNER,
+                "candidate_source": client_key,
+                "candidate_expires_at": time.time() + _CREDENTIAL_TTL,
+            },
+        )
+
+    async def _commit_client(
+        self,
+        card,
+        record,
+        *,
+        previous,
+        expected,
+        reload_driver=True,
+    ):
+        from .oauth_bridge import _workspace_commit_lock
+
+        registry = PluginRegistry()
+        manager = registry.get_workspace_manager()
+
+        def guard():
+            if manager is not None and (
+                getattr(manager, "_closing", False)
+                or (
+                    hasattr(self._workspace, "driver_manager")
+                    and not workspace_is_current(registry, self._workspace)
+                )
+            ):
+                raise DriverCardError("MCP workspace changed")
+            profile = load_config().agents.profiles.get(
+                self._workspace.agent_id,
+            )
+            if profile is None or not profile.enabled:
+                raise DriverCardError("MCP workspace is unavailable")
+            directory = Path(profile.workspace_dir).expanduser()
+            if not directory.is_absolute():
+                directory = get_config_path().parent / directory
+            if directory.resolve() != self._workspace.workspace_dir.resolve():
+                raise DriverCardError("MCP workspace directory changed")
+
+        async with _workspace_commit_lock(manager):
+            try:
+                await commit_credential_binding(
+                    self._driver_config.card_store,
+                    self._driver_config.credential_store,
+                    expected_card=previous,
+                    expected_credentials=expected,
+                    candidate_card=card,
+                    candidate_record=record,
+                    guard=guard,
+                )
+            except DriverCardError as exc:
+                raise HTTPException(
+                    409,
+                    "MCP configuration changed; retry the update",
+                ) from exc
+        try:
+            await self._driver_config._request_monitoring(card.protocol)
+            if reload_driver:
+                await self._driver_config.reload_driver_best_effort(card.name)
+        except Exception:
+            logger.warning("MCP configuration saved; runtime refresh deferred")
+
+    async def _cleanup_credentials(self, discarded_refs=()):
+        store = self._driver_config.credential_store
+        retained = {
+            ref.ref
+            for descriptor in PluginRegistry()._driver_protocols.values()
+            for handler in tuple(descriptor.handlers)
+            if handler.manager.credential_store is store
+            for ref in iter_credential_refs(handler.card).values()
+        }
+        try:
+            await cleanup_credential_candidates(
+                self._driver_config.card_store,
+                store,
+                owner=_CREDENTIAL_OWNER,
+                now=time.time(),
+                retained_refs=retained,
+                discarded_refs=discarded_refs,
+            )
+        except Exception:
+            logger.warning("Deferred MCP credential cleanup")
+
     async def toggle_client(self, client_key: str) -> MCPClientInfo:
-        card = await self.load_card(client_key)
-        card.enabled = not card.enabled
-        await self._driver_config.save_card(card)
+        previous = await self.load_card(client_key)
+        card = replace(previous, enabled=not previous.enabled)
+        await self._commit_client(card, None, previous=previous, expected={})
         return await self.build_info_from_card(card)
 
     async def delete_client(self, client_key: str) -> dict[str, str]:
         card = await self.load_card(client_key)
-        deleted_refs: set[str] = set()
-        store = self._driver_config.credential_store
-        for credential_ref in iter_credential_refs(card).values():
-            if credential_ref.ref and credential_ref.ref not in deleted_refs:
-                await store.delete(credential_ref.ref)
-                deleted_refs.add(credential_ref.ref)
-        await store.delete(mcp_oauth_credential_ref(client_key))
         await self._driver_config.delete_driver_best_effort(client_key)
+        await self._cleanup_credentials(
+            {
+                *(ref.ref for ref in iter_credential_refs(card).values()),
+                mcp_credential_ref(client_key),
+                mcp_oauth_credential_ref(client_key),
+            },
+        )
 
         return {
             "message": f"MCP client '{client_key}' deleted successfully",
         }
+
+
+def _credential_context(card):
+    return (
+        {
+            key: card.endpoint.get(key)
+            for key in ("transport", "url", "command", "args", "cwd")
+        },
+        {
+            section: {
+                name: spec
+                for name, spec in (card.endpoint.get(section) or {}).items()
+                if isinstance(spec, dict)
+                and spec.get("source") == "credential"
+            }
+            for section in ("headers", "env")
+        },
+        card.credentials,
+    )
 
 
 def validate_client_key(client_key: str) -> None:

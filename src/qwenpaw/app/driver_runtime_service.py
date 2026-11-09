@@ -502,11 +502,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             and self._configured(card),
         )
 
-    async def sync_driver_policy(self, card):
+    async def sync_driver_policy(self, card, *, persist=True):
         self._guard()
         if self._manager and self._available(card.protocol):
-            await self._manager.sync_driver_policy(card)
-        else:
+            await self._manager.sync_driver_policy(card, persist=persist)
+        elif persist:
             await self.card_store.save(card)
 
     async def delete_driver(self, name):

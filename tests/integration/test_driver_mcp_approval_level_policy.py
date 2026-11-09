@@ -16,6 +16,7 @@ from qwenpaw.app.mcp.schemas import (
     MCPAccessRule,
     MCPToolDefaultPolicy,
 )
+from qwenpaw.config.utils import load_config, save_config
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.contracts import (
     DriverCard,
@@ -128,12 +129,11 @@ async def test_mcp_policy_update_applies_without_transport_reload(
         item.name: item
         for item in await manager.list_capabilities(kind="tool")
     }
-    service = MCPConfigService(
-        SimpleNamespace(
-            workspace_dir=tmp_path,
-            driver_manager=manager,
-        ),
-    )
+    workspace = mcp_runtime_host._workspaces["test"]
+    config = load_config()
+    config.agents.profiles["test"].workspace_dir = str(tmp_path)
+    save_config(config)
+    service = MCPConfigService(workspace)
 
     reload_attempts = 0
 

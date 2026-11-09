@@ -342,6 +342,15 @@ def _whitelist_service(*, refresh_fails: bool) -> tuple[Any, ...]:
 
     service = MCPConfigService(SimpleNamespace(driver_manager=_Manager()))
     service._driver_config = _Store()
+
+    async def commit(saved, _record, *, reload_driver=True, **_snapshot):
+        # This fixture isolates refresh behavior; the MCP journey covers CAS.
+        await service._driver_config.save_card(
+            saved,
+            reload_driver=reload_driver,
+        )
+
+    service._commit_client = commit
     return service, card, saves, refreshed, reloads
 
 

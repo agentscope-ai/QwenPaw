@@ -21,6 +21,14 @@ import httpx
 import pytest
 
 from qwenpaw.app.routers import mcp, mcp_oauth
+from qwenpaw.app.driver_runtime_service import LazyDriverService
+from qwenpaw.app.mcp.config_service import MCPConfigService
+from qwenpaw.app.mcp.schemas import (
+    MCPAccessPolicy,
+    MCPClientCreateRequest,
+    MCPClientUpdateRequest,
+)
+from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.storage import load_card
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.plugins import SDKError
@@ -34,6 +42,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.p1]
 @asynccontextmanager
 async def local_peer(tmp_path, transport):
     """The host owns stdio; this fixture owns only the HTTP server process."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
     endpoint = {"transport": transport}
     if transport == "stdio":
         endpoint.update(
@@ -98,6 +107,92 @@ async def assert_sessions_terminated(endpoint):
         row["delete"] == {"status": 200, "auth_matches": True}
         for row in sessions
     )
+
+
+async def assert_endpoint_credentials_isolated(host, tmp_path, endpoint):
+    """A failed replacement and its retry never share another target's key."""
+    async with local_peer(
+        tmp_path / "replacement",
+        "streamable_http",
+    ) as other:
+        bases = [row["url"].removesuffix("/mcp") for row in (endpoint, other)]
+        async with httpx.AsyncClient() as http:
+
+            async def history(index):
+                return (await http.get(bases[index] + "/requests")).json()
+
+            before = len(await history(0))
+            workspace = await host._workspace("isolation")
+            runtime = LazyDriverService(workspace)
+            workspace._service_manager.services["driver_manager"] = runtime
+            await runtime.start()
+            service = MCPConfigService(workspace)
+
+            async def drain_reload():
+                await asyncio.gather(
+                    *tuple(service._driver_config._reload_tasks),
+                )
+
+            async def call():
+                return await runtime.invoke_capability(
+                    DriverInvocation(
+                        "driver://mcp/isolated/tools/echo#invoke",
+                        {"text": "safe"},
+                    ),
+                )
+
+            try:
+                await service.create_client(
+                    "isolated",
+                    MCPClientCreateRequest(
+                        name="Isolated",
+                        **endpoint,
+                        headers={"Authorization": "Bearer target-A"},
+                    ),
+                )
+                await drain_reload()
+                await service.update_policy(
+                    "isolated",
+                    MCPAccessPolicy(default_effect="allow"),
+                )
+                assert (await call()).ok
+                await http.post(
+                    bases[1] + "/control",
+                    json={"blocked": True, "deny": True},
+                )
+                await service.update_client(
+                    "isolated",
+                    MCPClientUpdateRequest(
+                        url=other["url"],
+                        headers={"Authorization": "Bearer target-B"},
+                    ),
+                )
+                async with asyncio.timeout(10):
+                    while not await history(1):
+                        await asyncio.sleep(0.01)
+                await call()  # A may be denied immediately after a binding change.
+                assert set((await history(0))[before:]) == {"Bearer target-A"}
+                await http.post(bases[1] + "/control", json={"blocked": False})
+                await drain_reload()
+                await call()
+                assert set((await history(0))[before:]) == {"Bearer target-A"}
+                await http.post(bases[1] + "/control", json={"deny": False})
+                await service.update_client(
+                    "isolated",
+                    MCPClientUpdateRequest(name="Retried"),
+                )
+                await drain_reload()
+                assert (await call()).ok
+                assert set(await history(1)) == {"Bearer target-B"}
+            finally:
+                await http.post(
+                    bases[1] + "/control",
+                    json={"blocked": False, "deny": False},
+                )
+                await drain_reload()
+                await runtime.shutdown_all()
+            assert set((await history(0))[before:]) == {"Bearer target-A"}
+            await assert_sessions_terminated(other)
 
 
 @pytest.mark.parametrize("transport", ["stdio", "sse", "streamable_http"])
@@ -267,3 +362,9 @@ async def test_qwenpaw_mcp_management_and_authentication(tmp_path):
             await assert_sessions_terminated(endpoint)
             await api("DELETE", "/echo")
             assert (await api("GET", "")).json() == []
+            await assert_endpoint_credentials_isolated(
+                host,
+                tmp_path,
+                endpoint,
+            )
+            await assert_sessions_terminated(endpoint)

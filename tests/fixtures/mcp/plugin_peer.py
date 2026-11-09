@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Local MCP peer and OAuth provider for the two plugin acceptance flows."""
 
+import asyncio
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,8 @@ from starlette.responses import JSONResponse
 transport, port, evidence = sys.argv[1:]
 mcp = FastMCP("optional-runtime-peer", host="127.0.0.1", port=int(port))
 _sessions = {}
+_requests = []
+_admission = {"blocked": False, "deny": False}
 
 
 class _ObserveSessions:
@@ -28,6 +31,17 @@ class _ObserveSessions:
             return await self.app(scope, receive, send)
         headers = dict(scope["headers"])
         authorization = headers.get(b"authorization")
+        if scope["path"] == "/mcp":
+            _requests.append((authorization or b"").decode())
+            if scope["method"] == "POST":
+                while _admission["blocked"]:
+                    await asyncio.sleep(0.01)
+                if _admission["deny"]:
+                    return await JSONResponse({}, status_code=403)(
+                        scope,
+                        receive,
+                        send,
+                    )
 
         async def observed(message):
             if message["type"] == "http.response.start":
@@ -52,6 +66,17 @@ class _ObserveSessions:
             await send(message)
 
         await self.app(scope, receive, observed)
+
+
+@mcp.custom_route("/control", methods=["POST"])
+async def control(request):
+    _admission.update(await request.json())
+    return JSONResponse(_admission)
+
+
+@mcp.custom_route("/requests", methods=["GET"])
+async def requests(_request):
+    return JSONResponse(_requests)
 
 
 @mcp.custom_route("/sessions", methods=["GET"])

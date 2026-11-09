@@ -291,7 +291,12 @@ class DriverManager:  # pylint: disable=too-many-public-methods
 
         return await self.reload_driver(name)
 
-    async def sync_driver_policy(self, card: DriverCard) -> None:
+    async def sync_driver_policy(
+        self,
+        card: DriverCard,
+        *,
+        persist: bool = True,
+    ) -> None:
         """Persist and apply a Driver policy without reconnecting.
 
         When the Driver is not active, only persistence is needed; the policy
@@ -304,7 +309,13 @@ class DriverManager:  # pylint: disable=too-many-public-methods
                     f"Persistent Driver '{card.name}' collides with "
                     f"a transient Driver",
                 )
-            await self._card_store.save(card)
+            if persist:
+                await self._card_store.save(card)
+            elif (
+                await self._card_store.load(card.name, protocol=card.protocol)
+                != card
+            ):
+                return
             handler = self._handlers.get(card.name)
             if handler is None or handler.card.protocol != card.protocol:
                 return
