@@ -4,9 +4,10 @@
 from typing import ClassVar
 
 from ..openai_provider import OpenAIProvider
+from ..local_decision_model import LocalDecisionProviderMixin
 
 
-class QwenPawProvider(OpenAIProvider):
+class QwenPawProvider(LocalDecisionProviderMixin, OpenAIProvider):
     """Keep service-specific policy separate from wire protocol support."""
 
     cache_modes: ClassVar[frozenset[str]] = frozenset([])

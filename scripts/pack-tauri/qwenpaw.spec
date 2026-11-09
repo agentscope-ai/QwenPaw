@@ -73,6 +73,10 @@ if not (CONSOLE_DIST / "index.html").is_file():
 _data_dirs = [
     ("agents/skills", "qwenpaw/agents/skills"),
     ("agents/md_files", "qwenpaw/agents/md_files"),
+    (
+        "agents/context/visual_compression/assets",
+        "qwenpaw/agents/context/visual_compression/assets",
+    ),
     ("tokenizer", "qwenpaw/tokenizer"),
     ("security/tool_guard/rules", "qwenpaw/security/tool_guard/rules"),
     ("security/skill_scanner/rules", "qwenpaw/security/skill_scanner/rules"),
@@ -88,6 +92,12 @@ datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),
         "qwenpaw/browser/control_link/injected",
+    ),
+)
+datas.append(
+    (
+        str(SRC / "local_models/runtime-release.json"),
+        "qwenpaw/local_models",
     ),
 )
 
@@ -150,8 +160,16 @@ datas.append(
     ),
 )
 
-# The native Code Mode worker runs under the bundled standalone CPython.
-datas.append((str(SRC / "modes/coding/_worker.py"), "qwenpaw/modes/coding"))
+# Standalone workers need readable sources outside the frozen module archive.
+for relative in (
+    "modes/coding/_worker.py",
+    "agents/context/scroll/memoryspace.py",
+    "backup/_ops/sqlite_snapshot.py",
+    "utils/sqlite_uri.py",
+):
+    datas.append(
+        (str(SRC / relative), str(Path("qwenpaw") / Path(relative).parent)),
+    )
 
 # The dependency gate needs complete host metadata, not only the packages
 # that query their own versions. Both desktop builds install qwenpaw[full].

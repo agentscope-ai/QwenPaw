@@ -10,4 +10,12 @@ describe("chat session routes", () => {
     expect(getSessionIdFromPath(path)).toBe("chat-123");
     expect(buildChatPath()).toBe("/chat");
   });
+
+  it("resolves encoded notification links without decoding twice", () => {
+    expect(getSessionIdFromPath("/chat/console%3Auser")).toBe("console:user");
+    expect(getSessionIdFromPath("/chat/a%2520b")).toBe("a%20b");
+    expect(getSessionIdFromPath("/chat/malformed%escape")).toBe(
+      "malformed%escape",
+    );
+  });
 });

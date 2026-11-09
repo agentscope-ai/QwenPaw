@@ -162,12 +162,12 @@ describe("compact approval controls", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("disables decision model mode until the session decision model is enabled", async () => {
+  it("offers decision mode when configured without requiring the former session switch", async () => {
     const user = userEvent.setup();
     const changed = vi.fn();
     const view = renderWithProviders(
       <ApprovalLevelToggle
-        decisionModelEnabled={false}
+        decisionModelConfigured={false}
         onChange={changed}
         runningConfigApprovalLevel="AUTO"
         sessionId="decision-gate"
@@ -191,7 +191,7 @@ describe("compact approval controls", () => {
 
     view.rerender(
       <ApprovalLevelToggle
-        decisionModelEnabled
+        decisionModelConfigured
         onChange={changed}
         runningConfigApprovalLevel="AUTO"
         sessionId="decision-gate"
@@ -207,19 +207,21 @@ describe("compact approval controls", () => {
     expect(changed).toHaveBeenCalledWith("JEV");
   });
 
-  it("falls back from a saved decision mode when the model is turned off", () => {
+  it("uses manual approval when the configured decision model is unavailable", () => {
     const changed = vi.fn();
-    localStorage.setItem("approval_level-old-decision", "JEV");
+    localStorage.setItem("approval_level-unavailable-decision", "JEV");
     renderWithProviders(
       <ApprovalLevelToggle
-        decisionModelEnabled={false}
+        decisionModelConfigured={false}
         onChange={changed}
         runningConfigApprovalLevel="AUTO"
-        sessionId="old-decision"
+        sessionId="unavailable-decision"
       />,
     );
-    expect(localStorage.getItem("approval_level-old-decision")).toBe("AUTO");
-    expect(changed).toHaveBeenLastCalledWith("AUTO");
+    expect(localStorage.getItem("approval_level-unavailable-decision")).toBe(
+      "JEV",
+    );
+    expect(changed).toHaveBeenLastCalledWith("STRICT");
   });
 
   it("preserves a saved decision mode while its setting is unknown", () => {

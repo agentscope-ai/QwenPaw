@@ -107,6 +107,29 @@ export interface ChatSubmitInput {
   sessionId: string;
 }
 
+/**
+ * Theme roles a plugin may override: `styles/tokens.css` roles without the
+ * `--app-` prefix. The set is closed on purpose — the remaining `--app-*`
+ * roles stay host implementation details.
+ */
+export type ThemeTokenKey =
+  | "bg"
+  | "surface"
+  | "surface-raised"
+  | "border"
+  | "text"
+  | "text-secondary";
+
+/** Both schemes are required, so a theme can never leave one unreadable. */
+export interface ThemeTokenValue {
+  light: string;
+  dark: string;
+}
+
+export type ThemeTokenOverrides = Partial<
+  Record<ThemeTokenKey, ThemeTokenValue>
+>;
+
 export interface QwenPawChatNamespace {
   /** Last registration for a language wins; disposing it restores the previous one. */
   codeBlock(
@@ -135,6 +158,12 @@ export interface QwenPawChatNamespace {
       pluginId: string,
       partial: Partial<{ colorPrimary: string }>,
     ): Disposable;
+    /**
+     * Override semantic theme roles for light and dark schemes at once.
+     * Later registrations win per token; disposing falls back to the
+     * registration below it.
+     */
+    overrideTokens(pluginId: string, tokens: ThemeTokenOverrides): Disposable;
   };
   leftHeader: {
     set(

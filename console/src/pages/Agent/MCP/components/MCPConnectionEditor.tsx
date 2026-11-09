@@ -22,7 +22,11 @@ export function MCPConnectionEditor({
   const set = (key: string, next: unknown) =>
     onChange(JSON.stringify({ ...config, [key]: next }, null, 2));
   const field = (key: string, label: string, multiline = false) => (
-    <div className={styles.field} key={key}>
+    <div
+      className={styles.field}
+      key={key}
+      data-settings-target={key === "args" ? "mcp.args" : undefined}
+    >
       <label htmlFor={`${id}-${key}`}>{label}</label>
       {multiline ? (
         <Input.TextArea
@@ -54,6 +58,7 @@ export function MCPConnectionEditor({
       <div className={styles.toolbar}>
         <span>{String(config?.key ?? "")}</span>
         <Button
+          data-settings-open={!advanced ? "mcp-json" : undefined}
           type="text"
           icon={
             advanced ? <SlidersHorizontal size={16} /> : <Code2 size={16} />
@@ -70,6 +75,7 @@ export function MCPConnectionEditor({
       {advanced || !config ? (
         <Input.TextArea
           aria-label="JSON"
+          data-settings-target="settingsCenter.mcpJsonConfig"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           autoSize={{ minRows: 10, maxRows: 20 }}

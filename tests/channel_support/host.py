@@ -102,7 +102,7 @@ class Host:
                 qwenpaw_version=__version__,
                 selected_channels=frozenset({KEY}),
                 startup_timeout=5,
-                shutdown_timeout=0.4,
+                # Keep the default shutdown budget for checkpoint writes.
                 admission_timeout=2,
                 dependency_paths=(self.site,),
                 dependency_install_target=self.site,
