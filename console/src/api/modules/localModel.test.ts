@@ -93,7 +93,9 @@ describe("localModelApi", () => {
     );
     expect(r).toBe(resp);
     expect(request).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(request).mock.calls[0][1]?.body).toContain('"engine":"mlx"');
+    expect(vi.mocked(request).mock.calls[0][1]?.body).toContain(
+      '"engine":"mlx"',
+    );
   });
 
   it("getLocalModelDownloadProgress returns progress info", async () => {
