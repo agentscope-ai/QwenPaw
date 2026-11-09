@@ -9,6 +9,7 @@ locks, so both identification and snapshotting run in a fresh interpreter.
 from __future__ import annotations
 
 import json
+import runpy
 from pathlib import Path
 import sqlite3
 import shutil
@@ -17,6 +18,14 @@ import sys
 import time
 from collections.abc import Sequence
 from threading import Event
+
+if __package__:
+    from ...utils.sqlite_uri import sqlite_uri
+else:
+    # This file is also executed directly by a stdlib-only Python worker.
+    sqlite_uri = runpy.run_path(
+        str(Path(__file__).resolve().parents[2] / "utils/sqlite_uri.py"),
+    )["sqlite_uri"]
 
 _SNAPSHOT_TIMEOUT_SECONDS = 60
 _WORKER_TIMEOUT_SECONDS = 1800
@@ -81,7 +90,7 @@ def _snapshot(source: Path, destination: Path) -> None:
         if time.monotonic() >= deadline:
             raise TimeoutError(f"SQLite snapshot timed out: {source}")
 
-    src = sqlite3.connect(source.resolve().as_uri() + "?mode=ro", uri=True)
+    src = sqlite3.connect(sqlite_uri(source.resolve(), "ro"), uri=True)
     try:
         dst = sqlite3.connect(destination)
         try:
