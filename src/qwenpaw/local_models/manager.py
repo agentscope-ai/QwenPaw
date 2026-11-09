@@ -434,10 +434,18 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
 
     async def run_auto_update_once(self) -> dict[str, str]:
         """Check every installed engine once and install safe updates."""
-        return {
-            engine_id: await self.auto_update_engine(engine_id)
-            for engine_id in LOCAL_ENGINE_IDS
-        }
+        results: dict[str, str] = {}
+        for engine_id in LOCAL_ENGINE_IDS:
+            try:
+                results[engine_id] = await self.auto_update_engine(engine_id)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Local runtime auto-update failed for %s: %s",
+                    engine_id,
+                    exc,
+                )
+                results[engine_id] = "error"
+        return results
 
     def start_auto_update(
         self,
