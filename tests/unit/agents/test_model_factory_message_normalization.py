@@ -253,6 +253,89 @@ async def test_specific_image_override_wins_over_global_opt_out() -> None:
     assert "image_url" in json.dumps(wire)
 
 
+@pytest.mark.asyncio
+async def test_audio_opt_out_still_strips_tool_result_pdf() -> None:
+    """Audio filtering must not bypass OpenAI tool-result PDF cleanup."""
+    model_info = model_factory.ModelInfo(
+        id="custom-vision",
+        name="custom-vision",
+        supports_image=True,
+        supports_audio=False,
+        supports_multimodal=True,
+    )
+    model = SimpleNamespace(formatter=_CappingOpenAIFormatter())
+    formatter = model_factory._install_model_formatter(
+        model,
+        model_info=model_info,
+    )
+    media_message = Msg(
+        name="user",
+        role="user",
+        content=[
+            _base64_data_block("image/png", _png_bytes((1, 1))),
+            _base64_data_block("audio/wav", b"audio"),
+        ],
+    )
+    tool_message = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolCallBlock(
+                id="call_1",
+                name="read_file",
+                input="{}",
+            ),
+            ToolResultBlock(
+                id="call_1",
+                name="read_file",
+                output=[
+                    _base64_data_block("application/pdf", b"pdf"),
+                ],
+                state=ToolResultState.SUCCESS,
+            ),
+        ],
+    )
+
+    wire = await formatter.format([media_message, tool_message])
+    payload = json.dumps(wire)
+
+    assert "image_url" in payload
+    assert model_factory._count_wire_audio_blocks(wire) == 0
+    assert '"type": "file"' not in payload
+    assert "Media content removed" in payload
+
+
+@pytest.mark.asyncio
+async def test_video_only_model_does_not_send_images() -> None:
+    """Generic multimodal support must not override image incapability."""
+    model_info = model_factory.ModelInfo(
+        id="custom-video",
+        name="custom-video",
+        supports_image=False,
+        supports_video=True,
+        supports_multimodal=True,
+        config_overrides=[],
+    )
+    model = SimpleNamespace(formatter=_CappingOpenAIFormatter())
+    formatter = model_factory._install_model_formatter(
+        model,
+        model_info=model_info,
+    )
+    message = Msg(
+        name="user",
+        role="user",
+        content=[
+            _base64_data_block("image/png", _png_bytes((1, 1))),
+            _base64_data_block("video/mp4", b"video"),
+        ],
+    )
+
+    wire = await formatter.format([message])
+
+    assert "image_url" not in json.dumps(wire)
+    assert model_factory._count_wire_video_blocks(wire) == 1
+
+
 def _mock_remote_media(monkeypatch, content: bytes, *, headers=None):
     client_type = httpx.AsyncClient
     transport = httpx.MockTransport(

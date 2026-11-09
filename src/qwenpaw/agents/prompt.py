@@ -8,7 +8,7 @@ markdown configuration files in the working directory.
 import logging
 import re
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from qwenpaw.exceptions import (
     ConfigurationException,
@@ -16,6 +16,7 @@ from qwenpaw.exceptions import (
 
 from .memory.base_memory_manager import BaseMemoryManager
 from .utils.file_handling import read_text_file_with_encoding_fallback
+from ..providers.media_capability import get_media_decision
 
 logger = logging.getLogger(__name__)
 
@@ -457,35 +458,6 @@ def _get_active_model_info(agent_config=None):
         return None, None
 
 
-class _MediaDecision(NamedTuple):
-    """Describe media support without conflating denial and uncertainty."""
-
-    supported: bool | None
-    explicit: bool
-
-
-def _get_media_decision(model_info, media_type="image", allow_generic=True):
-    """Resolve one media type using explicit overrides before discovery."""
-    overrides = getattr(model_info, "config_overrides", [])
-    capability = f"supports_{media_type}"
-    if capability in overrides:
-        return _MediaDecision(getattr(model_info, capability) is True, True)
-    if (
-        "supports_multimodal" in overrides
-        and model_info.supports_multimodal is False
-    ):
-        return _MediaDecision(False, True)
-
-    specific = getattr(model_info, capability)
-    if specific is True:
-        return _MediaDecision(True, False)
-    if allow_generic and model_info.supports_multimodal is True:
-        return _MediaDecision(True, False)
-    if specific is None and model_info.supports_multimodal is not False:
-        return _MediaDecision(None, False)
-    return _MediaDecision(False, False)
-
-
 def get_active_model_supports_multimodal() -> bool:
     """Check if the current active model supports multimodal input.
 
@@ -496,7 +468,7 @@ def get_active_model_supports_multimodal() -> bool:
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return True
-    return _get_media_decision(model_info).supported is not False
+    return get_media_decision(model_info).supported is not False
 
 
 def get_model_supports_image(current_model: Any = None) -> bool:
@@ -512,7 +484,7 @@ def get_model_supports_image(current_model: Any = None) -> bool:
         model_info, _ = _get_active_model_info()
         if model_info is None:
             return False
-        decision = _get_media_decision(
+        decision = get_media_decision(
             model_info,
             allow_generic=False,
         )
@@ -560,7 +532,7 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                             model_name,
                             exc_info=True,
                         )
-                    decision = _get_media_decision(
+                    decision = get_media_decision(
                         model_info,
                         allow_generic=False,
                     )
@@ -575,7 +547,7 @@ def get_active_model_multimodal_raw(media_type="image") -> bool | None:
     model_info, _ = _get_active_model_info()
     if model_info is None:
         return None
-    return _get_media_decision(
+    return get_media_decision(
         model_info,
         media_type,
         allow_generic=media_type == "image",
@@ -597,8 +569,8 @@ def build_driver_policy_recheck_hint() -> str:
 
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
-    image = _get_media_decision(model_info, "image")
-    video = _get_media_decision(
+    image = get_media_decision(model_info, "image")
+    video = get_media_decision(
         model_info,
         "video",
         allow_generic=False,

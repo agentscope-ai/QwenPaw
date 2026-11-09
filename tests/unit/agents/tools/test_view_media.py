@@ -205,7 +205,7 @@ class TestCheckMultimodalSupport:
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_supports_multimodal_true(self, mock_info):
         model_info = MagicMock()
-        model_info.supports_image = False
+        model_info.supports_image = None
         model_info.supports_multimodal = True
         mock_info.return_value = (model_info, None)
         assert _check_multimodal_support("image") is True
@@ -479,6 +479,24 @@ class TestCheckMultimodalSupport:
         assert _check_multimodal_support("video") is False
 
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
+    def test_video_only_model_rejects_images(self, mock_info):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        mock_info.return_value = (
+            ModelInfo(
+                id="custom-video",
+                name="custom-video",
+                supports_image=False,
+                supports_video=True,
+                supports_multimodal=True,
+                config_overrides=[],
+            ),
+            "custom-video",
+        )
+
+        assert _check_multimodal_support("image") is False
+
+    @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_exception_returns_true(self, mock_info):
         mock_info.side_effect = ImportError("no module")
         assert _check_multimodal_support("image") is True
@@ -492,39 +510,51 @@ class TestCheckMultimodalSupport:
 class TestGetMultimodalFallbackHint:
     """Tests for _get_multimodal_fallback_hint."""
 
-    @patch(
-        "qwenpaw.agents.prompt.get_active_model_multimodal_raw",
-        create=True,
-    )
-    def test_when_raw_is_none(self, mock_raw):
-        mock_raw.return_value = None
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    def test_when_raw_is_none(self, mock_info):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        mock_info.return_value = (
+            ModelInfo(id="custom", name="custom"),
+            "custom",
+        )
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
         assert "no multimodal capability was detected" in hint
 
-    @patch(
-        "qwenpaw.agents.prompt.get_active_model_multimodal_raw",
-        create=True,
-    )
-    def test_when_raw_is_false(self, mock_raw):
-        mock_raw.return_value = False
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    def test_when_raw_is_false(self, mock_info):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        mock_info.return_value = (
+            ModelInfo(
+                id="custom",
+                name="custom",
+                supports_video=False,
+                supports_multimodal=False,
+            ),
+            "custom",
+        )
         hint = _get_multimodal_fallback_hint("video", "/path/vid.mp4")
         assert "multimodal" in hint.lower()
 
-    @patch(
-        "qwenpaw.agents.prompt.get_active_model_multimodal_raw",
-        create=True,
-    )
-    def test_when_raw_is_true(self, mock_raw):
-        mock_raw.return_value = True
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    def test_when_raw_is_true(self, mock_info):
+        from qwenpaw.providers.model_info import ModelInfo
+
+        mock_info.return_value = (
+            ModelInfo(
+                id="custom",
+                name="custom",
+                supports_image=True,
+            ),
+            "custom",
+        )
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
         assert "multimodal" in hint.lower()
 
-    @patch(
-        "qwenpaw.agents.prompt.get_active_model_multimodal_raw",
-        create=True,
-    )
-    def test_exception_returns_none_hint(self, mock_raw):
-        mock_raw.side_effect = ImportError("no module")
+    @patch("qwenpaw.agents.prompt._get_active_model_info")
+    def test_exception_returns_none_hint(self, mock_info):
+        mock_info.side_effect = ImportError("no module")
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
         assert "no multimodal capability was detected" in hint
 

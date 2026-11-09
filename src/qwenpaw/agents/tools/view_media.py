@@ -512,17 +512,14 @@ async def _probe_multimodal_if_needed(
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import (
-            _get_active_model_info,
-            _get_active_model_slot,
-            _get_media_decision,
-        )
+        from ..prompt import _get_active_model_info, _get_active_model_slot
+        from ...providers.media_capability import get_media_decision
         from ...providers.provider_manager import ProviderManager
 
         model_info, _ = await run_sync_io(_get_active_model_info)
         if model_info is None:
             return None
-        decision = _get_media_decision(
+        decision = get_media_decision(
             model_info,
             media_type,
             allow_generic=media_type == "image",
@@ -599,12 +596,13 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
     probe-on-demand logic.
     """
     try:
-        from ..prompt import _get_active_model_info, _get_media_decision
+        from ..prompt import _get_active_model_info
+        from ...providers.media_capability import get_media_decision
 
         model_info, _ = _get_active_model_info()
         if model_info is None:
             return True
-        decision = _get_media_decision(
+        decision = get_media_decision(
             model_info,
             media_type,
             allow_generic=media_type == "image",
@@ -622,16 +620,12 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     the media itself.
     """
     try:
-        from ..prompt import (
-            _get_active_model_info,
-            _get_media_decision,
-            get_active_model_multimodal_raw,
-        )
+        from ..prompt import _get_active_model_info
+        from ...providers.media_capability import get_media_decision
 
-        raw = get_active_model_multimodal_raw(media_type)
         model_info, _ = _get_active_model_info()
         decision = (
-            _get_media_decision(
+            get_media_decision(
                 model_info,
                 media_type,
                 allow_generic=media_type == "image",
@@ -639,6 +633,7 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
             if model_info is not None
             else None
         )
+        raw = decision.supported if decision is not None else None
     except Exception:
         raw = None
         decision = None

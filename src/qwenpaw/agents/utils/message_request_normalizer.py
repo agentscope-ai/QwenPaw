@@ -590,7 +590,7 @@ def normalize_messages_for_model_request(
         _strip_media_blocks_in_place(normalized, image_only=True)
     if supports_multimodal and strip_audio:
         _strip_media_blocks_in_place(normalized, audio_only=True)
-    elif supports_multimodal and target_family == "openai":
+    if supports_multimodal and target_family == "openai":
         # OpenAI-compatible Chat Completions servers (vLLM, DeepSeek,
         # DashScope, ...) reject ``file`` content parts (that shape exists
         # only in the Responses API). PDF documents returned by tools would

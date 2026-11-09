@@ -48,6 +48,7 @@ from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.provider import ModelInfo, agent_thinking_level
+from ..providers.media_capability import get_media_decision
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -2793,12 +2794,10 @@ def _install_model_formatter(
     model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
-    from .prompt import _get_media_decision
-
     decisions = {}
     if model_info is not None:
         decisions = {
-            media_type: _get_media_decision(
+            media_type: get_media_decision(
                 model_info,
                 media_type,
                 allow_generic=media_type == "image",
