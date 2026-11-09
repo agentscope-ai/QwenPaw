@@ -121,7 +121,9 @@ describe("Chat mobile layout styles", () => {
     expect(wideModeStart).toBeGreaterThanOrEqual(0);
     expect(wideModeRule).toContain("--chat-wide-gutter: clamp(20px, 2%, 32px)");
     expect(wideModeRule).toContain("padding-inline: var(--chat-wide-gutter)");
-    expect(wideModeRule).toContain("max-width: none !important");
+    expect(wideModeRule).toContain(
+      "max-width: var(--qwenpaw-chat-user-content-width, none) !important",
+    );
 
     const mobileStart = stylesSource.indexOf(
       "/* Preserve the wide-mode gutter through the mobile breakpoint",
@@ -230,5 +232,56 @@ describe("Chat mobile layout styles", () => {
     expect(toolbarRule).toContain("&:focus-visible");
     expect(toolbarRule).toContain('&[data-state="running"]');
     expect(toolbarRule).toContain("var(--app-success)");
+  });
+});
+
+describe("Chat conversation width styles", () => {
+  it("anchors the width handles and lets the transcript follow the width axis", () => {
+    const axisStart = stylesSource.indexOf(
+      "/* Conversation width axis: ChatContentWidthHandles",
+    );
+    const axisRule = stylesSource.slice(
+      axisStart,
+      stylesSource.indexOf("/* Chat messages scrollable area */", axisStart),
+    );
+
+    expect(axisStart).toBeGreaterThanOrEqual(0);
+    expect(axisRule).toContain(
+      "max-width: var(--qwenpaw-chat-user-content-width, 960px) !important",
+    );
+    expect(axisRule).toContain(
+      "max-width: var(--qwenpaw-chat-user-content-width, 850px) !important",
+    );
+    expect(axisRule).toContain(".qwenpaw-chat-anywhere-input-wrapper");
+    expect(axisRule).toContain(".qwenpaw-chat-anywhere-sender-wrapper");
+
+    const mainAreaStart = stylesSource.indexOf(".chatMainArea {");
+    const mainAreaRule = stylesSource.slice(
+      mainAreaStart,
+      stylesSource.indexOf(".chatMessagesArea {", mainAreaStart),
+    );
+    expect(mainAreaRule).toContain("position: relative");
+  });
+
+  it("keeps the shipped wide-mode full width until the user drags", () => {
+    const wideModeStart = stylesSource.indexOf(
+      "/* Wide mode follows the available chat width",
+    );
+    const wideModeRule = stylesSource.slice(
+      wideModeStart,
+      stylesSource.indexOf("/* Custom scrollbar */", wideModeStart),
+    );
+
+    expect(wideModeStart).toBeGreaterThanOrEqual(0);
+    expect(wideModeRule).toContain(
+      "max-width: var(--qwenpaw-chat-user-content-width, none) !important",
+    );
+    // The wide-mode override must come after the width axis so a dragged
+    // preference wins while an undragged column keeps the full width.
+    const axisStart = stylesSource.indexOf(
+      "/* Conversation width axis: ChatContentWidthHandles",
+    );
+    expect(axisStart).toBeGreaterThanOrEqual(0);
+    expect(axisStart).toBeLessThan(wideModeStart);
   });
 });

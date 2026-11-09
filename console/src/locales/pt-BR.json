@@ -3623,6 +3623,10 @@
     "sidebarPreview": "Itens visíveis"
   },
   "chat": {
+    "conversationWidth": {
+      "resize": "Redimensionar a largura da conversa",
+      "hint": "Arraste para redimensionar; clique duplo para restaurar"
+    },
     "longTextPaste": {
       "title": "Colar texto longo",
       "asText": "Colar como texto",

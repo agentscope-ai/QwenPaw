@@ -1,0 +1,156 @@
+/* Width axis shared by the transcript and composer; published on the Chat
+ * column by ChatContentWidthHandles. The fallback keeps the shipped width
+ * before the first drag. */
+.layer {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Wide invisible pointer target: the visible line stays 2px thin. */
+  width: 28px;
+  pointer-events: auto;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+
+  &[data-side="left"] {
+    right: calc(
+      50% + var(--qwenpaw-chat-content-display-width, 960px) / 2 + 16px
+    );
+  }
+
+  &[data-side="right"] {
+    left: calc(
+      50% + var(--qwenpaw-chat-content-display-width, 960px) / 2 + 16px
+    );
+  }
+
+  /* Soft warm aura under the crisp line: a blurred gradient segment that keeps
+   * the column edge from reading as a hard divider. */
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to bottom,
+      transparent calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 84px),
+      color-mix(in srgb, var(--app-accent) 10%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 52px),
+      color-mix(in srgb, var(--app-accent-hover) 45%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 18px),
+      color-mix(in srgb, var(--app-accent-hover) 70%, transparent)
+        var(--qwenpaw-width-handle-pointer-y, 50%),
+      color-mix(in srgb, var(--app-accent-hover) 45%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 18px),
+      color-mix(in srgb, var(--app-accent) 10%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 52px),
+      transparent calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 84px)
+    );
+    filter: blur(6px);
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+
+  /* The drag affordance itself: a short comet of warm brand colour anchored at
+   * the pointer's height (published as --qwenpaw-width-handle-pointer-y). It
+   * glows brightest under the cursor and fades out above and below. */
+  &::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to bottom,
+      transparent calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 72px),
+      color-mix(in srgb, var(--app-accent) 12%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 48px),
+      color-mix(in srgb, var(--app-accent) 45%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 24px),
+      var(--app-accent-hover)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) - 8px),
+      color-mix(in srgb, var(--app-accent-hover) 62%, white)
+        var(--qwenpaw-width-handle-pointer-y, 50%),
+      var(--app-accent-hover)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 8px),
+      color-mix(in srgb, var(--app-accent) 45%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 24px),
+      color-mix(in srgb, var(--app-accent) 12%, transparent)
+        calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 48px),
+      transparent calc(var(--qwenpaw-width-handle-pointer-y, 50%) + 72px)
+    );
+    filter: drop-shadow(
+      0 0 4px color-mix(in srgb, var(--app-accent) 35%, transparent)
+    );
+    opacity: 0;
+    transition:
+      opacity 160ms ease,
+      filter 160ms ease;
+  }
+
+  &[data-side="left"]::before {
+    right: 9px;
+  }
+
+  &[data-side="right"]::before {
+    left: 9px;
+  }
+
+  &[data-side="left"]::after {
+    right: 12px;
+  }
+
+  &[data-side="right"]::after {
+    left: 12px;
+  }
+
+  &:hover::before,
+  &:focus-visible::before {
+    opacity: 0.55;
+  }
+
+  &:hover::after,
+  &:focus-visible::after {
+    opacity: 1;
+  }
+
+  &[data-active="true"]::before {
+    opacity: 0.85;
+  }
+
+  &[data-active="true"]::after {
+    opacity: 1;
+    filter: drop-shadow(
+      0 0 10px color-mix(in srgb, var(--app-accent) 55%, transparent)
+    );
+  }
+
+  &:focus-visible {
+    outline: 1.5px solid var(--app-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .handle::before,
+  .handle::after {
+    transition: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .layer {
+    display: none;
+  }
+}
