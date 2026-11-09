@@ -13,7 +13,7 @@ import shutil
 import uuid
 from pathlib import Path
 from queue import Empty
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from enum import Enum
 
 import traceback
@@ -89,6 +89,14 @@ class LocalModelInfo(ModelInfo):
         default=DownloadSource.AUTO,
         description="Preferred source to download the model from",
     )
+    format: Literal["gguf", "mlx"] = Field(
+        default="gguf",
+        description="Model file format expected by the local engine",
+    )
+    local_path: str | None = Field(
+        default=None,
+        description="Absolute path to the downloaded model directory",
+    )
 
 
 class ModelManager:
@@ -106,8 +114,17 @@ class ModelManager:
             progress=self._progress,
         )
 
-    def get_recommended_models(self) -> list[LocalModelInfo]:
+    def get_recommended_models(
+        self,
+        engine: str = "llamacpp",
+    ) -> list[LocalModelInfo]:
         """Recommend model names from the current machine capacity."""
+        if engine == "mlx":
+            return self._recommended_mlx_models()
+        return self._recommended_llamacpp_models()
+
+    def _recommended_llamacpp_models(self) -> list[LocalModelInfo]:
+        """Recommend GGUF models for the llama.cpp engine."""
         memory_gb = self._detect_available_memory_gb()
 
         if memory_gb < 4:
@@ -241,32 +258,133 @@ class ModelManager:
             for model in list(models)
         )
         # Each mirror has its own stored ID and lifecycle controls.
-        for model in models:
-            model.downloaded = self.is_downloaded(model.id)
+        return self._with_download_state(models, engine="llamacpp")
 
+    def _recommended_mlx_models(self) -> list[LocalModelInfo]:
+        """Recommend 4-bit MLX models that fit unified memory."""
+        memory_gb = self._detect_available_memory_gb()
+        if memory_gb < 4:
+            return []
+
+        models = [
+            LocalModelInfo(
+                id="mlx-community/Qwen3-0.6B-4bit",
+                name="Qwen3-0.6B-4bit",
+                size_bytes=351386061,
+                source=DownloadSource.HUGGINGFACE,
+                format="mlx",
+            ),
+        ]
+        if memory_gb > 8:
+            models.append(
+                LocalModelInfo(
+                    id="mlx-community/Qwen3-4B-Instruct-2507-4bit",
+                    name="Qwen3-4B-Instruct-2507-4bit",
+                    size_bytes=2278972236,
+                    source=DownloadSource.HUGGINGFACE,
+                    format="mlx",
+                ),
+            )
+        if memory_gb > 16:
+            models.append(
+                LocalModelInfo(
+                    id="mlx-community/Qwen3-8B-4bit",
+                    name="Qwen3-8B-4bit",
+                    size_bytes=4623784971,
+                    source=DownloadSource.HUGGINGFACE,
+                    format="mlx",
+                ),
+            )
+        if memory_gb > 32:
+            models.append(
+                LocalModelInfo(
+                    id="mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit",
+                    name="Qwen3-30B-A3B-Instruct-2507-4bit",
+                    size_bytes=17197087380,
+                    source=DownloadSource.HUGGINGFACE,
+                    format="mlx",
+                ),
+            )
+        return self._with_download_state(models, engine="mlx")
+
+    def _with_download_state(
+        self,
+        models: list[LocalModelInfo],
+        *,
+        engine: str,
+    ) -> list[LocalModelInfo]:
+        """Attach local download state and paths to a catalog."""
+        for model in models:
+            model.downloaded = (
+                self.is_downloaded(model.id, engine=engine)
+                if engine == "mlx"
+                else self.is_downloaded(model.id)
+            )
+            if model.downloaded:
+                model.local_path = str(
+                    self.get_model_dir(model.id).resolve(),
+                )
         return models
 
-    def _check_model_exists(self, model_id: str) -> bool:
-        """Check if a model directory contains .gguf files."""
-        local_path = self._model_dir.joinpath(*model_id.split("/"))
-        return local_path.exists() and any(local_path.glob("*.gguf"))
+    def _check_model_exists(
+        self,
+        model_id: str,
+        engine: str = "llamacpp",
+    ) -> bool:
+        """Check whether a model directory matches the engine's format."""
+        local_path = self.get_model_dir(model_id)
+        if not local_path.exists():
+            return False
+        if engine == "mlx":
+            return (local_path / "config.json").is_file() and any(
+                local_path.glob("*.safetensors"),
+            )
+        return any(local_path.glob("*.gguf"))
 
     def get_model_dir(self, model_id: str) -> Path:
         """Get the expected local path for a given model id."""
+        path = Path(model_id).expanduser()
+        if path.is_absolute():
+            return path
         return self._model_dir.joinpath(*model_id.split("/"))
 
-    def is_downloaded(self, model_id: str) -> bool:
+    def is_downloaded(
+        self,
+        model_id: str,
+        engine: str = "llamacpp",
+    ) -> bool:
         """Check if a model id is already downloaded."""
-        return self._check_model_exists(model_id)
+        return self._check_model_exists(model_id, engine=engine)
 
-    def list_downloaded_models(self) -> list[LocalModelInfo]:
-        """Return all downloaded local model repositories."""
+    @staticmethod
+    def _detect_model_format(directory: Path) -> str | None:
+        """Return the local format stored in *directory*, when recognized."""
+        if any(directory.rglob("*.gguf")):
+            return "gguf"
+        if (directory / "config.json").is_file() and any(
+            directory.glob("*.safetensors"),
+        ):
+            return "mlx"
+        return None
+
+    def list_downloaded_models(
+        self,
+        engine: str | None = None,
+    ) -> list[LocalModelInfo]:
+        """Return downloaded local model repositories for one engine."""
         model_root = self._model_dir
         if not model_root.exists():
             return []
 
         models: list[LocalModelInfo] = []
         for entry in self._iter_downloaded_model_dirs():
+            model_format = self._detect_model_format(entry)
+            if model_format is None:
+                continue
+            if engine == "mlx" and model_format != "mlx":
+                continue
+            if engine == "llamacpp" and model_format != "gguf":
+                continue
             repo_id = self._infer_repo_id_from_path(entry)
             size_bytes = self._calculate_downloaded_size(entry)
             is_piccolo = repo_id in PICCOLO_REPO_IDS
@@ -275,7 +393,7 @@ class ModelManager:
                     id=repo_id,
                     name=(
                         repo_id.rsplit("/", maxsplit=1)[-1]
-                        if is_piccolo
+                        if is_piccolo or model_format == "mlx"
                         else repo_id
                     ),
                     model_type="decision" if is_piccolo else "chat",
@@ -289,18 +407,26 @@ class ModelManager:
                         )
                         else (
                             DownloadSource.HUGGINGFACE
-                            if repo_id.startswith("agentscope-ai/")
+                            if repo_id.startswith(
+                                ("agentscope-ai/", "mlx-community/"),
+                            )
                             else DownloadSource.AUTO
                         )
                     ),
                     size_bytes=size_bytes,
                     downloaded=True,
+                    format=model_format,
+                    local_path=str(entry.resolve()),
                 ),
             )
 
         return models
 
-    def remove_downloaded_model(self, model_id: str) -> None:
+    def remove_downloaded_model(
+        self,
+        model_id: str,
+        engine: str | None = None,
+    ) -> None:
         """Delete a downloaded local model by repo id or directory name."""
         model_path = self.get_model_dir(model_id)
         if model_path.exists():
@@ -314,9 +440,15 @@ class ModelManager:
         self,
         model_id: str,
         source: DownloadSource | None = None,
+        engine: str = "llamacpp",
     ) -> None:
         """Start downloading the selected model into the target directory."""
-        logger.info("Starting download for [%s] %s", source, model_id)
+        logger.info(
+            "Starting %s download for [%s] %s",
+            engine,
+            source,
+            model_id,
+        )
         if self._is_download_active():
             raise RuntimeError("A model download is already in progress.")
 
@@ -325,19 +457,26 @@ class ModelManager:
             if source is None or source == DownloadSource.AUTO
             else source
         )
+        if engine == "mlx" and resolved_source != DownloadSource.HUGGINGFACE:
+            raise ValueError(
+                "MLX models can only be downloaded from Hugging Face.",
+            )
         repo_id = repository_for_source(model_id, resolved_source)
         final_dir = Path(self.get_model_dir(repo_id)).expanduser().resolve()
         final_dir.parent.mkdir(parents=True, exist_ok=True)
         self._download_tmp_dir.mkdir(parents=True, exist_ok=True)
+        model_format = "mlx" if engine == "mlx" else "gguf"
         total_bytes = self._estimate_download_size(
             repo_id=repo_id,
             source=resolved_source,
+            model_format=model_format,
         )
-        has_gguf, error_msg = self._check_gguf_exists(
+        has_files, error_msg = self._check_model_files_exist(
             repo_id=repo_id,
             source=resolved_source,
+            model_format="mlx" if engine == "mlx" else "gguf",
         )
-        if not has_gguf:
+        if not has_files:
             raise ValueError(error_msg)
 
         task_id = uuid.uuid4().hex
@@ -347,6 +486,8 @@ class ModelManager:
             "source": resolved_source.value,
             "staging_dir": str(staging_dir),
         }
+        if engine == "mlx":
+            payload["model_format"] = "mlx"
         spec = ProcessDownloadTaskSpec(
             process_name=f"qwenpaw-model-download-{task_id}",
             command=[
@@ -382,8 +523,12 @@ class ModelManager:
         self,
         model_id: str,
         source: DownloadSource | None = None,
+        engine: str = "llamacpp",
     ) -> None:
-        self.start_download(model_id, source=source)
+        if engine == "llamacpp":
+            self.start_download(model_id, source=source)
+        else:
+            self.start_download(model_id, source=source, engine=engine)
 
     def get_download_progress(self) -> dict[str, Any]:
         """Return the current download progress."""
@@ -430,14 +575,40 @@ class ModelManager:
         self,
         repo_id: str,
         source: DownloadSource,
+        model_format: str = "gguf",
     ) -> Optional[int]:
         """Best-effort total byte estimation for progress."""
+        if model_format == "gguf":
+            if source == DownloadSource.HUGGINGFACE:
+                return self._estimate_huggingface_size(repo_id=repo_id)
+            return self._estimate_modelscope_size(repo_id=repo_id)
         if source == DownloadSource.HUGGINGFACE:
             return self._estimate_huggingface_size(
                 repo_id=repo_id,
+                model_format=model_format,
             )
         return self._estimate_modelscope_size(
             repo_id=repo_id,
+            model_format=model_format,
+        )
+
+    def _check_model_files_exist(
+        self,
+        repo_id: str,
+        source: DownloadSource,
+        model_format: str = "gguf",
+    ) -> tuple[bool, str]:
+        """Return whether the remote repository matches the engine format."""
+        if model_format == "gguf":
+            return self._check_gguf_exists(repo_id=repo_id, source=source)
+        if source == DownloadSource.HUGGINGFACE:
+            return self._check_huggingface_model_files(
+                repo_id=repo_id,
+                model_format=model_format,
+            )
+        return self._check_modelscope_model_files(
+            repo_id=repo_id,
+            model_format=model_format,
         )
 
     def _check_gguf_exists(
@@ -445,14 +616,24 @@ class ModelManager:
         repo_id: str,
         source: DownloadSource,
     ) -> tuple[bool, str]:
-        """Return whether the remote repository contains at least one GGUF."""
+        """Backwards-compatible GGUF-only repository check."""
         if source == DownloadSource.HUGGINGFACE:
-            return self._check_huggingface_gguf_exists(
-                repo_id=repo_id,
-            )
-        return self._check_modelscope_gguf_exists(
-            repo_id=repo_id,
-        )
+            return self._check_huggingface_gguf_exists(repo_id)
+        return self._check_modelscope_gguf_exists(repo_id)
+
+    def _check_huggingface_gguf_exists(
+        self,
+        repo_id: str,
+    ) -> tuple[bool, str]:
+        """Backwards-compatible GGUF check for Hugging Face."""
+        return self._check_huggingface_model_files(repo_id, "gguf")
+
+    def _check_modelscope_gguf_exists(
+        self,
+        repo_id: str,
+    ) -> tuple[bool, str]:
+        """Backwards-compatible GGUF check for ModelScope."""
+        return self._check_modelscope_model_files(repo_id, "gguf")
 
     @staticmethod
     def _download_worker(payload: dict[str, Any], queue: Any) -> None:
@@ -460,16 +641,25 @@ class ModelManager:
         ensure_standard_streams()
         repo_id = payload["repo_id"]
         source = DownloadSource(payload["source"])
+        model_format = payload.get("model_format", "gguf")
         staging_dir = Path(payload["staging_dir"]).expanduser().resolve()
 
         try:
             ModelManager._cleanup_path(staging_dir)
             staging_dir.mkdir(parents=True, exist_ok=True)
-            local_path = ModelManager._download_to_directory(
-                repo_id=repo_id,
-                source=source,
-                local_dir=staging_dir,
-            )
+            if model_format == "gguf":
+                local_path = ModelManager._download_to_directory(
+                    repo_id=repo_id,
+                    source=source,
+                    local_dir=staging_dir,
+                )
+            else:
+                local_path = ModelManager._download_to_directory(
+                    repo_id=repo_id,
+                    source=source,
+                    local_dir=staging_dir,
+                    model_format=model_format,
+                )
         except Exception:
             queue.put(
                 DownloadTaskResult(
@@ -495,22 +685,36 @@ class ModelManager:
         repo_id: str,
         source: DownloadSource,
         local_dir: Path,
+        model_format: str = "gguf",
     ) -> str:
         """Download a model into the target directory."""
+        if model_format == "gguf":
+            if source == DownloadSource.HUGGINGFACE:
+                return ModelManager._download_from_huggingface(
+                    repo_id=repo_id,
+                    local_dir=local_dir,
+                )
+            return ModelManager._download_from_modelscope(
+                repo_id=repo_id,
+                local_dir=local_dir,
+            )
         if source == DownloadSource.HUGGINGFACE:
             return ModelManager._download_from_huggingface(
                 repo_id=repo_id,
                 local_dir=local_dir,
+                model_format=model_format,
             )
         return ModelManager._download_from_modelscope(
             repo_id=repo_id,
             local_dir=local_dir,
+            model_format=model_format,
         )
 
     @staticmethod
     def _download_from_huggingface(
         repo_id: str,
         local_dir: Path,
+        model_format: str = "gguf",
     ) -> str:
         """Download a model repository from Hugging Face Hub."""
         try:
@@ -521,7 +725,15 @@ class ModelManager:
             ) from exc
 
         kwargs = {}
-        if repo_id in PICCOLO_REPO_IDS:
+        if model_format == "mlx":
+            kwargs["ignore_patterns"] = [
+                "*.gguf",
+                "original/*",
+                "*.pth",
+                "*.bin",
+                "*.msgpack",
+            ]
+        elif repo_id in PICCOLO_REPO_IDS:
             # Fetch only GGUF/runtime metadata, including for legacy base IDs.
             kwargs["allow_patterns"] = PICCOLO_DOWNLOAD_PATTERNS
         return snapshot_download(
@@ -534,10 +746,13 @@ class ModelManager:
     def _download_from_modelscope(
         repo_id: str,
         local_dir: Path,
+        model_format: str = "gguf",
     ) -> str:
         """Download a model repository from ModelScope."""
         options = {}
-        if repo_id in PICCOLO_REPO_IDS:
+        if model_format == "mlx":
+            options["ignore_file_pattern"] = ["*.gguf", "original/*"]
+        elif repo_id in PICCOLO_REPO_IDS:
             options["allow_file_pattern"] = PICCOLO_DOWNLOAD_PATTERNS
         with open(
             os.devnull,
@@ -561,6 +776,7 @@ class ModelManager:
     def _estimate_huggingface_size(
         self,
         repo_id: str,
+        model_format: str = "gguf",
     ) -> Optional[int]:
         """Estimate total download bytes from Hugging Face metadata."""
         try:
@@ -587,7 +803,12 @@ class ModelManager:
                 continue
             if name.startswith("."):
                 continue
-            if repo_id in PICCOLO_REPO_IDS and not any(
+            if model_format == "mlx":
+                if name.endswith((".gguf", ".pth", ".bin", ".msgpack")):
+                    continue
+                if name.startswith("original/"):
+                    continue
+            elif repo_id in PICCOLO_REPO_IDS and not any(
                 fnmatch.fnmatch(name, pattern)
                 for pattern in PICCOLO_DOWNLOAD_PATTERNS
             ):
@@ -599,6 +820,7 @@ class ModelManager:
     def _estimate_modelscope_size(
         self,
         repo_id: str,
+        model_format: str = "gguf",
     ) -> Optional[int]:
         """Estimate total download bytes from ModelScope metadata."""
         try:
@@ -619,7 +841,12 @@ class ModelManager:
             if not isinstance(item, dict):
                 continue
             name = item.get("Path") or item.get("Name") or ""
-            if repo_id in PICCOLO_REPO_IDS and not any(
+            if model_format == "mlx":
+                if name.endswith((".gguf", ".pth", ".bin", ".msgpack")):
+                    continue
+                if name.startswith("original/"):
+                    continue
+            elif repo_id in PICCOLO_REPO_IDS and not any(
                 fnmatch.fnmatch(name, pattern)
                 for pattern in PICCOLO_DOWNLOAD_PATTERNS
             ):
@@ -630,7 +857,23 @@ class ModelManager:
                 found = True
         return total if found else None
 
-    def _check_huggingface_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+    @staticmethod
+    def _missing_model_message(repo_id: str, model_format: str) -> str:
+        if model_format == "mlx":
+            return (
+                f"{repo_id} is not an MLX model repository: it must contain "
+                "config.json and safetensors weights."
+            )
+        return (
+            f"{repo_id} is not supported by Llama.cpp because it does "
+            "not contain any .gguf files."
+        )
+
+    def _check_huggingface_model_files(
+        self,
+        repo_id: str,
+        model_format: str = "gguf",
+    ) -> tuple[bool, str]:
         try:
             from huggingface_hub import HfApi
             from huggingface_hub.errors import RepositoryNotFoundError
@@ -638,21 +881,28 @@ class ModelManager:
             return False, "`huggingface_hub` is not installed"
         try:
             files = HfApi().list_repo_files(repo_id=repo_id)
-            if any(f.endswith(".gguf") for f in files):
+            if model_format == "mlx":
+                has_model = "config.json" in files and any(
+                    name.endswith(".safetensors") for name in files
+                )
+            else:
+                has_model = any(name.endswith(".gguf") for name in files)
+            if has_model:
                 return True, ""
             return (
                 False,
-                (
-                    f"{repo_id} is not supported by Llama.cpp because it does "
-                    "not contain any .gguf files."
-                ),
+                self._missing_model_message(repo_id, model_format),
             )
         except RepositoryNotFoundError:
             return False, f"Repository {repo_id} not found"
         except (OSError, RuntimeError, TypeError, ValueError) as e:
             return False, f"Error when checking repository: {e}"
 
-    def _check_modelscope_gguf_exists(self, repo_id: str) -> tuple[bool, str]:
+    def _check_modelscope_model_files(
+        self,
+        repo_id: str,
+        model_format: str = "gguf",
+    ) -> tuple[bool, str]:
         try:
             hub_api_module = importlib.import_module("modelscope.hub.api")
         except ImportError:
@@ -662,18 +912,22 @@ class ModelManager:
         except (OSError, RuntimeError, TypeError, ValueError):
             return False, f"Failed to fetch info from {repo_id}"
 
-        if any(
-            isinstance(f, dict)
-            and (f.get("Name", "") or f.get("Path", "")).endswith(".gguf")
+        names = [
+            (f.get("Name", "") or f.get("Path", ""))
             for f in files
-        ):
+            if isinstance(f, dict)
+        ]
+        if model_format == "mlx":
+            has_model = "config.json" in names and any(
+                name.endswith(".safetensors") for name in names
+            )
+        else:
+            has_model = any(name.endswith(".gguf") for name in names)
+        if has_model:
             return True, ""
         return (
             False,
-            (
-                f"{repo_id} is not supported by Llama.cpp because it does "
-                "not contain any .gguf files."
-            ),
+            self._missing_model_message(repo_id, model_format),
         )
 
     def _detect_available_memory_gb(self) -> float:
@@ -775,7 +1029,7 @@ class ModelManager:
                 continue
             if self._is_temporary_download_dir(entry):
                 continue
-            if not any(entry.rglob("*.gguf")):
+            if self._detect_model_format(entry) is None:
                 continue
             if not self._looks_like_model_root(entry):
                 continue
@@ -806,6 +1060,8 @@ class ModelManager:
         return "/".join(relative_path.parts)
 
     def _cleanup_empty_parent_dirs(self, path: Path) -> None:
+        if not path.resolve().is_relative_to(self._model_dir.resolve()):
+            return
         while path != self._model_dir and path.exists():
             if any(path.iterdir()):
                 return

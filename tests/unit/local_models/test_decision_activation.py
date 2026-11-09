@@ -39,8 +39,10 @@ async def test_start_restore_and_stop_local_decision_preserves_chat():
 
     local_manager = SimpleNamespace(
         setup_server=AsyncMock(side_effect=setup),
+        get_config=lambda: SimpleNamespace(engine="llamacpp"),
+        check_installation=lambda _engine: (True, ""),
         check_llamacpp_installation=lambda: (True, ""),
-        is_model_downloaded=lambda _: True,
+        is_model_downloaded=lambda _model, engine=None: True,
     )
     result = await start_llamacpp_server(
         StartServerRequest(model_id=model_id),
@@ -74,4 +76,5 @@ async def test_start_restore_and_stop_local_decision_preserves_chat():
 def test_start_request_keeps_existing_shape():
     assert StartServerRequest(model_id="existing/model").model_dump() == {
         "model_id": "existing/model",
+        "engine": "llamacpp",
     }

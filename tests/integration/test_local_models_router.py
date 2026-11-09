@@ -83,3 +83,27 @@ def test_local_models_download_missing_id(app_server) -> None:
     )
     # Should return 400 or 422
     assert response.status_code in [400, 422]
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_local_engines_endpoint_lists_llamacpp_and_mlx(app_server) -> None:
+    """The engine catalog always exposes both built-in engines."""
+    response = app_server.api_request("GET", "/api/local-models/engines")
+    assert response.status_code == 200
+    engines = response.json()
+    assert {engine["id"] for engine in engines} == {"llamacpp", "mlx"}
+    for engine in engines:
+        assert "installable" in engine
+        assert "installed" in engine
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_local_server_rejects_unknown_engine(app_server) -> None:
+    """An unknown engine id is a client error, not a silent fallback."""
+    response = app_server.api_request(
+        "GET",
+        "/api/local-models/server?engine=cuda",
+    )
+    assert response.status_code == 400

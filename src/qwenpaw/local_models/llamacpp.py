@@ -77,6 +77,8 @@ class LlamaCppBackend:
         self._server_port: int | None = None
         self._server_model_name: str | None = None
         self._server_transitioning = False
+        self._accelerator_info: dict[str, str | None] | None = None
+        self._version: str | None = None
         self._progress = DownloadProgressTracker()
         self._download_controller = ProcessDownloadController(
             context=self._context,
@@ -195,6 +197,8 @@ class LlamaCppBackend:
         if not installable:
             raise RuntimeError(message)
         dest_dir = self._resolve_dest_dir(self.target_dir)
+        self._accelerator_info = None
+        self._version = None
         if self._is_download_active():
             raise RuntimeError(
                 "A llama.cpp download is already in progress.",
@@ -236,6 +240,7 @@ class LlamaCppBackend:
         model_name: str,
         max_context_length: int | None = None,
         port: int | None = None,
+        gpu_acceleration: bool | None = None,
     ) -> LlamaCppServerSetupResult:
         """Setup llama.cpp server and return the runtime port and model info.
 
@@ -301,6 +306,7 @@ class LlamaCppBackend:
             model_name=model_name,
             port=port,
             max_context_length=max_context_length,
+            gpu_acceleration=gpu_acceleration,
             process_kwargs=process_kwargs,
         )
 
@@ -347,14 +353,62 @@ class LlamaCppBackend:
             [str(self.executable), "--list-devices"],
             timeout=30,
         )
-        return [
-            line.strip()
-            for line in result.combined_output.splitlines()
-            if line.strip() and not line.startswith("ggml")
-        ][1:]
+        devices = []
+        for raw_line in result.combined_output.splitlines():
+            line = raw_line.strip()
+            if (
+                not line
+                or line.startswith("ggml")
+                or line.startswith("Available devices")
+                or ":" not in line
+            ):
+                continue
+            devices.append(line)
+        return devices
+
+    async def get_accelerator_info(self) -> dict[str, str | None]:
+        """Return the active GPU backend and device name, when available."""
+        if self._accelerator_info is not None:
+            return dict(self._accelerator_info)
+
+        info: dict[str, str | None] = {
+            "accelerator": "cpu",
+            "device_name": None,
+        }
+        if not self.check_llamacpp_installation()[0]:
+            self._accelerator_info = info
+            return dict(info)
+
+        try:
+            devices = await self.list_devices()
+        except (RuntimeError, CommandExecutionError, OSError) as exc:
+            logger.debug("Failed to list llama.cpp devices: %s", exc)
+            devices = []
+
+        for line in devices:
+            name, _, detail = line.partition(":")
+            name = name.strip().upper()
+            device_name = detail.split("(", maxsplit=1)[0].strip()
+            if name.startswith("MTL"):
+                info = {
+                    "accelerator": "metal",
+                    "device_name": device_name or None,
+                }
+                break
+            if name.startswith(("CUDA", "VULKAN", "ROCM")):
+                info = {
+                    "accelerator": name.split("0")[0].lower(),
+                    "device_name": device_name or None,
+                }
+                break
+
+        self._accelerator_info = info
+        return dict(info)
 
     async def get_version(self) -> str:
         """get llama.cpp server version using `llama-server --version`."""
+        if self._version is not None:
+            return self._version
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
@@ -375,7 +429,8 @@ class LlamaCppBackend:
                 # slice, which breaks once the build number is not 4 digits.
                 tokens = line.removeprefix(prefix).split()
                 if tokens:
-                    return tokens[0]
+                    self._version = tokens[0]
+                    return self._version
         raise RuntimeError(
             "Unexpected version output from llama.cpp server: "
             f"{result.combined_output}",
@@ -393,6 +448,7 @@ class LlamaCppBackend:
         port: int,
         max_context_length: int | None,
         process_kwargs: dict[str, Any],
+        gpu_acceleration: bool | None = None,
     ) -> ManagedProcess:
         self.log_dir.mkdir(parents=True, exist_ok=True)
         command = [
@@ -408,7 +464,7 @@ class LlamaCppBackend:
             "--log-file",
             str(self.log_dir / "llama-server.log"),
             "--gpu-layers",
-            "auto",
+            "auto" if gpu_acceleration is not False else "0",
         ]
         logger.info(
             "Start llama.cpp server with command:\n  > %s",
@@ -629,6 +685,8 @@ class LlamaCppBackend:
             )
 
         # A successful swap is complete even if old-file cleanup is delayed.
+        self._accelerator_info = None
+        self._version = None
         shutil.rmtree(backup_dir, ignore_errors=True)
 
         return (
