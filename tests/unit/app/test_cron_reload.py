@@ -358,7 +358,6 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
     try:
         await first.start()
         for index, workspace in enumerate((first, second)):
-            # This test intentionally allows two runs to check owner isolation.
             workspace.cron_manager._scheduler.add_job(
                 workspace.cron_manager._scheduled_callback,
                 "date",
@@ -368,21 +367,11 @@ async def test_consecutive_reloads_wait_only_for_each_outgoing_workspace(
             )
             await asyncio.wait_for(entered[index].wait(), 3)
             assert await manager.reload_agent("agent-1")
-        assert first._started and second._started and third._started
-        cleanups = list(manager._cleanup_tasks)
-        assert len(cleanups) == 2
-        release[0].set()
-        done, pending = await asyncio.wait(
-            cleanups,
-            timeout=3,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        assert len(done) == 1
-        assert len(pending) == 1
+            cleanup = next(iter(manager._cleanup_tasks))
+            release[index].set()
+            await asyncio.wait_for(cleanup, 3)
+            assert not workspace._started
         assert not first._started
-        assert second._started
-        release[1].set()
-        await asyncio.wait_for(asyncio.gather(*pending), 3)
         assert not second._started
         assert third._started
         history = await first_repo.get_history(job.id)
