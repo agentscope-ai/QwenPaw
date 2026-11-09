@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId } from "react";
 import { Brain } from "lucide-react";
-import { motion, useInView, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
 import styles from "./thinking.module.less";
@@ -16,15 +16,7 @@ export function ThinkingIndicator({
 }) {
   const { t } = useTranslation();
   const id = useId().replace(/:/g, "");
-  const ref = useRef<HTMLSpanElement>(null);
-  const inView = useInView(ref);
   const reduced = useReducedMotion();
-  const [visible, setVisible] = useState(!document.hidden);
-  useEffect(() => {
-    const update = () => setVisible(!document.hidden);
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  }, []);
   const active =
     (control.kind === "budget" || control.kind === "effort") &&
     !["off", "inherit"].includes(value.level);
@@ -63,15 +55,9 @@ export function ThinkingIndicator({
       ? band
       : value.level;
   const label = t(`thinkingControl.${state}`);
-  const animate = active && inView && visible && !reduced;
   if (control.kind === "unknown" || control.kind === "unsupported") return null;
   return (
-    <span
-      ref={ref}
-      className={styles.thinkingIndicator}
-      title={label}
-      data-state={state}
-    >
+    <span className={styles.thinkingIndicator} title={label} data-state={state}>
       {!active && (
         <Brain size={18} strokeWidth={1.65} role="img" aria-label={label} />
       )}
@@ -118,37 +104,13 @@ export function ThinkingIndicator({
                   : { type: "spring", stiffness: 240, damping: 25 }
               }
             >
-              <motion.g
-                animate={{ rotate: animate ? [-1.2, 1.2, -1.2] : 0 }}
-                transition={
-                  animate
-                    ? { duration: 3.2, repeat: Infinity, ease: "easeInOut" }
-                    : { duration: 0 }
-                }
-                style={{ transformOrigin: "12px 12px" }}
-              >
-                <motion.path
-                  d={wave}
-                  fill={`url(#${id}-liquid)`}
-                  opacity={0.28}
-                  animate={{ x: animate ? [-24, 0] : 0, y: -0.7 }}
-                  transition={
-                    animate
-                      ? { duration: 3.1, repeat: Infinity, ease: "linear" }
-                      : { duration: 0 }
-                  }
-                />
-                <motion.path
-                  d={wave}
-                  fill={`url(#${id}-liquid)`}
-                  animate={{ x: animate ? [0, -24] : 0 }}
-                  transition={
-                    animate
-                      ? { duration: 2.6, repeat: Infinity, ease: "linear" }
-                      : { duration: 0 }
-                  }
-                />
-              </motion.g>
+              <path
+                d={wave}
+                fill={`url(#${id}-liquid)`}
+                opacity={0.28}
+                transform="translate(0 -0.7)"
+              />
+              <path d={wave} fill={`url(#${id}-liquid)`} />
             </motion.g>
           </g>
         </svg>
