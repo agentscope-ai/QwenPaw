@@ -8,7 +8,12 @@
  */
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams, useSearchParams } from "react-router-dom";
+import {
+  useParams,
+  useSearchParams,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import {
   Empty,
   Input,
@@ -28,6 +33,7 @@ import {
   Search,
   RefreshCw,
   Info,
+  Plus,
   Store,
   X,
 } from "lucide-react";
@@ -39,6 +45,8 @@ import { useRoutes } from "../../plugins/registry/hooks";
 import { PawAppAccessGate } from "../../plugins/PawAppAccessGate";
 import { loadPawApp, reloadPawApp } from "../../plugins/usePluginLoader";
 import { removePluginAppState } from "../../os/osCleanup";
+import { useInstallModal } from "../Settings/PluginManager/hooks/useInstallModal";
+import { InstallPluginModal } from "../Settings/PluginManager/components/InstallPluginModal";
 import {
   getPawAppIdFromPath,
   setActivePawAppId,
@@ -77,6 +85,8 @@ function featuredRank(id: string): number {
 export default function AppCenterPage() {
   const { t, i18n } = useTranslation();
   const { appId } = useParams();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { message } = useAppMessage();
   const routes = useRoutes();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -140,6 +150,45 @@ export default function AppCenterPage() {
     await appLoad;
     await appsRefresh;
   };
+
+  // Header install entry (URL / local zip): packages land in the shared
+  // plugin store, so verify the fresh install is actually a PawApp
+  // (meta.pawapp — the App Center listing criterion) before loading it
+  // here; plain plugins stay on the Plugins page and get a warning.
+  const handleModalInstalled = async (result: InstallPluginResult) => {
+    // The install already succeeded (success toast shown, modal closed).
+    // A failed post-install listing must not be reported as an install
+    // failure, so swallow the error and refresh best-effort instead.
+    const data = await pawappApi.list().catch(() => null);
+    if (!data) {
+      message.warning(
+        t(
+          "appCenter.installedRefreshFailed",
+          "Installed, but refreshing the app list failed. Please refresh manually.",
+        ),
+      );
+      void fetchApps();
+      return;
+    }
+    if (!data.apps.some((app) => app.id === result.id)) {
+      message.warning(
+        t(
+          "appCenter.installedNotApp",
+          "Installed, but it is a plain plugin — it will not appear in the App Center. Taking you to the Installed list on the Plugins page.",
+        ),
+      );
+      // Plain plugins live on the Plugins tab (installed sub-tab is its
+      // default view); mirror MarketplaceHeader's section base path.
+      const base = pathname.startsWith("/settings/")
+        ? "/settings/marketplace"
+        : "/market";
+      navigate(`${base}?tab=plugins`);
+      return;
+    }
+    await handleMarketInstalled(result);
+  };
+
+  const installModal = useInstallModal(handleModalInstalled);
 
   useEffect(() => {
     fetchApps();
@@ -528,7 +577,20 @@ export default function AppCenterPage() {
 
   return (
     <div className={styles.page}>
-      <MarketplaceHeader activeSection="apps" />
+      <MarketplaceHeader
+        activeSection="apps"
+        extra={
+          <div className={styles.headerActions}>
+            <Button
+              type="primary"
+              icon={<Plus size={16} />}
+              onClick={installModal.openModal}
+            >
+              {t("appCenter.installApp", "安装应用")}
+            </Button>
+          </div>
+        }
+      />
 
       <div className={styles.pageBody}>
         <div className={styles.pageInner}>
@@ -623,6 +685,8 @@ export default function AppCenterPage() {
           )}
         </div>
       </div>
+
+      <InstallPluginModal {...installModal} variant="app" />
     </div>
   );
 }

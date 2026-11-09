@@ -184,6 +184,11 @@
     "done": "Hoàn tất"
   },
   "appCenter": {
+    "installApp": "Cài đặt ứng dụng",
+    "installAppTitle": "Cài đặt ứng dụng",
+    "installAppHint": "Chỉ các gói khai báo meta.pawapp trong plugin.json mới là ứng dụng và xuất hiện ở Trung tâm ứng dụng sau khi cài; plugin thường sẽ được đưa tới danh sách Đã cài đặt ở trang Plugin.",
+    "installedNotApp": "Đã cài, nhưng đây là plugin thường — không xuất hiện ở Trung tâm ứng dụng. Đang đưa bạn tới danh sách Đã cài đặt ở trang Plugin.",
+    "installedRefreshFailed": "Đã cài, nhưng làm mới danh sách ứng dụng thất bại. Vui lòng làm mới thủ công.",
     "backToList": "Quay lại",
     "subtitle": "Quản lý ứng dụng đã cài đặt hoặc mở rộng không gian làm việc từ chợ ứng dụng.",
     "myApps": "Ứng dụng của tôi",

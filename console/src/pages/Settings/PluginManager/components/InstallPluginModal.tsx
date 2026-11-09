@@ -1,6 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { Button, Modal, Input, Form, Divider, Typography, Space } from "antd";
-import { Package, Link, FolderOpen, FileArchive, X } from "lucide-react";
+import {
+  Package,
+  Link,
+  FolderOpen,
+  FileArchive,
+  X,
+  AppWindow,
+} from "lucide-react";
 import type { useInstallModal } from "../hooks/useInstallModal";
 import styles from "./InstallPluginModal.module.less";
 
@@ -8,7 +15,11 @@ const { Text } = Typography;
 
 type InstallModalProps = ReturnType<typeof useInstallModal>;
 
+/** "app" re-titles the dialog for the App Center entry point. */
+export type InstallModalVariant = "plugin" | "app";
+
 export function InstallPluginModal({
+  variant = "plugin",
   installOpen,
   closeModal,
   localInstalling,
@@ -25,7 +36,9 @@ export function InstallPluginModal({
   handleDrop,
   handleInstallLocal,
   handleInstallUrl,
-}: Omit<InstallModalProps, "openModal">) {
+}: Omit<InstallModalProps, "openModal"> & {
+  variant?: InstallModalVariant;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -42,8 +55,14 @@ export function InstallPluginModal({
         open={installOpen}
         title={
           <Space>
-            <Package size={18} />
-            {t("pluginManager.installTitle")}
+            {variant === "app" ? (
+              <AppWindow size={18} />
+            ) : (
+              <Package size={18} />
+            )}
+            {variant === "app"
+              ? t("appCenter.installAppTitle", "安装应用")
+              : t("pluginManager.installTitle")}
           </Space>
         }
         onCancel={closeModal}
@@ -53,6 +72,17 @@ export function InstallPluginModal({
         width={480}
       >
         <div style={{ paddingTop: 16 }}>
+          {variant === "app" && (
+            <Text
+              type="secondary"
+              style={{ fontSize: 12, display: "block", marginBottom: 12 }}
+            >
+              {t(
+                "appCenter.installAppHint",
+                "Only packages whose plugin.json declares meta.pawapp are apps and appear in the App Center once installed; plain plugins are taken to the Installed list on the Plugins page after install.",
+              )}
+            </Text>
+          )}
           {localSel ? (
             <div className={styles.selectionCard}>
               {localSel.kind === "folder" ? (

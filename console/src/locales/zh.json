@@ -138,6 +138,11 @@
     }
   },
   "appCenter": {
+    "installApp": "安装应用",
+    "installAppTitle": "安装应用",
+    "installAppHint": "仅 plugin.json 声明了 meta.pawapp 的包才是应用，安装后会出现在应用中心；普通插件安装后会跳转到插件页的已安装列表。",
+    "installedNotApp": "已安装，但它是普通插件，不会出现在应用中心，已带你到插件页的已安装列表。",
+    "installedRefreshFailed": "已安装，但刷新应用列表失败，请手动刷新。",
     "backToList": "返回",
     "subtitle": "管理已安装的应用，或从官方与社区渠道扩展工作空间。",
     "myApps": "我的应用",
