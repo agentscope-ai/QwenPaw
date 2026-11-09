@@ -110,6 +110,7 @@ async def test_optional_plugin_model_cache_and_empty_result(
     monkeypatch,
     text,
     expected,
+    whisper_dependency_inventory,
 ):
     from qwenpaw.plugins.local_transcription import SOURCE as optional_source
     from qwenpaw.plugins.dependency_gate import GateDecision

@@ -19,7 +19,7 @@ from qwenpaw.plugins.testing import PluginTestHost
 
 
 @pytest.fixture
-async def setup(tmp_path, monkeypatch):
+async def setup(tmp_path, monkeypatch, whisper_dependency_inventory):
     async with PluginTestHost(tmp_path / "host") as host:
         gate = AsyncMock(return_value=GateDecision(False, True))
         monkeypatch.setattr(

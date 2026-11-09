@@ -1285,6 +1285,17 @@ class ScrollContextConfig(BaseModel):
         ),
     )
 
+    summary_timeout_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        allow_inf_nan=False,
+        description=(
+            "Total continuation-summary timeout in seconds, including input "
+            "preparation, generation, validation and one quality retry. "
+            "Increase for slow reasoning models or long conversations."
+        ),
+    )
+
     history_retention_days: int = Field(
         default=30,
         ge=0,
@@ -1550,6 +1561,7 @@ class RubricGateConfig(BaseModel):
             "early stop on text-only responses"
         ),
     )
+    use_decision_model: bool = False
     prompt: str = Field(
         default=(
             "You did not call any tool in the "

@@ -10,6 +10,12 @@
 
 ## 运行
 
+启动 pytest worker 前，先统一安装宿主与 CloudPaw 的依赖。生命周期测试虽然隔离了工作目录，但仍共享 Python 环境，不应在其他测试运行时补装依赖。
+
+```bash
+python -m pip install -e ".[dev,test,full]" -r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"
+```
+
 ```bash
 # 全量(~3 分钟)
 make test-integration

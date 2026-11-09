@@ -21,8 +21,11 @@ import pytest
 from qwenpaw.agents.context.scroll.history import (
     HistoryStore,
     HistorySchemaError,
+    backup_history_database,
+    validate_history_database,
 )
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.utils.sqlite_uri import _strip_windows_extended_prefix
 
 
 @pytest.fixture
@@ -1140,3 +1143,65 @@ def test_open_and_borrow_do_not_scan_history(tmp_path, monkeypatch):
         assert store.count("s") == 1
     finally:
         store.close()
+
+
+def _extended_length(path: Path) -> Path:
+    """Return the Windows extended-length form of *path*."""
+    if os.name != "nt":
+        pytest.skip("extended-length paths are a Windows-only concept")
+    return Path("\\\\?\\" + str(path))
+
+
+def test_strip_windows_extended_prefix_handles_drive_and_unc():
+    assert (
+        _strip_windows_extended_prefix("\\\\?\\C:\\tmp\\a.db")
+        == "C:\\tmp\\a.db"
+    )
+    assert (
+        _strip_windows_extended_prefix(
+            "\\\\?\\UNC\\srv\\share\\a.db",
+        )
+        == "\\\\srv\\share\\a.db"
+    )
+    assert _strip_windows_extended_prefix("/tmp/a.db") == "/tmp/a.db"
+
+
+def test_history_store_opens_extended_length_path(tmp_path: Path):
+    db = tmp_path / "history.db"
+    seeded = HistoryStore(db)
+    seeded.append(session_id="s", dedup_key="a", entry=_entry())
+    seeded.close()
+
+    store = HistoryStore(_extended_length(db))
+    try:
+        assert store.count("s") == 1
+        store.append(session_id="s", dedup_key="b", entry=_entry("two"))
+        assert store.count("s") == 2
+    finally:
+        store.close()
+
+
+def test_validate_history_database_accepts_extended_length_path(
+    tmp_path: Path,
+):
+    db = tmp_path / "history.db"
+    HistoryStore(db).close()
+
+    assert validate_history_database(
+        _extended_length(db),
+    ) == validate_history_database(db)
+
+
+def test_backup_history_database_reads_extended_length_source(
+    tmp_path: Path,
+):
+    db = tmp_path / "history.db"
+    store = HistoryStore(db)
+    store.append(session_id="s", dedup_key="a", entry=_entry())
+    store.close()
+
+    snapshot = tmp_path / "snapshot.db"
+    backup_history_database(_extended_length(db), snapshot)
+
+    assert snapshot.is_file()
+    assert validate_history_database(snapshot) >= 0

@@ -27,9 +27,7 @@ _service = None
 
 def dependency_status() -> dict:
     """Inspect dependencies without importing Torch or loading a model."""
-    from .loader import _ensure_plugin_site_on_path
-
-    _ensure_plugin_site_on_path()
+    # The framework publishes the validated dependency path during loading.
     try:
         metadata.version("openai-whisper")
         metadata.version("torch")

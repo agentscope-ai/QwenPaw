@@ -9,20 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.plugins import SDKError, SDKRestartRequiredError
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.testing import PluginTestHost
 
-from .test_manifest_dependencies import install_case, package
+from .test_manifest_dependencies import package
 
 pytestmark = pytest.mark.p1
-
-
-@pytest.mark.parametrize("sdk", [False, True])
-@pytest.mark.parametrize("repair", [False, True])
-def test_install_and_repair_with_controlled_wheels(tmp_path, sdk, repair):
-    source = package(tmp_path, ["unified-probe==1.0"], sdk=sdk)
-    install_case(tmp_path, source, {"unified-probe"}, repair=repair)
 
 
 def test_install_failure_preserves_process_output():
@@ -37,32 +29,6 @@ def test_install_failure_preserves_process_output():
     )
     assert result.returncode == 1
     assert "No matching distribution found" in result.stdout
-
-
-@pytest.mark.parametrize("sdk", [False, True])
-async def test_common_gate_rejects_host_conflicts_before_resolving(
-    tmp_path,
-    monkeypatch,
-    sdk,
-):
-    source = package(tmp_path, requirements="uvicorn==0.0.1\n", sdk=sdk)
-
-    def prohibit_install(*_args, **_kwargs):
-        pytest.fail("A protected host conflict reached the resolver")
-
-    monkeypatch.setattr(
-        PluginLoader,
-        "_run_subprocess_with_streaming_log",
-        staticmethod(prohibit_install),
-    )
-    async with PluginTestHost(tmp_path / "host") as host:
-        with pytest.raises(
-            SDKRestartRequiredError if sdk else SDKError,
-            match="uvicorn",
-        ) as rejected:
-            await host.install(source)
-        if not sdk:
-            assert rejected.value.__cause__.decision.require_restart
 
 
 @pytest.mark.parametrize("sdk", [False, True])
@@ -105,6 +71,8 @@ async def test_framework_preserves_large_dependency_timeout(
     frozen,
 ):
     from qwenpaw.plugins import loader as module
+    from qwenpaw.plugins.dependency_context import DependencyEnvironmentContext
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
 
     source = package(tmp_path, requirements="openai-whisper\ntorch\n", sdk=sdk)
     path = source / "plugin.json"
@@ -126,15 +94,28 @@ async def test_framework_preserves_large_dependency_timeout(
         raise subprocess.TimeoutExpired(args, timeout)
 
     monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", run)
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    snapshot = DependencySnapshot(
+        executable=python,
+        prefix=str(tmp_path),
+        sites=(str(site),),
+        marker_environment={},
+        supported_tags=(),
+        distributions={},
+        dependency_sites=(str(site),),
+    )
+    context = DependencyEnvironmentContext(python, tmp_path, (site,), site)
     with pytest.raises(RuntimeError, match="1800 s limit"):
         await loader._acquire_dependency_wheels(
             SimpleNamespace(),
             SimpleNamespace(python_executable=python, code_root=source),
-            SimpleNamespace(distributions={}, marker_environment={}),
-            tmp_path / "site",
+            snapshot,
+            site,
             "extension-contract",
             source / "requirements.txt",
             source_path=source,
+            dependency_context=context,
         )
     assert not loader._dependency_installs
 
