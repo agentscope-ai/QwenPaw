@@ -64,6 +64,7 @@ class MultiAgentManager:
         )
         self._cleanup_tasks: Dict[asyncio.Task, Workspace] = {}
         self._retired_instances: Dict[int, Workspace] = {}
+        self._draining_instances: Dict[int, Workspace] = {}
         self._uncommitted_cleanup_instances: Set[int] = set()
         self._retired_stop_tasks: Dict[int, asyncio.Task] = {}
         self._uninstalling_agents: Set[str] = set()
@@ -78,6 +79,16 @@ class MultiAgentManager:
         self._closing = False
         self.channel_qrcode_sessions = None
         logger.debug("MultiAgentManager initialized")
+
+    def is_workspace_draining(self, workspace: Workspace) -> bool:
+        """Keep outgoing runtime authority only until task draining ends."""
+        return (
+            self._draining_instances.get(id(workspace)) is workspace
+            and not self._closing
+            and workspace.agent_id not in self._uninstalling_agents
+            and id(self.agents.get(workspace.agent_id))
+            not in self._agent_stop_tasks
+        )
 
     def note_agent_config_changed(self, agent_id: str) -> int:
         """Record that the agent's persisted configuration just changed.
@@ -651,6 +662,7 @@ class MultiAgentManager:
     ) -> bool:
         """Attempt cleanup without stopping services transferred on reload."""
         key = id(instance)
+        self._draining_instances.pop(key, None)
         task = self._retired_stop_tasks.get(key)
         if task is None or task.done():
             task = asyncio.create_task(
@@ -696,6 +708,7 @@ class MultiAgentManager:
         agent_id: str,
     ) -> None:
         """Keep the cleanup handle until retry succeeds or shutdown begins."""
+        self._draining_instances.pop(id(instance), None)
         while id(instance) in self._retired_instances:
             await asyncio.sleep(_OLD_WORKSPACE_CLEANUP_RETRY_SECONDS)
             if await self._stop_retired_instance(instance, agent_id):
@@ -1193,6 +1206,7 @@ class MultiAgentManager:
                             getattr(old_instance, "cron_manager", None),
                             resume=False,
                         )
+                    self._draining_instances[id(old_instance)] = old_instance
                     self.agents[agent_id] = new_instance
                     self._retired_instances[id(old_instance)] = old_instance
                     candidate_committed = True
@@ -1323,6 +1337,9 @@ class MultiAgentManager:
         stop_retired: bool = True,
     ) -> None:
         """Release outgoing instances, optionally for just one agent."""
+        for key, instance in tuple(self._draining_instances.items()):
+            if agent_id is None or instance.agent_id == agent_id:
+                self._draining_instances.pop(key, None)
         if not self._cleanup_tasks and not self._retired_instances:
             return
 

@@ -18,6 +18,11 @@ from qwenpaw.plugins.drivers import (
     DriverContext,
 )
 from qwenpaw.plugins.testing import PluginTestHost
+from qwenpaw.app.driver_runtime_service import LazyDriverService
+from qwenpaw.app.multi_agent_manager import MultiAgentManager
+from qwenpaw.app.task_tracker import _RunState
+from qwenpaw.drivers.capabilities import DriverInvocation
+from qwenpaw.drivers.contracts import DriverCard
 
 from .sdk_author_fixture import make_plugin
 
@@ -580,30 +585,77 @@ async def test_management_credentials_revoke_when_scope_exits(
         assert stale.status == 403, stale.text
 
 
-async def test_driver_calls_block_plugin_reload(tmp_path):
+async def test_driver_calls_block_plugin_reload(tmp_path, monkeypatch):
     async with PluginTestHost(tmp_path / "host") as host:
         context = await host.load(
             driver_plugin(tmp_path),
             config={"directory": str(tmp_path)},
         )
-        await host.open_driver(card())
-        pending = asyncio.create_task(
-            host.call_driver(
-                "same",
-                "echo",
-                {"wait": True},
-            ),
-        )
+        old = await host._workspace("test")
+        manager = MultiAgentManager()
+        manager.agents = host._workspaces
+        host._loader.registry.set_workspace_manager(manager)
+
+        async def prepare(workspace, *_args):
+            # Skip LLM/memory startup, keeping Driver startup/stop real.
+            workspace.set_app_services(host._app_services)
+            workspace.set_task_tracker(old.task_tracker)
+            workspace.bootstrap_plugins(builtin_hook_clses=[])
+            workspace._start_attempted = True
+            workspace._service_manager.services[
+                "driver_manager"
+            ] = LazyDriverService(workspace)
+            await workspace.driver_manager.start()
+            return {}
+
+        monkeypatch.setattr(manager, "_prepare_reload_candidate", prepare)
+        await prepare(old)
+        service = old.driver_manager
+        await service.register_driver(DriverCard(**card()))
+
+        async def invoke_twice():
+            instances = []
+            for wait in (True, False):
+                assert await service.list_capabilities()
+                result = await service.invoke_capability(
+                    DriverInvocation(
+                        "driver://author-driver/same/tools/echo#invoke",
+                        {"wait": wait},
+                    ),
+                )
+                assert result.ok, result.message
+                instances.append(result.value.structured_content["instance"])
+            return instances
+
+        pending = asyncio.create_task(invoke_twice())
+        old.task_tracker._runs["original"] = _RunState(task=pending, owner=old)
         try:
             await wait_until(lambda: events(context, "invoke"))
             with pytest.raises(PluginBusyError):
                 await host.reload(PLUGIN_ID)
+            assert await manager.reload_agent("test")
             assert not pending.done()
+            assert manager.agents["test"] is not old
+            (tmp_path / "release-call").touch()
+            assert await pending == [old._sdk_driver_instance_id] * 2
+            await asyncio.gather(*tuple(manager._cleanup_tasks))
+            assert len(events(context, "closed")) == 1
+            with pytest.raises((SDKError, RuntimeError)):
+                await service.invoke_capability(
+                    DriverInvocation(
+                        "driver://author-driver/same/tools/echo#invoke",
+                        {},
+                    ),
+                )
+            assert await manager.agents[
+                "test"
+            ].driver_manager.list_capabilities()
+            assert (await host.reload(PLUGIN_ID)).ok
+            assert len(events(host.context(PLUGIN_ID), "closed")) == 2
         finally:
             (tmp_path / "release-call").touch()
-            await pending
-        assert (await host.reload(PLUGIN_ID)).ok
-        assert len(events(host.context(PLUGIN_ID), "closed")) == 1
+            await asyncio.gather(pending, return_exceptions=True)
+            await manager.stop_all()
 
 
 async def test_partial_open_cancel_closes_every_created_connection(tmp_path):

@@ -74,10 +74,14 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
     def watcher(self):
         return self._watcher
 
-    def _guard(self):
+    def _guard(self, *, allow_draining=False):
         if self._stopped:
             raise RuntimeError("Driver workspace service has stopped")
-        _workspace_guard(self._registry, self._workspace)
+        _workspace_guard(
+            self._registry,
+            self._workspace,
+            allow_draining=allow_draining,
+        )
 
     def _available(self, protocol):
         eligibility = getattr(self._registry, "protocol_eligibility", None)
@@ -566,7 +570,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
     ):
         if self._manager is None:
             return []
-        self._guard()
+        self._guard(allow_draining=True)
         return await self._manager.list_capabilities(
             protocol=protocol,
             kind=kind,
@@ -580,7 +584,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         kind=None,
         request_context=None,
     ):
-        self._guard()
+        self._guard(allow_draining=True)
         if self._manager is None:
             raise DriverNotFoundError(name)
         return await self._manager.list_driver_capabilities(
@@ -590,7 +594,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         )
 
     async def invoke_capability(self, invocation):
-        self._guard()
+        self._guard(allow_draining=True)
         if self._manager:
             return await self._manager.invoke_capability(invocation)
         try:

@@ -153,6 +153,7 @@ async def test_cancelled_committed_reload_finishes_driver_handoff(
     async def cleanup(outgoing, agent_id):
         assert outgoing is old_instance and agent_id == "agent"
         assert mgr.agents["agent"] is new_instance
+        assert mgr.is_workspace_draining(outgoing)
         events.append("cleanup-start")
         if cancel_during == "cleanup":
             entered.set()
@@ -294,6 +295,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
     retry_started, release_retry = asyncio.Event(), asyncio.Event()
 
     async def stop(**_kwargs):
+        assert not mgr.is_workspace_draining(old)
         if old.stop.await_count == 1:
             raise RuntimeError("plugin still alive")
         retry_started.set()
@@ -306,6 +308,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
         0,
     )
     active = {"request": asyncio.get_running_loop().create_future()}
+    mgr._draining_instances[id(old)] = old
     try:
         await mgr._graceful_stop_old_instance(
             old,
@@ -314,6 +317,7 @@ async def test_retired_workspace_stop_failure_retries(monkeypatch, delayed):
         )
         await asyncio.wait_for(retry_started.wait(), timeout=1)
         assert mgr._retired_instances[id(old)] is old
+        assert not mgr.is_workspace_draining(old)
         assert mgr.agents["agent"] is new
         new.stop.assert_not_awaited()
         release_retry.set()

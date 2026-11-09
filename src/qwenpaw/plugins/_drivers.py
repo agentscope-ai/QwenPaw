@@ -79,9 +79,15 @@ def workspace_is_current(registry, workspace):
     )
 
 
-def _workspace_guard(registry, workspace):
-    if not workspace_is_current(registry, workspace):
-        raise StaleContextError("Driver workspace instance has been replaced")
+def _workspace_guard(registry, workspace, *, allow_draining=False):
+    if workspace_is_current(registry, workspace):
+        return
+    if allow_draining:
+        manager = registry.get_workspace_manager()
+        draining = getattr(manager, "is_workspace_draining", None)
+        if draining is not None and draining(workspace):
+            return
+    raise StaleContextError("Driver workspace instance has been replaced")
 
 
 def _instance_id(workspace):
@@ -462,7 +468,7 @@ class SDKDriverHandler(DriverHandler):
 
     def guard(self):
         self.descriptor.guard()
-        _workspace_guard(self.registry, self.workspace)
+        _workspace_guard(self.registry, self.workspace, allow_draining=True)
         if self.stopping or not self.manager.source_is_current(
             self.name,
             self.revision,
@@ -518,6 +524,8 @@ class SDKDriverHandler(DriverHandler):
         self.capabilities = None
 
     async def _setup(self):
+        # Only the current workspace may start a new connection.
+        _workspace_guard(self.registry, self.workspace)
         plugin = self.descriptor.plugin
         with self.admission():
             self.scope = plugin.resources.child(
