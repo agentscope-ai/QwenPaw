@@ -1,34 +1,42 @@
-.harness-qoder-settings {
+.harness-settings {
   min-width: 0;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--abf-border);
 }
-.harness-qoder-settings .binaryField {
+.harness-settings .binaryField {
   margin-bottom: 7px;
+  position: relative;
 }
-.harness-qoder-settings .binaryField .ant-input-affix-wrapper {
+.harness-settings .binaryField .ant-input-affix-wrapper {
   min-height: 38px;
   padding-right: 4px;
 }
-.harness-qoder-settings .binaryLabel {
+.harness-settings .binaryLabel {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  color: var(--abf-text);
+  font-size: 14px;
+  margin: 0 5px 4px 0;
 }
-.harness-qoder-settings .helpIcon {
+.harness-settings .helpIcon {
   display: inline-flex;
   color: var(--abf-icon-muted);
   cursor: help;
   transition: color 150ms ease;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font-size: 14px;
 }
-.harness-qoder-settings .helpIcon:hover {
+.harness-settings .helpIcon:hover {
   color: var(--abf-accent);
 }
-.harness-qoder-settings .detectLabel {
+.harness-settings .detectLabel {
   margin-left: 2px;
 }
-.harness-qoder-settings .binaryStatus {
+.harness-settings .binaryStatus {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -39,15 +47,15 @@
   border-radius: 8px;
   font-size: 11px;
 }
-.harness-qoder-settings .detected {
+.harness-settings .detected {
   border-color: var(--abf-ok-border);
   background: var(--abf-ok-bg);
 }
-.harness-qoder-settings .notDetected {
+.harness-settings .notDetected {
   border-color: var(--abf-border);
   background: var(--abf-surface-alt);
 }
-.harness-qoder-settings .binaryStatusLabel {
+.harness-settings .binaryStatusLabel {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -55,13 +63,13 @@
   font-weight: 600;
   white-space: nowrap;
 }
-.harness-qoder-settings .detected .binaryStatusLabel {
+.harness-settings .detected .binaryStatusLabel {
   color: var(--abf-ok-text);
 }
-.harness-qoder-settings .notDetected .binaryStatusLabel {
+.harness-settings .notDetected .binaryStatusLabel {
   color: var(--abf-text-muted);
 }
-.harness-qoder-settings .binaryPath {
+.harness-settings .binaryPath {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -72,7 +80,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.harness-qoder-settings .copyPathButton {
+.harness-settings .copyPathButton {
   display: inline-flex;
   width: 24px;
   height: 24px;
@@ -89,18 +97,18 @@
     color 150ms ease,
     background 150ms ease;
 }
-.harness-qoder-settings .copyPathButton:hover {
+.harness-settings .copyPathButton:hover {
   color: var(--abf-accent);
   background: var(--abf-accent-bg-hover);
 }
-.harness-qoder-settings .authHint {
+.harness-settings .authHint {
   margin: 0 2px 10px;
   color: var(--abf-text-muted);
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.harness-qoder-settings .accountRow {
+.harness-settings .accountRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -110,17 +118,17 @@
   border-radius: 10px;
   background: var(--abf-row-bg);
 }
-.harness-qoder-settings .chatSettingsHint {
+.harness-settings .chatSettingsHint {
   margin: 10px 2px 0;
   color: var(--abf-text-muted);
   font-size: 12px;
 }
-.harness-qoder-settings .capabilityPanel {
+.harness-settings .capabilityPanel {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--abf-border);
 }
-.harness-qoder-settings .capabilityTitle {
+.harness-settings .capabilityTitle {
   display: block;
   margin-bottom: 10px;
   color: var(--abf-text-muted);
@@ -129,12 +137,12 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-.harness-qoder-settings .capabilityGrid {
+.harness-settings .capabilityGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
-.harness-qoder-settings .capabilityItem {
+.harness-settings .capabilityItem {
   display: flex;
   min-width: 0;
   align-items: flex-start;
@@ -145,124 +153,109 @@
   color: var(--abf-accent);
   background: var(--abf-accent-bg-faint);
 }
-.harness-qoder-settings .capabilityItem > span {
+.harness-settings .capabilityItem > span {
   display: grid;
   min-width: 0;
   gap: 3px;
 }
-.harness-qoder-settings .capabilityItem strong {
+.harness-settings .capabilityItem strong {
   overflow: hidden;
   color: var(--abf-text);
   font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.harness-qoder-settings .capabilityItem small {
+.harness-settings .capabilityItem small {
   color: var(--abf-text-muted);
   font-size: 11px;
   line-height: 1.35;
 }
-.harness-qoder-settings .accountState {
+.harness-settings .accountState {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
 }
-.harness-qoder-settings .accountLabel {
+.harness-settings .accountLabel {
   color: var(--abf-text-muted);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.harness-qoder-settings .connectedState,
-.harness-qoder-settings .disconnectedState {
+.harness-settings .connectedState,
+.harness-settings .disconnectedState {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 12px;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
-.harness-qoder-settings .connectedState {
+.harness-settings .connectedState {
   color: var(--abf-accent);
 }
-.harness-qoder-settings .disconnectedState {
+.harness-settings .disconnectedState {
   color: var(--abf-text-muted);
 }
-.harness-qoder-settings .accountAction {
+.harness-settings .accountAction {
   flex: 0 0 auto;
 }
-.harness-qoder-settings .providerHint {
+.harness-settings .providerHint {
   margin: 0 0 12px;
   color: var(--abf-text-muted);
   font-size: 11px;
   line-height: 1.5;
 }
-.harness-qoder-settings .binaryField {
-  position: relative;
-}
-.harness-qoder-settings .binaryLabel {
-  color: var(--abf-text);
-  font-size: 14px;
-  margin: 0 5px 4px 0;
-}
-.harness-qoder-settings .helpIcon {
-  border: 0;
-  padding: 0;
-  background: transparent;
-  font-size: 14px;
-}
-.harness-qoder-settings .binaryField > .ant-input-affix-wrapper {
+
+
+
+.harness-settings .binaryField > .ant-input-affix-wrapper {
   width: 100%;
 }
-.harness-qoder-settings .binaryStatusLabel svg,
-.harness-qoder-settings .connectedState svg,
-.harness-qoder-settings .disconnectedState svg,
-.harness-qoder-settings .capabilityItem > svg {
+.harness-settings .binaryStatusLabel svg,
+.harness-settings .connectedState svg,
+.harness-settings .disconnectedState svg,
+.harness-settings .capabilityItem > svg {
   flex: 0 0 auto;
 }
-.harness-qoder-settings .connectedState,
-.harness-qoder-settings .disconnectedState {
-  overflow-wrap: anywhere;
-  min-width: 0;
-}
-.harness-qoder-settings .capabilityItem strong {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.harness-qoder-settings .binaryStatus.notDetected {
+
+
+.harness-settings .binaryStatus.notDetected {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-.harness-qoder-settings button:focus-visible {
+.harness-settings button:focus-visible {
   outline: 2px solid var(--abf-accent);
   outline-offset: 3px;
 }
 @media (max-width: 680px) {
-  .harness-qoder-settings .capabilityGrid {
+  .harness-settings .capabilityGrid {
     grid-template-columns: 1fr;
   }
-  .harness-qoder-settings .accountRow {
+  .harness-settings .accountRow {
     align-items: stretch;
     flex-direction: column;
   }
-  .harness-qoder-settings .accountAction .ant-btn {
+  .harness-settings .accountAction .ant-btn {
     width: 100%;
   }
-  .harness-qoder-settings .binaryStatus {
+  .harness-settings .binaryStatus {
     flex-wrap: wrap;
   }
-  .harness-qoder-settings .binaryPath {
+  .harness-settings .binaryPath {
     order: 3;
     flex-basis: calc(100% - 32px);
     margin-left: 19px;
   }
-  .harness-qoder-settings .copyPathButton {
+  .harness-settings .copyPathButton {
     margin-left: auto;
   }
 }
 @media (max-width: 420px) {
-  .harness-qoder-settings .detectLabel {
+  .harness-settings .detectLabel {
     display: none;
   }
 }

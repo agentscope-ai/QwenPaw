@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Generated from plugins/harness/_shared/io_helpers.py; do not edit.
+# Update the shared source, then run:
+# python scripts/pack/sync_harness_helpers.py --write
 """Bounded plugin I/O that completes before its owner releases a lock."""
 
 import asyncio

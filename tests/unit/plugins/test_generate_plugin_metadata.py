@@ -300,7 +300,13 @@ def test_real_harness_archives_contain_own_entries_and_frontends(
             ).decode()
         assert f"{plugin_id}/plugin.json" in names
         assert f"{plugin_id}/main.py" in names
+        assert f"{plugin_id}/io_helpers.py" in names
         assert f"{plugin_id}/frontend/dist/index.js" in names
+        assert not any(
+            part in {"_shared", "node_modules", "__pycache__"}
+            for name in names
+            for part in Path(name).parts
+        )
         assert not any(
             name.startswith(f"{plugin_id}/frontend/src/") for name in names
         )

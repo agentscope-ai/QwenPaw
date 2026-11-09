@@ -48,6 +48,7 @@ beforeAll(async () => {
         },
         fetch: vendorFetch,
         useLocale: () => "en",
+        useSelectedAgent: () => ({ id: "test-agent" }),
       },
     },
   });
@@ -246,6 +247,7 @@ describe("AgentBackendFields", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ settings: saved, device_code: false }),
+        signal: expect.any(AbortSignal),
       });
       const edited = { ...saved, binary: `/custom/${backend}` };
       fireEvent.change(screen.getByRole("textbox", { name: binaryLabel }), {
@@ -269,6 +271,7 @@ describe("AgentBackendFields", () => {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ settings: edited, device_code: false }),
+            signal: expect.any(AbortSignal),
           },
         ),
       );

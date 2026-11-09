@@ -106,6 +106,19 @@ export default defineConfig(({ command, mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: [
+        // Shared optional-plugin sources resolve dependencies from this test
+        // installation, even when neither plugin has its own node_modules.
+        {
+          find: /^react$/,
+          replacement: path.resolve(__dirname, "node_modules/react/index.js"),
+        },
+        {
+          find: /^lucide-react$/,
+          replacement: path.resolve(
+            __dirname,
+            "node_modules/lucide-react/dist/esm/lucide-react.js",
+          ),
+        },
         {
           find: /^@qwenpaw\/plugin-sdk$/,
           replacement: path.resolve(

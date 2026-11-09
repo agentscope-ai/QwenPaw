@@ -62,6 +62,8 @@ jobs:
           node-version-file: .nvmrc
       - name: Isolate runtime state
         run: echo "QWENPAW_WORKING_DIR=$RUNNER_TEMP/harness-core" >> "$GITHUB_ENV"
+      - name: Check generated Harness IO helpers
+        run: python scripts/pack/sync_harness_helpers.py --check
       - name: Install core without vendor SDKs
         run: |
           python -m pip install --upgrade "pip>=26.2.2"

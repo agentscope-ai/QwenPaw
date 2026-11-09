@@ -58,12 +58,15 @@ requires explicit plugin installation and is not a seamless upgrade.
 
 ## Frontend build
 
-The plugin owns its account settings, authentication polling and locale assets.
+The plugin owns its locale assets and wraps the private shared settings panel and
+connection hook in `../_shared/ui`. Each frontend bundles its own copy; the
+installed plugin has no runtime dependency on another Harness plugin.
 The Console renders this settings component only for its selected active owner.
 API calls use public `host.fetch`, preserving Bearer authentication and the
 selected Agent header. No private Console imports or copied SDK types are used.
 
-Install normal build dependencies, then the actual public SDK npm directory
+Keep the sibling `../_shared` source directory when building either plugin
+independently. Install normal build dependencies, then the actual public SDK npm directory
 (exported from the installed host with `python -m qwenpaw.plugins.check .
 --frontend /path/to/qwenpaw-plugin-sdk`):
 
@@ -89,3 +92,18 @@ only this plugin's pinned vendor SDK and the host SDK, run
 `python -m pytest plugins/harness/qoder/tests/test_qoder_harness.py -q`.
 The suite installs the built ZIP through the host; live account and packaged
 desktop checks remain release acceptance steps.
+
+## Shared IO helper maintenance
+
+Edit only `plugins/harness/_shared/io_helpers.py`, then run from the repository root:
+
+```sh
+python scripts/pack/sync_harness_helpers.py --write
+python scripts/pack/sync_harness_helpers.py --check
+```
+
+The generated local helper remains versioned and ships inside this plugin ZIP,
+so Python imports do not depend on the repository's shared directory. Build,
+packaging and Harness CI reject unsynchronized copies. For a single-plugin
+checkout, synchronization checks only the official plugin directories present;
+`--plugin qoder` explicitly selects this plugin.
