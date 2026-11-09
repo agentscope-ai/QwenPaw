@@ -21,11 +21,11 @@ import pytest
 from qwenpaw.agents.context.scroll.history import (
     HistoryStore,
     HistorySchemaError,
-    _strip_windows_extended_prefix,
     backup_history_database,
     validate_history_database,
 )
 from qwenpaw.agents.context.types import LogEntry
+from qwenpaw.utils.sqlite_uri import _strip_windows_extended_prefix
 
 
 @pytest.fixture
