@@ -23,6 +23,9 @@ from uuid import uuid4
 _READERS = {}
 _READERS_LOCK = threading.Lock()
 _STATE_ENV = "QWENPAW_DEPENDENCY_STATE_DIR"
+# effective_ids follows the uid that really creates the directories;
+# it is unavailable on Windows.
+_EFFECTIVE_ACCESS = {"effective_ids": True} if os.name != "nt" else {}
 _STATE_ROOT = None
 _READER_SCOPE = None
 _READER_SCOPE_ENV = "QWENPAW_DEPENDENCY_READER_SCOPE"
@@ -188,6 +191,74 @@ def contains_environment_path(root, path):
     return canonical(path).parts[: len(parent)] == parent
 
 
+def _access_allowed(path, mode):
+    """Whether *path* grants *mode* to this process.
+
+    ``effective_ids`` follows the uid that really creates the directories,
+    which is not the real uid under ``sudo`` or setuid helpers. Platforms
+    without it raise ``NotImplementedError``; fall back to the default check
+    rather than failing startup inside the import.
+    """
+    try:
+        return os.access(path, mode, **_EFFECTIVE_ACCESS)
+    except NotImplementedError:
+        return os.access(path, mode)
+
+
+def _unusable_root_reason(root):
+    """Why the coordination directory at *root* cannot be used, or ``None``.
+
+    Managed hosts and containers advertise a home the account cannot write,
+    and sometimes one that is not a directory at all (issue #8515). The first
+    ``mkdir`` happens while ``qwenpaw`` is still importing, so the failure
+    used to reach the operator as a bare ``PermissionError`` with nothing to
+    act on. Naming the reason during selection points at the override.
+
+    The probe only decides *whether to fail*, never *which directory to
+    use*: every process on the host must keep selecting the same root,
+    otherwise the locks below it no longer exclude each other. It starts from
+    the deepest path so an already prepared, writable coordination directory
+    under a read-only home is still accepted.
+
+    Write permission is required only on the directory that must gain a new
+    entry. An existing coordination root needs no writes at its own level:
+    leases, readers and markers are created inside prepared per-environment
+    subdirectories below it, which are not known during selection. If those
+    subdirectories are not usable, the operation itself fails; the probe must
+    not guess that from the root's own permission bits.
+    """
+    probe = Path(root)
+    needs_creation = False
+    while True:
+        try:
+            observed = probe.stat()
+        except FileNotFoundError:
+            # A dangling link is not an absent suffix: canonical() refuses
+            # it, and the bare FileNotFoundError it raises would land inside
+            # the import without any of the context added here.
+            if probe.is_symlink():
+                return "a dangling symlink"
+            parent = probe.parent
+            if parent == probe:
+                return "no existing ancestor directory"
+            needs_creation = True
+            probe = parent
+            continue
+        except OSError as exc:
+            if exc.errno == errno.ENOTDIR:
+                return "not a directory"
+            if exc.errno in {errno.EACCES, errno.EPERM}:
+                return "not searchable"
+            return f"unstatable ({errno.errorcode.get(exc.errno, exc.errno)})"
+        if not stat.S_ISDIR(observed.st_mode):
+            return "not a directory"
+        if not _access_allowed(probe, os.X_OK):
+            return "not searchable"
+        if needs_creation and not _access_allowed(probe, os.W_OK):
+            return "not writable"
+        return None
+
+
 def state_root():
     """Select once at trusted startup, before user configuration or leases."""
     global _STATE_ROOT
@@ -202,7 +273,11 @@ def state_root():
             root = canonical(override)
         else:
             if os.name == "nt":
+                # Windows is deliberately not probed: os.access there only
+                # reflects the read-only attribute, not the ACL, so probing
+                # could reject homes the account can really write.
                 home = Path(os.environ["USERPROFILE"])
+                proposed = home / ".qwenpaw" / "dependency-environments"
             else:
                 import pwd
 
@@ -210,8 +285,10 @@ def state_root():
                     value = getattr(pwd.getpwuid(os.getuid()), "pw_dir", None)
                 except KeyError:
                     value = None
+                source = "passwd home"
                 if not value or not Path(value).is_absolute():
                     value = os.environ.get("HOME")
+                    source = "HOME"
                 if not value or not Path(value).is_absolute():
                     raise RuntimeError(
                         "DEPENDENCY_STATE_ROOT_UNAVAILABLE: provide a stable "
@@ -219,7 +296,17 @@ def state_root():
                         "QWENPAW_DEPENDENCY_STATE_DIR.",
                     )
                 home = Path(value)
-            root = canonical(home / ".qwenpaw" / "dependency-environments")
+                proposed = home / ".qwenpaw" / "dependency-environments"
+                reason = _unusable_root_reason(proposed)
+                if reason is not None:
+                    raise RuntimeError(
+                        "DEPENDENCY_STATE_ROOT_UNAVAILABLE: the startup "
+                        f"{source} cannot host the coordination directory "
+                        f"({reason}); set an absolute shared "
+                        "QWENPAW_DEPENDENCY_STATE_DIR to a writable "
+                        "directory.",
+                    )
+            root = canonical(proposed)
         _STATE_ROOT = root
         os.environ[_STATE_ENV] = str(root)
     return _STATE_ROOT

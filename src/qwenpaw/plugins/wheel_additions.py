@@ -31,16 +31,20 @@ from .execution.dependencies import (
 
 
 logger = logging.getLogger(__name__)
+_MAX_WHEEL_UNPACKED_BYTES = 512 * 1024 * 1024
 
 
-def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED"):
+def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
     """Keep public errors unchanged; correlate fixed reasons with the caller."""
     logger.info(
         "Wheel validation rejected: thread=%s reason=%s",
         threading.get_ident(),
         reason,
     )
-    return dependency_error(code)
+    error = dependency_error(code)
+    if detail is not None:
+        error.args = (f"{code}: {detail}",)
+    return error
 
 
 @dataclass(frozen=True)
@@ -76,12 +80,27 @@ def _members(addition: WheelAddition) -> dict[str, bytes]:
     result = WheelFiles()
     normalized = set()
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        expanded = sum(info.file_size for info in archive.infolist())
         if (
             len(archive.infolist()) > 50000
-            or sum(info.file_size for info in archive.infolist())
-            > 256 * 1024 * 1024
+            or expanded > _MAX_WHEEL_UNPACKED_BYTES
         ):
-            raise _reject("archive size limit exceeded")
+            logger.info(
+                "Wheel archive exceeds resource budget: artifact=%s "
+                "actual_bytes=%s limit_bytes=%s entries=%s",
+                ascii(path.name)[1:-1][:160],
+                expanded,
+                _MAX_WHEEL_UNPACKED_BYTES,
+                len(archive.infolist()),
+            )
+            raise _reject(
+                "archive size limit exceeded",
+                detail=(
+                    f"wheel archive size {expanded} bytes (limit "
+                    f"{_MAX_WHEEL_UNPACKED_BYTES}); entries "
+                    f"{len(archive.infolist())} (limit 50000)"
+                ),
+            )
         for info in archive.infolist():
             name = info.filename
             relative = PurePosixPath(name)
@@ -179,9 +198,29 @@ def _script_bytes(content, executable, windows):
     return header + rest, True
 
 
-# Data schemes and Windows device names must be rejected before publication.
-def _install_scripts(members, info, snapshot):
-    """Relocate verified script payloads within the target installation."""
+def _unsafe_target_component(component, windows):
+    """Apply the same portable name restrictions to scripts and data."""
+    return (
+        component.endswith((".", " "))
+        or any(ord(character) < 32 for character in component)
+        or (
+            windows
+            and (
+                any(character in '<>"|?*' for character in component)
+                or component.split(".", 1)[0].upper()
+                in {"CON", "PRN", "AUX", "NUL"}
+                | {
+                    f"{prefix}{number}"
+                    for prefix in ("COM", "LPT")
+                    for number in range(1, 10)
+                }
+            )
+        )
+    )
+
+
+def _install_data(members, info, snapshot):
+    """Relocate verified wheel data areas within the target installation."""
     # pylint: disable=too-many-boolean-expressions
     directory = (
         "Scripts"
@@ -193,44 +232,66 @@ def _install_scripts(members, info, snapshot):
     installed = WheelFiles()
     scripts = set()
     destinations = set()
+    relocated = False
     for path, content in members.items():
         parts = PurePosixPath(path).parts
         destination = path
-        if any(part.endswith(".data") for part in parts):
+        if parts[0].casefold().endswith(".data"):
             if (
-                len(parts) != 3
-                or parts[:2] != (data, "scripts")
-                or parts[2].endswith((".", " "))
-                or parts[2].split(".", 1)[0].casefold() == "__init__"
-                or any(ord(character) < 32 for character in parts[2])
-                or (
-                    directory == "Scripts"
-                    and parts[2].split(".", 1)[0].upper()
-                    in {"CON", "PRN", "AUX", "NUL"}
-                    | {
-                        f"{prefix}{number}"
-                        for prefix in ("COM", "LPT")
-                        for number in range(1, 10)
-                    }
+                len(parts) < 3
+                or parts[0] != data
+                or parts[1] not in {"scripts", "data"}
+                or any(
+                    _unsafe_target_component(part, directory == "Scripts")
+                    for part in parts[2:]
                 )
             ):
-                raise _reject("unsupported script payload")
-            destination = f"{directory}/{parts[2]}"
-            scripts.add(destination)
-            content, python_script = _script_bytes(
-                content,
-                snapshot.executable,
-                directory == "Scripts",
-            )
-            if (python_script and directory == "bin") or (
-                path in members.executable_paths
-            ):
-                installed.executable_paths.add(destination)
+                raise _reject("unsupported wheel data payload")
+            relocated = True
+            if parts[1] == "scripts":
+                if (
+                    len(parts) != 3
+                    or parts[2].split(".", 1)[0].casefold() == "__init__"
+                ):
+                    raise _reject("unsupported script payload")
+                destination = f"{directory}/{parts[2]}"
+                scripts.add(destination)
+                content, python_script = _script_bytes(
+                    content,
+                    snapshot.executable,
+                    directory == "Scripts",
+                )
+                if (python_script and directory == "bin") or (
+                    path in members.executable_paths
+                ):
+                    installed.executable_paths.add(destination)
+            else:
+                if (
+                    parts[2]
+                    .casefold()
+                    .endswith(
+                        (".dist-info", ".egg-info", ".data"),
+                    )
+                ):
+                    raise _reject("data payload introduces metadata or scheme")
+                destination = "/".join(parts[2:])
+                if path in members.executable_paths:
+                    installed.executable_paths.add(destination)
         if destination.casefold() in destinations:
-            raise _reject("script paths overlap")
+            raise _reject("wheel data paths overlap")
         destinations.add(destination.casefold())
         installed[destination] = content
-    if scripts:
+        if path in members.executable_paths:
+            installed.executable_paths.add(destination)
+    if relocated:
+        directories = {}
+        for parent in _directories(installed):
+            key = parent.casefold()
+            if key in destinations or (
+                key in directories and directories[key] != parent
+            ):
+                raise _reject("wheel data paths overlap")
+            directories[key] = parent
         record = f"{info}/RECORD"
         rows = io.StringIO(newline="")
         writer = csv.writer(rows, lineterminator="\n")
@@ -481,12 +542,41 @@ def validate_additions(
                 for path in members
                 if not path.split("/", 1)[0].endswith(".data")
             }
-            stage = "scripts"
-            members, scripts, directory = _install_scripts(
+            has_data = any(
+                path.startswith(
+                    info.removesuffix(".dist-info") + ".data/data/",
+                )
+                for path in members
+            )
+            stage = "wheel data"
+            members, scripts, directory = _install_data(
                 members,
                 info,
                 snapshot,
             )
+            provider_tops = [
+                top.split(".", 1)[0] for top in tops if top != info
+            ]
+            if has_data:
+                # Match the unchanged fresh audit for newly accepted data
+                # wheels, including conservative namespace import roots.
+                provider_tops = set(
+                    members.get(f"{info}/top_level.txt", b"")
+                    .decode("utf-8")
+                    .split(),
+                ) or {name.replace("-", "_")}
+                for path in members:
+                    parts = path.split("/")
+                    part = parts[0]
+                    if (
+                        len(parts) == 2
+                        and part in {"bin", "Scripts"}
+                        and not parts[1].casefold().startswith("__init__.")
+                    ):
+                        continue
+                    if not part.endswith((".dist-info", ".egg-info")):
+                        provider_tops.add(part.split(".", 1)[0])
+                tops = {*provider_tops, info}
             stems = {top.split(".", 1)[0] for top in tops}
             if (
                 {stem.casefold() for stem in stems} & script_directories
@@ -537,11 +627,7 @@ def validate_additions(
                 "version": str(version),
                 "metadata_path": str(target / info),
                 "requires_dist": tuple(metadata.get_all("Requires-Dist", [])),
-                "top_level": tuple(
-                    sorted(
-                        top.split(".", 1)[0] for top in tops if top != info
-                    ),
-                ),
+                "top_level": tuple(sorted(provider_tops)),
             }
     except (
         KeyError,

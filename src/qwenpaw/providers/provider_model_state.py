@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """Helpers for persisted runtime state of built-in provider models."""
 
+import logging
 from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 from .thinking import ThinkingControl
+
+logger = logging.getLogger(__name__)
 
 PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
 
@@ -64,14 +69,231 @@ def _migrate_legacy_model_output_limit(
     model["generate_kwargs"] = generate_kwargs
 
 
+_LOOSE_INT_ADAPTER = TypeAdapter(int)
+
+
+def _coerce_loose_int(value: Any) -> int | None:
+    """Return *value* as an int the way Pydantic would, else None.
+
+    Delegates to Pydantic's own lax int coercion, so the migration
+    accepts exactly what model validation on load would accept:
+    real ints, bools (coerced to 0/1), integral floats and numeric
+    strings (``"100"``, ``"100.0"``) convert, while strings Python's
+    ``float()`` would accept but Pydantic rejects (``"1."``,
+    ``"1e3"``, ``"1.0e3"``) do not.
+    """
+    try:
+        return _LOOSE_INT_ADAPTER.validate_python(value)
+    except ValidationError:
+        return None
+
+
+def _coerce_range_ints(value: Any) -> list[int] | None:
+    """Return *value* as a list of ints, or None when it is not numeric."""
+    if not isinstance(value, list):
+        return None
+    result: list[int] = []
+    for item in value:
+        number = _coerce_loose_int(item)
+        if number is None:
+            return None
+        result.append(number)
+    return result
+
+
+def _migrate_legacy_thinking_budget_range(
+    owner: dict[str, Any],
+    *,
+    provider_level: bool = False,
+) -> bool:
+    """Normalize a persisted ``thinking_budget_range`` in place.
+
+    Snapshots written before write-path validation could persist ranges
+    that ``ModelInfo`` now rejects (a single bound, an unordered pair, or
+    a max below 1); validating such a snapshot on load would fail and
+    make the provider disappear. A single bound ``[v]`` is read as the
+    cap it most plausibly meant and becomes ``[0, v]``. Any other invalid
+    shape is dropped rather than guessed at: a model-level override
+    becomes ``None`` (unset), while a provider-level value is removed
+    entirely, because ``ProviderInfo.thinking_budget_range`` is a
+    non-optional ``List[int]`` and only removal lets its default apply.
+    Returns True when the value changed.
+    """
+    if "thinking_budget_range" not in owner:
+        return False
+    value = owner["thinking_budget_range"]
+    numbers = _coerce_range_ints(value)
+    if (
+        numbers is not None
+        and len(numbers) == 2
+        and numbers[0] <= numbers[1]
+        and numbers[1] >= 1
+    ):
+        return False
+    if numbers is not None and len(numbers) == 1 and numbers[0] >= 1:
+        owner["thinking_budget_range"] = [0, numbers[0]]
+        outcome = "using [0, %d]" % numbers[0]
+    elif provider_level:
+        owner.pop("thinking_budget_range")
+        outcome = "restoring the provider default"
+    elif value is None:
+        return False
+    else:
+        owner["thinking_budget_range"] = None
+        outcome = "dropping the override"
+    logger.warning(
+        "Migrating legacy thinking_budget_range %r in a persisted "
+        "provider config: %s.",
+        value,
+        outcome,
+    )
+    return True
+
+
+# Per-model scalar fields bounded below by ``ModelInfo`` field
+# constraints (``ge=``), as (field, minimum, optional). A snapshot
+# written before write-path validation could persist a value below the
+# bound; validating such a snapshot on load would fail and make the
+# provider disappear. Optional fields fall back to ``None`` (unset);
+# the non-optional ``max_input_length`` key is removed instead, so its
+# field default applies.
+_MODEL_SCALAR_MINIMUMS = (
+    ("max_output_length", 1, True),
+    ("max_input_length", 1000, False),
+    ("max_input_length_auto_detected", 1000, True),
+    ("input_token_limit", 1, True),
+    ("thinking_budget", 1, True),
+)
+
+
+# Provenance metadata carried alongside a bounded scalar, restored to
+# the ``ModelInfo`` defaults when the scalar itself is reset. Fields
+# not listed here (``thinking_budget``,
+# ``max_input_length_auto_detected``) have no source/timestamp fields
+# in ``ModelInfo``; only their ``config_overrides`` entry is cleared.
+_SCALAR_METADATA_DEFAULTS: dict[str, dict[str, Any]] = {
+    "max_output_length": {
+        "max_output_length_source": "unknown",
+        "max_output_length_updated_at": None,
+    },
+    "input_token_limit": {
+        "input_token_limit_source": "unknown",
+    },
+}
+
+
+def _clear_scalar_override(model: dict[str, Any], field: str) -> None:
+    """Clear the explicit-override markers of a reset scalar field.
+
+    Resetting the value is not enough on its own: the snapshot also
+    carries the field's ``config_overrides`` entries and its provenance
+    metadata. Left in place, discovery keeps skipping the field — a
+    surviving ``max_output_length_source == "user"`` blocks every
+    ``max_output_length*`` field, and an ``input_token_limit_source``
+    of ``"api"`` would keep describing a value that is now ``None`` —
+    so freshly reported API values could never refill it. The metadata
+    is restored to the ``ModelInfo`` defaults, mirroring the write
+    path's clear operation for ``max_input_length``.
+    """
+    metadata = _SCALAR_METADATA_DEFAULTS.get(field, {})
+    overrides = model.get("config_overrides")
+    if isinstance(overrides, list):
+        stale = {field, *metadata}
+        model["config_overrides"] = [
+            name for name in overrides if name not in stale
+        ]
+    for name, default in metadata.items():
+        if name in model:
+            model[name] = default
+
+
+def _clear_max_input_length_override(model: dict[str, Any]) -> None:
+    """Clear the explicit-override markers for ``max_input_length``.
+
+    Mirrors the write path's clear operation: without this, a reset
+    ``max_input_length`` would still be treated as an explicit user
+    override (the configured flag and the ``config_overrides`` entries
+    survive in the snapshot) and take precedence over auto-detected
+    values.
+    """
+    if model.get("max_input_length_configured"):
+        model["max_input_length_configured"] = False
+    overrides = model.get("config_overrides")
+    if isinstance(overrides, list):
+        model["config_overrides"] = [
+            field
+            for field in overrides
+            if field not in {"max_input_length", "max_input_length_configured"}
+        ]
+
+
+def _migrate_legacy_model_scalars(model: dict[str, Any]) -> bool:
+    """Reset persisted model scalars that violate their field bounds.
+
+    Values Pydantic would coerce and accept (ints in range, numeric
+    strings) are left untouched; only values that would fail validation
+    on load are reset. Returns True when any value changed.
+    """
+    changed = False
+    for field, minimum, optional in _MODEL_SCALAR_MINIMUMS:
+        if field not in model:
+            continue
+        value = model[field]
+        if value is None and optional:
+            continue
+        number = _coerce_loose_int(value)
+        if number is not None and number >= minimum:
+            continue
+        if optional:
+            model[field] = None
+            outcome = "dropping the value"
+            _clear_scalar_override(model, field)
+        else:
+            model.pop(field)
+            outcome = "restoring the field default"
+            _clear_max_input_length_override(model)
+        logger.warning(
+            "Migrating legacy %s %r in a persisted provider config: %s.",
+            field,
+            value,
+            outcome,
+        )
+        changed = True
+    return changed
+
+
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
-    """Upgrade a provider snapshot to the current output-limit schema."""
+    """Upgrade a provider snapshot to the current schemas.
+
+    The ``thinking_budget_range`` normalization and the bounded-scalar
+    reset run on every load, independent of the snapshot schema
+    version: a snapshot already at the current version can still carry
+    values persisted before write-path validation existed.
+    """
+    changed = _migrate_legacy_thinking_budget_range(
+        data,
+        provider_level=True,
+    )
+    for collection_name in (
+        "models",
+        "extra_models",
+        "discovered_models",
+    ):
+        models = data.get(collection_name)
+        if not isinstance(models, list):
+            continue
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            changed = _migrate_legacy_model_scalars(model) or changed
+            changed = _migrate_legacy_thinking_budget_range(model) or changed
+
     version = data.get("snapshot_schema_version", 1)
     if (
         isinstance(version, int)
         and version >= PROVIDER_SNAPSHOT_SCHEMA_VERSION
     ):
-        return False
+        return changed
 
     for collection_name in (
         "models",

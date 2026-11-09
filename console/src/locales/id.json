@@ -2093,7 +2093,7 @@
     "fieldWebSocketHost": "Host WebSocket",
     "fieldWebSocketPort": "Port WebSocket",
     "matrixUserHelp": "Gunakan MXID lengkap (mis. @bot:matrix.org) atau nama lokal (bot).",
-    "matrixEncryptionHelp": "Setelah aktif, verifikasi perangkat di Matrix (mis. Element) dan instal: pip install matrix-nio[e2e].",
+    "matrixEncryptionHelp": "Setelah aktif, verifikasi perangkat di Matrix (mis. Element).",
     "matrixDeviceHelp": "Nama perangkat Matrix tetap. Bawaan: qwenpaw-worker.",
     "messageTypeHelp": "markdown: pesan biasa; card: kartu AI interaktif.",
     "scheduledMessageTypeHelp": "Jenis pesan tugas terjadwal, terpisah dari format obrolan.",
@@ -2186,6 +2186,10 @@
       "view_video": {
         "name": "Lihat video",
         "description": "Muat video untuk dianalisis model."
+      },
+      "view_audio": {
+        "name": "Dengarkan audio",
+        "description": "Muat audio untuk ditranskripsi atau dianalisis model."
       },
       "enhance_and_generate_image": {
         "name": "Sempurnakan dan buat gambar",
@@ -3138,6 +3142,27 @@
     "timeoutHint": "Backend gagal dimulai. Coba lagi, atau periksa log aplikasi untuk detail.",
     "retry": "Coba lagi"
   },
+  "approvalNotifications": {
+    "settingTitle": "Notifikasi persetujuan desktop",
+    "openApprovals": "Lihat persetujuan tertunda",
+    "description": "Terima notifikasi sistem saat persetujuan masuk selagi QwenPaw berjalan di latar belakang.",
+    "title": "QwenPaw · Persetujuan diperlukan",
+    "body": "{{tool}} menunggu persetujuan Anda. Buka QwenPaw untuk meninjaunya.",
+    "failed": "Tidak dapat mengirim notifikasi. Periksa pengaturan notifikasi Anda.",
+    "permission": {
+      "default": "Izin diperlukan saat diaktifkan",
+      "granted": "Izin browser telah diberikan",
+      "denied": "Diblokir — izinkan notifikasi di pengaturan situs browser",
+      "native": "Dikelola oleh pengaturan notifikasi sistem",
+      "checking": "Memeriksa izin notifikasi",
+      "unavailable": "Tidak dapat memeriksa izin notifikasi sistem. Buka kembali aplikasi desktop.",
+      "nativeDefault": "Izin sistem diperlukan saat diaktifkan",
+      "nativeGranted": "Izin notifikasi sistem telah diberikan",
+      "nativeDenied": "Diblokir — izinkan QwenPaw di pengaturan notifikasi sistem",
+      "unsupported": "Browser ini tidak mendukung notifikasi desktop",
+      "insecure": "Buka melalui HTTPS atau localhost untuk mengaktifkan notifikasi"
+    }
+  },
   "inbox": {
     "title": "Kotak Masuk",
     "tabApprovals": "Persetujuan",
@@ -3437,6 +3462,7 @@
       "internal": "Dikelola secara internal oleh QwenPaw."
     },
     "variableDescriptions": {
+      "QWENPAW_SHELL_MEMORY_LIMIT_MB": "Perlindungan memori pohon proses shell: 0 menonaktifkannya, auto menggunakan separuh memori yang tersedia (maksimum 4096 MiB), atau masukkan batas berupa bilangan bulat positif dalam MiB. Batas yang ditentukan juga tidak boleh melebihi separuh memori yang tersedia. Perubahan berlaku mulai pemanggilan shell berikutnya; perintah yang sedang berjalan tetap menggunakan batas awal. Perlindungan melalui pemeriksaan berkala bukan batas memori ketat yang diberlakukan oleh sistem operasi.",
       "QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT": "Waktu tunggu maksimum untuk konten stream pertama; nol menonaktifkan pemantauan.",
       "QWENPAW_LLM_STREAM_IDLE_TIMEOUT": "Waktu tunggu maksimum antarbagian stream; nol menonaktifkan pemantauan."
     },
@@ -4527,6 +4553,8 @@
     "rubricPrompt": "Kriteria Penyelesaian Bahasa Alami",
     "rubricPromptTooltip": "Prompt yang disuntikkan untuk meminta agen mengevaluasi penyelesaian tugas",
     "rubricDesc": "Terapkan kriteria penyelesaian bahasa alami pada respons teks tanpa panggilan alat dan minta agen melanjutkan jika masih ada pekerjaan.",
+    "rubricUseDecisionModel": "Gunakan model keputusan untuk membantu pemeriksaan mandiri",
+    "rubricUseDecisionModelHelp": "Percakapan dan hasil alat dikirim ke model keputusan yang dipilih. Model dapat menandai hal yang terlewat untuk diperiksa agen. Jika tidak ada saran atau model tidak tersedia, agen melakukan pemeriksaan mandiri seperti biasa.",
     "rubricPromptPlaceholder": "Anda tidak memanggil alat apa pun. Jika tugas selesai, konfirmasi. Jika tidak, lanjutkan dengan panggilan alat.",
     "rubricMaxInterventions": "Maksimum Putaran Evaluasi",
     "rubricMaxInterventionsTooltip": "Jumlah maksimum pemeriksaan penyelesaian untuk respons teks tanpa panggilan alat dalam satu giliran.",
