@@ -71,7 +71,7 @@ function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
         ? config.port
         : null,
     gpuAcceleration: config?.gpu_acceleration !== false,
-    autoUpdate: config?.auto_update === true,
+    autoUpdate: config?.auto_update !== false,
   };
 }
 
@@ -556,8 +556,8 @@ export function LocalModelManageModal({
     setSavedServerPort(null);
     setGpuAcceleration(true);
     setSavedGpuAcceleration(true);
-    setAutoUpdate(false);
-    setSavedAutoUpdate(false);
+    setAutoUpdate(true);
+    setSavedAutoUpdate(true);
     setGenerateKwargsText(initialLocalConfigRef.current.generateKwargsText);
     setSavedGenerateKwargsText(
       initialLocalConfigRef.current.generateKwargsText,
