@@ -789,6 +789,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                     "Error shutting down local model server gracefully: %s",
                     exc,
                 )
+            finally:
+                # Also cancel an in-flight runtime auto-update download.
                 with suppress(OSError, RuntimeError, ValueError):
                     local_model_mgr.shutdown_server_sync()
 
