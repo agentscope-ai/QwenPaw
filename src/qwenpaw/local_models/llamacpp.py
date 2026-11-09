@@ -122,6 +122,10 @@ class LlamaCppBackend:
         """Return the current llama.cpp download progress."""
         return self._progress.snapshot()
 
+    def is_download_active(self) -> bool:
+        """Return whether a llama.cpp runtime download is still running."""
+        return self._is_download_active()
+
     def get_server_status(self) -> dict[str, Any]:
         """Return the current llama.cpp server status snapshot."""
         process = self._server_process

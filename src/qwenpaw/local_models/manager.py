@@ -43,6 +43,12 @@ class LocalModelConfig(BaseModel):
             "force CPU inference."
         ),
     )
+    auto_update: bool = Field(
+        default=False,
+        description=(
+            "Automatically install newer local engine runtimes when idle."
+        ),
+    )
 
 
 class LocalModelManager:  # pylint: disable=too-many-public-methods
@@ -65,6 +71,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         self._server_lifecycle_lock = asyncio.Lock()
         self._config_path = DEFAULT_LOCAL_PROVIDER_DIR / self.CONFIG_FILE_NAME
         self._config = self._load_config()
+        self._auto_update_task: asyncio.Task[None] | None = None
 
     def _load_config(self) -> LocalModelConfig:
         """Load persisted local runtime settings from disk."""
@@ -132,6 +139,12 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             self._config.gpu_acceleration = bool(enabled)
             await self._save_config()
 
+    async def set_auto_update(self, enabled: bool) -> None:
+        """Persist whether local engine runtimes should update automatically."""
+        async with self._server_lifecycle_lock:
+            self._config.auto_update = bool(enabled)
+            await self._save_config()
+
     def check_llamacpp_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
@@ -163,6 +176,76 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         return await self._llamacpp_backend.has_update(
             self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
         )
+
+    async def auto_update_llamacpp(self) -> str:
+        """Start a llama.cpp update only when it is safe to do so."""
+        if not self._config.auto_update:
+            return "disabled"
+        if not self.check_llamacpp_installation()[0]:
+            return "not-installed"
+        if self._llamacpp_backend.get_server_status().get("running"):
+            return "deferred"
+        if self._llamacpp_backend.is_download_active():
+            return "downloading"
+        if not await self.has_update():
+            return "up-to-date"
+        await self.start_llamacpp_download()
+        return "started"
+
+    async def run_auto_update_once(self) -> dict[str, str]:
+        """Check every installed engine once and install safe updates."""
+        return {"llamacpp": await self.auto_update_llamacpp()}
+
+    def start_auto_update(
+        self,
+        *,
+        interval_seconds: float = 3600,
+        initial_delay: float = 30,
+    ) -> None:
+        """Start the background auto-update loop when it is not running."""
+        task = self._auto_update_task
+        if task is not None and not task.done():
+            return
+        self._auto_update_task = asyncio.create_task(
+            self._auto_update_loop(
+                interval_seconds=interval_seconds,
+                initial_delay=initial_delay,
+            ),
+            name="qwenpaw-local-runtime-auto-update",
+        )
+
+    async def stop_auto_update(self) -> None:
+        """Stop the background auto-update loop."""
+        task = self._auto_update_task
+        self._auto_update_task = None
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    async def _auto_update_loop(
+        self,
+        *,
+        interval_seconds: float,
+        initial_delay: float,
+    ) -> None:
+        """Periodically check for runtime updates without blocking startup."""
+        try:
+            await asyncio.sleep(max(0, initial_delay))
+            while True:
+                try:
+                    await self.run_auto_update_once()
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning(
+                        "Local runtime auto-update check failed: %s",
+                        exc,
+                    )
+                await asyncio.sleep(max(60, interval_seconds))
+        except asyncio.CancelledError:
+            raise
 
     async def check_llamacpp_server_ready(
         self,

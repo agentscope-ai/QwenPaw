@@ -159,6 +159,10 @@ class LocalModelConfigRequest(BaseModel):
         default=None,
         description="Whether llama.cpp may offload layers to the GPU.",
     )
+    auto_update: Optional[bool] = Field(
+        default=None,
+        description="Whether to install local engine updates automatically.",
+    )
 
 
 # =========================================================================
@@ -504,6 +508,9 @@ async def configure_local_model_settings(
 
     if payload.gpu_acceleration is not None:
         await local_manager.set_gpu_acceleration(payload.gpu_acceleration)
+
+    if payload.auto_update is not None:
+        await local_manager.set_auto_update(payload.auto_update)
 
     if payload.generate_kwargs is not None:
         await provider_manager.update_provider_async(

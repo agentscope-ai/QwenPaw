@@ -26,6 +26,8 @@ QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模�
 
 QwenPaw Local 在 Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则回退到 CPU。引擎面板会显示检测到的加速器（例如 `Metal · Apple M5 Max`）。如需强制使用 CPU 推理，请打开 **本地模型进阶配置**，关闭 **GPU 加速**；该设置会在下一次启动本地服务时生效。
 
+运行库自动更新默认关闭。在 **本地模型进阶配置** 中开启 **自动更新引擎运行库** 后，QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 运行库；正在运行的服务不会被中断，更新会延后。
+
 ![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 
 初次配置 QwenPaw Local 时，您需要先下载 llama.cpp 运行库，点击 **下载 llama.cpp** 按钮，QwenPaw 会自动下载并配置好 llama.cpp 运行库，下载完成后您就可以使用 QwenPaw Local 提供商了。
