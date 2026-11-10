@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { Form, Input } from "antd";
 import { Blocks, Check, PawPrint, SquareTerminal } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 
 import {
   HarnessSettings,
@@ -133,9 +134,9 @@ export function AgentBackendFields({ form, open }: AgentBackendFieldsProps) {
                 </button>
               ))}
           </div>
-          <a href="/market?tab=plugins&view=official">
+          <Link to="/market?tab=plugins&view=official">
             {t("agent.backend.installPlugin")}
-          </a>
+          </Link>
           {backend !== "qwenpaw" && selected?.status !== "available" && (
             <p role="status">
               {backend} ·{" "}
