@@ -819,12 +819,71 @@ async def test_cancel_releases_busy_owner_and_next_turn_runs(host):
     assert removed.clean and removed.quiescent
 
 
+@pytest.mark.parametrize("path", ["stream", "agent-request"])
 async def test_config_io_keeps_single_worker_loop_responsive(
     host,
     monkeypatch,
+    path,
 ):
     workspace = await host._workspace("one")
     entered, release = threading.Event(), threading.Event()
+
+    if path == "agent-request":
+        from qwenpaw.app import agent_context
+
+        loop_thread = threading.get_ident()
+        read_threads = []
+        finished = threading.Event()
+        manager = SimpleNamespace(get_agent=AsyncMock(return_value=workspace))
+        management_request = SimpleNamespace(
+            state=SimpleNamespace(),
+            headers={"X-Agent-Id": "one"},
+            app=SimpleNamespace(
+                state=SimpleNamespace(multi_agent_manager=manager),
+            ),
+        )
+
+        def held_config():
+            read_threads.append(threading.get_ident())
+            entered.set()
+            try:
+                # Bound a regression that runs this on the event loop.
+                release.wait(5)
+                return SimpleNamespace(
+                    agents=SimpleNamespace(
+                        active_agent="one",
+                        profiles={"one": SimpleNamespace(enabled=True)},
+                    ),
+                )
+            finally:
+                finished.set()
+
+        monkeypatch.setattr(agent_context, "load_config", held_config)
+        task = asyncio.create_task(
+            agent_context.get_agent_for_request(management_request),
+        )
+        try:
+            assert await asyncio.wait_for(
+                asyncio.to_thread(entered.wait, 10),
+                15,
+            )
+            assert len(read_threads) == 1
+            assert read_threads[0] != loop_thread
+            heartbeat = asyncio.Event()
+            asyncio.get_running_loop().call_soon(heartbeat.set)
+            await asyncio.wait_for(heartbeat.wait(), 2)
+            assert not finished.is_set()
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done() and plugin(host).created == []
+            manager.get_agent.assert_not_called()
+        finally:
+            release.set()
+            outcomes = await asyncio.gather(task, return_exceptions=True)
+        assert isinstance(outcomes[0], asyncio.CancelledError)
+        assert finished.is_set()
+        manager.get_agent.assert_not_called()
+        return
 
     def held_read(agent_id):
         assert agent_id == "one"
