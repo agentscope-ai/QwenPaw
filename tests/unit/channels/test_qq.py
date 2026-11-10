@@ -361,6 +361,7 @@ async def test_native_events_map_sender_and_conversation(
 )
 async def test_native_events_follow_host_mention_policy(
     native_driver,
+    monkeypatch,
     require_mention,
     event,
     mentions,
@@ -372,29 +373,6 @@ async def test_native_events_follow_host_mention_policy(
         if mentioned and event == f"GROUP_MESSAGE_CREATE"
         else f"hello"
     )
-    server.push(
-        {
-            f"op": 0,
-            f"s": 2,
-            f"t": event,
-            f"d": {
-                f"id": f"incoming-A",
-                f"content": content,
-                f"author": {
-                    f"member_openid": f"actor-A",
-                    f"user_openid": f"actor-A",
-                    f"id": f"actor-A",
-                },
-                f"group_openid": f"group-A",
-                f"channel_id": f"channel-A",
-                f"guild_id": f"guild-A",
-                **({} if mentions is None else {f"mentions": mentions}),
-            },
-        },
-    )
-    await eventually(lambda: driver._platform._state.last_seq == 2)
-    batch = peer.batches[0]
-    actual = batch[f"events"][0]
     source = ROOT / f"plugins" / f"channel" / f"qq"
     description = describe_channel(
         source,
@@ -424,7 +402,35 @@ async def test_native_events_follow_host_mention_policy(
         return EnqueueResult(accepted=True)
 
     host.set_enqueue_async(enqueue)
-    ack = await host._event_batch(batch, None)
+    call = peer.call
+    acks = []
+
+    async def host_call(name, params):
+        if name == f"event.batch":
+            peer.batches.append(params)
+            ack = await host._event_batch(params, None)
+            acks.append(ack)
+            return ack
+        return await call(name, params)
+
+    monkeypatch.setattr(peer, f"call", host_call)
+    data = {
+        f"id": f"incoming-A",
+        f"content": content,
+        f"author": {
+            f"member_openid": f"actor-A",
+            f"user_openid": f"actor-A",
+            f"id": f"actor-A",
+        },
+        f"group_openid": f"group-A",
+        f"channel_id": f"channel-A",
+        f"guild_id": f"guild-A",
+        **({} if mentions is None else {f"mentions": mentions}),
+    }
+    server.push({f"op": 0, f"s": 2, f"t": event, f"d": data})
+    await eventually(lambda: bool(acks))
+    actual = peer.batches[0][f"events"][0]
+    ack = acks[0]
     allowed = (
         not require_mention
         or actual[f"conversation"][f"type"] == f"dm"
@@ -450,6 +456,35 @@ async def test_native_events_follow_host_mention_policy(
         {f"type": f"text", f"text": f"hello"},
     ]
     assert actual[f"metadata"][f"incoming_raw"][f"content"] == content
+    await eventually(lambda: driver._platform._state.last_seq == 2)
+    server.push(
+        {
+            f"op": 0,
+            f"s": 3,
+            f"t": f"GROUP_MESSAGE_CREATE",
+            f"d": {
+                **data,
+                f"id": f"incoming-B",
+                f"content": f"<@bot-A> next message",
+                f"mentions": [{f"id": f"bot-A", f"is_you": True}],
+            },
+        },
+    )
+    await eventually(lambda: driver._platform._state.last_seq == 3)
+    assert len(server.connections) == 1
+    assert len(queued) == int(allowed) + 1
+    assert queued[-1][f"content_parts"][0].text == f"next message"
+    followup = peer.batches[-1][f"events"][0]
+    result = await send(
+        peer,
+        identity,
+        followup[f"response_handle"],
+        TEXT,
+    )
+    assert result[f"state"] == f"acknowledged"
+    reply = server.api_rows()[-1]
+    assert reply[f"path"] == f"/v2/groups/group-A/messages"
+    assert reply[f"body"][f"msg_id"] == f"incoming-B"
 
 
 @pytest.mark.parametrize(f"openid_key", [f"member_openid", f"id"])

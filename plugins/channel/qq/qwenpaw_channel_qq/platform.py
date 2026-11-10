@@ -1052,7 +1052,9 @@ class QQPlatform:
                     if accepted:
                         self._seen_event_ids.append(event_id)
             elif event_type in _MESSAGE_EVENT_SPECS:
-                accepted = self._bridge(
+                # Permanent Core rejections consume the sequence; retryable
+                # admission failures raise and retain the previous sequence.
+                self._bridge(
                     self._message(
                         event_type,
                         {**(data or {}), "_qq_seq": seq},
