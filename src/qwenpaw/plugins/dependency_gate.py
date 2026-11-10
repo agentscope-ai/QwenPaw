@@ -976,7 +976,7 @@ async def _publish_additions(audit, evaluate, target, files, *, recovery=None):
     from ..utils.io_utils import run_sync_io
     from .dependency_recovery import begin_additions, record_phase
 
-    record = None
+    record: tuple[Path, dict] | None = None
 
     def mark(message):
         repair_marker(target).write_text(message, encoding="utf-8")
@@ -990,6 +990,7 @@ async def _publish_additions(audit, evaluate, target, files, *, recovery=None):
         _write_additions(target, files)
         if record is not None:
             record_phase(record, "published")
+        return record
 
     def failed(phase, exc, message):
         if record is None:
@@ -1009,7 +1010,7 @@ async def _publish_additions(audit, evaluate, target, files, *, recovery=None):
     async with async_lock(file_lock(admission, timeout=5)):
         try:
             with observation_write():
-                await run_sync_io(publish)
+                record = await run_sync_io(publish)
         except asyncio.CancelledError as exc:
             await run_sync_io(
                 failed,
