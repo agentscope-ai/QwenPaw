@@ -14,7 +14,7 @@ from qwenpaw.runtime.builder import AgentBuilder, _resolve_react_iterations
 from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.app.workspace.workspace import Workspace
-from qwenpaw.config.config import LightContextConfig
+from qwenpaw.config.config import AgentProfileConfig, LightContextConfig
 from qwenpaw.utils.io_utils import run_sync_io
 
 
@@ -22,10 +22,8 @@ def _history_workspace(tmp_path, filename="history.db", strategy="scroll"):
     ws = Workspace("agent", str(tmp_path))
     lcc = LightContextConfig(strategy=strategy)
     lcc.scroll_config.db_filename = filename
-    ws._config = SimpleNamespace(
-        id="agent",
-        running=SimpleNamespace(light_context_config=lcc),
-    )
+    ws._config = AgentProfileConfig(id="agent", name="Agent")
+    ws._config.running.light_context_config = lcc
     # Use the production descriptor without starting unrelated services.
     manager = ws._service_manager
     manager.descriptors = {

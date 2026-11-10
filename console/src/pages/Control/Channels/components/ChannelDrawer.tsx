@@ -33,6 +33,7 @@ import {
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { useSettingsSearchSurface } from "@/pages/SettingsCenter/SettingsSearchRequest";
 import {
   captureChannelSaveJob,
   normalizeChannelSubmitValues,
@@ -194,12 +195,19 @@ export function ChannelDrawer({
   onRuntimeChange,
 }: ChannelDrawerProps) {
   const { t, i18n } = useTranslation();
+  const searchRequest = useSettingsSearchSurface("channels", open);
   const [repairing, setRepairing] = useState(false);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
   useEffect(() => {
     if (open)
-      setExpandedSections(activeKey === "console" ? ["presentation"] : []);
-  }, [open, activeKey]);
+      setExpandedSections(
+        searchRequest?.surface === "channel"
+          ? ["advanced"]
+          : activeKey === "console"
+          ? ["presentation"]
+          : [],
+      );
+  }, [open, activeKey, searchRequest]);
   const disclosureProps = {
     activeKey: expandedSections,
     onChange: (keys: string | string[]) =>
@@ -295,6 +303,7 @@ export function ChannelDrawer({
     <>
       <Form.Item
         name="access_control_dm"
+        data-settings-target="channels.accessControlDm"
         label={t("channels.accessControlDm")}
         valuePropName="checked"
         tooltip={t("channels.accessControlDmTooltip")}
@@ -303,6 +312,7 @@ export function ChannelDrawer({
       </Form.Item>
       <Form.Item
         name="access_control_group"
+        data-settings-target="channels.accessControlGroup"
         label={t("channels.accessControlGroup")}
         valuePropName="checked"
         tooltip={t("channels.accessControlGroupTooltip")}
@@ -311,6 +321,7 @@ export function ChannelDrawer({
       </Form.Item>
       <Form.Item
         name="require_mention"
+        data-settings-target="channels.requireMention"
         label={t("channels.requireMention")}
         valuePropName="checked"
         tooltip={t("channels.requireMentionTooltip")}
@@ -2212,6 +2223,7 @@ export function ChannelDrawer({
       {activeKey && (
         <Form
           form={form}
+          data-settings-target={activeKey ? `channel:${activeKey}` : undefined}
           layout="vertical"
           className={styles.channelForm}
           initialValues={formInitialValues}
@@ -2356,6 +2368,19 @@ export function ChannelDrawer({
             ]}
           />
 
+          {searchRequest?.surface === "channel" &&
+            !searchRequest.channelKey &&
+            activeKey &&
+            !CHANNELS_WITH_ACCESS_CONTROL.includes(activeKey) && (
+              <Alert
+                type="info"
+                data-settings-target={searchRequest.targetId}
+                message={t(
+                  "settingsCenter.searchUnsupportedChannel",
+                  "This channel does not support these access control settings.",
+                )}
+              />
+            )}
           {activeKey !== "console" && (
             <Collapse
               {...disclosureProps}

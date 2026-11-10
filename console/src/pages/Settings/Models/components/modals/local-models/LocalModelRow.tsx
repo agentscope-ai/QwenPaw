@@ -43,10 +43,15 @@ export const LocalModelRow = memo(function LocalModelRow({
   const isStarting = startingModelName === model.id;
   const isDeleting = deletingModelName === model.id;
 
+  const displayName =
+    model.name === model.id
+      ? model.id.split("/").pop() || model.name
+      : model.name;
+
   return (
     <div className={styles.modelListItem}>
       <div className={styles.modelListItemInfo}>
-        <span className={styles.modelListItemName}>{model.name}</span>
+        <span className={styles.modelListItemName}>{displayName}</span>
         <span className={styles.modelListItemId}>
           {model.id} · {prettyBytes(model.size_bytes)}
         </span>
