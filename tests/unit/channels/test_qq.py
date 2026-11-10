@@ -3,12 +3,16 @@
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import sys
 import threading
 import pytest
 import pytest_asyncio
 from websockets.sync.server import serve
+from qwenpaw.app.channels.unified_queue_manager import EnqueueResult
 from qwenpaw.channel_protocol.models import SendParams
-from tests.channel_support.driver import bind, module
+from qwenpaw.plugins.architecture import PluginManifest
+from qwenpaw.plugins.channel_adapter import describe_channel
+from tests.channel_support.driver import ROOT, bind, module
 
 
 async def eventually(predicate):
@@ -247,6 +251,20 @@ async def test_image_upload_then_native_media_reply(native_driver):
             "group-A",
         ),
         (
+            "GROUP_MESSAGE_CREATE",
+            {"member_openid": "actor-A"},
+            {"group_openid": "group-A"},
+            "qq:group:group-A",
+            "group-A",
+        ),
+        (
+            "GROUP_MESSAGE_CREATE",
+            {"id": "actor-A"},
+            {"group_openid": "group-A"},
+            "qq:group:group-A",
+            "group-A",
+        ),
+        (
             "AT_MESSAGE_CREATE",
             {"id": "actor-A"},
             {"channel_id": "channel-A", "guild_id": "guild-A"},
@@ -294,7 +312,12 @@ async def test_native_events_map_sender_and_conversation(
         "id": conversation,
         "type": (
             "group"
-            if event in {"GROUP_AT_MESSAGE_CREATE", "AT_MESSAGE_CREATE"}
+            if event
+            in {
+                "GROUP_AT_MESSAGE_CREATE",
+                "GROUP_MESSAGE_CREATE",
+                "AT_MESSAGE_CREATE",
+            }
             else "dm"
         ),
         "thread_id": None,
@@ -305,6 +328,207 @@ async def test_native_events_map_sender_and_conversation(
         == session
     )
     assert actual["content_parts"] == [{"type": "text", "text": "hello"}]
+
+
+@pytest.mark.parametrize(f"require_mention", [False, True])
+@pytest.mark.parametrize(
+    f"event,mentions,mentioned",
+    [
+        (f"GROUP_AT_MESSAGE_CREATE", None, True),
+        (f"AT_MESSAGE_CREATE", None, True),
+        (f"C2C_MESSAGE_CREATE", None, False),
+        (f"GROUP_MESSAGE_CREATE", None, False),
+        (f"GROUP_MESSAGE_CREATE", [], False),
+        (
+            f"GROUP_MESSAGE_CREATE",
+            [{f"id": f"other-user", f"is_you": False}],
+            False,
+        ),
+        (
+            f"GROUP_MESSAGE_CREATE",
+            [{f"id": f"bot-A", f"is_you": True}],
+            True,
+        ),
+        (
+            f"GROUP_MESSAGE_CREATE",
+            [
+                {f"id": f"other-user", f"is_you": False},
+                {f"id": f"bot-A", f"is_you": True},
+            ],
+            True,
+        ),
+    ],
+)
+async def test_native_events_follow_host_mention_policy(
+    native_driver,
+    require_mention,
+    event,
+    mentions,
+    mentioned,
+):
+    driver, peer, identity, server = native_driver
+    content = (
+        f"<@bot-A> hello"
+        if mentioned and event == f"GROUP_MESSAGE_CREATE"
+        else f"hello"
+    )
+    server.push(
+        {
+            f"op": 0,
+            f"s": 2,
+            f"t": event,
+            f"d": {
+                f"id": f"incoming-A",
+                f"content": content,
+                f"author": {
+                    f"member_openid": f"actor-A",
+                    f"user_openid": f"actor-A",
+                    f"id": f"actor-A",
+                },
+                f"group_openid": f"group-A",
+                f"channel_id": f"channel-A",
+                f"guild_id": f"guild-A",
+                **({} if mentions is None else {f"mentions": mentions}),
+            },
+        },
+    )
+    await eventually(lambda: driver._platform._state.last_seq == 2)
+    batch = peer.batches[0]
+    actual = batch[f"events"][0]
+    source = ROOT / f"plugins" / f"channel" / f"qq"
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads(
+                (source / f"plugin.json").read_text(encoding=f"utf-8"),
+            ),
+        ),
+    )
+    prepared = description.prepare_proxy_config(
+        {f"enabled": True, f"require_mention": require_mention},
+    )
+    host = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=ROOT / f"src",
+        instance_id=identity[f"instance_id"],
+        generation=identity[f"generation"],
+        qwenpaw_version=f"1.0.0",
+        prepared_config=prepared,
+    )
+    queued = []
+
+    async def enqueue(payload):
+        queued.append(payload)
+        return EnqueueResult(accepted=True)
+
+    host.set_enqueue_async(enqueue)
+    ack = await host._event_batch(batch, None)
+    allowed = (
+        not require_mention
+        or actual[f"conversation"][f"type"] == f"dm"
+        or mentioned
+    )
+    assert ack[f"accepted_event_ids"] == (
+        [actual[f"event_id"]] if allowed else []
+    )
+    assert ack[f"rejected_events"] == (
+        []
+        if allowed
+        else [
+            {
+                f"event_id": actual[f"event_id"],
+                f"reason_code": f"MENTION_REQUIRED",
+                f"retryable": False,
+            },
+        ]
+    )
+    assert len(queued) == int(allowed)
+    assert actual[f"metadata"][f"bot_mentioned"] is mentioned
+    assert actual[f"content_parts"] == [
+        {f"type": f"text", f"text": f"hello"},
+    ]
+    assert actual[f"metadata"][f"incoming_raw"][f"content"] == content
+
+
+@pytest.mark.parametrize(f"openid_key", [f"member_openid", f"id"])
+@pytest.mark.parametrize(f"is_you", [False, True])
+@pytest.mark.parametrize(
+    f"content,expected",
+    [
+        (f" <@bot-A> hello ", f"hello"),
+        (f"hello<@bot-A> world", f"hello world"),
+        (f"<@bot-A>hello<@bot-A>", f"hello"),
+        (
+            f"<@bot-A><@other-user> hello <@all>",
+            f"<@other-user> hello <@all>",
+        ),
+        (f"<@bot-A>", None),
+        (f"<@bot-A>\nhello\n  world", f"hello\n  world"),
+    ],
+)
+async def test_full_group_messages_strip_only_self_mentions(
+    native_driver,
+    openid_key,
+    is_you,
+    content,
+    expected,
+):
+    driver, peer, _, server = native_driver
+    data = {
+        f"id": f"incoming-A",
+        f"content": content,
+        f"author": {f"member_openid": f"actor-A"},
+        f"group_openid": f"group-A",
+        f"mentions": [
+            {openid_key: f"bot-A", f"is_you": is_you},
+            {f"id": f"other-user", f"is_you": False},
+        ],
+    }
+    server.push(
+        {f"op": 0, f"s": 2, f"t": f"GROUP_MESSAGE_CREATE", f"d": data},
+    )
+    await eventually(lambda: driver._platform._state.last_seq == 2)
+    expected_text = expected if is_you else content.strip()
+    if expected_text is None:
+        assert not peer.batches
+        return
+    actual = peer.batches[0][f"events"][0]
+    assert actual[f"content_parts"] == [
+        {f"type": f"text", f"text": expected_text},
+    ]
+    assert actual[f"metadata"][f"bot_mentioned"] is is_you
+    assert actual[f"metadata"][f"incoming_raw"] == data
+
+
+async def test_self_mention_only_keeps_attachments(native_driver):
+    driver, peer, _, server = native_driver
+    attachments = [
+        {f"content_type": f"voice", f"asr_refer_text": f"voice message"},
+    ]
+    server.push(
+        {
+            f"op": 0,
+            f"s": 2,
+            f"t": f"GROUP_MESSAGE_CREATE",
+            f"d": {
+                f"id": f"incoming-A",
+                f"content": f"<@bot-A>",
+                f"author": {f"member_openid": f"actor-A"},
+                f"group_openid": f"group-A",
+                f"mentions": [{f"id": f"bot-A", f"is_you": True}],
+                f"attachments": attachments,
+            },
+        },
+    )
+    await eventually(lambda: driver._platform._state.last_seq == 2)
+    actual = peer.batches[0][f"events"][0]
+    assert actual[f"content_parts"] == [
+        {f"type": f"text", f"text": f"voice message"},
+    ]
+    assert actual[f"metadata"][f"bot_mentioned"] is True
+    assert actual[f"metadata"][f"incoming_raw"][f"attachments"] == attachments
 
 
 async def test_heartbeat_and_stop_close_native_resources(

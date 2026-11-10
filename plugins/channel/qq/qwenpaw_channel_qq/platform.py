@@ -64,6 +64,11 @@ _MESSAGE_EVENT_SPECS = {
         ("member_openid", "id"),
         ("group_openid",),
     ),
+    "GROUP_MESSAGE_CREATE": (
+        "group",
+        ("member_openid", "id"),
+        ("group_openid",),
+    ),
     "AT_MESSAGE_CREATE": (
         "guild",
         ("id", "username"),
@@ -831,16 +836,31 @@ class QQPlatform:
         )
         if event_id in self._seen_event_ids:
             return True
+        self_mentions = [
+            mention
+            for mention in data.get(f"mentions") or []
+            if event_type == f"GROUP_MESSAGE_CREATE"
+            and mention.get(f"is_you") is True
+        ]
         meta = {
             "message_type": kind,
             "message_id": msg_id,
             "sender_id": actor,
             "user_name": author.get("username", ""),
             "is_group": kind in {"group", "guild"},
+            f"bot_mentioned": (
+                event_type
+                in {f"GROUP_AT_MESSAGE_CREATE", f"AT_MESSAGE_CREATE"}
+                or bool(self_mentions)
+            ),
             "incoming_raw": data,
             "attachments": data.get("attachments") or [],
         }
         meta.update({k: str(data.get(k) or "") for k in extra_keys})
+        for mention in self_mentions:
+            openid = mention.get(f"member_openid") or mention.get(f"id")
+            if openid:
+                text = text.replace(f"<@{openid}>", f"").strip()
         parts, texts = [], []
         quoted = _find_quoted_element(data)
         if quoted is not None:
@@ -864,6 +884,8 @@ class QQPlatform:
         parts.extend(
             await self.media.parse_attachments(data.get("attachments")),
         )
+        if not parts:
+            return True
         self._check_epoch(epoch)
         session = resolve_session_id(actor, meta)
         accepted = await self.on_event(
