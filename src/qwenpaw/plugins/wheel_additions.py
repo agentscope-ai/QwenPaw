@@ -31,7 +31,7 @@ from .execution.dependencies import (
 
 
 logger = logging.getLogger(__name__)
-_MAX_WHEEL_UNPACKED_BYTES = 512 * 1024 * 1024
+_MAX_WHEEL_UNPACKED_BYTES = 1024 * 1024 * 1024
 
 
 def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
@@ -70,7 +70,7 @@ def _members(addition: WheelAddition) -> dict[str, bytes]:
     if (
         path.is_symlink()
         or not path.is_file()
-        or path.stat().st_size > 128 * 1024 * 1024
+        or path.stat().st_size > 256 * 1024 * 1024
     ):
         raise _reject("wheel file invalid")
     # Validate and publish these immutable bytes; never reopen the path.
@@ -313,14 +313,8 @@ def _install_data(members, info, snapshot):
 def _check_script_paths(scripts, directory, snapshot, target):
     """Allow shared script directories without merging import providers."""
     key = directory.casefold()
-    if any(
-        key in {top.casefold() for top in row["top_level"]}
-        for row in snapshot.distributions.values()
-    ):
-        raise _reject(
-            "script directory conflicts with installed provider",
-            "DEPENDENCY_RESTART_REQUIRED",
-        )
+    # top_level.txt may name a shared script directory (e.g. PyODPS's bin).
+    # Check actual modules, package markers and paths, not that claim alone.
     for site in snapshot.sites:
         root = Path(site)
         for child in root.iterdir() if root.is_dir() else ():

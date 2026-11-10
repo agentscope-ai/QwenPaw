@@ -1025,3 +1025,107 @@ def test_enabled_local_whisper_migrates_through_shared_installer(tmp_path):
     manifest["dependencies"] = ["b01-probe-migration==1.0"]
     manifest_path.write_text(json.dumps(manifest))
     install_case(tmp_path, source, {"b01-probe-migration"}, migration=True)
+
+
+@pytest.mark.parametrize("directory", ["bin", "Scripts"])
+@pytest.mark.parametrize(
+    "conflict",
+    [None, "file", "module", "package", "link"],
+)
+def test_script_directory_claim_checks_actual_file_conflicts(
+    tmp_path,
+    directory,
+    conflict,
+):
+    """A PyODPS-style directory claim permits non-overlapping script files."""
+    import hashlib
+    import zipfile
+    from dataclasses import replace
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+    from qwenpaw.plugins.wheel_additions import (
+        WheelAddition,
+        validate_additions,
+    )
+
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "script-owner",
+        payload={
+            "script_owner-1.0.dist-info/top_level.txt": f"script_owner\n{directory}\n",
+            f"{directory}/kept.py": "# Existing owner's script\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    kept = site / directory / "kept.py"
+    if conflict == "module":
+        (site / f"{directory}.py").write_text("# Import provider\n")
+    elif conflict == "package":
+        (site / directory / "__init__.py").write_text("# Import provider\n")
+    elif conflict == "link":
+        destination = tmp_path / "linked-scripts"
+        (site / directory).rename(destination)
+        try:
+            (site / directory).symlink_to(
+                destination,
+                target_is_directory=True,
+            )
+        except OSError:
+            pytest.skip("Directory symlinks are unavailable")
+    before = kept.read_bytes()
+    script = "kept.py" if conflict == "file" else "new-script.py"
+    wheel = write_wheel(
+        tmp_path,
+        "script-probe",
+        payload={
+            f"script_probe-1.0.data/scripts/{script}": "#!python\nprint('probe')\n",
+        },
+    )
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["script-owner==1.0"],
+    }
+    snapshot = observe_dependencies(packet)
+    environment = default_environment()
+    if directory == "Scripts":
+        environment.update(os_name="nt", sys_platform="win32")
+    snapshot = replace(
+        snapshot,
+        marker_environment=environment,
+        supported_tags=("py3-none-any",),
+    )
+    assert directory in snapshot.distributions["script-owner"]["top_level"]
+    additions = (
+        WheelAddition(wheel, hashlib.sha256(wheel.read_bytes()).hexdigest()),
+    )
+    if conflict:
+        with pytest.raises(
+            ProtocolValidationError,
+            match="DEPENDENCY_RESTART_REQUIRED",
+        ):
+            validate_additions(additions, snapshot, site)
+        assert not (site / "script_probe").exists()
+    else:
+        files, proposed = validate_additions(additions, snapshot, site)
+        dependency_gate._write_additions(site, files)
+        assert (site / directory / script).is_file()
+        audited = observe_dependencies(
+            {
+                **packet,
+                "_requirements": ["script-owner==1.0", "script-probe==1.0"],
+            },
+        )
+        assert (
+            audited.distributions["script-probe"]
+            == proposed.distributions["script-probe"]
+        )
+        assert (
+            audited.distributions["script-owner"]
+            == snapshot.distributions["script-owner"]
+        )
+    assert kept.read_bytes() == before
