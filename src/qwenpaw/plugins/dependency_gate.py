@@ -715,6 +715,7 @@ async def prepare_shared_dependencies(
     expected_snapshot=None,
     wheel_tags=None,
     installer_python=None,
+    installer_identity=None,
     collision_sites=(),
     targets=(),
 ):
@@ -931,38 +932,99 @@ async def prepare_shared_dependencies(
             decision = await evaluate(proposed, added)
             if not decision.already_satisfied:
                 raise SharedDependencyError(decision)
-            return await _publish_additions(audit, evaluate, target, files)
+            parsed_recovery = await run_sync_io(
+                parse_requirements_file,
+                requirements_file,
+            )
+            return await _publish_additions(
+                audit,
+                evaluate,
+                target,
+                files,
+                recovery={
+                    "plugin_id": plugin_id,
+                    "python_executable": spec.python_executable,
+                    "support_root": str(spec.support_root),
+                    "sites": list(snapshot.sites),
+                    "requirements": [
+                        *(str(req) for req in parsed_recovery.requirements),
+                        *added,
+                    ],
+                    "providers": {
+                        name: proposed.distributions[name]["metadata_path"]
+                        for name in proposed.distributions
+                        if name not in snapshot.distributions
+                    },
+                    "interpreter": installer_identity
+                    or {
+                        "executable": snapshot.executable,
+                        "prefix": snapshot.prefix,
+                        "supported_tags": list(snapshot.supported_tags),
+                    },
+                },
+            )
 
     raise _unverified("publication roots changed during inspection")
 
 
-async def _publish_additions(audit, evaluate, target, files):
+async def _publish_additions(audit, evaluate, target, files, *, recovery=None):
     """Keep exclusion through exact-byte publication and child verification."""
     import asyncio
     from .execution.dependencies import repair_marker
     from .dependency_maintenance import _admission_gate, file_lock
     from .install_lock import async_lock, observation_write
     from ..utils.io_utils import run_sync_io
+    from .dependency_recovery import begin_additions, record_phase
+
+    record = None
 
     def mark(message):
         repair_marker(target).write_text(message, encoding="utf-8")
 
     def publish():
-        mark("Shared dependency publication requires verification.\n")
+        nonlocal record
+        if recovery is not None:
+            record = begin_additions(target, files, recovery)
+        else:
+            mark("Shared dependency publication requires verification.\n")
         _write_additions(target, files)
+        if record is not None:
+            record_phase(record, "published")
+
+    def failed(phase, exc, message):
+        if record is None:
+            if recovery is None:
+                mark(message)
+        else:
+            record_phase(record, phase, exc)
+        logger.warning(
+            "Dependency publication failed: plugin=%s stage=%s exception=%s",
+            (recovery or {}).get("plugin_id", "unknown"),
+            phase,
+            type(exc).__name__,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
 
     admission = await run_sync_io(_admission_gate, target)
     async with async_lock(file_lock(admission, timeout=5)):
         try:
             with observation_write():
                 await run_sync_io(publish)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
             await run_sync_io(
-                mark,
+                failed,
+                "write_cancelled",
+                exc,
                 "Cancelled dependency publication requires repair.\n",
             )
             raise
         except Exception as exc:
+            await run_sync_io(
+                failed,
+                "write_failed",
+                exc,
+                "Shared dependency publication requires verification.\n",
+            )
             raise SharedDependencyError(
                 GateDecision(
                     False,
@@ -973,14 +1035,31 @@ async def _publish_additions(audit, evaluate, target, files):
                 ),
             ) from exc
         try:
-            await run_sync_io(lambda: repair_marker(target).unlink())
-            snapshot = await audit()
-            decision = await evaluate(snapshot)
-            if not decision.already_satisfied:
-                raise SharedDependencyError(decision)
-        except BaseException:
+            if record is None:
+                await run_sync_io(lambda: repair_marker(target).unlink())
+            from .dependency_maintenance import capability_context
+
+            plan = record[1]["plan"] if record is not None else None
+            token = capability_context.set(
+                plan["id"] + ":" + plan["capability"]
+                if plan
+                else capability_context.get(),
+            )
+            try:
+                snapshot = await audit()
+                decision = await evaluate(snapshot)
+                if not decision.already_satisfied:
+                    raise SharedDependencyError(decision)
+                if record is not None:
+                    await run_sync_io(record_phase, record, "verified")
+                    await run_sync_io(lambda: repair_marker(target).unlink())
+            finally:
+                capability_context.reset(token)
+        except BaseException as exc:
             await run_sync_io(
-                mark,
+                failed,
+                "verification_failed",
+                exc,
                 "Dependency verification failed; repair required.\n",
             )
             raise

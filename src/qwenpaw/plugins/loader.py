@@ -403,12 +403,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Acquire process lifetime runtime custody before loop publication."""
         from ..utils.io_utils import run_sync_io
         from .dependency_maintenance import lease_environment
+        from .dependency_recovery import recover_additions
 
         validate = _capture_runtime_selection(
             lambda: channel_runtime,
             _is_frozen,
         )
         if channel_runtime is not None:
+            await run_sync_io(
+                recover_additions,
+                tuple(channel_runtime.dependency_paths),
+            )
             await run_sync_io(
                 lease_environment,
                 tuple(channel_runtime.dependency_paths),
@@ -766,6 +771,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         host_paths = tuple(sys.path)
         roots = await run_sync_io(dependency_sites, host_paths)
+        from .dependency_recovery import recover_additions
+
+        try:
+            await run_sync_io(recover_additions, roots, timeout=300)
+        except RuntimeError as exc:
+            if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
+                raise
+            # Keep the existing gate result for legacy or unverified damage.
+            logger.warning("Dependency recovery refused: %s", exc)
         try:
             async with environment_observation(roots):
                 dirty = await run_sync_io(
@@ -1224,6 +1238,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             async with environment_observation(paths):
                 snapshot = (await process.audit(spec)).snapshot
             observe(snapshot)
+            installer_identity = {
+                "executable": snapshot.executable,
+                "prefix": snapshot.prefix,
+                "supported_tags": list(snapshot.supported_tags),
+            }
             wheel_tags = snapshot.supported_tags if frozen else None
             audit_process = process
             if frozen:
@@ -1297,6 +1316,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path=root,
                     wheel_tags=wheel_tags,
                     dependency_context=context if frozen else None,
+                    installer_identity=installer_identity,
                 )
             if frozen:
                 await self._publish_dependency_site(
@@ -1331,6 +1351,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         source_path=None,
         wheel_tags=None,
         dependency_context=None,
+        installer_identity=None,
     ):
         """Build/stage wheels; the shared gate owns actual package writes."""
         import hashlib
@@ -1712,6 +1733,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 expected_snapshot=snapshot,
                 wheel_tags=wheel_tags,
                 installer_python=spec.python_executable,
+                installer_identity=installer_identity,
                 collision_sites=(
                     dependency_context.immutable_roots
                     if dependency_context
