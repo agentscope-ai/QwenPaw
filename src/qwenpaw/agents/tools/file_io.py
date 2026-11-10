@@ -426,7 +426,10 @@ async def edit_file(
                 content=[
                     TextBlock(
                         type="text",
-                        text=(f"Error: The file {resolved_path} " f"does not exist."),
+                        text=(
+                            f"Error: The file {resolved_path} "
+                            f"does not exist."
+                        ),
                     ),
                 ],
             )
@@ -437,7 +440,10 @@ async def edit_file(
                 content=[
                     TextBlock(
                         type="text",
-                        text=(f"Error: The path {resolved_path} " f"is not a file."),
+                        text=(
+                            f"Error: The path {resolved_path} "
+                            f"is not a file."
+                        ),
                     ),
                 ],
             )

@@ -357,7 +357,9 @@ def _output_context_for_hit(
     # Find the index of hit_line_no in the buffer for fast slicing
     # hit_idx is always found since hit_line_no was taken from the buffer
     hit_idx = next(
-        idx for idx, (line_no, _) in enumerate(line_buffer) if line_no == hit_line_no
+        idx
+        for idx, (line_no, _) in enumerate(line_buffer)
+        if line_no == hit_line_no
     )
 
     slice_start = max(0, hit_idx - context_lines)
@@ -575,7 +577,10 @@ def _stream_strict_utf8_probes(
     a later fallback decision. This pass does not run GBK pair trails,
     GBK/CP1252 probes, or the lossy UTF-8 ratio.
     """
-    probes = {encoding: _GrepStrictProbe(encoding) for encoding in _GREP_UTF8_ENCODINGS}
+    probes = {
+        encoding: _GrepStrictProbe(encoding)
+        for encoding in _GREP_UTF8_ENCODINGS
+    }
     prefix = b""
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
@@ -604,7 +609,9 @@ def _select_grep_fallback_decoding(
     checked between them, so an unlimited file is not loaded into one
     buffer.
     """
-    probes = {encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")}
+    probes = {
+        encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")
+    }
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
         for chunk in reader.iter_chunks(raw, cancel, max_bytes):
@@ -821,7 +828,9 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
             break
 
         display_path = (
-            file_path.name if single_file else _relative_display(file_path, search_root)
+            file_path.name
+            if single_file
+            else _relative_display(file_path, search_root)
         )
 
         # Sliding window holds (line_no, line_content) tuples

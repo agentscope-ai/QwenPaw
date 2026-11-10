@@ -377,7 +377,10 @@ def test_walk_and_grep_truncated_output_size(temp_dir):
     (temp_dir / "big.txt").write_text(f"match {long_line}\n")
     regex = re.compile(r"match")
     _matches, status = _walk_and_grep(temp_dir, regex, 0, FakeCancel(), None)
-    assert status == f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
+    assert (
+        status
+        == f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
+    )
 
 
 def test_walk_and_grep_cancel_event(temp_dir):
@@ -675,7 +678,9 @@ def test_walk_and_grep_three_separate_matches_no_overlap(temp_dir):
     # Check each covered line appears exactly once
     for i in covered:
         line_entries = [m for m in matches if m.startswith(f"file.txt:{i}:")]
-        assert len(line_entries) == 1, f"line {i} appears {len(line_entries)} times"
+        assert (
+            len(line_entries) == 1
+        ), f"line {i} appears {len(line_entries)} times"
     # Check gap lines do not appear
     for i in gap:
         line_entries = [m for m in matches if m.startswith(f"file.txt:{i}:")]
@@ -960,7 +965,11 @@ def test_walk_and_grep_single_file_over_max_size_streams_prefix(
 
             def tracked(size=-1, /):
                 read_sizes.append(size)
-                if not isinstance(size, int) or size <= 0 or size > fs._GREP_READ_CHUNK:
+                if (
+                    not isinstance(size, int)
+                    or size <= 0
+                    or size > fs._GREP_READ_CHUNK
+                ):
                     raise AssertionError(f"unbounded read size {size}")
                 return original(size)
 

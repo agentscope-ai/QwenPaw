@@ -574,7 +574,10 @@ class TestWriteFile:
     @pytest.mark.asyncio
     async def test_write_empty_path(self):
         result = await write_file("", "content")
-        assert "No" in result.content[0].text and "file_path" in result.content[0].text
+        assert (
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
+        )
 
     @pytest.mark.asyncio
     async def test_write_csv_uses_bom(self, tmp_path):
@@ -776,7 +779,10 @@ class TestEditFile:
     @pytest.mark.asyncio
     async def test_edit_empty_path(self):
         result = await edit_file("", "a", "b")
-        assert "No" in result.content[0].text and "file_path" in result.content[0].text
+        assert (
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
+        )
 
     @pytest.mark.asyncio
     async def test_edit_replaces_all_occurrences(self, tmp_path):
@@ -1032,7 +1038,10 @@ class TestAppendFile:
     @pytest.mark.asyncio
     async def test_append_empty_path(self):
         result = await append_file("", "content")
-        assert "No" in result.content[0].text and "file_path" in result.content[0].text
+        assert (
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_appends_are_serialized_per_path(self, tmp_path):

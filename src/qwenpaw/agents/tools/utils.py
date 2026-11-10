@@ -46,7 +46,8 @@ def _fit_truncation_notice(notice: str, info: dict[str, Any]) -> str:
         )
     else:
         compact = (
-            TRUNCATION_NOTICE_MARKER + "\nOutput truncated; recovery details are in "
+            TRUNCATION_NOTICE_MARKER
+            + "\nOutput truncated; recovery details are in "
             "qwenpaw_truncation metadata."
             f"\nTotal lines: {info['total_lines']}; "
             f"excerpt starts at line {info['start_line']} and contains "
@@ -460,7 +461,9 @@ def _retruncate(
     # The next read should start at the line immediately after all complete lines.
     # max(1, ...) guards against a zero-newline preview.
     next_line = start_line + max(1, newline_count)
-    read_from = None if info.get("continuation_mode") == "artifact" else next_line
+    read_from = (
+        None if info.get("continuation_mode") == "artifact" else next_line
+    )
     updated = build_truncation_metadata(
         file_path=info.get("file_path"),
         file_size_bytes=info.get("file_size_bytes"),

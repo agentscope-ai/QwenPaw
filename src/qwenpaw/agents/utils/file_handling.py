@@ -401,7 +401,9 @@ def _guess_suffix_from_url_headers(url: str) -> Optional[str]:
     try:
         req = urllib.request.Request(url, method="HEAD")
         with urllib.request.urlopen(req, timeout=10) as resp:
-            raw = (resp.headers.get("Content-Type") or "").split(";")[0].strip()
+            raw = (
+                (resp.headers.get("Content-Type") or "").split(";")[0].strip()
+            )
             if not raw:
                 return None
             suffix = mimetypes.guess_extension(raw)
