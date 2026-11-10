@@ -9,7 +9,6 @@ This module provides utilities for:
 """
 
 import codecs
-import io
 import os
 import mimetypes
 import base64
@@ -77,24 +76,17 @@ def _should_try_utf8_sig(data: bytes, *, truncated: bool) -> bool:
 
 
 def _decode_prefix(data: bytes, encoding: str) -> str | None:
-    """Decode a possibly truncated prefix; drop a cut trailing character.
+    """Decode a possibly truncated prefix and drop a cut trailing character.
 
-    Uses IncrementalNewlineDecoder so ``\\r\\n`` / ``\\r`` fold to ``\\n``
-    the same way a full read does, including a snapshot that ends on
-    a bare CR.
+    ``final=False`` leaves an incomplete trailing sequence buffered, so
+    it is not part of the text. Newlines are left as decoded; callers
+    fold CR/LF only when ``normalize_newlines`` is set.
     """
-    decoder = io.IncrementalNewlineDecoder(
-        codecs.getincrementaldecoder(encoding)(),
-        translate=True,
-    )
     try:
-        text = decoder.decode(data, final=False)
-    except UnicodeDecodeError:
+        decoder = codecs.getincrementaldecoder(encoding)()
+        return decoder.decode(data, final=False)
+    except (UnicodeDecodeError, LookupError):
         return None
-    _buffered, flag = decoder.getstate()
-    if flag & 1:
-        text += "\n"
-    return text
 
 
 def _decode_strict(
@@ -136,8 +128,7 @@ def decode_text_bytes(
         text = _decode_strict(data, encoding, truncated=truncated)
         if text is None:
             continue
-        if normalize_newlines and not truncated:
-            # Capped prefixes are already folded by IncrementalNewlineDecoder.
+        if normalize_newlines:
             text = _normalize_newlines(text)
         if encoding not in ("utf-8", "utf-8-sig"):
             logger.debug(

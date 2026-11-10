@@ -600,23 +600,16 @@ def _decode_text_bytes_with_encoding(
     return decoded.text, decoded.encoding, decoded.lossy
 
 
-def _read_file_bytes_sync(file_path: str, max_bytes: int) -> bytes:
-    """Read one byte snapshot from a single opened file handle."""
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(file_path)
-    if not path.is_file():
-        raise IsADirectoryError(file_path)
-    with path.open("rb") as file:
-        read_size = min(os.fstat(file.fileno()).st_size, max_bytes)
-        return file.read(read_size)
-
-
-def _read_file_safe_sync(
+def _read_file_bytes_sync(
     file_path: str,
     max_bytes: int,
-) -> str:
-    """Read one byte snapshot and normalize newlines to LF."""
+) -> tuple[bytes, bool]:
+    """Read one byte snapshot from a single opened file handle.
+
+    The boolean is true when the file is longer than the bytes returned.
+    Both come from that handle: ``fstat`` then ``read``, with no second
+    stat after the handle is closed.
+    """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(file_path)
@@ -626,10 +619,18 @@ def _read_file_safe_sync(
         file_size = os.fstat(file.fileno()).st_size
         read_size = min(file_size, max_bytes)
         content = file.read(read_size)
+    return content, file_size > read_size
+
+
+def _read_file_safe_sync(
+    file_path: str,
+    max_bytes: int,
+) -> str:
+    """Read one byte snapshot and normalize newlines to LF."""
+    content, truncated = _read_file_bytes_sync(file_path, max_bytes)
     # Prefer the shared encoding ladder (utf-8 → gbk/cp936 → …). When the
     # snapshot is shorter than the file, keep a valid prefix and drop a
     # multibyte character cut by the cap.
-    truncated = file_size > read_size
     return _decode_capped_text_snapshot(
         content,
         file_name=file_path,
@@ -653,11 +654,17 @@ def _read_file_native_with_encoding_sync(
     file_path: str,
     max_bytes: int,
 ) -> tuple[str, str, bool]:
-    """Read one snapshot and return ``(text, encoding, lossy)``."""
-    content = _read_file_bytes_sync(file_path, max_bytes)
+    """Read one snapshot and return ``(text, encoding, lossy)``.
+
+    ``truncated`` comes from the same handle as the bytes, so a cut
+    multibyte character is dropped instead of falling through to
+    Latin-1. Newlines stay as they were on disk.
+    """
+    content, truncated = _read_file_bytes_sync(file_path, max_bytes)
     return _decode_text_bytes_with_encoding(
         content,
         file_name=file_path,
+        truncated=truncated,
     )
 
 

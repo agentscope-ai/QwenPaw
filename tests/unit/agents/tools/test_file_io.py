@@ -35,6 +35,8 @@ from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
     _decode_capped_text_snapshot,
     _read_file_safe_sync,
+    read_file_native,
+    read_file_native_with_encoding,
     read_file_safe,
 )
 from qwenpaw.agents.utils.file_handling import (
@@ -198,6 +200,54 @@ class TestReadFile:
         result = await read_file_safe(str(path), max_bytes=len(raw) - 1)
 
         assert result == "姓名: 张"
+
+    @pytest.mark.asyncio
+    async def test_native_read_truncated_utf8_keeps_crlf_prefix(
+        self,
+        tmp_path,
+    ):
+        """A capped native read keeps the UTF-8 prefix and original CRLF."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("utf-8")
+        path = tmp_path / "utf8-native.txt"
+        # Extra bytes make this a capped read, not a short corrupt file.
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_native(str(path), max_bytes=len(raw) - 1)
+        decoded, encoding, lossy = await read_file_native_with_encoding(
+            str(path),
+            max_bytes=len(raw) - 1,
+        )
+
+        assert result == "行\r\n姓名: 张"
+        assert decoded == "行\r\n姓名: 张"
+        assert encoding == "utf-8"
+        assert lossy is False
+        assert "三" not in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    async def test_native_read_truncated_gbk_keeps_character_prefix(
+        self,
+        tmp_path,
+    ):
+        """A capped native read keeps the GBK prefix and original CRLF."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("gbk")
+        path = tmp_path / "gbk-native.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_native(str(path), max_bytes=len(raw) - 1)
+        decoded, encoding, lossy = await read_file_native_with_encoding(
+            str(path),
+            max_bytes=len(raw) - 1,
+        )
+
+        assert result == "行\r\n姓名: 张"
+        assert decoded == "行\r\n姓名: 张"
+        assert encoding == "gbk"
+        assert lossy is False
+        assert "\r\n" in result
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("prefix", [b"\xef", b"\xef\xbb"])
@@ -542,6 +592,23 @@ def test_decode_capped_utf8_partial_char_keeps_prefix():
         )
         assert "张三" in text
         assert not text.startswith("å")
+
+
+def test_truncated_decode_respects_normalize_newlines():
+    """A capped prefix keeps CR/LF unless newline folding is requested."""
+    data = b"A\r\nB\r\xe5"
+    kept = decode_text_bytes(
+        data,
+        normalize_newlines=False,
+        truncated=True,
+    )
+    assert kept.text == "A\r\nB\r"
+    folded = decode_text_bytes(
+        data,
+        normalize_newlines=True,
+        truncated=True,
+    )
+    assert folded.text == "A\nB\n"
 
 
 # ---------------------------------------------------------------------------
