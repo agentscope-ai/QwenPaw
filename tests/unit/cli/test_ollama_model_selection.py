@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Ollama CLI selection through the real SDK, HTTP, and provider storage."""
+
 # pylint: disable=redefined-outer-name
 
 import asyncio
@@ -16,16 +17,36 @@ from qwenpaw.providers import model_catalog
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_manager import ProviderManager
 
+_DEFAULT_SHOW_CONTEXT = 8192
+
+
+def _json_response(handler, status, payload):
+    body = json.dumps(payload).encode()
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
 
 @pytest.fixture
 def ollama_endpoint():
-    state = {"status": 200, "models": ["qwen3:32b"], "requests": []}
+    state = {
+        "status": 200,
+        "models": ["qwen3:32b"],
+        "requests": [],
+        "show_contexts": {},
+        "default_show_context": _DEFAULT_SHOW_CONTEXT,
+    }
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # pylint: disable=invalid-name
             state["requests"].append(
                 (self.path, self.headers.get("Authorization")),
             )
+            if self.path.endswith("/api/ps"):
+                _json_response(self, 200, {"models": []})
+                return
             payload = {
                 "object": "list",
                 "data": [
@@ -33,14 +54,31 @@ def ollama_endpoint():
                     for name in state["models"]
                 ],
             }
-            if state["status"] != 200:
+            status = state["status"]
+            if status != 200:
                 payload = {"error": {"message": "Ollama access denied"}}
-            body = json.dumps(payload).encode()
-            self.send_response(state["status"])
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            _json_response(self, status, payload)
+
+        def do_POST(self):  # pylint: disable=invalid-name
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            state["requests"].append(
+                (self.path, self.headers.get("Authorization")),
+            )
+            model_id = ""
+            try:
+                model_id = str(json.loads(raw).get("model") or "")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                model_id = ""
+            context = state["show_contexts"].get(
+                model_id,
+                state["default_show_context"],
+            )
+            _json_response(
+                self,
+                200,
+                {"parameters": f"num_ctx {context}\n"},
+            )
 
         def log_message(self, *_args):
             pass
@@ -100,15 +138,26 @@ def test_discovers_and_persists_selected_ollama_model(
         input="\n",
     )
     assert result.exit_code == 0, result.output
-    assert ollama_endpoint["requests"] == [
-        ("/ollama-proxy/v1/models", "Bearer test-ollama-key"),
-    ]
+    assert ollama_endpoint["requests"][0] == (
+        "/ollama-proxy/v1/models",
+        "Bearer test-ollama-key",
+    )
+    assert (
+        "/ollama-proxy/api/ps",
+        "Bearer test-ollama-key",
+    ) in ollama_endpoint["requests"]
+    assert (
+        "/ollama-proxy/api/show",
+        "Bearer test-ollama-key",
+    ) in ollama_endpoint["requests"]
     reloaded = ProviderManager()
     assert reloaded.get_active_model().provider_id == "ollama"
     assert reloaded.get_active_model().model == "qwen3:32b"
     assert [m.id for m in reloaded.get_provider("ollama").all_models()] == [
         "qwen3:32b",
     ]
+    selected = reloaded.get_provider("ollama").get_model_info("qwen3:32b")
+    assert selected.max_input_length_auto_detected == 8192
     with pytest.raises(ModelNotFoundException):
         asyncio.run(reloaded.activate_model("ollama", "missing-model"))
 
@@ -238,6 +287,17 @@ def test_configured_base_url_is_saved_before_ollama_discovery(
         "url"
     ].removesuffix("/v1")
     assert reloaded.get_active_model().model == "qwen3:32b"
-    assert ollama_endpoint["requests"] == [
-        ("/ollama-proxy/v1/models", "Bearer test-ollama-key"),
-    ]
+    assert ollama_endpoint["requests"][0] == (
+        "/ollama-proxy/v1/models",
+        "Bearer test-ollama-key",
+    )
+    assert (
+        "/ollama-proxy/api/ps",
+        "Bearer test-ollama-key",
+    ) in ollama_endpoint["requests"]
+    assert (
+        "/ollama-proxy/api/show",
+        "Bearer test-ollama-key",
+    ) in ollama_endpoint["requests"]
+    selected = reloaded.get_provider("ollama").get_model_info("qwen3:32b")
+    assert selected.max_input_length_auto_detected == 8192

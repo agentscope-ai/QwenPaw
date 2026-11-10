@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from typing import Any, List, NamedTuple
 
 import httpx
@@ -63,22 +64,44 @@ def parse_ollama_served_context_length(raw: Any) -> int | None:
     return None
 
 
+def parse_ollama_chat_num_ctx(generate_kwargs: Any) -> int | None:
+    """Return ``num_ctx`` from chat generate kwargs, if present.
+
+    Ollama reads the window from ``options.num_ctx``. A top-level
+    ``num_ctx`` is also accepted so a flat ``generate_kwargs`` override
+    matches the same window we will send on the next request.
+    """
+    if not isinstance(generate_kwargs, dict):
+        return None
+    options = generate_kwargs.get("options")
+    if isinstance(options, dict):
+        nested = parse_ollama_served_context_length(options.get("num_ctx"))
+        if nested is not None:
+            return nested
+    return parse_ollama_served_context_length(generate_kwargs.get("num_ctx"))
+
+
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
+    chat_num_ctx: int | None = None,
 ) -> int | None:
-    """Pick the active Ollama context window for compaction.
+    """Pick the context window our next chat request will actually use.
 
     Precedence:
 
-    1. ``/api/ps`` ``context_length`` when the model is currently loaded —
-       this reflects ``OLLAMA_CONTEXT_LENGTH`` and the load-time window;
-    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``.
+    1. ``num_ctx`` in our effective chat options — this is what we send,
+       so compaction must follow it;
+    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``;
+    3. ``/api/ps`` ``context_length`` only when it matches (1) or (2).
 
-    If neither is available, return ``None``. Do not invent a fallback:
-    the server-level context is unknown until the model is loaded, and
-    ``OLLAMA_CONTEXT_LENGTH`` may be below any guessed constant.
+    A loaded runner may carry another client's temporary ``num_ctx``.
+    That window is not used for compaction unless it matches the options
+    we will send or the Modelfile default the server will fall back to.
+    If we cannot verify the served window, return ``None``. Do not invent
+    a fallback: ``OLLAMA_CONTEXT_LENGTH`` may be below any guessed
+    constant.
 
     ``show_payload is None`` means the probe failed (timeout, 401/403, or
     an invalid body). That is not an empty successful show: this returns
@@ -94,17 +117,20 @@ def resolve_ollama_context_window(
     GGUF ``*.context_length`` is the model's maximum supported context, not
     the window Ollama is serving. It is not used.
     """
-    if (
-        isinstance(served_context, int)
-        and served_context >= _MIN_CONTEXT_TOKENS
+    chat_context = parse_ollama_served_context_length(chat_num_ctx)
+    if chat_context is not None:
+        return chat_context
+    show_context: int | None = None
+    if isinstance(show_payload, dict) and not _show_parameters_malformed(
+        show_payload,
     ):
-        return served_context
-    # Do not coerce None to {} — a failed probe must stay unset.
-    if not isinstance(show_payload, dict):
-        return None
-    if _show_parameters_malformed(show_payload):
-        return None
-    return parse_ollama_num_ctx(show_payload.get("parameters"))
+        show_context = parse_ollama_num_ctx(show_payload.get("parameters"))
+    served = parse_ollama_served_context_length(served_context)
+    if served is not None and served == show_context:
+        return served
+    if show_context is not None:
+        return show_context
+    return None
 
 
 def _show_parameters_malformed(show_payload: dict[str, Any]) -> bool:
@@ -154,23 +180,21 @@ def _ollama_model_aliases(model_id: str) -> set[str]:
     return aliases
 
 
-def _with_served_context(
+def _seconds_until(deadline: float) -> float:
+    """Remaining wall-clock seconds until *deadline*; never negative."""
+    return max(0.0, deadline - time.monotonic())
+
+
+def _served_context_for(
     model: ModelInfo,
     served: dict[str, int],
-) -> ModelInfo | None:
-    """Return a copy that uses a loaded ``/api/ps`` window, if present."""
-    served_context: int | None = None
+) -> int | None:
+    """Return a loaded ``/api/ps`` window for *model*, if present."""
     for alias in _ollama_model_aliases(model.id):
         if alias not in served:
             continue
-        raw = served[alias]
-        served_context = raw if isinstance(raw, int) else None
-        break
-    if served_context is None or served_context < _MIN_CONTEXT_TOKENS:
-        return None
-    return model.model_copy(
-        update={"max_input_length_auto_detected": served_context},
-    )
+        return parse_ollama_served_context_length(served[alias])
+    return None
 
 
 class OllamaProvider(OpenAIProvider):
@@ -284,17 +308,18 @@ class OllamaProvider(OpenAIProvider):
         succeeded (and reported no served window). A failed ``/api/ps``
         must not clear a prior window just because show is unknown.
 
-        ``timeout`` bounds each native HTTP call and the ``/api/show``
-        fan-out. Loaded ``/api/ps`` windows are applied before that
-        deadline. When it expires, completed ``/api/ps`` and ``/api/show``
-        results are kept; only unfinished probes stay unset.
+        ``timeout`` is a shared wall-clock deadline for the whole native
+        probing stage (``/api/ps`` then ``/api/show``). HTTPX's per-call
+        timeout does not cap total response time, so a slow ``/api/ps``
+        is also cancelled at this deadline. When it expires, completed
+        ``/api/ps`` and ``/api/show`` results are kept; only unfinished
+        probes stay unset.
         """
         models = await super().fetch_models(timeout=timeout)
         if not models:
             return models
 
         client: httpx.AsyncClient | None = None
-        enriched: List[ModelInfo] | None = None
         try:
             # AsyncClient loads the default SSL context in __init__.
             # Build it off the event loop, same as dashscope discovery.
@@ -303,17 +328,14 @@ class OllamaProvider(OpenAIProvider):
                 timeout=timeout,
                 headers=self._native_probe_headers(),
             )
-            enriched = await self._enrich_listed_models(
+            return await self._enrich_listed_models(
                 client,
                 models,
                 timeout,
             )
-            return enriched
         except Exception:
-            # Setup failed before probing, or enrichment raised. Keep a
-            # partial list once any probe has been recorded.
-            if enriched is not None:
-                return enriched
+            # Setup failed before probing, or enrichment raised before
+            # any result was recorded. Keep the un-enriched list.
             return models
         finally:
             if client is not None:
@@ -325,28 +347,40 @@ class OllamaProvider(OpenAIProvider):
         models: List[ModelInfo],
         timeout: float,
     ) -> List[ModelInfo]:
-        """Attach ``/api/ps`` windows, then bounded ``/api/show`` probes.
+        """Attach verified windows under a shared probing deadline.
 
-        Served contexts are applied before the show deadline. A show that
-        finishes in time is kept; a cancelled show leaves its model unset.
+        A served ``/api/ps`` window is persisted only when it matches
+        our effective chat ``num_ctx`` or a successful Modelfile
+        ``num_ctx``. Models with an explicit chat ``num_ctx`` use that
+        window and skip native probes. A show that finishes in time is
+        kept; a cancelled show leaves its model unset.
         """
         result = [model.model_copy() for model in models]
+        deadline = time.monotonic() + timeout
         try:
-            served = await self._fetch_served_contexts(client)
             need_show: list[int] = []
             for index, model in enumerate(result):
-                loaded = _with_served_context(model, served.by_name)
-                if loaded is not None:
-                    result[index] = loaded
-                else:
-                    need_show.append(index)
-            if need_show:
+                chat_ctx = self._chat_num_ctx_for_model(model)
+                if chat_ctx is not None:
+                    result[index] = model.model_copy(
+                        update={"max_input_length_auto_detected": chat_ctx},
+                    )
+                    continue
+                need_show.append(index)
+            if not need_show:
+                return result
+            served = await self._fetch_served_contexts(
+                client,
+                deadline=deadline,
+            )
+            remaining = _seconds_until(deadline)
+            if remaining > 0:
                 await self._probe_unloaded_models(
                     client,
                     result,
                     served,
                     need_show,
-                    timeout,
+                    remaining,
                 )
         except Exception:
             return result
@@ -401,15 +435,37 @@ class OllamaProvider(OpenAIProvider):
                 except Exception:
                     continue
 
+    def _chat_num_ctx_for_model(self, model: ModelInfo) -> int | None:
+        """Return the ``num_ctx`` we would send on the next chat request."""
+        kwargs = dict(self.generate_kwargs or {})
+        configured = next(
+            (existing for existing in self.models if existing.id == model.id),
+            None,
+        )
+        source = configured or model
+        if source.generate_kwargs:
+            kwargs = self._deep_merge(kwargs, source.generate_kwargs)
+        return parse_ollama_chat_num_ctx(kwargs)
+
     async def _fetch_served_contexts(
         self,
         client: httpx.AsyncClient,
+        deadline: float | None = None,
     ) -> _ServedContexts:
         """Map loaded model ids to their runtime ``context_length``."""
         try:
-            response = await client.get(f"{self.base_url}/api/ps")
+            if deadline is not None:
+                remaining = _seconds_until(deadline)
+                if remaining <= 0:
+                    return _ServedContexts(ok=False, by_name={})
+                async with asyncio.timeout(remaining):
+                    response = await client.get(f"{self.base_url}/api/ps")
+            else:
+                response = await client.get(f"{self.base_url}/api/ps")
             response.raise_for_status()
             payload = response.json()
+        except TimeoutError:
+            return _ServedContexts(ok=False, by_name={})
         except Exception:
             # Failure is not "no loaded models": keep ok=False so a later
             # successful unknown show does not clear a prior window.
@@ -474,11 +530,6 @@ class OllamaProvider(OpenAIProvider):
         served: _ServedContexts,
         semaphore: asyncio.Semaphore | None = None,
     ) -> ModelInfo:
-        # /api/ps already has the final window; skip /api/show.
-        loaded = _with_served_context(model, served.by_name)
-        if loaded is not None:
-            return loaded
-
         show_payload: dict[str, Any] | None = None
 
         async def _show() -> dict[str, Any] | None:
@@ -503,7 +554,8 @@ class OllamaProvider(OpenAIProvider):
 
         detected = resolve_ollama_context_window(
             show_payload=show_payload,
-            served_context=None,
+            served_context=_served_context_for(model, served.by_name),
+            chat_num_ctx=self._chat_num_ctx_for_model(model),
         )
         if detected is not None:
             return model.model_copy(
