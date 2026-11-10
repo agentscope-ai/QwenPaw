@@ -6,8 +6,11 @@ from unittest.mock import patch
 
 import pytest
 
+from qwenpaw.agents import prompt
 from qwenpaw.agents.prompt_builder import PromptBuilder
 from qwenpaw.plugins.registry import PluginRegistry
+from qwenpaw.providers.media_capability import MediaDecision
+from qwenpaw.providers.model_info import ModelInfo
 
 
 class _FakeAgent:
@@ -147,7 +150,6 @@ def test_builder_skips_empty_and_failed_providers():
 def test_multimodal_hint_honors_explicit_overrides():
     """Prompt hints use explicit opt-outs without hiding video support."""
     from qwenpaw.agents.prompt import format_multimodal_hint
-    from qwenpaw.providers.model_info import ModelInfo
 
     text_only = ModelInfo(
         id="custom-vision",
@@ -170,3 +172,32 @@ def test_multimodal_hint_honors_explicit_overrides():
         text_only.id,
     )
     assert format_multimodal_hint(image_disabled, image_disabled.id) == ""
+
+
+def test_active_media_decision_without_active_model():
+    """An unresolvable active model yields no decision and fails open."""
+    with patch.object(
+        prompt,
+        f"_get_active_model_info",
+        return_value=(None, None),
+    ):
+        assert prompt.get_active_media_decision(f"video") is None
+        assert prompt.get_active_model_supports_multimodal() is True
+
+
+def test_active_media_decision_applies_per_media_policy():
+    """Only images may fall back to the aggregate multimodal flag."""
+    model = ModelInfo(id=f"m", name=f"m", supports_multimodal=True)
+    with patch.object(
+        prompt,
+        f"_get_active_model_info",
+        return_value=(model, model.id),
+    ):
+        assert prompt.get_active_media_decision() == MediaDecision(
+            True,
+            False,
+        )
+        assert prompt.get_active_media_decision(f"video") == MediaDecision(
+            None,
+            False,
+        )

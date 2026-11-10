@@ -16,7 +16,7 @@ from qwenpaw.exceptions import (
 
 from .memory.base_memory_manager import BaseMemoryManager
 from .utils.file_handling import read_text_file_with_encoding_fallback
-from ..providers.media_capability import get_media_decision
+from ..providers.media_capability import MediaDecision, get_media_decision
 
 logger = logging.getLogger(__name__)
 
@@ -410,6 +410,8 @@ def _get_active_model_info(agent_config=None):
     """Resolve the active model's ModelInfo and model name.
 
     Uses explicit prompt config or the executing model, then agent/global.
+    Performs synchronous provider metadata lookups (filesystem access);
+    call it through ``run_sync_io`` from async code.
 
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
@@ -435,27 +437,44 @@ def _get_active_model_info(agent_config=None):
                     model_info = provider.model_capabilities(m)
                 except Exception:
                     logger.warning(
-                        "Failed to resolve capabilities for active model %s/%s; "
-                        "using configured metadata",
+                        f"Failed to resolve capabilities for active model "
+                        f"%s/%s; using configured metadata",
                         active.provider_id,
                         active.model,
                         exc_info=True,
                     )
                     model_info = m
                 logger.debug(
-                    "Active model capabilities %s/%s: "
-                    "image=%s video=%s multimodal=%s provenance=%s",
+                    f"Active model capabilities %s/%s: image=%s audio=%s "
+                    f"video=%s multimodal=%s overrides=%s provenance=%s",
                     active.provider_id,
                     active.model,
                     model_info.supports_image,
+                    model_info.supports_audio,
                     model_info.supports_video,
                     model_info.supports_multimodal,
+                    model_info.config_overrides,
                     model_info.capability_provenance,
                 )
                 return model_info, active.model
         return None, None
     except Exception:
         return None, None
+
+
+def get_active_media_decision(
+    media_type: str = f"image",
+) -> MediaDecision | None:
+    """Return the active model's decision for one media type.
+
+    Returns ``None`` when the active model cannot be resolved. Performs
+    synchronous provider metadata lookups; call it through
+    ``run_sync_io`` from async code.
+    """
+    model_info, _ = _get_active_model_info()
+    if model_info is None:
+        return None
+    return get_media_decision(model_info, media_type)
 
 
 def get_active_model_supports_multimodal() -> bool:
@@ -465,10 +484,8 @@ def get_active_model_supports_multimodal() -> bool:
     discovered capabilities. Unknown capabilities fail open so that
     multimodal models are not silently stripped of images.
     """
-    model_info, _ = _get_active_model_info()
-    if model_info is None:
-        return True
-    return get_media_decision(model_info).supported is not False
+    decision = get_active_media_decision()
+    return decision is None or decision.supported is not False
 
 
 def get_model_supports_image(current_model: Any = None) -> bool:
@@ -542,18 +559,6 @@ def get_model_supports_image(current_model: Any = None) -> bool:
     return False
 
 
-def get_active_model_multimodal_raw(media_type="image") -> bool | None:
-    """Return effective support for one active-model media type."""
-    model_info, _ = _get_active_model_info()
-    if model_info is None:
-        return None
-    return get_media_decision(
-        model_info,
-        media_type,
-        allow_generic=media_type == "image",
-    ).supported
-
-
 def build_multimodal_hint(agent_config=None) -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
     model_info, model_name = _get_active_model_info(agent_config)
@@ -594,9 +599,9 @@ __all__ = [
     "build_multimodal_hint",
     "build_driver_policy_recheck_hint",
     "format_multimodal_hint",
+    f"get_active_media_decision",
     "get_active_model_supports_multimodal",
     "get_model_supports_image",
-    "get_active_model_multimodal_raw",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

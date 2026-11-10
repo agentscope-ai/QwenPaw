@@ -3,6 +3,12 @@
 
 from typing import NamedTuple
 
+from .model_info import ModelInfo
+
+# Only images may be authorised by the aggregate ``supports_multimodal``
+# flag; audio and video always need modality-specific evidence.
+_GENERIC_FALLBACK_MEDIA = frozenset({f"image"})
+
 
 class MediaDecision(NamedTuple):
     """Describe media support without conflating denial and uncertainty."""
@@ -11,8 +17,18 @@ class MediaDecision(NamedTuple):
     explicit: bool
 
 
-def get_media_decision(model_info, media_type="image", allow_generic=True):
-    """Resolve one media type using explicit overrides before discovery."""
+def get_media_decision(
+    model_info: ModelInfo,
+    media_type: str = f"image",
+    allow_generic: bool | None = None,
+) -> MediaDecision:
+    """Resolve one media type using explicit overrides before discovery.
+
+    ``allow_generic`` defaults to the per-media policy above. Pass
+    ``False`` to require modality-specific evidence even for images.
+    """
+    if allow_generic is None:
+        allow_generic = media_type in _GENERIC_FALLBACK_MEDIA
     overrides = getattr(model_info, "config_overrides", [])
     capability = f"supports_{media_type}"
     if capability in overrides:

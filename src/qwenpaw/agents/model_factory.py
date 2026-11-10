@@ -2797,11 +2797,7 @@ def _install_model_formatter(
     decisions = {}
     if model_info is not None:
         decisions = {
-            media_type: get_media_decision(
-                model_info,
-                media_type,
-                allow_generic=media_type == "image",
-            )
+            media_type: get_media_decision(model_info, media_type)
             for media_type in ("image", "audio", "video")
         }
     supports_multimodal = not decisions or any(

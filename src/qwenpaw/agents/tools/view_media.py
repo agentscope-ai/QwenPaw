@@ -512,18 +512,12 @@ async def _probe_multimodal_if_needed(
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info, _get_active_model_slot
-        from ...providers.media_capability import get_media_decision
+        from ..prompt import _get_active_model_slot, get_active_media_decision
         from ...providers.provider_manager import ProviderManager
 
-        model_info, _ = await run_sync_io(_get_active_model_info)
-        if model_info is None:
+        decision = await run_sync_io(get_active_media_decision, media_type)
+        if decision is None:
             return None
-        decision = get_media_decision(
-            model_info,
-            media_type,
-            allow_generic=media_type == "image",
-        )
         if decision.supported is not None:
             return decision.supported
 
@@ -596,18 +590,10 @@ def _check_multimodal_support(media_type: str = "image") -> bool:
     probe-on-demand logic.
     """
     try:
-        from ..prompt import _get_active_model_info
-        from ...providers.media_capability import get_media_decision
+        from ..prompt import get_active_media_decision
 
-        model_info, _ = _get_active_model_info()
-        if model_info is None:
-            return True
-        decision = get_media_decision(
-            model_info,
-            media_type,
-            allow_generic=media_type == "image",
-        )
-        return decision.supported is True
+        decision = get_active_media_decision(media_type)
+        return decision is None or decision.supported is True
     except Exception:
         return True
 
@@ -620,19 +606,9 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     the media itself.
     """
     try:
-        from ..prompt import _get_active_model_info
-        from ...providers.media_capability import get_media_decision
+        from ..prompt import get_active_media_decision
 
-        model_info, _ = _get_active_model_info()
-        decision = (
-            get_media_decision(
-                model_info,
-                media_type,
-                allow_generic=media_type == "image",
-            )
-            if model_info is not None
-            else None
-        )
+        decision = get_active_media_decision(media_type)
         raw = decision.supported if decision is not None else None
     except Exception:
         raw = None
