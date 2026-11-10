@@ -1985,9 +1985,10 @@ async def test_frozen_dependency_path_preparation_and_loop_publication(
 
     root = tmp_path / "runtime"
     bucket = root / "python"
-    target = bucket / "bundle-new" / "site"
+    target = bucket / "site"
     old = bucket / "bundle-old" / "site"
-    paths = [str(old), str(bucket / "site"), str(tmp_path / "host")]
+    old.mkdir(parents=True)
+    paths = [str(tmp_path / "host")]
     monkeypatch.setattr(sys, "path", paths[:])
     monkeypatch.setenv("QWENPAW_PLUGIN_SITE", "before")
     monkeypatch.setattr(loader_mod, "_is_frozen", lambda: True)
@@ -2034,6 +2035,7 @@ async def test_frozen_dependency_path_preparation_and_loop_publication(
         await asyncio.wait_for(pending, 5)
         assert len(publications) == 1
         assert sys.path == [str(target), str(tmp_path / "host")]
+        assert str(old) not in sys.path
         assert os.environ["QWENPAW_PLUGIN_SITE"] == str(target)
 
 
