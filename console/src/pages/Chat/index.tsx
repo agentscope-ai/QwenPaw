@@ -785,6 +785,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -2066,6 +2067,101 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  useEffect(() => {
+    if (
+      !usesQwenPawBackend ||
+      !backendChatId ||
+      queueSessionId === "new" ||
+      isSessionTransition
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let inFlight = false;
+    let sawRunning = false;
+    const refreshMessages = async () => {
+      const session = await sessionApi.refreshSession(
+        queueSessionId,
+        controller.signal,
+      );
+      if (
+        !session ||
+        controller.signal.aborted ||
+        queueSessionIdRef.current !== queueSessionId ||
+        !isChatActiveRef.current
+      ) {
+        return false;
+      }
+      chatRef.current?.messages.setSessionMessages(
+        queueSessionId,
+        session.messages,
+      );
+      return true;
+    };
+    const syncRun = async () => {
+      if (inFlight || controller.signal.aborted || !isChatActiveRef.current)
+        return;
+      inFlight = true;
+      try {
+        const runStatus = await chatApi.getChatStatus(backendChatId, {
+          agentId: selectedAgent,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        if (runStatus.status === "running") {
+          const firstRunningObservation = !sawRunning;
+          sawRunning = true;
+          const execution = chatRef.current?.execution;
+          const activeRun = await execution?.getActiveRun(queueSessionId);
+          if (activeRun && activeRun.getState() !== "disconnected") return;
+          if (firstRunningObservation || !activeRun) {
+            if (!(await refreshMessages())) return;
+          }
+          await execution?.resume({
+            sessionId: queueSessionId,
+            source: "direct",
+          });
+          return;
+        }
+
+        if (!sawRunning) return;
+        if (await refreshMessages()) {
+          sawRunning = false;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to synchronize active chat run", error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const retryWhenVisible = () => {
+      if (!document.hidden) void syncRun();
+    };
+    const retryTimer = window.setInterval(
+      retryWhenVisible,
+      ACTIVE_RUN_POLL_INTERVAL_MS,
+    );
+    window.addEventListener("online", retryWhenVisible);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(retryTimer);
+      window.removeEventListener("online", retryWhenVisible);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [
+    backendChatId,
+    isSessionTransition,
+    queueSessionId,
+    selectedAgent,
+    usesQwenPawBackend,
+  ]);
 
   useLayoutEffect(() => {
     sessionApi.invalidateSessionCreation();
