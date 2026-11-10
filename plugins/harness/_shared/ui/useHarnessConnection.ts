@@ -94,34 +94,55 @@ export function useHarnessConnection({
   );
   const request = React.useCallback(
     async <T>(operation: Operation, action: string): Promise<T> => {
-      const response = await host.fetch(
-        `/harnesses/${operation.backendId}/${action}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            settings: latest.current.value,
-            device_code: false,
-          }),
-          signal: operation.controller.signal,
+      const controller = new AbortController();
+      const signal = operation.controller.signal;
+      const abort = () => controller.abort();
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
+      let timedOut = false;
+      const timer = setTimeout(
+        () => {
+          timedOut = true;
+          controller.abort();
         },
+        action === "logout" ? 30000 : 60000,
       );
-      let body;
       try {
-        body = await response.json();
-      } catch (cause) {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        throw cause;
-      }
-      if (!response.ok) {
-        const detail = body?.detail;
-        throw new Error(
-          typeof detail === "string"
-            ? detail
-            : detail?.message ?? `HTTP ${response.status}`,
+        const response = await host.fetch(
+          `/harnesses/${operation.backendId}/${action}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              settings: latest.current.value,
+              device_code: false,
+            }),
+            signal: controller.signal,
+          },
         );
+        let body;
+        try {
+          body = await response.json();
+        } catch (cause) {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          throw cause;
+        }
+        if (!response.ok) {
+          const detail = body?.detail;
+          throw new Error(
+            typeof detail === "string"
+              ? detail
+              : detail?.message ?? `HTTP ${response.status}`,
+          );
+        }
+        return body as T;
+      } catch (cause) {
+        if (timedOut) throw new Error("Request timed out");
+        throw cause;
+      } finally {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
       }
-      return body as T;
     },
     [],
   );
