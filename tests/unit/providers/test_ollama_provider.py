@@ -12,6 +12,7 @@ import pytest
 from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
     _ollama_model_aliases,
+    parse_ollama_chat_num_ctx,
     parse_ollama_num_ctx,
     parse_ollama_served_context_length,
     resolve_ollama_context_window,
@@ -219,19 +220,60 @@ def test_parse_ollama_served_context_length_is_strict() -> None:
     assert parse_ollama_served_context_length(None) is None
 
 
-def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
-    show = {
-        "parameters": "num_ctx 8192\n",
-        "model_info": {"qwen3.context_length": 131072},
-    }
+def test_parse_ollama_chat_num_ctx_from_options() -> None:
     assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=4096,
+        parse_ollama_chat_num_ctx({"options": {"num_ctx": 131072}}) == 131072
+    )
+    assert parse_ollama_chat_num_ctx({"num_ctx": 8192}) == 8192
+    # Nested options win over a leftover top-level value.
+    assert (
+        parse_ollama_chat_num_ctx(
+            {"num_ctx": 8192, "options": {"num_ctx": 4096}},
         )
         == 4096
     )
-    assert resolve_ollama_context_window(show_payload=show) == 8192
+    assert (
+        parse_ollama_chat_num_ctx({"options": {"num_ctx": "16384"}}) == 16384
+    )
+    assert parse_ollama_chat_num_ctx({}) is None
+    assert parse_ollama_chat_num_ctx({"options": {}}) is None
+    assert parse_ollama_chat_num_ctx({"options": "num_ctx 8192"}) is None
+    assert parse_ollama_chat_num_ctx({"options": {"num_ctx": 0}}) is None
+    assert parse_ollama_chat_num_ctx({"options": {"num_ctx": True}}) is None
+    assert parse_ollama_chat_num_ctx(None) is None
+
+
+def test_resolve_ollama_context_prefers_chat_then_verified_show() -> None:
+    show = {
+        "parameters": "num_ctx 131072\n",
+        "model_info": {"qwen3.context_length": 262144},
+    }
+    # Our next chat options are the window we will actually send.
+    assert (
+        resolve_ollama_context_window(
+            show_payload=show,
+            served_context=262144,
+            chat_num_ctx=131072,
+        )
+        == 131072
+    )
+    # A foreign /api/ps window must not beat the Modelfile default.
+    assert (
+        resolve_ollama_context_window(
+            show_payload=show,
+            served_context=262144,
+        )
+        == 131072
+    )
+    # Served is kept only when it matches the Modelfile window.
+    assert (
+        resolve_ollama_context_window(
+            show_payload=show,
+            served_context=131072,
+        )
+        == 131072
+    )
+    assert resolve_ollama_context_window(show_payload=show) == 131072
     # GGUF *.context_length is the model maximum, not the served window.
     assert (
         resolve_ollama_context_window(
@@ -249,12 +291,13 @@ def test_resolve_ollama_context_prefers_served_then_num_ctx() -> None:
         )
         is None
     )
+    # An unverified served window is not persisted.
     assert (
         resolve_ollama_context_window(
             show_payload=None,
             served_context=8192,
         )
-        == 8192
+        is None
     )
 
 
@@ -305,12 +348,22 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         )
         == 16384
     )
+    # A served window cannot be verified against a show with no num_ctx.
     assert (
         resolve_ollama_context_window(
             show_payload=remote,
             served_context=32768,
         )
-        == 32768
+        is None
+    )
+    # Chat options still win when show omitted num_ctx.
+    assert (
+        resolve_ollama_context_window(
+            show_payload=remote,
+            served_context=32768,
+            chat_num_ctx=16384,
+        )
+        == 16384
     )
 
 
@@ -411,7 +464,9 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
             )
 
         async def post(self, url: str, json: dict):
-            raise AssertionError("/api/show must be skipped when /api/ps wins")
+            assert url.endswith("/api/show")
+            assert json == {"model": "qwen3:8b"}
+            return _FakeResponse(200, {"parameters": "num_ctx 4096\n"})
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
@@ -424,8 +479,120 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
 
     models = await provider.fetch_models()
     assert len(models) == 1
-    # Loaded /api/ps window is final; /api/show is not called.
+    # Served window is kept only after it matches the Modelfile num_ctx.
     assert models[0].max_input_length_auto_detected == 4096
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_ignores_foreign_served_context(
+    monkeypatch,
+) -> None:
+    """A runner loaded by another client must not size our compaction.
+
+    ``/api/ps`` may report 262144 from a temporary ``num_ctx`` override,
+    but our next chat request reloads at the Modelfile's 131072.
+    """
+    provider = _make_provider()
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": "qwen3:8b",
+                            "model": "qwen3:8b",
+                            "context_length": 262144,
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, {"parameters": "num_ctx 131072\n"})
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 131072
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_uses_chat_num_ctx_over_served(
+    monkeypatch,
+) -> None:
+    """Persist the window we will send, not a currently loaded runner."""
+    provider = _make_provider()
+    provider.generate_kwargs = {"options": {"num_ctx": 131072}}
+    show_calls = 0
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            raise AssertionError(
+                "native probes are skipped when chat num_ctx is set",
+            )
+
+        async def post(self, url: str, json: dict):
+            nonlocal show_calls
+            show_calls += 1
+            raise AssertionError(
+                "native probes are skipped when chat num_ctx is set",
+            )
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 131072
+    assert show_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_model_chat_num_ctx_overrides_provider(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.generate_kwargs = {"options": {"num_ctx": 8192}}
+    provider.models = [
+        ModelInfo(
+            id="qwen3:8b",
+            name="qwen3:8b",
+            generate_kwargs={"options": {"num_ctx": 16384}},
+        ),
+    ]
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            raise AssertionError(
+                "native probes are skipped when chat num_ctx is set",
+            )
+
+        async def post(self, url: str, json: dict):
+            raise AssertionError(
+                "native probes are skipped when chat num_ctx is set",
+            )
+
+    _patch_list_and_native(monkeypatch, FakeClient)
+    models = await provider.fetch_models()
+    assert models[0].max_input_length_auto_detected == 16384
 
 
 @pytest.mark.asyncio
@@ -816,9 +983,10 @@ async def test_fetch_models_deadline_keeps_completed_probes(
 ) -> None:
     """A slow ``/api/show`` must not discard probes that already finished.
 
-    ``/api/ps`` hits are applied even when another model's show exceeds
-    the deadline. A show that returns in time is kept. Unfinished models
-    stay unset, and the pre-enrichment list is not returned.
+    A verified ``/api/ps`` match is kept even when another model's show
+    exceeds the deadline. A show that returns in time is kept.
+    Unfinished models stay unset, and the pre-enrichment list is not
+    returned.
     """
     provider = _make_provider()
     loaded_id = "loaded:latest"
@@ -862,6 +1030,11 @@ async def test_fetch_models_deadline_keeps_completed_probes(
             assert url.endswith("/api/show")
             model_id = json["model"]
             show_ids.append(model_id)
+            if model_id == loaded_id:
+                return _FakeResponse(
+                    200,
+                    {"parameters": "num_ctx 8192\n"},
+                )
             if model_id == fast_id:
                 return _FakeResponse(
                     200,
@@ -883,13 +1056,73 @@ async def test_fetch_models_deadline_keeps_completed_probes(
     # In-flight /api/show calls are cancelled; none of the slow probes finish.
     assert finished_slow == 0
     assert started_slow > 0
-    assert loaded_id not in show_ids
+    assert loaded_id in show_ids
     assert captured["timeout"] == probe_timeout
     by_id = {model.id: model for model in models}
     assert by_id[loaded_id].max_input_length_auto_detected == 8192
     assert by_id[fast_id].max_input_length_auto_detected == 16384
     for model_id in slow_ids:
         assert by_id[model_id].max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_shared_deadline_cancels_slow_ps(
+    monkeypatch,
+) -> None:
+    """HTTPX per-call timeout does not bound total /api/ps response time."""
+    provider = _make_provider()
+    listed = [
+        ModelInfo(id="slow-ps:latest", name="slow-ps:latest"),
+        ModelInfo(id="fast:latest", name="fast:latest"),
+    ]
+    ps_finished = 0
+    show_ids: list[str] = []
+    probe_timeout = 0.1
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            nonlocal ps_finished
+            assert url.endswith("/api/ps")
+            await asyncio.sleep(1)
+            ps_finished += 1
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": "slow-ps:latest",
+                            "model": "slow-ps:latest",
+                            "context_length": 262144,
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            show_ids.append(json["model"])
+            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+
+    _patch_list_and_native(monkeypatch, FakeClient, listed)
+
+    started_at = time.monotonic()
+    models = await provider.fetch_models(timeout=probe_timeout)
+    elapsed = time.monotonic() - started_at
+
+    assert elapsed < 0.5
+    assert ps_finished == 0
+    by_id = {model.id: model for model in models}
+    # The cancelled /api/ps must not persist a late served window.
+    assert by_id["slow-ps:latest"].max_input_length_auto_detected is None
+    # No time remains for /api/show after the ps deadline.
+    assert show_ids == []
+    assert by_id["fast:latest"].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
@@ -1392,7 +1625,9 @@ async def test_fetch_models_registry_port_alias_matches_served_context(
             )
 
         async def post(self, url: str, json: dict):
-            raise AssertionError("/api/show must be skipped when /api/ps wins")
+            assert url.endswith("/api/show")
+            assert json == {"model": model_id}
+            return _FakeResponse(200, {"parameters": "num_ctx 32768\n"})
 
     _patch_list_and_native(
         monkeypatch,
