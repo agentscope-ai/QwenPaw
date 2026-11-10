@@ -106,6 +106,8 @@ qwenpaw app
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
+Use file links in chat replies to download generated files; see [Console](https://qwenpaw.agentscope.io/docs/console#chat) for attachment and file controls.
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---

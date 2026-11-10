@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseInternalFileLink,
+  parseAbsoluteWorkspaceFileLink,
   filePathFromPreviewUrl,
   rootForFileReference,
   toProjectRelativePath,
@@ -89,5 +90,30 @@ describe("parseInternalFileLink", () => {
         "/Users/demo/workspace",
       ),
     ).toBe("project");
+  });
+});
+
+describe("parseAbsoluteWorkspaceFileLink", () => {
+  it("recognizes generated files with Chinese names and encoded spaces", () => {
+    const path = "/workspace/workspaces/default/outputs/回填最终版.xlsx";
+    expect(parseAbsoluteWorkspaceFileLink(path)).toBe(path);
+    expect(
+      parseAbsoluteWorkspaceFileLink(
+        "/workspace/workspaces/default/outputs/price%20list.xlsx#L10",
+      ),
+    ).toBe("/workspace/workspaces/default/outputs/price list.xlsx");
+  });
+
+  it.each([
+    "outputs/report.xlsx",
+    "/workspace-other/report.xlsx",
+    "/etc/passwd",
+    "/api/workspace/files",
+    "https://example.com/workspace/report.xlsx",
+    "//example.com/workspace/report.xlsx",
+    "/workspace/../secret",
+    "/workspace/%2e%2e/secret",
+  ])("leaves other links and traversal paths untouched: %s", (href) => {
+    expect(parseAbsoluteWorkspaceFileLink(href)).toBeNull();
   });
 });

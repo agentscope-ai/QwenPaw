@@ -72,6 +72,10 @@ import { agentApi } from "../../api/modules/agent";
 import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
+import {
+  downloadFileFromUrl,
+  DownloadCancelledError,
+} from "../../utils/downloadFileFromUrl";
 import { providerApi } from "../../api/modules/provider";
 import type { SkillSpec } from "../../api/types";
 import {
@@ -168,6 +172,7 @@ import {
 import {
   filePathFromPreviewUrl,
   parseInternalFileLink,
+  parseAbsoluteWorkspaceFileLink,
   rootForFileReference,
 } from "../../features/files-workspace/internalFileLinks";
 import type {
@@ -1214,6 +1219,7 @@ const isLocalTimestampId = (id: string | null | undefined): boolean =>
   !!id && /^\d+-[a-z0-9]+$/.test(id);
 
 export default function ChatPage() {
+  const { message } = useAppMessage();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1410,7 +1416,30 @@ export default function ChatPage() {
       if (!(element instanceof Element)) return;
       const anchor = element.closest<HTMLAnchorElement>("a[href]");
       if (!anchor) return;
-      const target = parseInternalFileLink(anchor.getAttribute("href") ?? "");
+      const href = anchor.getAttribute("href") ?? "";
+      const absolutePath = parseAbsoluteWorkspaceFileLink(href);
+      if (absolutePath) {
+        event.preventDefault();
+        event.stopPropagation();
+        const encodedPath = absolutePath
+          .split("/")
+          .map(encodeURIComponent)
+          .join("/");
+        void downloadFileFromUrl(
+          chatApi.filePreviewUrl(encodedPath),
+          absolutePath.split("/").pop()!,
+          {
+            headers: buildAuthHeaders(),
+            errorMessage: t("files.downloadFailed"),
+          },
+        ).catch((error) => {
+          if (!(error instanceof DownloadCancelledError)) {
+            message.error(t("files.downloadFailed"));
+          }
+        });
+        return;
+      }
+      const target = parseInternalFileLink(href);
       if (!target) return;
       event.preventDefault();
       event.stopPropagation();
@@ -1420,7 +1449,7 @@ export default function ChatPage() {
         trigger: anchor,
       });
     },
-    [dispatchFilesDrawer],
+    [dispatchFilesDrawer, message, t],
   );
 
   const [isWideMode, setIsWideMode] = useState(getChatWideModePreference);
@@ -2022,7 +2051,6 @@ export default function ChatPage() {
     scheduleReadyQueue();
     return sdkSessionAdapter.subscribe(scheduleReadyQueue);
   }, [sdkSessionAdapter, scheduleNextSend]);
-  const { message } = useAppMessage();
   const { approvals, setApprovals } = useApprovalContext();
   const [approvalRequests, setApprovalRequests] = useState<
     Map<string, ApprovalMessageData>
