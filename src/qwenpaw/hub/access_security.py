@@ -59,6 +59,16 @@ class HubAccessSecurity:
                 return candidate
         return peer
 
+    def is_https(self, request: Request) -> bool:
+        """Accept TLS termination metadata only from a configured proxy peer."""
+        if request.url.scheme == "https":
+            return True
+        peer = request.client.host if request.client is not None else ""
+        if not self._contains(self._trusted_proxies, peer):
+            return False
+        values = request.headers.getlist("x-forwarded-proto")
+        return len(values) == 1 and values[0].strip().lower() == "https"
+
     def is_blacklisted(self, address: str) -> bool:
         """Return whether an address belongs to a blocked network."""
         return self._contains(self._blacklist, address)
