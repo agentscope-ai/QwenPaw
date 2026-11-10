@@ -1,0 +1,20 @@
+{
+  "name": "@lidary/markdown",
+  "version": "3.0.0",
+  "description": "基于鸿蒙的Markdown解析库",
+  "main": "Index.ets",
+  "author": "lidary",
+  "keywords": [
+    "Markdown",
+    "解析",
+    "Latex"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/lidary-byte",
+  "repository": "https://github.com/lidary-byte/HMarkdown",
+  "dependencies": {
+    "@cangjie-tpc/formula_hybrid": "^1.2.5"
+  },
+  "devDependencies": {},
+  "dynamicDependencies": {}
+}

@@ -1,0 +1,6 @@
+{
+  "name": "libatls.so",
+  "types": "./Index.d.ts",
+  "version": "1.0.0",
+  "description": "atls 原生传输层（OpenSSL 3.5.9 静态链接）NAPI 类型声明"
+}
