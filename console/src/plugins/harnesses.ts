@@ -1,22 +1,18 @@
 import React, { useEffect, useSyncExternalStore } from "react";
-import type { ComponentType } from "react";
 import { Form } from "@agentscope-ai/design";
 import type { ToolConfigField } from "../api/modules/tools";
 import { ConfigFields } from "../components/ConfigFields";
 import type { Disposable } from "./registry/types";
 import { getApiToken, getApiUrl } from "../api/config";
+import type {
+  HarnessSettingsProps,
+  HarnessFrontendExtension,
+} from "./types/qwenpaw";
 
-export interface HarnessSettingsProps {
-  backendId: string;
-  value: Record<string, unknown>;
-  onChange(value: Record<string, unknown>): void;
-  open: boolean;
-}
-
-export interface HarnessFrontendExtension {
-  backendId: string;
-  SettingsComponent?: ComponentType<HarnessSettingsProps>;
-}
+export type {
+  HarnessSettingsProps,
+  HarnessFrontendExtension,
+} from "./types/qwenpaw";
 
 export interface HarnessBackendDescriptor {
   id: string;
