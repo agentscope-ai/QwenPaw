@@ -377,10 +377,7 @@ def test_walk_and_grep_truncated_output_size(temp_dir):
     (temp_dir / "big.txt").write_text(f"match {long_line}\n")
     regex = re.compile(r"match")
     _matches, status = _walk_and_grep(temp_dir, regex, 0, FakeCancel(), None)
-    assert (
-        status
-        == f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
-    )
+    assert status == f"truncated: output size limit (~{_MAX_OUTPUT_CHARS // 1000}KB)"
 
 
 def test_walk_and_grep_cancel_event(temp_dir):
@@ -678,9 +675,7 @@ def test_walk_and_grep_three_separate_matches_no_overlap(temp_dir):
     # Check each covered line appears exactly once
     for i in covered:
         line_entries = [m for m in matches if m.startswith(f"file.txt:{i}:")]
-        assert (
-            len(line_entries) == 1
-        ), f"line {i} appears {len(line_entries)} times"
+        assert len(line_entries) == 1, f"line {i} appears {len(line_entries)} times"
     # Check gap lines do not appear
     for i in gap:
         line_entries = [m for m in matches if m.startswith(f"file.txt:{i}:")]
@@ -965,11 +960,7 @@ def test_walk_and_grep_single_file_over_max_size_streams_prefix(
 
             def tracked(size=-1, /):
                 read_sizes.append(size)
-                if (
-                    not isinstance(size, int)
-                    or size <= 0
-                    or size > fs._GREP_READ_CHUNK
-                ):
+                if not isinstance(size, int) or size <= 0 or size > fs._GREP_READ_CHUNK:
                     raise AssertionError(f"unbounded read size {size}")
                 return original(size)
 
@@ -989,22 +980,21 @@ def test_walk_and_grep_single_file_over_max_size_streams_prefix(
     assert sum(read_sizes) > fs._MAX_FILE_SIZE
 
 
-def test_walk_and_grep_mostly_utf8_dirty_byte_keeps_chinese(
-    temp_dir,
-):
-    """One invalid byte must not prevent grep from finding UTF-8 Chinese."""
-    target = temp_dir / "dirty.txt"
-    target.write_bytes("姓名: 张三\n".encode("utf-8") + b"\xff\n")
+def test_walk_and_grep_gbk_shuo_hello(temp_dir):
+    """Valid GBK ``說 hello`` must be searchable, not CP1252 mojibake."""
+    target = temp_dir / "shuo.txt"
+    target.write_bytes("說 hello\n".encode("gbk"))
     matches, status = _walk_and_grep(
         target,
-        re.compile("张三"),
+        re.compile("說"),
         0,
         FakeCancel(),
         None,
     )
     assert status == "ok"
     assert matches
-    assert all("张三" in line for line in matches)
+    assert any("說 hello" in line for line in matches)
+    assert all("Õf" not in line for line in matches)
 
 
 def test_walk_and_grep_short_gbk_finds_character(temp_dir):
@@ -1154,19 +1144,19 @@ def test_walk_and_grep_gbk_dang_finds_character(temp_dir):
 
 
 def test_walk_and_grep_longer_cp1252_finds_accent(temp_dir):
-    """Pattern Cafés matches a longer CP1252 file."""
+    """Pattern Café matches a CP1252 file that is not also valid GBK."""
     target = temp_dir / "cafes.txt"
-    target.write_bytes("Cafés".encode("cp1252"))
+    target.write_bytes("Café au lait".encode("cp1252"))
     matches, status = _walk_and_grep(
         target,
-        re.compile("Cafés"),
+        re.compile("Café"),
         0,
         FakeCancel(),
         None,
     )
     assert status == "ok"
     assert matches
-    assert any("Cafés" in line for line in matches)
+    assert any("Café au lait" in line for line in matches)
 
 
 def test_walk_and_grep_gbk_letter_trails_prefer_gbk(temp_dir):
@@ -1205,10 +1195,14 @@ def test_walk_and_grep_bom_and_dirty_byte_strips_bom(temp_dir):
     assert all("\ufeff" not in line for line in matches)
 
 
-def test_walk_and_grep_utf8_chinese_cp1252_decodable_stays(temp_dir):
-    """Dirty UTF-8 that CP1252 accepts still matches the Chinese text."""
+def test_walk_and_grep_dirty_utf8_does_not_use_replacement(temp_dir):
+    """Dirty UTF-8 is searched on the strict ladder, without U+FFFD."""
     target = temp_dir / "nihao.txt"
-    target.write_bytes("你好世界\n".encode("utf-8") + b"\xff")
+    raw = "你好世界\n".encode("utf-8") + b"\xff"
+    target.write_bytes(raw)
+    from qwenpaw.agents.utils.file_handling import decode_text_bytes
+
+    decoded = decode_text_bytes(raw).text
     matches, status = _walk_and_grep(
         target,
         re.compile("你好世界"),
@@ -1217,8 +1211,10 @@ def test_walk_and_grep_utf8_chinese_cp1252_decodable_stays(temp_dir):
         None,
     )
     assert status == "ok"
-    assert matches
-    assert any("你好世界" in line for line in matches)
+    # The Chinese query may not match a latin-1/cp1252 fallback,
+    # but the stream must not invent U+FFFD.
+    assert all("\ufffd" not in line for line in matches)
+    assert "\ufffd" not in decoded
 
 
 def test_walk_and_grep_streams_bounded_reads_and_keeps_gbk(
@@ -1484,7 +1480,7 @@ def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
     [
         pytest.param(
             "hello 张三\n".encode("utf-8"),
-            ("utf-8-sig", False),
+            ("utf-8", False),
             False,
             id="utf8",
         ),
@@ -1494,7 +1490,7 @@ def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
             False,
             id="utf8-bom",
         ),
-        pytest.param(b"", ("utf-8-sig", False), False, id="empty"),
+        pytest.param(b"", ("utf-8", False), False, id="empty"),
         pytest.param(
             "A张".encode("gbk"),
             ("gbk", False),
@@ -1514,7 +1510,7 @@ def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
             id="cafe",
         ),
         pytest.param(
-            "Cafés".encode("cp1252"),
+            "Café au lait".encode("cp1252"),
             ("cp1252", False),
             True,
             id="cafes",
@@ -1527,46 +1523,38 @@ def test_iter_grep_lines_capped_gbk_keeps_character_prefix(
         ),
         pytest.param(
             "姓名: 张三\n".encode("utf-8") + b"\xff",
-            ("utf-8-sig", True),
+            ("latin-1", False),
             True,
             id="mostly-utf8-dirty",
         ),
         pytest.param(
             b"\xef\xbb\xbfhello\xff",
-            ("utf-8-sig", True),
+            ("cp1252", False),
             True,
             id="bom-dirty",
         ),
         pytest.param(
             b"hello\x81world",
-            ("utf-8-sig", True),
+            ("gbk", False),
             True,
             id="dirty-lead",
         ),
     ],
 )
-def test_select_grep_decoding_skips_gbk_heuristic_for_utf8(
+def test_select_grep_decoding_skips_legacy_probes_for_utf8(
     temp_dir,
     monkeypatch,
     payload,
     expected,
     expect_fallback,
 ):
-    """Strict UTF-8 must not run GBK trails, legacy probes, or lossy stats.
-
-    A non-UTF-8 file still feeds ``_feed_gbk_pair_trails`` and keeps the
-    same encoding choice (GBK letter trails, CP1252 accents, lossy UTF-8).
-    """
+    """Strict UTF-8 must not run the legacy GBK/CP1252 probe pass."""
     import qwenpaw.agents.tools.file_search as fs
 
     path = temp_dir / "sample.txt"
     path.write_bytes(payload)
     monkeypatch.setattr(fs, "_GREP_READ_CHUNK", 1)
-    trail_calls = 0
-    lossy_calls = 0
     probed: list[str] = []
-    real_trails = fs._feed_gbk_pair_trails
-    real_stats = fs._lossy_text_stats
     real_probe = fs._GrepStrictProbe
 
     class _RecordingProbe(real_probe):
@@ -1576,30 +1564,70 @@ def test_select_grep_decoding_skips_gbk_heuristic_for_utf8(
             probed.append(encoding)
             super().__init__(encoding)
 
-    def _trails(*args, **kwargs):
-        nonlocal trail_calls
-        trail_calls += 1
-        return real_trails(*args, **kwargs)
-
-    def _stats(text: str):
-        nonlocal lossy_calls
-        lossy_calls += 1
-        return real_stats(text)
-
     monkeypatch.setattr(fs, "_GrepStrictProbe", _RecordingProbe)
-    monkeypatch.setattr(
-        "qwenpaw.agents.tools.file_search._feed_gbk_pair_trails",
-        _trails,
-    )
-    monkeypatch.setattr(fs, "_lossy_text_stats", _stats)
 
     assert fs._select_grep_decoding(path, FakeCancel(), None) == expected
     if expect_fallback:
-        assert trail_calls >= 1
-        assert lossy_calls >= 1
         assert "gbk" in probed
         assert "cp1252" in probed
         return
-    assert trail_calls == 0
-    assert lossy_calls == 0
     assert probed == ["utf-8-sig", "utf-8"]
+
+
+def test_split_normalized_text_only_scans_new_chunk():
+    """Pending pieces stay in a list until a newline arrives in the new chunk."""
+    import qwenpaw.agents.tools.file_search as fs
+
+    lines, pending = fs._split_normalized_text([], "ab")
+    assert lines == []
+    assert pending == ["ab"]
+    lines, pending = fs._split_normalized_text(pending, "cd\nef\nxy")
+    assert lines == ["abcd\n", "ef\n"]
+    assert pending == ["xy"]
+    lines, pending = fs._split_normalized_text(pending, "")
+    assert lines == []
+    assert pending == ["xy"]
+    lines, pending = fs._split_normalized_text(pending, "z\n")
+    assert lines == ["xyz\n"]
+    assert pending == []
+
+
+def test_split_normalized_text_long_line_is_linear(temp_dir):
+    """An 8 MiB line split across chunks must stay linear and correct."""
+    import time
+    import qwenpaw.agents.tools.file_search as fs
+
+    chunk = "a" * (64 * 1024)
+    chunks = 128  # 8 MiB
+    pending: list[str] = []
+    started = time.monotonic()
+    for _ in range(chunks):
+        lines, pending = fs._split_normalized_text(pending, chunk)
+        assert lines == []
+    lines, pending = fs._split_normalized_text(pending, "\n")
+    elapsed = time.monotonic() - started
+    assert lines == ["a" * (64 * 1024 * chunks) + "\n"]
+    assert pending == []
+    assert elapsed < 1.0
+
+
+def test_iter_grep_lines_long_line_matches_full_buffer(temp_dir):
+    """A long single-file line must match a full-buffer decode split."""
+    import qwenpaw.agents.tools.file_search as fs
+    from qwenpaw.agents.utils.file_handling import (
+        decode_text_bytes_with_encoding_fallback,
+    )
+
+    path = temp_dir / "long.txt"
+    payload = ("b" * (2 * 1024 * 1024)) + "\nneedle\n"
+    path.write_text(payload, encoding="utf-8")
+    got = list(fs._iter_grep_lines(path, FakeCancel(), None))
+    expected = []
+    lines, pending = fs._split_normalized_text(
+        [],
+        decode_text_bytes_with_encoding_fallback(path.read_bytes()),
+    )
+    expected.extend(lines)
+    if pending:
+        expected.append("".join(pending))
+    assert got == expected

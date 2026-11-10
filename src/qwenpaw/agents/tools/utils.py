@@ -3,7 +3,6 @@
 # pylint: disable=line-too-long
 """Shared utilities for file and shell tools."""
 
-import codecs
 import io
 import logging
 import os
@@ -15,11 +14,7 @@ from typing import Any
 from ...constant import TRUNCATION_NOTICE_MARKER
 from ...utils.io_utils import run_sync_io
 from ..utils.file_handling import (
-    _choose_fallback_decoding,
-    _normalize_newlines,
-    _signals_for_bytes,
-    _strict_decodes,
-    decode_text_bytes_with_encoding_fallback,
+    decode_text_bytes,
     single_line_log_value,
 )
 
@@ -51,8 +46,7 @@ def _fit_truncation_notice(notice: str, info: dict[str, Any]) -> str:
         )
     else:
         compact = (
-            TRUNCATION_NOTICE_MARKER
-            + "\nOutput truncated; recovery details are in "
+            TRUNCATION_NOTICE_MARKER + "\nOutput truncated; recovery details are in "
             "qwenpaw_truncation metadata."
             f"\nTotal lines: {info['total_lines']}; "
             f"excerpt starts at line {info['start_line']} and contains "
@@ -466,9 +460,7 @@ def _retruncate(
     # The next read should start at the line immediately after all complete lines.
     # max(1, ...) guards against a zero-newline preview.
     next_line = start_line + max(1, newline_count)
-    read_from = (
-        None if info.get("continuation_mode") == "artifact" else next_line
-    )
+    read_from = None if info.get("continuation_mode") == "artifact" else next_line
     updated = build_truncation_metadata(
         file_path=info.get("file_path"),
         file_size_bytes=info.get("file_size_bytes"),
@@ -552,115 +544,24 @@ def truncate_text_output(
         return text, {}
 
 
-def _incremental_decode_capped_prefix(
-    content: bytes,
-    encoding: str,
-) -> str | None:
-    """Decode a truncated snapshot with *encoding*.
-
-    ``final=False`` drops a multibyte character cut by the byte cap.
-    An empty string with bytes still buffered is a valid prefix when the
-    cap lands inside the first character (or an incomplete BOM); returning
-    ``None`` here used to fall through to GBK/CP1252 and mojibake the
-    snapshot. ``None`` is reserved for a hard decode error. A pending CR
-    is a decoded newline, not leftover payload, and becomes a newline.
-    """
-    decoder = io.IncrementalNewlineDecoder(
-        codecs.getincrementaldecoder(encoding)(),
-        translate=True,
-    )
-    try:
-        text = decoder.decode(content, final=False)
-    except UnicodeDecodeError:
-        return None
-
-    _buffered, flag = decoder.getstate()
-    pending_cr = bool(flag & 1)
-    if pending_cr:
-        text += "\n"
-    # Empty + buffered is still a successful capped prefix.
-    return text
-
-
 def _decode_capped_text_snapshot(
     content: bytes,
     *,
     file_name: object,
     truncated: bool,
 ) -> str:
-    """Decode one read snapshot.
+    """Decode one read snapshot on the shared strict ladder.
 
-    A full read keeps the shared utf-8 → gbk/cp936 ladder. A capped read
-    walks that same ladder with incremental decoders so a multibyte
-    character cut by the cap stays a valid prefix. A strict error on that
-    cut byte used to fall through to CP1252 and mojibake the snapshot.
-    Newlines are normalized the same way (``\\r\\n`` / ``\\r`` → ``\\n``).
+    A capped read keeps a valid prefix and drops a multibyte character
+    cut by the cap. Newlines are folded the same way as a full read
+    (``\r\n`` / ``\r`` → ``\n``).
     """
-    if not truncated:
-        return decode_text_bytes_with_encoding_fallback(
-            content,
-            file_name=file_name,
-        )
-
-    # Prefer UTF-8 prefixes (including empty when the cap lands inside the
-    # first character). Legacy probes stay incremental so a character cut
-    # by the cap still counts. The same choice as a full read then prefers
-    # strict GBK/CP1252 over lossy UTF-8 when that lossy decode would only
-    # introduce U+FFFD.
-    for encoding in ("utf-8-sig", "utf-8"):
-        text = _incremental_decode_capped_prefix(content, encoding)
-        if text is not None:
-            return text
-
-    gbk_text = _incremental_decode_capped_prefix(content, "gbk")
-    cp_text = _incremental_decode_capped_prefix(content, "cp1252")
-    choice = _choose_fallback_decoding(
-        _signals_for_bytes(
-            content,
-            gbk_ok=gbk_text is not None,
-            cp1252_ok=cp_text is not None,
-            truncated=True,
-        ),
-    )
-    if choice is None:
-        text = _incremental_decode_capped_prefix(content, "latin-1")
-        if text is not None:
-            logger.debug(
-                "File %s read with encoding: %s",
-                single_line_log_value(file_name),
-                "latin-1",
-            )
-            return text
-        return decode_text_bytes_with_encoding_fallback(
-            content,
-            file_name=file_name,
-        )
-
-    encoding, lossy = choice
-    if lossy:
-        logger.debug(
-            "File %s read with lossy UTF-8 (mostly valid)",
-            single_line_log_value(file_name),
-        )
-        # final=False drops a trailing partial character cut by max_bytes
-        # instead of counting it as U+FFFD (which skewed the old signals).
-        decoder = codecs.getincrementaldecoder("utf-8-sig")(
-            errors="replace",
-        )
-        return _normalize_newlines(decoder.decode(content, final=False))
-
-    chosen = gbk_text if encoding == "gbk" else cp_text
-    if chosen is None:
-        return decode_text_bytes_with_encoding_fallback(
-            content,
-            file_name=file_name,
-        )
-    logger.debug(
-        "File %s read with encoding: %s",
-        single_line_log_value(file_name),
-        encoding,
-    )
-    return chosen
+    return decode_text_bytes(
+        content,
+        normalize_newlines=True,
+        truncated=truncated,
+        file_name=file_name,
+    ).text
 
 
 def _decode_text_bytes(
@@ -673,36 +574,27 @@ def _decode_text_bytes(
     ``read_file_native`` / ``edit_file`` need original endings. Callers that
     want LF-only text normalize after this returns.
     """
-    for encoding in ("utf-8-sig", "utf-8"):
-        try:
-            return content.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
+    return decode_text_bytes(
+        content,
+        normalize_newlines=False,
+        file_name=file_name,
+    ).text
 
-    choice = _choose_fallback_decoding(
-        _signals_for_bytes(
-            content,
-            gbk_ok=_strict_decodes(content, "gbk"),
-            cp1252_ok=_strict_decodes(content, "cp1252"),
-        ),
+
+def _decode_text_bytes_with_encoding(
+    content: bytes,
+    *,
+    file_name: object = "<bytes>",
+    truncated: bool = False,
+):
+    """Decode keeping CR/LF and return ``(text, encoding, lossy)``."""
+    decoded = decode_text_bytes(
+        content,
+        normalize_newlines=False,
+        truncated=truncated,
+        file_name=file_name,
     )
-    if choice is None:
-        return content.decode("latin-1")
-
-    encoding, lossy = choice
-    if lossy:
-        logger.debug(
-            "File %s read with lossy UTF-8 (mostly valid)",
-            single_line_log_value(file_name),
-        )
-        return content.decode("utf-8-sig", errors="replace")
-
-    logger.debug(
-        "File %s read with encoding: %s",
-        single_line_log_value(file_name),
-        encoding,
-    )
-    return content.decode(encoding)
+    return decoded.text, decoded.encoding, decoded.lossy
 
 
 def _read_file_bytes_sync(file_path: str, max_bytes: int) -> bytes:
@@ -746,9 +638,24 @@ def _read_file_native_sync(
     file_path: str,
     max_bytes: int,
 ) -> str:
-    """Read one byte snapshot and keep ``\\n``, ``\\r\\n``, and ``\\r``."""
+    """Read one byte snapshot and keep original newline sequences."""
+    text, _encoding, _lossy = _read_file_native_with_encoding_sync(
+        file_path,
+        max_bytes,
+    )
+    return text
+
+
+def _read_file_native_with_encoding_sync(
+    file_path: str,
+    max_bytes: int,
+) -> tuple[str, str, bool]:
+    """Read one snapshot and return ``(text, encoding, lossy)``."""
     content = _read_file_bytes_sync(file_path, max_bytes)
-    return _decode_text_bytes(content, file_name=file_path)
+    return _decode_text_bytes_with_encoding(
+        content,
+        file_name=file_path,
+    )
 
 
 async def read_file_safe(
@@ -778,6 +685,22 @@ async def read_file_native(
     be written back with the endings they had on disk.
     """
     return await run_sync_io(_read_file_native_sync, file_path, max_bytes)
+
+
+async def read_file_native_with_encoding(
+    file_path: str,
+    max_bytes: int = MAX_FILE_READ_BYTES,
+) -> tuple[str, str, bool]:
+    """Read a snapshot and return ``(text, encoding, lossy)``.
+
+    ``edit_file`` uses the encoding to write back a strict decode, and
+    refuses when the decode was lossy.
+    """
+    return await run_sync_io(
+        _read_file_native_with_encoding_sync,
+        file_path,
+        max_bytes,
+    )
 
 
 def _to_lf(text: str) -> str:

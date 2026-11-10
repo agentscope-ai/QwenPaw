@@ -24,12 +24,7 @@ from ...runtime.tool_registry import tool_descriptor
 from .file_io import _resolve_file_path
 from .utils import _decode_capped_text_snapshot
 from ..utils.file_handling import (
-    _FallbackSignals,
     _UTF8_BOM,
-    _choose_fallback_decoding,
-    _count_cjk_ideographs,
-    _feed_gbk_pair_trails,
-    _lossy_text_stats,
     single_line_log_value,
 )
 
@@ -362,9 +357,7 @@ def _output_context_for_hit(
     # Find the index of hit_line_no in the buffer for fast slicing
     # hit_idx is always found since hit_line_no was taken from the buffer
     hit_idx = next(
-        idx
-        for idx, (line_no, _) in enumerate(line_buffer)
-        if line_no == hit_line_no
+        idx for idx, (line_no, _) in enumerate(line_buffer) if line_no == hit_line_no
     )
 
     slice_start = max(0, hit_idx - context_lines)
@@ -461,22 +454,32 @@ class _GrepChunkReader:
             self.hit_eof = True
 
 
-def _split_normalized_text(pending: str, text: str) -> tuple[list[str], str]:
-    """Split *text* on ``\\n`` only, keeping a partial trailing line.
+def _split_normalized_text(
+    pending_parts: list[str],
+    text: str,
+) -> tuple[list[str], list[str]]:
+    """Split *text* on ``\n`` only, keeping a partial trailing line.
 
-    ``\\r`` / ``\\r\\n`` are already translated to ``\\n`` by
+    ``\r`` / ``\r\n`` are already translated to ``\n`` by
     ``io.IncrementalNewlineDecoder``. ``str.splitlines`` is not used: it
     also breaks on vertical tab, form feed, and Unicode line separators,
     which text-mode iteration did not.
+
+    Only the new chunk is scanned for newlines. Pending pieces stay in
+    a list until a line completes, so a long line is linear rather than
+    quadratic.
     """
     if not text:
-        return [], pending
-    pending += text
-    if "\n" not in pending:
-        return [], pending
-    parts = pending.split("\n")
-    tail = parts.pop()
-    return [part + "\n" for part in parts], tail
+        return [], pending_parts
+    if "\n" not in text:
+        pending_parts.append(text)
+        return [], pending_parts
+    first, *rest = text.split("\n")
+    completed = "".join(pending_parts) + first
+    lines = [completed + "\n"]
+    tail = rest.pop()
+    lines.extend(part + "\n" for part in rest)
+    return lines, [tail] if tail else []
 
 
 def _iter_decoded_grep_lines(
@@ -498,7 +501,7 @@ def _iter_decoded_grep_lines(
         codecs.getincrementaldecoder(encoding)(),
         translate=True,
     )
-    pending = ""
+    pending: list[str] = []
     reader = _GrepChunkReader()
     for chunk in reader.iter_chunks(raw, cancel, max_bytes):
         lines, pending = _split_normalized_text(
@@ -531,9 +534,9 @@ def _iter_decoded_grep_lines(
         # Bit 0 is IncrementalNewlineDecoder's pending-CR flag. The capped
         # snapshot ends on that CR, so normalize it the same way a full
         # decode would (``\\r`` → ``\\n``).
-        pending += "\n"
+        pending = [*pending, "\n"]
     if pending:
-        yield pending
+        yield "".join(pending)
 
 
 class _GrepStrictProbe:
@@ -572,10 +575,7 @@ def _stream_strict_utf8_probes(
     a later fallback decision. This pass does not run GBK pair trails,
     GBK/CP1252 probes, or the lossy UTF-8 ratio.
     """
-    probes = {
-        encoding: _GrepStrictProbe(encoding)
-        for encoding in _GREP_UTF8_ENCODINGS
-    }
+    probes = {encoding: _GrepStrictProbe(encoding) for encoding in _GREP_UTF8_ENCODINGS}
     prefix = b""
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
@@ -596,91 +596,28 @@ def _select_grep_fallback_decoding(
     path: Path,
     cancel: threading.Event,
     max_bytes: int | None,
-    *,
-    bom: bool,
 ) -> tuple[str, bool]:
-    """Pick a legacy or lossy encoding after strict UTF-8 failed.
+    """Pick a legacy encoding after strict UTF-8 failed.
 
-    Second streaming pass over the same cap. Chunks stay bounded and
-    *cancel* is checked between them, so an unlimited file is not loaded
-    into one buffer. ``bom`` is the prefix flag from the UTF-8 pass.
+    Second streaming pass over the same cap, in ladder order
+    ``gbk → cp1252 → latin-1``. Chunks stay bounded and *cancel* is
+    checked between them, so an unlimited file is not loaded into one
+    buffer.
     """
-    probes = {
-        encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")
-    }
-    lossy = codecs.getincrementaldecoder("utf-8-sig")(errors="replace")
-    bad = 0
-    good = 0
-    saw_non_ascii = False
-    lossy_cjk = 0
-    other = 0
-    letters = 0
-    unpaired = 0
-    ascii_letter_trails = 0
-    pending_lead: int | None = None
-    pending_letter_trail = False
-
+    probes = {encoding: _GrepStrictProbe(encoding) for encoding in ("gbk", "cp1252")}
     with open(path, "rb") as raw:
         reader = _GrepChunkReader()
         for chunk in reader.iter_chunks(raw, cancel, max_bytes):
-            (
-                other,
-                letters,
-                unpaired,
-                pending_lead,
-                ascii_letter_trails,
-                pending_letter_trail,
-            ) = _feed_gbk_pair_trails(
-                chunk,
-                other,
-                letters,
-                unpaired,
-                pending_lead,
-                ascii_letter_trails,
-                pending_letter_trail,
-            )
             for probe in probes.values():
                 probe.feed(chunk, final=False)
-            text = lossy.decode(chunk, final=False)
-            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
-            bad += piece_bad
-            good += piece_good
-            saw_non_ascii = saw_non_ascii or piece_saw
-            lossy_cjk += _count_cjk_ideographs(text)
         if reader.hit_eof:
             for probe in probes.values():
                 probe.feed(b"", final=True)
-            text = lossy.decode(b"", final=True)
-            piece_bad, piece_good, piece_saw = _lossy_text_stats(text)
-            bad += piece_bad
-            good += piece_good
-            saw_non_ascii = saw_non_ascii or piece_saw
-            lossy_cjk += _count_cjk_ideographs(text)
-
-    # Mirror _signals_for_bytes: incidental GBK leftovers (``如不``) must
-    # not beat a clean GBK decode; dirty UTF-8 with several ideographs can.
-    # Count CJK and replacements per chunk so a single-file search
-    # (max_bytes=None) does not retain the full lossy decoding.
-    if probes["gbk"].ok and not bom and not (lossy_cjk > bad):
-        saw_non_ascii = False
-
-    choice = _choose_fallback_decoding(
-        _FallbackSignals(
-            bom=bom,
-            bad=bad,
-            good=good,
-            saw_non_ascii=saw_non_ascii,
-            other_trails=other,
-            letter_trails=letters,
-            unpaired_ascii_letters=unpaired,
-            ascii_letter_trails=ascii_letter_trails,
-            gbk_ok=probes["gbk"].ok,
-            cp1252_ok=probes["cp1252"].ok,
-        ),
-    )
-    if choice is None:
-        return "latin-1", False
-    return choice
+    if probes["gbk"].ok:
+        return "gbk", False
+    if probes["cp1252"].ok:
+        return "cp1252", False
+    return "latin-1", False
 
 
 def _select_grep_decoding(
@@ -692,22 +629,18 @@ def _select_grep_decoding(
 
     ``max_bytes is None`` reads the whole file. A cap uses that prefix
     and finalizes decoders only at real EOF, matching
-    ``decode_text_bytes_with_encoding_fallback`` on the same bytes.
+    ``decode_text_bytes`` on the same bytes.
 
-    Valid UTF-8 returns after one strict pass. GBK pair trails, the
-    GBK/CP1252 probes, and the lossy ratio run in a second pass, and
-    only when every strict UTF-8 probe has failed.
+    Valid UTF-8 returns after one strict pass. GBK/CP1252/Latin-1 are
+    probed in a second pass only when every strict UTF-8 probe failed.
+    ``lossy`` is always False on the strict ladder.
     """
     probes, prefix = _stream_strict_utf8_probes(path, cancel, max_bytes)
-    for encoding in _GREP_UTF8_ENCODINGS:
-        if probes[encoding].ok:
-            return encoding, False
-    return _select_grep_fallback_decoding(
-        path,
-        cancel,
-        max_bytes,
-        bom=prefix.startswith(_UTF8_BOM),
-    )
+    if prefix.startswith(_UTF8_BOM) and probes["utf-8-sig"].ok:
+        return "utf-8-sig", False
+    if probes["utf-8"].ok or probes["utf-8-sig"].ok:
+        return "utf-8", False
+    return _select_grep_fallback_decoding(path, cancel, max_bytes)
 
 
 def _iter_decoded_grep_lines_lossy(
@@ -725,7 +658,7 @@ def _iter_decoded_grep_lines_lossy(
         codecs.getincrementaldecoder("utf-8-sig")(errors="replace"),
         translate=True,
     )
-    pending = ""
+    pending: list[str] = []
     reader = _GrepChunkReader()
     for chunk in reader.iter_chunks(raw, cancel, max_bytes):
         lines, pending = _split_normalized_text(
@@ -741,9 +674,9 @@ def _iter_decoded_grep_lines_lossy(
     yield from lines
     _buffered, flag = decoder.getstate()
     if (not reader.hit_eof) and (flag & 1):
-        pending += "\n"
+        pending = [*pending, "\n"]
     if pending:
-        yield pending
+        yield "".join(pending)
 
 
 def _read_capped_grep_snapshot(
@@ -770,10 +703,10 @@ def _iter_snapshot_lines(text: str) -> Iterator[str]:
     Matches ``_split_normalized_text`` and ``io.StringIO``: only ``\\n``
     breaks a line, and a final partial line has no extra newline.
     """
-    lines, pending = _split_normalized_text("", text)
+    lines, pending = _split_normalized_text([], text)
     yield from lines
     if pending:
-        yield pending
+        yield "".join(pending)
 
 
 def _iter_grep_lines(
@@ -888,9 +821,7 @@ def _walk_and_grep(  # noqa: C901  pylint: disable=too-many-branches,too-many-lo
             break
 
         display_path = (
-            file_path.name
-            if single_file
-            else _relative_display(file_path, search_root)
+            file_path.name if single_file else _relative_display(file_path, search_root)
         )
 
         # Sliding window holds (line_no, line_content) tuples
