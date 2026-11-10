@@ -12,7 +12,7 @@ import pytest
 from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
     _ollama_model_aliases,
-    parse_ollama_chat_num_ctx,
+    parse_ollama_model_training_context,
     parse_ollama_num_ctx,
     parse_ollama_served_context_length,
     resolve_ollama_context_window,
@@ -220,43 +220,43 @@ def test_parse_ollama_served_context_length_is_strict() -> None:
     assert parse_ollama_served_context_length(None) is None
 
 
-def test_parse_ollama_chat_num_ctx_from_options() -> None:
+def test_parse_ollama_model_training_context() -> None:
+    assert parse_ollama_model_training_context(None) is None
+    assert parse_ollama_model_training_context([]) is None
+    assert parse_ollama_model_training_context("32768") is None
+    # Several keys: the minimum is the safe cap. Invalid siblings drop out.
     assert (
-        parse_ollama_chat_num_ctx({"options": {"num_ctx": 131072}}) == 131072
-    )
-    assert parse_ollama_chat_num_ctx({"num_ctx": 8192}) == 8192
-    # Nested options win over a leftover top-level value.
-    assert (
-        parse_ollama_chat_num_ctx(
-            {"num_ctx": 8192, "options": {"num_ctx": 4096}},
+        parse_ollama_model_training_context(
+            {
+                "qwen3.context_length": 65536,
+                "context_length": "32768",
+                "llama.context_length": 0,
+                "llama.context_length.extra": 1024,
+                "ignored": 4096,
+                1: 2048,
+            },
         )
-        == 4096
+        == 32768
     )
     assert (
-        parse_ollama_chat_num_ctx({"options": {"num_ctx": "16384"}}) == 16384
+        parse_ollama_model_training_context(
+            {
+                "qwen3.context_length": True,
+                "other.context_length": 12.5,
+                "context_length": "nope",
+            },
+        )
+        is None
     )
-    assert parse_ollama_chat_num_ctx({}) is None
-    assert parse_ollama_chat_num_ctx({"options": {}}) is None
-    assert parse_ollama_chat_num_ctx({"options": "num_ctx 8192"}) is None
-    assert parse_ollama_chat_num_ctx({"options": {"num_ctx": 0}}) is None
-    assert parse_ollama_chat_num_ctx({"options": {"num_ctx": True}}) is None
-    assert parse_ollama_chat_num_ctx(None) is None
 
 
-def test_resolve_ollama_context_prefers_chat_then_verified_show() -> None:
+def test_resolve_ollama_context_prefers_clamped_show_over_foreign_served() -> (
+    None
+):
     show = {
         "parameters": "num_ctx 131072\n",
         "model_info": {"qwen3.context_length": 262144},
     }
-    # Our next chat options are the window we will actually send.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=262144,
-            chat_num_ctx=131072,
-        )
-        == 131072
-    )
     # A foreign /api/ps window must not beat the Modelfile default.
     assert (
         resolve_ollama_context_window(
@@ -356,14 +356,82 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         )
         is None
     )
-    # Chat options still win when show omitted num_ctx.
+
+
+def test_resolve_caps_num_ctx_by_training_context() -> None:
+    """Ollama clamps NumCtx to the training context before /api/ps.
+
+    A 32K model with Modelfile ``num_ctx 65536`` is served at 32768.
+    Persisting the raw Modelfile value would disagree with that runner.
+    """
+    show = {
+        "parameters": "num_ctx 65536\n",
+        "model_info": {"qwen3.context_length": 32768},
+    }
     assert (
         resolve_ollama_context_window(
-            show_payload=remote,
+            show_payload=show,
             served_context=32768,
-            chat_num_ctx=16384,
+        )
+        == 32768
+    )
+    # Same show without a served window keeps the clamped Modelfile value.
+    assert resolve_ollama_context_window(show_payload=show) == 32768
+    # A served window that still reports the unclamped Modelfile loses.
+    assert (
+        resolve_ollama_context_window(
+            show_payload=show,
+            served_context=65536,
+        )
+        == 32768
+    )
+    # Several training keys: cap at the minimum before comparing.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={
+                "parameters": "num_ctx 65536\n",
+                "model_info": {
+                    "qwen3.context_length": 32768,
+                    "context_length": 16384,
+                },
+            },
+            served_context=16384,
         )
         == 16384
+    )
+
+    # 0 / missing / invalid context_length is not a cap.
+    no_cap_payloads: list[dict[str, Any]] = [
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 0},
+        },
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": True},
+        },
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 32768.0},
+        },
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": "nope"},
+        },
+        {"parameters": "num_ctx 65536\n", "model_info": {}},
+        {"parameters": "num_ctx 65536\n"},
+        {"parameters": "num_ctx 65536\n", "model_info": "32768"},
+    ]
+    for payload in no_cap_payloads:
+        assert resolve_ollama_context_window(show_payload=payload) == 65536
+
+    # Training max alone is not a window.
+    assert (
+        resolve_ollama_context_window(
+            show_payload={"model_info": {"qwen3.context_length": 32768}},
+            served_context=32768,
+        )
+        is None
     )
 
 
@@ -526,13 +594,18 @@ async def test_fetch_models_ignores_foreign_served_context(
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_uses_chat_num_ctx_over_served(
+async def test_fetch_models_ignores_chat_num_ctx_and_uses_clamped_show(
     monkeypatch,
 ) -> None:
-    """Persist the window we will send, not a currently loaded runner."""
+    """Chat ``options.num_ctx`` must not skip probes or be persisted.
+
+    The OpenAI-compatible chat path cannot set Ollama's context size.
+    The window comes from the clamped Modelfile value, which matches
+    the served ``/api/ps`` window.
+    """
     provider = _make_provider()
     provider.generate_kwargs = {"options": {"num_ctx": 131072}}
-    show_calls = 0
+    calls = {"ps": 0, "show": 0}
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -542,27 +615,48 @@ async def test_fetch_models_uses_chat_num_ctx_over_served(
             return None
 
         async def get(self, url: str):
-            raise AssertionError(
-                "native probes are skipped when chat num_ctx is set",
+            assert url.endswith("/api/ps")
+            calls["ps"] += 1
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": "qwen3:8b",
+                            "model": "qwen3:8b",
+                            "context_length": 32768,
+                        },
+                    ],
+                },
             )
 
         async def post(self, url: str, json: dict):
-            nonlocal show_calls
-            show_calls += 1
-            raise AssertionError(
-                "native probes are skipped when chat num_ctx is set",
+            assert url.endswith("/api/show")
+            calls["show"] += 1
+            return _FakeResponse(
+                200,
+                {
+                    "parameters": "num_ctx 65536\n",
+                    "model_info": {"qwen3.context_length": 32768},
+                },
             )
 
     _patch_list_and_native(monkeypatch, FakeClient)
     models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected == 131072
-    assert show_calls == 0
+    assert calls == {"ps": 1, "show": 1}
+    assert models[0].max_input_length_auto_detected == 32768
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_model_chat_num_ctx_overrides_provider(
+async def test_fetch_models_model_chat_num_ctx_does_not_skip_probes(
     monkeypatch,
 ) -> None:
+    """Per-model ``options.num_ctx`` is not a window and does not skip probes.
+
+    A served runner at that chat value is still discarded when ``/api/show``
+    has no Modelfile ``num_ctx``. Training ``*.context_length`` is not used
+    as the window either.
+    """
     provider = _make_provider()
     provider.generate_kwargs = {"options": {"num_ctx": 8192}}
     provider.models = [
@@ -572,6 +666,7 @@ async def test_fetch_models_model_chat_num_ctx_overrides_provider(
             generate_kwargs={"options": {"num_ctx": 16384}},
         ),
     ]
+    calls = {"ps": 0, "show": 0}
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -581,18 +676,33 @@ async def test_fetch_models_model_chat_num_ctx_overrides_provider(
             return None
 
         async def get(self, url: str):
-            raise AssertionError(
-                "native probes are skipped when chat num_ctx is set",
+            assert url.endswith("/api/ps")
+            calls["ps"] += 1
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": "qwen3:8b",
+                            "model": "qwen3:8b",
+                            "context_length": 16384,
+                        },
+                    ],
+                },
             )
 
         async def post(self, url: str, json: dict):
-            raise AssertionError(
-                "native probes are skipped when chat num_ctx is set",
+            assert url.endswith("/api/show")
+            calls["show"] += 1
+            return _FakeResponse(
+                200,
+                {"model_info": {"qwen3.context_length": 32768}},
             )
 
     _patch_list_and_native(monkeypatch, FakeClient)
     models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected == 16384
+    assert calls == {"ps": 1, "show": 1}
+    assert models[0].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
@@ -638,6 +748,91 @@ async def test_fetch_models_uses_show_when_not_loaded(monkeypatch) -> None:
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected == 8192
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_caps_num_ctx_by_training_context(
+    monkeypatch,
+) -> None:
+    """Persist the clamped Modelfile window, not the raw ``num_ctx``.
+
+    Ollama serves ``min(num_ctx, training context)``. ``/api/ps`` then
+    reports that clamped value, so an unclamped 65536 no longer matches.
+    """
+    provider = _make_provider()
+    loaded_id = "loaded:latest"
+    unloaded_id = "unloaded:latest"
+    zero_id = "zero-cap:latest"
+    missing_id = "missing-cap:latest"
+    invalid_id = "invalid-cap:latest"
+    info_only_id = "info-only:latest"
+    listed = [
+        ModelInfo(id=model_id, name=model_id)
+        for model_id in (
+            loaded_id,
+            unloaded_id,
+            zero_id,
+            missing_id,
+            invalid_id,
+            info_only_id,
+        )
+    ]
+    shows: dict[str, dict[str, Any]] = {
+        loaded_id: {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 32768},
+        },
+        unloaded_id: {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 32768},
+        },
+        zero_id: {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 0},
+        },
+        missing_id: {"parameters": "num_ctx 65536\n"},
+        invalid_id: {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": "nope"},
+        },
+        info_only_id: {"model_info": {"qwen3.context_length": 32768}},
+    }
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            assert url.endswith("/api/ps")
+            return _FakeResponse(
+                200,
+                {
+                    "models": [
+                        {
+                            "name": loaded_id,
+                            "model": loaded_id,
+                            "context_length": 32768,
+                        },
+                    ],
+                },
+            )
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(200, shows[json["model"]])
+
+    _patch_list_and_native(monkeypatch, FakeClient, listed)
+    models = await provider.fetch_models()
+    by_id = {model.id: model for model in models}
+    assert by_id[loaded_id].max_input_length_auto_detected == 32768
+    assert by_id[unloaded_id].max_input_length_auto_detected == 32768
+    assert by_id[zero_id].max_input_length_auto_detected == 65536
+    assert by_id[missing_id].max_input_length_auto_detected == 65536
+    assert by_id[invalid_id].max_input_length_auto_detected == 65536
+    assert by_id[info_only_id].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio

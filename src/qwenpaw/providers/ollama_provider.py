@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import time
@@ -18,6 +19,8 @@ from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
 from qwenpaw.utils.io_utils import run_async_to_completion, run_sync_io
+
+logger = logging.getLogger(__name__)
 
 # Accept any positive context; ModelInfo allows ge=1 on auto_detected.
 _MIN_CONTEXT_TOKENS = 1
@@ -64,42 +67,55 @@ def parse_ollama_served_context_length(raw: Any) -> int | None:
     return None
 
 
-def parse_ollama_chat_num_ctx(generate_kwargs: Any) -> int | None:
-    """Return ``num_ctx`` from chat generate kwargs, if present.
+def parse_ollama_model_training_context(model_info: Any) -> int | None:
+    """Return the smallest positive training context, or None.
 
-    Ollama reads the window from ``options.num_ctx``. A top-level
-    ``num_ctx`` is also accepted so a flat ``generate_kwargs`` override
-    matches the same window we will send on the next request.
+    Collects ``context_length`` and ``*.context_length`` values and
+    parses each with ``parse_ollama_served_context_length``. Zero,
+    bools, floats, and other invalid values are ignored. When several
+    keys are valid, the minimum is the safe cap: Ollama will not serve
+    a window larger than the model's training context.
+
+    This is not a served window. Callers may use it only to clamp an
+    explicit Modelfile ``num_ctx``.
     """
-    if not isinstance(generate_kwargs, dict):
+    if not isinstance(model_info, dict):
         return None
-    options = generate_kwargs.get("options")
-    if isinstance(options, dict):
-        nested = parse_ollama_served_context_length(options.get("num_ctx"))
-        if nested is not None:
-            return nested
-    return parse_ollama_served_context_length(generate_kwargs.get("num_ctx"))
+    found: list[int] = []
+    for key, raw in model_info.items():
+        if not isinstance(key, str):
+            continue
+        if key != "context_length" and not key.endswith(".context_length"):
+            continue
+        parsed = parse_ollama_served_context_length(raw)
+        if parsed is not None:
+            found.append(parsed)
+    if not found:
+        return None
+    return min(found)
 
 
 def resolve_ollama_context_window(
     *,
     show_payload: dict[str, Any] | None = None,
     served_context: int | None = None,
-    chat_num_ctx: int | None = None,
 ) -> int | None:
     """Pick the context window our next chat request will actually use.
 
     Precedence:
 
-    1. ``num_ctx`` in our effective chat options — this is what we send,
-       so compaction must follow it;
-    2. explicit Modelfile ``num_ctx`` from a successful ``/api/show``;
-    3. ``/api/ps`` ``context_length`` only when it matches (1) or (2).
+    1. explicit Modelfile ``num_ctx`` from a successful ``/api/show``,
+       clamped to the training context when that cap is present and
+       greater than 0;
+    2. ``/api/ps`` ``context_length`` only when it equals (1).
 
-    A loaded runner may carry another client's temporary ``num_ctx``.
-    That window is not used for compaction unless it matches the options
-    we will send or the Modelfile default the server will fall back to.
-    If we cannot verify the served window, return ``None``. Do not invent
+    QwenPaw chats through the OpenAI-compatible endpoint, which cannot
+    set Ollama's context size, so chat ``options.num_ctx`` is not a
+    source. A loaded runner may carry another client's temporary
+    ``num_ctx``. That served window is kept only when it matches the
+    clamped Modelfile value the server will fall back to. If there is
+    no explicit Modelfile ``num_ctx``, the served window is discarded
+    and this returns ``None`` (the 128k default remains). Do not invent
     a fallback: ``OLLAMA_CONTEXT_LENGTH`` may be below any guessed
     constant.
 
@@ -114,17 +130,23 @@ def resolve_ollama_context_window(
     ``num_ctx``. This also returns ``None``; the caller must treat it like
     a failed show and retain any previous auto-detected window.
 
-    GGUF ``*.context_length`` is the model's maximum supported context, not
-    the window Ollama is serving. It is not used.
+    GGUF ``*.context_length`` is still not a served window by itself: a
+    show with only ``model_info`` and no ``num_ctx`` returns ``None``.
+    It is used only as a cap on an explicit Modelfile ``num_ctx``.
+    Ollama clamps ``NumCtx`` to that training context, and ``/api/ps``
+    reports the clamped value.
     """
-    chat_context = parse_ollama_served_context_length(chat_num_ctx)
-    if chat_context is not None:
-        return chat_context
     show_context: int | None = None
     if isinstance(show_payload, dict) and not _show_parameters_malformed(
         show_payload,
     ):
         show_context = parse_ollama_num_ctx(show_payload.get("parameters"))
+        if show_context is not None:
+            cap = parse_ollama_model_training_context(
+                show_payload.get("model_info"),
+            )
+            if cap is not None and cap > 0:
+                show_context = min(show_context, cap)
     served = parse_ollama_served_context_length(served_context)
     if served is not None and served == show_context:
         return served
@@ -191,9 +213,8 @@ def _served_context_for(
 ) -> int | None:
     """Return a loaded ``/api/ps`` window for *model*, if present."""
     for alias in _ollama_model_aliases(model.id):
-        if alias not in served:
-            continue
-        return parse_ollama_served_context_length(served[alias])
+        if alias in served:
+            return served[alias]
     return None
 
 
@@ -308,6 +329,15 @@ class OllamaProvider(OpenAIProvider):
         succeeded (and reported no served window). A failed ``/api/ps``
         must not clear a prior window just because show is unknown.
 
+        An explicit Modelfile ``num_ctx`` is clamped to the training
+        context (``context_length`` / ``*.context_length``) when that
+        cap is a positive integer. ``/api/ps`` and ``/api/show`` both
+        run. A served window is kept only when it matches that clamped
+        value. Chat ``generate_kwargs`` ``num_ctx`` is not used: the
+        OpenAI-compatible endpoint cannot set the context size. With no
+        explicit Modelfile ``num_ctx``, the served window is discarded
+        and the 128k default remains.
+
         ``timeout`` is a shared wall-clock deadline for the whole native
         probing stage (``/api/ps`` then ``/api/show``). HTTPX's per-call
         timeout does not cap total response time, so a slow ``/api/ps``
@@ -336,6 +366,10 @@ class OllamaProvider(OpenAIProvider):
         except Exception:
             # Setup failed before probing, or enrichment raised before
             # any result was recorded. Keep the un-enriched list.
+            logger.debug(
+                "Ollama model enrichment failed before probes completed",
+                exc_info=True,
+            )
             return models
         finally:
             if client is not None:
@@ -349,26 +383,14 @@ class OllamaProvider(OpenAIProvider):
     ) -> List[ModelInfo]:
         """Attach verified windows under a shared probing deadline.
 
-        A served ``/api/ps`` window is persisted only when it matches
-        our effective chat ``num_ctx`` or a successful Modelfile
-        ``num_ctx``. Models with an explicit chat ``num_ctx`` use that
-        window and skip native probes. A show that finishes in time is
-        kept; a cancelled show leaves its model unset.
+        ``/api/ps`` and ``/api/show`` both run. A served window is
+        persisted only when it matches the clamped Modelfile
+        ``num_ctx``. A show that finishes in time is kept; a cancelled
+        show leaves its model unset.
         """
         result = [model.model_copy() for model in models]
         deadline = time.monotonic() + timeout
         try:
-            need_show: list[int] = []
-            for index, model in enumerate(result):
-                chat_ctx = self._chat_num_ctx_for_model(model)
-                if chat_ctx is not None:
-                    result[index] = model.model_copy(
-                        update={"max_input_length_auto_detected": chat_ctx},
-                    )
-                    continue
-                need_show.append(index)
-            if not need_show:
-                return result
             served = await self._fetch_served_contexts(
                 client,
                 deadline=deadline,
@@ -379,10 +401,14 @@ class OllamaProvider(OpenAIProvider):
                     client,
                     result,
                     served,
-                    need_show,
+                    list(range(len(result))),
                     remaining,
                 )
         except Exception:
+            logger.debug(
+                "Ollama context enrichment failed",
+                exc_info=True,
+            )
             return result
         return result
 
@@ -433,19 +459,11 @@ class OllamaProvider(OpenAIProvider):
                 try:
                     result[index] = task.result()
                 except Exception:
+                    logger.debug(
+                        "Ollama context probe failed",
+                        exc_info=True,
+                    )
                     continue
-
-    def _chat_num_ctx_for_model(self, model: ModelInfo) -> int | None:
-        """Return the ``num_ctx`` we would send on the next chat request."""
-        kwargs = dict(self.generate_kwargs or {})
-        configured = next(
-            (existing for existing in self.models if existing.id == model.id),
-            None,
-        )
-        source = configured or model
-        if source.generate_kwargs:
-            kwargs = self._deep_merge(kwargs, source.generate_kwargs)
-        return parse_ollama_chat_num_ctx(kwargs)
 
     async def _fetch_served_contexts(
         self,
@@ -464,11 +482,10 @@ class OllamaProvider(OpenAIProvider):
                 response = await client.get(f"{self.base_url}/api/ps")
             response.raise_for_status()
             payload = response.json()
-        except TimeoutError:
-            return _ServedContexts(ok=False, by_name={})
         except Exception:
             # Failure is not "no loaded models": keep ok=False so a later
             # successful unknown show does not clear a prior window.
+            logger.debug("Ollama /api/ps probe failed", exc_info=True)
             return _ServedContexts(ok=False, by_name={})
         # Malformed /api/ps must not abort enrichment: treat as a failed
         # probe (ok=False) so /api/show can still attach a valid num_ctx
@@ -521,6 +538,11 @@ class OllamaProvider(OpenAIProvider):
                 semaphore,
             )
         except Exception:
+            logger.debug(
+                "Ollama context enrichment failed for model %s",
+                model.id,
+                exc_info=True,
+            )
             return model
 
     async def _read_model_context(
@@ -543,6 +565,11 @@ class OllamaProvider(OpenAIProvider):
                     if isinstance(payload, dict):
                         return payload
             except Exception:
+                logger.debug(
+                    "Ollama /api/show probe failed for model %s",
+                    model.id,
+                    exc_info=True,
+                )
                 return None
             return None
 
@@ -555,7 +582,6 @@ class OllamaProvider(OpenAIProvider):
         detected = resolve_ollama_context_window(
             show_payload=show_payload,
             served_context=_served_context_for(model, served.by_name),
-            chat_num_ctx=self._chat_num_ctx_for_model(model),
         )
         if detected is not None:
             return model.model_copy(
