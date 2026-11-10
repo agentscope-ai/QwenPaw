@@ -214,6 +214,9 @@ describe("useCronJobs (#2250 + A#80724854 编辑/批量操作)", () => {
 
       expect(success).toBe(false);
       expect(result.current.jobs).toHaveLength(2);
+      // The rollback must put the row back where it was: the list has no
+      // column sorters, so array order is the order the table renders.
+      expect(result.current.jobs.map((j) => j.id)).toEqual(["job-1", "job-2"]);
       expect(mockMessage.error).toHaveBeenCalledWith("Failed to delete");
     });
 
