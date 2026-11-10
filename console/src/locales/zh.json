@@ -6038,7 +6038,7 @@
     "savedPasswordPlaceholder": "已保存，留空则继续使用原密码",
     "saveAndConnect": "保存并连接",
     "clearPassword": "清除已保存账号密码",
-    "clearPasswordDescription": "清除保存的账号密码，并停止通过密码自动连接（包括部署环境变量中的默认账号）。当前连接会保持到你断开连接或 Token 失效。",
+    "clearPasswordDescription": "清除本实例中加密保存的账号密码，并停止通过密码自动连接。当前连接会保持到你断开连接或 Token 失效。",
     "passwordRejected": "已保存的账号密码验证失败，已暂停自动登录。请在下方输入更新后的账号密码。",
     "passwordPaused": "已暂停通过密码自动连接。点击“保存并连接”可恢复。",
     "passwordUnreadable": "无法解密已保存的凭证，请重新输入账号密码。",

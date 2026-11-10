@@ -7,9 +7,6 @@ Persistence strategy (two layers):
 2. **os.environ** – injected into the current Python process so that
    ``os.getenv()`` and child subprocesses (``subprocess.run``, etc.)
    can read them immediately.
-
-Community credentials are scoped exceptions: stored encrypted in envs.json,
-but never exported to os.environ or returned by generic environment APIs.
 """
 from __future__ import annotations
 
@@ -31,7 +28,6 @@ from .registry import (
     is_bootstrap_protected_env_key,
     is_internal_env_key,
     is_managed_control_key,
-    is_private_env_key,
     validate_unique_env_keys,
 )
 
@@ -47,10 +43,6 @@ _LEGACY_ENVS_JSON_CANDIDATES = (
     _BOOTSTRAP_WORKING_DIR / "envs.json",
 )
 _HOST_ENV_VALUES: dict[str, str | None] = {}
-
-
-class PrivateEnvDecryptionError(RuntimeError):
-    """A service credential cannot be decrypted with the current key."""
 
 
 def _same_path(a: Path, b: Path) -> bool:
@@ -124,11 +116,7 @@ def _apply_to_environ(
     """
     seen: set[str] = set()
     for key, value in envs.items():
-        if (
-            is_internal_env_key(key)
-            or is_managed_control_key(key)
-            or is_private_env_key(key)
-        ):
+        if is_internal_env_key(key) or is_managed_control_key(key):
             continue
         identity = env_key_identity(key)
         if identity in seen:
@@ -208,7 +196,6 @@ def _load_envs_unlocked(
     path: Path,
     *,
     fail_on_os_error: bool = False,
-    strict_private: bool = False,
 ) -> dict[str, str]:
     if path.exists() and not path.is_file():
         logger.error(
@@ -226,13 +213,6 @@ def _load_envs_unlocked(
         raw = {k: str(v) for k, v in data.items()}
         has_plaintext = any(v and not is_encrypted(v) for v in raw.values())
         decrypted = {k: decrypt(v) for k, v in raw.items()}
-        if strict_private and any(
-            is_private_env_key(k) and is_encrypted(v) and decrypted[k] == v
-            for k, v in raw.items()
-        ):
-            raise PrivateEnvDecryptionError(
-                "Cannot decrypt community credentials",
-            )
         if has_plaintext:
             _rewrite_encrypted(path, decrypted)
         return decrypted
@@ -252,7 +232,7 @@ def _load_envs_unlocked(
 def load_envs(
     path: Optional[Path] = None,
 ) -> dict[str, str]:
-    """Load non-private env vars, decrypting values transparently.
+    """Load env vars from envs.json, decrypting values transparently.
 
     Legacy plaintext values are detected and re-encrypted on disk.
     """
@@ -260,45 +240,7 @@ def load_envs(
     with get_sync_path_lock(path):
         if migrate_legacy:
             _migrate_legacy_envs_json(path)
-        return _public_envs(_load_envs_unlocked(path))
-
-
-def _public_envs(envs: dict[str, str]) -> dict[str, str]:
-    return {k: v for k, v in envs.items() if not is_private_env_key(k)}
-
-
-def load_private_envs() -> dict[str, str]:
-    """Internal service access; excluded from generic APIs and tool exports."""
-    path = get_envs_json_path()
-    with get_sync_path_lock(path):
-        envs = _load_envs_unlocked(
-            path,
-            fail_on_os_error=True,
-            strict_private=True,
-        )
-        return {k: v for k, v in envs.items() if is_private_env_key(k)}
-
-
-def update_private_envs(updates: dict[str, str | None]) -> None:
-    """Atomically update service credentials without exporting them."""
-    if any(not is_private_env_key(key) for key in updates):
-        raise ValueError("Not a private environment key")
-    path = get_envs_json_path()
-    with get_sync_path_lock(path):
-        _migrate_legacy_envs_json(path)
-        old = _load_envs_unlocked(path, fail_on_os_error=True)
-        envs = dict(old)
-        for key, value in updates.items():
-            if value is None:
-                envs.pop(key, None)
-            else:
-                envs[key] = value
-        _save_envs_unlocked(envs, path, old=old, plaintext_keys=set(updates))
-
-
-def _reject_private_updates(keys) -> None:
-    if any(is_private_env_key(key) for key in keys):
-        raise ValueError("Community credentials must use community settings")
+        return _load_envs_unlocked(path)
 
 
 def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
@@ -320,7 +262,6 @@ def _save_envs_unlocked(
     path: Path,
     *,
     old: dict[str, str],
-    plaintext_keys: set[str] | None = None,
 ) -> None:
     validate_unique_env_keys(envs)
     for key, value in envs.items():
@@ -336,23 +277,9 @@ def _save_envs_unlocked(
         )
     _prepare_secret_parent(path)
     encrypted = {
-        k: encrypt(v)
-        if v and (k in (plaintext_keys or set()) or not is_encrypted(v))
-        else v
+        k: encrypt(v) if v and not is_encrypted(v) else v
         for k, v in envs.items()
     }
-    # Keep untouched scoped ciphertext, including values encrypted with a
-    # temporarily unavailable key. Plaintext passwords may start with ENC: too.
-    if path.is_file():
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        for key, value in envs.items():
-            if (
-                is_private_env_key(key)
-                and key not in (plaintext_keys or set())
-                and key in raw
-                and value == old.get(key)
-            ):
-                encrypted[key] = raw[key]
     _chmod_best_effort(path, 0o600)
     write_json_atomic(path, encrypted)
     _sync_environ(old, envs)
@@ -363,14 +290,12 @@ def save_envs(
     path: Optional[Path] = None,
 ) -> None:
     """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
-    _reject_private_updates(envs)
     path, migrate_legacy = _resolve_envs_path(path)
     with get_sync_path_lock(path):
         if migrate_legacy:
             _migrate_legacy_envs_json(path)
         old = _load_envs_unlocked(path, fail_on_os_error=True)
-        private = {k: v for k, v in old.items() if is_private_env_key(k)}
-        _save_envs_unlocked({**envs, **private}, path, old=old)
+        _save_envs_unlocked(envs, path, old=old)
 
 
 def set_env_var(
@@ -378,7 +303,6 @@ def set_env_var(
     value: str,
 ) -> dict[str, str]:
     """Set a single env var. Returns updated dict."""
-    _reject_private_updates([key])
     path = get_envs_json_path()
     with get_sync_path_lock(path):
         _migrate_legacy_envs_json(path)
@@ -386,24 +310,22 @@ def set_env_var(
         envs = dict(old)
         envs[key] = value
         _save_envs_unlocked(envs, path, old=old)
-        return _public_envs(envs)
+        return envs
 
 
 def update_env_vars(updates: dict[str, str]) -> dict[str, str]:
     """Merge multiple values atomically and return the persisted mapping."""
-    _reject_private_updates(updates)
     path = get_envs_json_path()
     with get_sync_path_lock(path):
         _migrate_legacy_envs_json(path)
         old = _load_envs_unlocked(path, fail_on_os_error=True)
         envs = {**old, **updates}
         _save_envs_unlocked(envs, path, old=old)
-        return _public_envs(envs)
+        return envs
 
 
 def delete_env_var(key: str) -> dict[str, str]:
     """Delete a single env var. Returns updated dict."""
-    _reject_private_updates([key])
     path = get_envs_json_path()
     with get_sync_path_lock(path):
         _migrate_legacy_envs_json(path)
@@ -411,7 +333,7 @@ def delete_env_var(key: str) -> dict[str, str]:
         envs = dict(old)
         envs.pop(key, None)
         _save_envs_unlocked(envs, path, old=old)
-        return _public_envs(envs)
+        return envs
 
 
 def load_envs_into_environ() -> dict[str, str]:
@@ -423,7 +345,7 @@ def load_envs_into_environ() -> dict[str, str]:
     persisted values override existing process/system values.
 
     Returns:
-        Non-private mapping from envs.json, including protected keys
+        Full persisted mapping from envs.json, including protected keys
         that are intentionally not injected into ``os.environ``.
     """
     from qwenpaw.backup._utils.safe_swap import (

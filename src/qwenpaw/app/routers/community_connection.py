@@ -16,6 +16,7 @@ from ..community_connection import (
 )
 from ..auth import runtime_token_matches
 from ...plugins.browser_access import PAWAPP_SCOPE_HEADER
+from ...utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER, https_origin
 
 router = APIRouter(prefix="/community/connection", tags=["community"])
 
@@ -74,17 +75,27 @@ def password_login_allowed(request: Request) -> bool:
         return False
     if is_local_request(request):
         return True
+    expected = os.getenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "")
+    if expected:
+        if not runtime_token_matches(
+            expected,
+            request.headers.get("x-qwenpaw-runtime-token", ""),
+        ):
+            return False
+        # Runtime proxy headers describe the internal hop, not the browser's
+        # connection. Managed password login requires Hub's verified entry.
+        canonical = https_origin(
+            request.headers.get(HUB_PUBLIC_ORIGIN_HEADER, ""),
+        )
+        origin = request.headers.get("origin")
+        return bool(canonical) and (
+            origin is None or https_origin(origin) == canonical
+        )
     if request.url.scheme != "https":
         return False
     origin = request.headers.get("origin")
     if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
         return False
-    expected = os.getenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "")
-    if expected:
-        return runtime_token_matches(
-            expected,
-            request.headers.get("x-qwenpaw-runtime-token", ""),
-        )
     return bool(getattr(request.state, "user", None))
 
 

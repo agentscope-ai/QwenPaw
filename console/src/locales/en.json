@@ -6022,7 +6022,7 @@
     "savedPasswordPlaceholder": "Saved · leave blank to keep the current password",
     "saveAndConnect": "Save and connect",
     "clearPassword": "Forget saved credentials",
-    "clearPasswordDescription": "Remove saved credentials and stop automatic password login, including deployment environment defaults. The current connection remains active until you disconnect or its tokens expire.",
+    "clearPasswordDescription": "Remove the encrypted credentials saved on this instance and stop automatic password login. The current connection remains active until you disconnect or its tokens expire.",
     "passwordRejected": "Saved credentials were rejected. Automatic password login is paused; enter your updated credentials below.",
     "passwordPaused": "Automatic password login is paused. Save and connect to resume.",
     "passwordUnreadable": "Saved credentials could not be decrypted. Enter them again to replace them.",
