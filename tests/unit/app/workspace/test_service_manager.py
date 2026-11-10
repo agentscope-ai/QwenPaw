@@ -17,6 +17,7 @@ from qwenpaw.app.workspace.service_manager import (
 )
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.app.workspace.workspace import _memory_manager_reuse_compatible
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.constant import WORKING_DIR
 from qwenpaw.memory import MemoryBackendContext
 
@@ -32,7 +33,7 @@ def workspace(monkeypatch, tmp_path) -> Workspace:
     instance._service_manager = ServiceManager(instance)
     monkeypatch.setattr(
         "qwenpaw.app.workspace.workspace.load_agent_config",
-        lambda _agent_id: SimpleNamespace(),
+        lambda agent_id: AgentProfileConfig(id=agent_id, name="Agent"),
     )
     monkeypatch.setattr(instance, "_migrate_legacy_weixin_data", lambda: None)
     return instance

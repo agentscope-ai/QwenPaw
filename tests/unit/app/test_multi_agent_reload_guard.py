@@ -21,10 +21,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
+from qwenpaw.config.config import AgentProfileConfig
 
 
 def _fake_workspace() -> MagicMock:
     ws = MagicMock()
+    ws.config = AgentProfileConfig(id="agent", name="Agent")
+    ws.config.running.light_context_config.strategy = "native"
+    ws.start_history_retention = AsyncMock()
     ws.start = AsyncMock()
     ws.stop = AsyncMock()
     ws.cancel_active_requests = AsyncMock()

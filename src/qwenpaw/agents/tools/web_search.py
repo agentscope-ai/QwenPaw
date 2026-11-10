@@ -3,8 +3,8 @@
 # pylint: disable=line-too-long
 """Web search and fetch tools.
 
-web_search delegates to a pluggable search provider (Tavily by
-default, AnySearch or Firecrawl when the per-agent Console config
+web_search delegates to a pluggable search provider (AnySearch by
+default, Tavily or Firecrawl when the per-agent Console config
 selects them).
 web_fetch uses direct HTTP GET + a stdlib HTML-to-Markdown converter.
 """
