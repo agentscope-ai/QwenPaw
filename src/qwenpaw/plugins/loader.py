@@ -274,22 +274,6 @@ def _prepare_plugin_site_path(site_dir, path_snapshot):
         # remains responsible for reporting invalid runtime policy.
         return None
     paths = list(path_snapshot)
-    if (
-        target.parent.name.startswith("bundle-")
-        and target.parent.parent.parent == _plugin_runtime_dir()
-    ):
-        bucket = target.parent.parent.resolve()
-        active = target.resolve()
-        paths = []
-        for entry in path_snapshot:
-            path = Path(_norm_realpath(entry))
-            managed = path == bucket / "site" or (
-                path.name == "site"
-                and path.parent.name.startswith("bundle-")
-                and path.parent.parent == bucket
-            )
-            if not managed or path == active:
-                paths.append(entry)
     site = str(target)
     if site not in paths:
         paths.insert(0, site)
