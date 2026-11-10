@@ -220,6 +220,7 @@ class DependencyReadEvidence:
     prefix: str
     sites: tuple[str, ...]
     marker_environment: Mapping[str, str]
+    supported_tags: tuple[str, ...]
     versions: Mapping[str, str | None]
     dependency_sites: tuple[str, ...]
     warnings: tuple[str, ...] = ()
@@ -227,12 +228,13 @@ class DependencyReadEvidence:
     def to_mapping(self):
         return {
             "evidence_kind": "read",
-            "evidence_version": 1,
+            "evidence_version": 2,
             "executable": self.executable,
             "prefix": self.prefix,
             "sites": list(self.sites),
             "dependency_sites": list(self.dependency_sites),
             "marker_environment": dict(self.marker_environment),
+            "supported_tags": list(self.supported_tags),
             "versions": dict(self.versions),
             "warnings": list(self.warnings),
         }
@@ -247,6 +249,7 @@ class DependencyReadEvidence:
             "sites",
             "dependency_sites",
             "marker_environment",
+            "supported_tags",
             "versions",
             "warnings",
         }
@@ -255,7 +258,7 @@ class DependencyReadEvidence:
             or set(value) != fields
             or value["evidence_kind"] != "read"
             or type(value["evidence_version"]) is not int
-            or value["evidence_version"] != 1
+            or value["evidence_version"] != 2
         ):
             raise dependency_error()
         for name in ("executable", "prefix"):
@@ -264,7 +267,12 @@ class DependencyReadEvidence:
                 or not Path(value[name]).is_absolute()
             ):
                 raise dependency_error()
-        for name in ("sites", "dependency_sites", "warnings"):
+        for name in (
+            "sites",
+            "dependency_sites",
+            "supported_tags",
+            "warnings",
+        ):
             if (
                 not isinstance(value[name], list)
                 or len(value[name]) > 10000
@@ -301,6 +309,7 @@ class DependencyReadEvidence:
             value["prefix"],
             tuple(value["sites"]),
             dict(environment),
+            tuple(value["supported_tags"]),
             dict(versions),
             tuple(value["dependency_sites"]),
             tuple(value["warnings"]),
@@ -898,6 +907,7 @@ def observe_dependencies(
             sys.prefix,
             view.sites,
             view.marker_environment,
+            tuple(str(tag) for tag in sys_tags()),
             {
                 name: view.distributions.get(name, {}).get("version")
                 for name in relevant
