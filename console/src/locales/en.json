@@ -5998,7 +5998,7 @@
     "reopen": "Reopen authorization page",
     "invalidAuthorization": "Invalid community authorization address. Please retry.",
     "not_configured": "Community account connection is not enabled for this deployment.",
-    "unsupported_remote": "Open this page on the computer running QwenPaw to connect your community account.",
+    "unsupported_remote": "Remote connection requires HTTPS and an authenticated QwenPaw owner session. Browser authorization is also available on the computer running QwenPaw.",
     "syncTitle": "Message sync",
     "syncDescription": "Sync comments, resource mentions, interactions, feedback and notifications from Platform My Messages to your inbox.",
     "messagesUnavailable": "Message sync is disabled for this QwenPaw instance. Your account is still connected.",
@@ -6014,7 +6014,19 @@
       "interactions": "Interactions",
       "feedback": "Feedback",
       "notifications": "Notifications"
-    }
+    },
+    "passwordTitle": "Connect with account and password",
+    "passwordHelp": "Enter once to remember this account on this QwenPaw instance. Saved credentials are encrypted. You can replace them here after your account or password changes.",
+    "loginAccount": "Platform account (email)",
+    "loginPassword": "Password",
+    "savedPasswordPlaceholder": "Saved · leave blank to keep the current password",
+    "saveAndConnect": "Save and connect",
+    "clearPassword": "Forget saved credentials",
+    "clearPasswordDescription": "Remove saved credentials and stop automatic password login, including deployment environment defaults. The current connection remains active until you disconnect or its tokens expire.",
+    "passwordRejected": "Saved credentials were rejected. Automatic password login is paused; enter your updated credentials below.",
+    "passwordPaused": "Automatic password login is paused. Save and connect to resume.",
+    "passwordUnreadable": "Saved credentials could not be decrypted. Enter them again to replace them.",
+    "browserConnect": "Authorize in browser"
   },
   "communityReport": {
     "title": "Improve the report: {{name}}",
@@ -6209,7 +6221,10 @@
     "openFailed": "Could not open the system browser. Retry or check your default browser settings.",
     "service": "The community service is temporarily unavailable. Try again later.",
     "network": "Cannot reach the community service. Check the network on the device running QwenPaw and retry.",
-    "unavailable": "The operation could not be completed. Please try again."
+    "unavailable": "The operation could not be completed. Please try again.",
+    "credentialsRejected": "Account or password was rejected. Check your credentials and try again; your existing connection has not been replaced.",
+    "credentialsRequired": "Enter an account and password. Changing accounts requires a new password.",
+    "passwordUnavailable": "Remote password login requires HTTPS and an authenticated QwenPaw owner session."
   },
   "communityDrafts": {
     "title": "Drafts",

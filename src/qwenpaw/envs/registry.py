@@ -187,6 +187,15 @@ def is_internal_env_key(key: str) -> bool:
     return env_key_identity(key) in _INTERNAL_KEYS
 
 
+def is_private_env_key(key: str) -> bool:
+    """Credentials owned by the community service, never exported to tools."""
+    return env_key_identity(key) in {
+        "QWENPAW_COMMUNITY_ACCOUNT",
+        "QWENPAW_COMMUNITY_PASSWORD",
+        "QWENPAW_COMMUNITY_CREDENTIAL_STATE",
+    }
+
+
 def is_bootstrap_protected_env_key(key: str) -> bool:
     """Return whether persisted data must not override a startup value."""
     return env_key_identity(key) in _PROTECTED_BOOTSTRAP_KEYS
@@ -214,7 +223,11 @@ def validate_env_key(key: str) -> None:
         raise ValueError(
             f"QwenPaw environment variable must be uppercase: {key}",
         )
-    if is_internal_env_key(key) or is_managed_control_key(key):
+    if (
+        is_internal_env_key(key)
+        or is_managed_control_key(key)
+        or is_private_env_key(key)
+    ):
         raise ValueError(f"Environment variable is managed internally: {key}")
     spec = ENV_VAR_SPECS_BY_KEY.get(identity)
     if spec is not None and not spec.editable:
