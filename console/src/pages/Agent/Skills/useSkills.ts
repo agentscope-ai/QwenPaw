@@ -24,9 +24,26 @@ type SkillActionResult =
   | {
       success: false;
       conflict?: {
+        reason?: string;
+        conflict_kind?: string;
         suggested_name?: string;
         skill_name?: string;
-        conflicts?: { suggested_name?: string; skill_name?: string }[];
+        message?: string;
+        selected_rel_path?: string;
+        source_rel_path?: string;
+        destination_rel_path?: string;
+        shadowed_rel_paths?: string[];
+        conflicts?: {
+          reason?: string;
+          conflict_kind?: string;
+          suggested_name?: string;
+          skill_name?: string;
+          message?: string;
+          selected_rel_path?: string;
+          source_rel_path?: string;
+          destination_rel_path?: string;
+          shadowed_rel_paths?: string[];
+        }[];
       };
     };
 
@@ -516,7 +533,9 @@ export function useSkills() {
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
         title: t("common.confirm"),
-        content: t("skills.deleteConfirm"),
+        content: skill.rel_path
+          ? `${t("skills.deleteConfirm")}\n${skill.rel_path}`
+          : t("skills.deleteConfirm"),
         okText: t("common.delete"),
         okType: "danger",
         cancelText: t("common.cancel"),

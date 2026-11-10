@@ -1225,17 +1225,48 @@ export function useSkillPool() {
           );
           break;
         }
+        // A skill nested inside another skill cannot be fixed by renaming
+        // the leaf: report the rejected destination instead of looping.
+        const blocked = conflicts.filter(
+          (c: { conflict_kind?: string }) => c.conflict_kind === "inside_skill",
+        );
+        if (blocked.length > 0) {
+          message.error(
+            blocked
+              .map(
+                (c: {
+                  skill_name?: string;
+                  source_rel_path?: string;
+                  destination_rel_path?: string;
+                  message?: string;
+                }) =>
+                  c.message ||
+                  `${c.source_rel_path || c.skill_name} → ${
+                    c.destination_rel_path || ""
+                  }`,
+              )
+              .join("; "),
+          );
+          break;
+        }
+        const renameable = conflicts.filter(
+          (c: { skill_name?: string; suggested_name?: string }) =>
+            Boolean(c.skill_name && c.suggested_name),
+        );
+        if (renameable.length === 0) break;
         const newRenames = await showConflictRenameModal(
-          conflicts.map(
+          renameable.map(
             (c: {
               skill_name?: string;
               suggested_name?: string;
+              selected_rel_path?: string;
               source_rel_path?: string;
               destination_rel_path?: string;
             }) => ({
               key: c.source_rel_path || c.skill_name || "",
               label: c.source_rel_path || c.skill_name || "",
               suggested_name: c.suggested_name || "",
+              selected_rel_path: c.selected_rel_path,
               source_rel_path: c.source_rel_path,
               destination_rel_path: c.destination_rel_path,
             }),

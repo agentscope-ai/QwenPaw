@@ -839,3 +839,178 @@ def test_zip_conflicts_expose_source_specific_keys(tmp_path: Path) -> None:
     assert sorted(retry["imported"]) == ["foo-a", "foo-b"]
     assert (skills / "a/foo-a/SKILL.md").exists()
     assert (skills / "b/foo-b/SKILL.md").exists()
+
+
+# ---------------------------------------------------------------------------
+# Second review round — destination policy across the remaining entry points
+# ---------------------------------------------------------------------------
+
+
+def test_upload_preview_reports_conflict_with_actual_paths(pool_env) -> None:
+    """Upload must ask before replacing a Pool identity, and show where."""
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "a/foo", "foo", body="POOL")
+    skill_registry.reconcile_pool_manifest()
+    _mk_skill(workspace / "skills", "b/foo", "foo", body="WS-EDIT")
+    reconcile_workspace_manifest(workspace)
+
+    preview = service.upload_from_workspace(
+        workspace,
+        "foo",
+        preview_only=True,
+    )
+
+    assert preview["success"] is False
+    assert preview["conflict_kind"] == "identity_exists"
+    assert preview["source_rel_path"] == "b/foo"
+    assert preview["destination_rel_path"] == "a/foo"
+    assert preview["selected_rel_path"] == "a/foo"
+    assert "POOL" in (pool_dir / "a/foo" / "SKILL.md").read_text(
+        encoding="utf-8",
+    )
+    assert not (pool_dir / "b/foo").exists()
+
+    confirmed = service.upload_from_workspace(
+        workspace,
+        "foo",
+        overwrite=True,
+    )
+    assert confirmed["success"] is True
+    assert "WS-EDIT" in (pool_dir / "a/foo" / "SKILL.md").read_text(
+        encoding="utf-8",
+    )
+    assert not (pool_dir / "b/foo").exists()
+
+
+def test_legacy_manifest_write_targets_the_flat_copy(pool_env) -> None:
+    """Reads and writes must agree on a legacy manifest's flat copy."""
+    service, pool_dir, workspace = pool_env
+    _mk_skill(pool_dir, "b/foo", "foo", body="NEW")
+    skill_registry.reconcile_pool_manifest()
+    skills = workspace / "skills"
+    _mk_skill(skills, "foo", "foo", body="FLAT")
+    _mk_skill(skills, "a/foo", "foo", body="A")
+    _write_manifest(
+        workspace,
+        {
+            "foo": {
+                "enabled": True,
+                "channels": ["all"],
+                "source": "customized",
+            },
+        },
+    )
+
+    planned = service.plan_download("foo", workspace)
+    assert planned["destination_rel_path"] == "foo"
+    assert planned["selected_rel_path"] == "foo"
+
+    result = service.download_to_workspace(
+        "foo",
+        workspace,
+        overwrite=True,
+    )
+    assert result["success"] is True
+    assert "NEW" in (skills / "foo" / "SKILL.md").read_text(encoding="utf-8")
+    assert "A" in (skills / "a/foo" / "SKILL.md").read_text(encoding="utf-8")
+    assert _read_manifest(workspace)["skills"]["foo"]["rel_path"] == "foo"
+
+
+def test_zip_import_rejects_destination_inside_a_skill(tmp_path: Path) -> None:
+    """a/foo cannot live inside a/ when a/ is itself a skill."""
+    skills = tmp_path / "skills"
+    _mk_skill(skills, "a", "a", body="A")
+    reconcile_workspace_manifest(tmp_path)
+
+    result = SkillService(tmp_path).import_from_zip(
+        _zip({"a/foo/SKILL.md": _skill_md("foo")}),
+    )
+
+    assert result["imported"] == []
+    conflict = result["conflicts"][0]
+    assert conflict["conflict_kind"] == "inside_skill"
+    assert conflict["destination_rel_path"] == "a/foo"
+    # Renaming the leaf cannot lift the skill out of ``a``.
+    assert "suggested_name" not in conflict
+    assert not (skills / "a/foo").exists()
+
+
+def test_external_rename_keeps_its_root(pool_env, monkeypatch) -> None:
+    """Renaming an external skill must not move it into the primary Pool."""
+    service, pool_dir, _workspace = pool_env
+    extra_root = pool_dir.parent / "extra-root"
+    extra = _mk_skill(extra_root, "foo", "foo", body="EXT")
+    roots = [pool_dir, extra_root]
+    monkeypatch.setattr(
+        skill_pool_service,
+        "get_skill_pool_dirs",
+        lambda: list(roots),
+    )
+    monkeypatch.setattr(
+        skill_pool_service,
+        "is_primary_pool_skill_dir",
+        lambda path: Path(path)
+        .resolve()
+        .is_relative_to(
+            pool_dir.resolve(),
+        ),
+    )
+    from qwenpaw.agents.skill_system import store as skill_store
+
+    monkeypatch.setattr(
+        skill_store,
+        "get_skill_pool_dirs",
+        lambda: list(roots),
+    )
+    monkeypatch.setattr(
+        skill_store,
+        "get_extra_skill_dirs",
+        lambda: [extra_root],
+    )
+    monkeypatch.setattr(
+        skill_registry,
+        "get_skill_pool_dirs",
+        lambda: list(roots),
+    )
+    skill_registry.reconcile_pool_manifest()
+    entry = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )[
+        "skills"
+    ]["foo"]
+    assert entry["external"] is True
+    assert "rel_path" not in entry
+    assert resolve_pool_skill_dir("foo") == extra
+
+    result = service.save_pool_skill(
+        skill_name="foo",
+        target_name="bar",
+        content=_skill_md("bar", "EXT2"),
+    )
+
+    assert result["success"] is True
+    assert (extra_root / "bar" / "SKILL.md").exists()
+    assert not (extra_root / "foo").exists()
+    assert not (pool_dir / "bar").exists()
+    new_entry = json.loads(
+        (pool_dir / "skill.json").read_text(encoding="utf-8"),
+    )["skills"]["bar"]
+    assert new_entry["external"] is True
+    assert "rel_path" not in new_entry
+
+
+def test_pool_zip_import_rejects_destination_inside_a_skill(pool_env) -> None:
+    """The Pool follows the same rule: a/foo cannot live inside skill a."""
+    service, pool_dir, _workspace = pool_env
+    _mk_skill(pool_dir, "a", "a", body="A")
+    skill_registry.reconcile_pool_manifest()
+
+    result = service.import_from_zip(
+        _zip({"a/foo/SKILL.md": _skill_md("foo")}),
+    )
+
+    assert result["imported"] == []
+    conflict = result["conflicts"][0]
+    assert conflict["conflict_kind"] == "inside_skill"
+    assert "suggested_name" not in conflict
+    assert not (pool_dir / "a/foo").exists()

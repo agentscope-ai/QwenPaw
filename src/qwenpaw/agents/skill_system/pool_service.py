@@ -47,7 +47,6 @@ from .store import (
     mutate_pool_manifest,
     manifest_rel_path,
     normalize_skill_dir_name,
-    plan_skill_write,
     read_json,
     read_pool_skill_automation,
     read_skill_from_dir,
@@ -62,9 +61,12 @@ from .store import (
     safe_skill_dir,
     safe_nested_skill_dir,
     scan_skill_dir_or_raise,
+    selected_skill_rel,
+    shadowed_skill_rel_paths,
     staged_skill_dir,
     suggest_conflict_name,
     validate_skill_content,
+    validate_skill_destination,
     write_pool_skill_automation,
     write_skill_to_dir,
 )
@@ -371,8 +373,30 @@ class SkillPoolService:
                 identity_occupied = (
                     existing is not None or skill_name in on_disk_by_name
                 )
-                destination_occupied = (pool_dir / dest_rel).exists()
-                if identity_occupied or destination_occupied:
+                if identity_occupied:
+                    conflict = build_import_conflict(
+                        skill_name,
+                        taken,
+                        selected=current_rel,
+                        source_rel_path=source_rel,
+                        destination_rel_path=dest_rel,
+                        shadowed_rel_paths=shadowed,
+                    )
+                    conflicts.append(conflict)
+                    taken.add(str(conflict["suggested_name"]))
+                    continue
+                destination_conflict = validate_skill_destination(
+                    pool_dir,
+                    dest_rel,
+                    skill_name,
+                    source_rel_path=source_rel,
+                    shadowed_rel_paths=shadowed,
+                )
+                if destination_conflict is not None:
+                    inside_skill = (
+                        destination_conflict.get("conflict_kind")
+                        == "inside_skill"
+                    )
                     conflict = build_import_conflict(
                         skill_name,
                         taken,
@@ -381,13 +405,17 @@ class SkillPoolService:
                         destination_rel_path=dest_rel,
                         shadowed_rel_paths=shadowed,
                         kind=(
-                            "identity_exists"
-                            if identity_occupied
+                            "inside_skill"
+                            if inside_skill
                             else "destination_occupied"
                         ),
+                        # Renaming the leaf cannot lift a skill out of an
+                        # occupied parent, so leave the rename dialog out.
+                        suggested_name="" if inside_skill else None,
                     )
                     conflicts.append(conflict)
-                    taken.add(str(conflict["suggested_name"]))
+                    if conflict.get("suggested_name"):
+                        taken.add(str(conflict["suggested_name"]))
                     continue
                 planned.append((skill_dir, skill_name, dest_rel))
             if conflicts:
@@ -664,41 +692,107 @@ class SkillPoolService:
                 "name": skill_name,
             }
 
-        existing = manifest.get("skills", {}).get(normalized_target)
-        found_target = resolve_skill_dir(
-            get_skill_pool_dir(),
+        plan = self._plan_pool_rename(
+            skill_name,
             normalized_target,
-            manifest_rel_path(existing, normalized_target),
+            overwrite=overwrite,
         )
-        destination_occupied = found_target is not None and existing is None
-        if (existing is not None or destination_occupied) and not overwrite:
-            conflict = build_skill_conflict(
+        if not plan["success"]:
+            conflict = dict(plan["conflict"])
+            conflict["suggested_name"] = suggest_conflict_name(
                 normalized_target,
-                kind=(
-                    "identity_exists"
-                    if existing is not None
-                    else "destination_occupied"
-                ),
-                selected_rel_path=manifest_rel_path(
-                    existing,
-                    normalized_target,
-                ),
-                destination_rel_path=(
-                    rel_path_of(get_skill_pool_dir(), found_target)
-                    if found_target is not None
-                    else normalized_target
-                ),
-                suggested_name=suggest_conflict_name(
-                    normalized_target,
-                    pool_names,
-                ),
-                extra={"mode": "rename"},
+                pool_names,
             )
+            conflict["mode"] = "rename"
             return {**conflict, "success": False}
         return {
             "success": True,
             "mode": "rename",
             "name": normalized_target,
+            "source_rel_path": plan["source_rel_path"],
+            "destination_rel_path": plan["destination_rel_path"],
+        }
+
+    def _plan_pool_rename(
+        self,
+        skill_name: str,
+        target_name: str,
+        *,
+        overwrite: bool,
+    ) -> dict[str, Any]:
+        """Resolve a Pool rename's source and destination.
+
+        Renaming keeps the skill in the root it already lives in: a nested
+        skill stays under its category, an external skill stays in its
+        external root. The destination is the target identity's selected
+        copy when one exists; only a free target changes the leaf directory.
+        """
+        pool_dir = get_skill_pool_dir()
+        source_dir = resolve_pool_skill_dir_checked(
+            skill_name,
+        ) or safe_skill_dir(pool_dir, skill_name)
+        external = not is_primary_pool_skill_dir(source_dir)
+        source_root = source_dir.parent if external else pool_dir
+        source_rel = (
+            source_dir.name if external else rel_path_of(pool_dir, source_dir)
+        )
+        selected_dir = resolve_pool_skill_dir(target_name)
+        if selected_dir is not None:
+            selected_external = not is_primary_pool_skill_dir(selected_dir)
+            selected_rel = (
+                selected_dir.name
+                if selected_external
+                else rel_path_of(pool_dir, selected_dir)
+            )
+            conflict = build_skill_conflict(
+                target_name,
+                selected_rel_path=selected_rel,
+                source_rel_path=source_rel,
+                destination_rel_path=selected_rel,
+                shadowed_rel_paths=shadowed_skill_rel_paths(
+                    pool_dir,
+                    target_name,
+                    selected_rel,
+                ),
+            )
+            if not overwrite:
+                return {
+                    "success": False,
+                    "conflict": conflict,
+                    "source_dir": source_dir,
+                    "source_rel_path": source_rel,
+                    "destination_rel_path": selected_rel,
+                    "target_dir": selected_dir,
+                    "external": selected_external,
+                }
+            return {
+                "success": True,
+                "conflict": None,
+                "source_dir": source_dir,
+                "source_rel_path": source_rel,
+                "destination_rel_path": selected_rel,
+                "target_dir": selected_dir,
+                "external": selected_external,
+            }
+        target_rel = (
+            target_name
+            if external
+            else renamed_skill_rel_path(source_rel, target_name)
+        )
+        conflict = validate_skill_destination(
+            source_root,
+            target_rel,
+            target_name,
+            source_rel_path=source_rel,
+        )
+        return {
+            "success": conflict is None,
+            "conflict": conflict,
+            "source_dir": source_dir,
+            "source_rel_path": source_rel,
+            "destination_rel_path": target_rel,
+            "target_dir": safe_nested_skill_dir(source_root, target_rel),
+            "external": external,
         }
 
     def save_pool_skill(
@@ -823,43 +917,21 @@ class SkillPoolService:
         config: dict[str, Any] | None,
         entry: dict[str, Any],
     ) -> dict[str, Any]:
-        pool_dir = get_skill_pool_dir()
-        old_skill_dir = resolve_pool_skill_dir_checked(skill_name) or (
-            safe_skill_dir(
-                pool_dir,
-                skill_name,
-            )
-        )
-        old_rel = manifest_rel_path(entry, skill_name)
-        if not old_rel and old_skill_dir.exists():
-            old_rel = rel_path_of(pool_dir.resolve(), old_skill_dir.resolve())
-        entries = read_skill_pool_manifest().get("skills", {})
-        # A rename to an existing target updates that selected copy instead
-        # of creating a second one under the source category.
-        plan = plan_skill_write(
-            pool_dir,
-            entries,
+        plan = self._plan_pool_rename(
+            skill_name,
             final_name,
-            renamed_skill_rel_path(old_rel, final_name)
-            if old_rel
-            else final_name,
-            mode="rename",
-            source_rel=old_rel,
+            overwrite=True,
         )
-        conflict = plan.conflict or {}
-        if conflict.get("conflict_kind") == "destination_occupied":
+        if not plan["success"]:
             return {
-                **conflict,
+                **(plan["conflict"] or {}),
                 "success": False,
                 "mode": "rename",
                 "name": final_name,
             }
-        target_rel = plan.rel_path or (
-            renamed_skill_rel_path(old_rel, final_name)
-            if old_rel
-            else final_name
-        )
-        skill_dir = safe_nested_skill_dir(pool_dir, target_rel)
+        old_skill_dir = plan["source_dir"]
+        target_rel = plan["destination_rel_path"]
+        skill_dir = plan["target_dir"]
 
         with staged_skill_dir(final_name) as staged_dir:
             if old_skill_dir.exists():
@@ -979,38 +1051,32 @@ class SkillPoolService:
                     agent_id,
                 )
                 continue
-            old_rel = manifest_rel_path(old_entry, old_name)
-            if not old_rel and old_dir.exists():
-                old_rel = rel_path_of(workspace_skills_dir, old_dir)
-            plan = plan_skill_write(
+            old_rel = rel_path_of(workspace_skills_dir, old_dir)
+            target_rel = selected_skill_rel(
                 workspace_skills_dir,
-                skills,
                 new_name,
-                renamed_skill_rel_path(old_rel, new_name)
-                if old_rel
-                else new_name,
-                mode="rename",
-                source_rel=old_rel,
+                skills.get(new_name),
             )
-            if (
-                plan.conflict is not None
-                and plan.conflict.get(
-                    "conflict_kind",
+            if not target_rel:
+                target_rel = (
+                    renamed_skill_rel_path(old_rel, new_name)
+                    if old_rel
+                    else new_name
                 )
-                == "destination_occupied"
-            ):
-                logger.warning(
-                    "rename: destination occupied for '%s' in '%s': %s",
+                conflict = validate_skill_destination(
+                    workspace_skills_dir,
+                    target_rel,
                     new_name,
-                    agent_id,
-                    plan.conflict.get("conflict_kind"),
+                    source_rel_path=old_rel,
                 )
-                continue
-            target_rel = plan.rel_path or (
-                renamed_skill_rel_path(old_rel, new_name)
-                if old_rel
-                else new_name
-            )
+                if conflict is not None:
+                    logger.warning(
+                        "rename: destination occupied for '%s' in '%s': %s",
+                        new_name,
+                        agent_id,
+                        conflict.get("conflict_kind"),
+                    )
+                    continue
             target_dir = safe_nested_skill_dir(
                 workspace_skills_dir,
                 target_rel,
@@ -1115,41 +1181,56 @@ class SkillPoolService:
             return {"success": False, "reason": "not_found"}
 
         final_name = normalize_skill_dir_name(skill_name)
-        rel_path = rel_path_of(ws_root, source_dir) or final_name
+        source_rel = rel_path_of(ws_root, source_dir) or final_name
         manifest = read_skill_pool_manifest()
         entries = manifest.get("skills", {})
         existing = entries.get(final_name)
+        pool_dir = get_skill_pool_dir()
         # Upload is an update: when the Pool already selects this identity,
         # write that copy in place. A first install uses the workspace's
         # layout; an external (read-only) selection keeps the existing
         # behaviour of materialising into the primary Pool.
-        plan = plan_skill_write(
-            get_skill_pool_dir(),
-            entries,
-            final_name,
-            rel_path,
-            mode="update",
-        )
-        conflict = plan.conflict
-        if conflict is not None and (
-            not overwrite
-            or conflict.get("conflict_kind") == "destination_occupied"
-        ):
-            return {
-                **conflict,
-                "success": False,
-                "name": final_name,
-            }
-        target_rel = plan.rel_path or rel_path
-        target_dir = safe_nested_skill_dir(
-            get_skill_pool_dir(),
-            target_rel,
-        )
+        selected_rel = selected_skill_rel(pool_dir, final_name, existing)
+        if selected_rel:
+            # Replacing an existing identity requires the confirmation flow
+            # even though the write itself lands in place.
+            if not overwrite:
+                return {
+                    **build_skill_conflict(
+                        final_name,
+                        selected_rel_path=selected_rel,
+                        source_rel_path=source_rel,
+                        destination_rel_path=selected_rel,
+                        shadowed_rel_paths=shadowed_skill_rel_paths(
+                            pool_dir,
+                            final_name,
+                            selected_rel,
+                        ),
+                    ),
+                    "success": False,
+                    "name": final_name,
+                }
+            target_rel = selected_rel
+        else:
+            target_rel = source_rel
+            conflict = validate_skill_destination(
+                pool_dir,
+                target_rel,
+                final_name,
+                source_rel_path=source_rel,
+            )
+            if conflict is not None:
+                return {
+                    **conflict,
+                    "success": False,
+                    "name": final_name,
+                }
+        target_dir = safe_nested_skill_dir(pool_dir, target_rel)
         if preview_only:
             return {
                 "success": True,
                 "name": final_name,
-                "source_rel_path": rel_path,
+                "source_rel_path": source_rel,
                 "destination_rel_path": target_rel,
                 "external": bool((existing or {}).get("external", False)),
             }
@@ -1190,7 +1271,7 @@ class SkillPoolService:
         return {
             "success": True,
             "name": final_name,
-            "source_rel_path": rel_path,
+            "source_rel_path": source_rel,
             "destination_rel_path": target_rel,
             "external": bool((existing or {}).get("external", False)),
         }
@@ -1398,13 +1479,27 @@ class SkillPoolService:
         source_rel = source_rel or final_name
         workspace_manifest = read_skill_manifest(workspace_dir)
         existing = workspace_manifest.get("skills", {}).get(final_name)
-        plan = plan_skill_write(
-            get_workspace_skills_dir(workspace_dir),
-            workspace_manifest.get("skills", {}),
-            final_name,
-            source_rel,
-            mode="update",
-        )
+        ws_root = get_workspace_skills_dir(workspace_dir)
+        selected_rel = selected_skill_rel(ws_root, final_name, existing)
+        if selected_rel:
+            # Update the copy the workspace already selects; the Pool's
+            # category is only used for a first install.
+            destination_rel = selected_rel
+            shadowed = shadowed_skill_rel_paths(
+                ws_root,
+                final_name,
+                selected_rel,
+            )
+            conflict = None
+        else:
+            destination_rel = source_rel
+            shadowed = ()
+            conflict = validate_skill_destination(
+                ws_root,
+                destination_rel,
+                final_name,
+                source_rel_path=source_rel,
+            )
         return {
             "success": True,
             "name": final_name,
@@ -1412,10 +1507,10 @@ class SkillPoolService:
             "existing": existing,
             "source_dir": source_dir,
             "source_rel_path": source_rel,
-            "destination_rel_path": plan.rel_path or source_rel,
-            "selected_rel_path": plan.selected_rel_path,
-            "shadowed_rel_paths": list(plan.shadowed),
-            "conflict": plan.conflict,
+            "destination_rel_path": destination_rel,
+            "selected_rel_path": selected_rel,
+            "shadowed_rel_paths": list(shadowed),
+            "conflict": conflict,
             "external": bool(entry.get("external", False)),
         }
 
@@ -1456,13 +1551,9 @@ class SkillPoolService:
         ws_skills_root = get_workspace_skills_dir(workspace_dir)
         workspace_identity = get_workspace_identity(workspace_dir)
         plan_conflict = planned.get("conflict")
-        if (
-            plan_conflict is not None
-            and plan_conflict.get(
-                "conflict_kind",
-            )
-            == "destination_occupied"
-        ):
+        if plan_conflict is not None and plan_conflict.get(
+            "conflict_kind"
+        ) in {"destination_occupied", "inside_skill"}:
             return plan_conflict
         if not overwrite:
             conflict = self._check_download_conflict(
@@ -1576,13 +1667,10 @@ class SkillPoolService:
         final_name = str(planned["name"])
         workspace_identity = get_workspace_identity(workspace_dir)
         conflict = planned.get("conflict")
-        if (
-            conflict is not None
-            and conflict.get(
-                "conflict_kind",
-            )
-            == "destination_occupied"
-        ):
+        if conflict is not None and conflict.get("conflict_kind") in {
+            "destination_occupied",
+            "inside_skill",
+        }:
             return conflict
         if not overwrite:
             conflict = self._check_download_conflict(

@@ -117,17 +117,29 @@ def test_zip_import_preserves_nesting(tmp_path: Path) -> None:
     assert (tmp_path / "skills" / "cat-x" / "z-skill" / "SKILL.md").exists()
 
 
-def test_install_skill_directory_honours_rel_path(tmp_path: Path) -> None:
+def test_install_skill_directory_installs_flat_and_reports_identity(
+    tmp_path: Path,
+) -> None:
     source_root = tmp_path / "src"
     source = _mk_skill(source_root, "n/sk", "sk")
 
     result = SkillService(tmp_path).install_skill_directory(
         source,
-        rel_path="n/sk",
         enable=True,
     )
     assert result["success"] is True
-    assert (tmp_path / "skills" / "n" / "sk" / "SKILL.md").exists()
+    assert (tmp_path / "skills" / "sk" / "SKILL.md").exists()
+    assert result["rel_path"] == "sk"
+
+    # A second publication of the same identity reports where it lives
+    # instead of creating another flat copy.
+    again = SkillService(tmp_path).install_skill_directory(
+        source,
+        enable=False,
+    )
+    assert again["success"] is False
+    assert again["conflict_kind"] == "identity_exists"
+    assert again["selected_rel_path"] == "sk"
 
 
 def test_scan_excluded_dirs(tmp_path: Path) -> None:

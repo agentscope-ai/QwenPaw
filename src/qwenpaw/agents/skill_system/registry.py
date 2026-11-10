@@ -53,11 +53,9 @@ from .store import (
     is_primary_pool_skill_dir,
     iter_skill_dirs,
     load_skill_frontmatter_from_dir,
-    manifest_rel_path,
     mutate_json,
     mutate_pool_manifest,
     normalize_skill_manifest_entry,
-    plan_skill_write,
     parse_skill_requirements,
     read_frontmatter_safe_from_path,
     read_pool_skill_automation,
@@ -66,6 +64,9 @@ from .store import (
     rel_path_of,
     resolve_skill_dir,
     safe_nested_skill_dir,
+    selected_skill_dir,
+    selected_skill_rel,
+    validate_skill_destination,
     write_json_atomic,
 )
 
@@ -794,23 +795,25 @@ def import_builtin_skills(
             existing = skills.get(skill_name) or {}
             # Builtins obey the same destination policy: update the selected
             # copy (which may be nested) instead of creating a flat duplicate.
-            plan = plan_skill_write(
-                pool_dir,
-                skills,
-                skill_name,
-                skill_name,
-                mode="update",
-            )
-            if plan.conflict is not None:
-                conflicts.append(
-                    {
-                        **plan.conflict,
-                        "language": language,
-                        "status": "conflict",
-                    },
+            selected_rel = selected_skill_rel(pool_dir, skill_name, existing)
+            if selected_rel:
+                target_rel = selected_rel
+            else:
+                target_rel = skill_name
+                conflict = validate_skill_destination(
+                    pool_dir,
+                    target_rel,
+                    skill_name,
                 )
-                continue
-            target_rel = plan.rel_path or skill_name
+                if conflict is not None:
+                    conflicts.append(
+                        {
+                            **conflict,
+                            "language": language,
+                            "status": "conflict",
+                        },
+                    )
+                    continue
             target = safe_nested_skill_dir(pool_dir, target_rel)
 
             if not target.exists():
@@ -944,11 +947,10 @@ def _discover_pool_skill_dirs(
     primary_root = get_skill_pool_dir()
     for skill_name, raw_entry in sorted((existing_skills or {}).items()):
         entry = normalize_skill_manifest_entry(raw_entry)
-        rel_path = manifest_rel_path(entry, skill_name)
-        # Legacy entries have no rel_path: keep the flat copy they were
-        # using selected during the compatibility step.
-        candidate = primary_root / (rel_path or skill_name)
-        if (candidate / "SKILL.md").is_file():
+        # One selection policy for reads, reconciliation and writes: the
+        # manifest rel_path wins, legacy entries keep their flat copy.
+        candidate = selected_skill_dir(primary_root, skill_name, entry)
+        if candidate is not None:
             discovered[skill_name] = candidate
     for root in get_skill_pool_dirs():
         if not root.is_dir():
@@ -1137,11 +1139,14 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
         # using keeps winning instead of whichever path sorts first on disk.
         for skill_name, raw_entry in sorted(skills.items()):
             entry = normalize_skill_manifest_entry(raw_entry)
-            rel_path = manifest_rel_path(entry, skill_name)
-            # Legacy entries have no rel_path: keep the flat copy they were
-            # using selected during the compatibility step.
-            candidate = workspace_skills_dir / (rel_path or skill_name)
-            if (candidate / "SKILL.md").is_file():
+            # Same selection policy as reads and writes: a legacy entry
+            # keeps its flat copy instead of jumping to a sorted category.
+            candidate = selected_skill_dir(
+                workspace_skills_dir,
+                skill_name,
+                entry,
+            )
+            if candidate is not None:
                 discovered[skill_name] = candidate
         for path in iter_skill_dirs(workspace_skills_dir):
             if path.name in discovered:
@@ -1775,22 +1780,26 @@ def update_single_builtin(
     pool_dir = get_skill_pool_dir()
     pool_dir.mkdir(parents=True, exist_ok=True)
     pool_manifest = read_skill_pool_manifest()
-    plan = plan_skill_write(
+    target_rel = selected_skill_rel(
         pool_dir,
-        pool_manifest.get("skills", {}),
         canonical_name,
-        canonical_name,
-        mode="update",
+        pool_manifest.get("skills", {}).get(canonical_name),
     )
-    if plan.conflict is not None:
-        raise SkillsError(
-            message=(
-                f"Cannot update builtin '{canonical_name}': destination "
-                f"'{plan.conflict.get('destination_rel_path', '')}' is "
-                "occupied"
-            ),
+    if not target_rel:
+        target_rel = canonical_name
+        conflict = validate_skill_destination(
+            pool_dir,
+            target_rel,
+            canonical_name,
         )
-    target_rel = plan.rel_path or canonical_name
+        if conflict is not None:
+            raise SkillsError(
+                message=(
+                    f"Cannot update builtin '{canonical_name}': destination "
+                    f"'{conflict.get('destination_rel_path', '')}' is "
+                    "occupied"
+                ),
+            )
     target = safe_nested_skill_dir(pool_dir, target_rel)
     transaction_root = Path(
         tempfile.mkdtemp(

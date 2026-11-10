@@ -246,3 +246,49 @@ def test_nested_plugin_does_not_reset_user_copy_at_other_path(skills):
         encoding="utf-8",
     )
     assert not (skills.workspace / "skills/cat/my-search").exists()
+
+
+def test_nested_plugin_unregister_removes_nested_files_and_entry(skills):
+    (skills.source / "cat").mkdir()
+    (skills.source / "my-search").rename(skills.source / "cat/my-search")
+    install(skills)
+    dest = skills.workspace / "skills/cat/my-search"
+    assert (dest / "SKILL.md").exists()
+
+    skills.api.unregister_skill_provider()
+
+    assert not dest.exists()
+    entries = json.loads(skills.manifest_path.read_text())["skills"]
+    assert "my-search" not in entries
+
+
+def test_nested_plugin_cleanup_preserves_selected_user_copy(skills):
+    (skills.source / "cat").mkdir()
+    (skills.source / "my-search").rename(skills.source / "cat/my-search")
+    install(skills)
+    owned = skills.workspace / "skills/cat/my-search"
+    user = skills.workspace / "skills/research/my-search"
+    user.mkdir(parents=True)
+    (user / "SKILL.md").write_text(
+        "---\nname: my-search\ndescription: User search\n---\n"
+        "User version\n",
+        encoding="utf-8",
+    )
+    payload = json.loads(skills.manifest_path.read_text())
+    payload["skills"]["my-search"].update(
+        rel_path="research/my-search",
+        source="custom",
+        enabled=False,
+        channels=["qq"],
+    )
+    skills.manifest_path.write_text(json.dumps(payload))
+
+    skills.api.unregister_skill_provider()
+
+    assert (user / "SKILL.md").exists()
+    entry = json.loads(skills.manifest_path.read_text())["skills"]["my-search"]
+    assert entry["rel_path"] == "research/my-search"
+    assert entry["source"] == "custom"
+    assert entry["enabled"] is False
+    assert entry["channels"] == ["qq"]
+    assert not owned.exists()

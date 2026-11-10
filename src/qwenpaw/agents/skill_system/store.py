@@ -1012,20 +1012,6 @@ def renamed_skill_rel_path(rel_path: str, new_name: str) -> str:
     return f"{parent.as_posix()}/{new_name}"
 
 
-@dataclass(frozen=True)
-class SkillWritePlan:
-    """One identity-to-destination resolution shared by every write path."""
-
-    rel_path: str = ""
-    selected_rel_path: str = ""
-    shadowed: tuple[str, ...] = ()
-    conflict: dict[str, Any] | None = None
-
-    @property
-    def ok(self) -> bool:
-        return self.conflict is None
-
-
 def build_skill_conflict(
     skill_name: str,
     *,
@@ -1034,7 +1020,7 @@ def build_skill_conflict(
     source_rel_path: str = "",
     destination_rel_path: str = "",
     shadowed_rel_paths: Iterable[str] = (),
-    suggested_name: str = "",
+    suggested_name: str | None = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical conflict item returned by every skill API.
@@ -1042,6 +1028,8 @@ def build_skill_conflict(
     ``reason`` stays ``conflict`` so existing clients/UI keep working;
     ``conflict_kind`` distinguishes identity collisions from an occupied
     destination. All locations are relative to the relevant skills root.
+    ``suggested_name`` defaults to a free variant of the identity; pass an
+    empty string when renaming cannot resolve the conflict.
     """
     shadowed = tuple(
         rel for rel in shadowed_rel_paths if rel and rel != selected_rel_path
@@ -1051,209 +1039,125 @@ def build_skill_conflict(
         "reason": "conflict",
         "conflict_kind": kind,
         "skill_name": skill_name,
-        "identity": skill_name,
-        "suggested_name": suggested_name or suggest_conflict_name(skill_name),
     }
+    if suggested_name is None:
+        conflict["suggested_name"] = suggest_conflict_name(skill_name)
+    elif suggested_name:
+        conflict["suggested_name"] = suggested_name
     if selected_rel_path:
         conflict["selected_rel_path"] = selected_rel_path
-        conflict["selected"] = selected_rel_path
     if source_rel_path:
         conflict["source_rel_path"] = source_rel_path
     if destination_rel_path:
         conflict["destination_rel_path"] = destination_rel_path
     if shadowed:
         conflict["shadowed_rel_paths"] = list(shadowed)
-        conflict["shadowed"] = (
-            shadowed[0]
-            if len(shadowed) == 1
-            else list(
-                shadowed,
-            )
-        )
     if extra:
         for key, value in extra.items():
             conflict.setdefault(key, value)
     return conflict
 
 
-def _skill_rel_paths_by_name(root: Path) -> dict[str, list[str]]:
-    """Map leaf identity to every on-disk rel_path under *root*."""
-    result: dict[str, list[str]] = {}
-    for skill_dir in iter_skill_dirs(root):
-        rel = rel_path_of(root, skill_dir)
-        result.setdefault(skill_dir.name, []).append(rel)
-    return result
+def skill_rel_paths(root: Path, name: str) -> tuple[str, ...]:
+    """Return every on-disk rel_path of the identity *name* under *root*."""
+    return tuple(
+        rel_path_of(root, skill_dir)
+        for skill_dir in iter_skill_dirs(root)
+        if skill_dir.name == name
+    )
 
 
-def _selected_skill_rel(
+def shadowed_skill_rel_paths(
     root: Path,
-    entries: dict[str, Any],
     name: str,
+    selected_rel_path: str,
+) -> tuple[str, ...]:
+    """Return on-disk copies of *name* that discovery shadows."""
+    return tuple(
+        rel for rel in skill_rel_paths(root, name) if rel != selected_rel_path
+    )
+
+
+def selected_skill_dir(
+    root: Path,
+    name: str,
+    entry: dict[str, Any] | None = None,
+) -> Path | None:
+    """Resolve the copy currently selected for *name* inside *root*."""
+    return resolve_skill_dir(root, name, manifest_rel_path(entry, name))
+
+
+def selected_skill_rel(
+    root: Path,
+    name: str,
+    entry: dict[str, Any] | None = None,
 ) -> str:
-    """Return the manifest-selected rel_path for *name* while it is valid."""
-    entry = entries.get(name) or {}
-    rel = manifest_rel_path(entry, name)
-    if rel and (root / rel / "SKILL.md").is_file():
-        return rel
-    return ""
+    """Return the rel_path of the copy currently selected for *name*.
+
+    This is the one selection policy shared by reads, reconciliation and
+    every write path: a manifest ``rel_path`` wins while it still points at
+    a real skill, a legacy entry keeps the flat ``root/name`` copy it has
+    been using, and only otherwise does discovery order decide. Reads and
+    writes therefore never disagree about which copy is in use.
+    """
+    skill_dir = selected_skill_dir(root, name, entry)
+    return rel_path_of(root, skill_dir) if skill_dir is not None else ""
 
 
-def _destination_conflict(
+def validate_skill_destination(
     root: Path,
     dest_rel: str,
     name: str,
     *,
-    source_rel: str,
-    shadowed: tuple[str, ...],
+    source_rel_path: str = "",
+    shadowed_rel_paths: Iterable[str] = (),
 ) -> dict[str, Any] | None:
-    """Reject a destination occupied by another skill or a category dir."""
-    dest = root / dest_rel
-    if not dest.exists() and not dest.is_symlink():
+    """Return a conflict when *dest_rel* is not a writable skill location.
+
+    Two cases are rejected before any file is written or removed:
+
+    - the destination is occupied by a different skill or by a category
+      directory that belongs to other skills;
+    - the destination sits inside another skill (an ancestor directory
+      already contains ``SKILL.md``). Recursive discovery never descends
+      into a skill, so such a copy would be invisible — renaming the leaf
+      alone cannot fix that, hence no rename suggestion.
+    """
+    try:
+        dest_rel = normalize_rel_path(dest_rel, expected_leaf=name)
+    except SkillsError:
+        dest_rel = name
+    root_resolved = root.resolve()
+    target = root / dest_rel
+    parent = target.parent
+    while parent != root and parent.resolve() != root_resolved:
+        if (parent / "SKILL.md").is_file():
+            return build_skill_conflict(
+                name,
+                kind="inside_skill",
+                source_rel_path=source_rel_path,
+                destination_rel_path=dest_rel,
+                shadowed_rel_paths=shadowed_rel_paths,
+                suggested_name="",
+                extra={
+                    "message": (
+                        f"Skill '{name}' would be installed inside the "
+                        f"existing skill '{parent.name}'"
+                    ),
+                },
+            )
+        parent = parent.parent
+    if not target.exists() and not target.is_symlink():
         return None
-    if (dest / "SKILL.md").is_file() and dest.name == name:
+    if (target / "SKILL.md").is_file() and target.name == name:
         return None
     return build_skill_conflict(
         name,
         kind="destination_occupied",
-        source_rel_path=source_rel,
+        source_rel_path=source_rel_path,
         destination_rel_path=dest_rel,
-        shadowed_rel_paths=shadowed,
+        shadowed_rel_paths=shadowed_rel_paths,
     )
-
-
-# pylint: disable-next=too-many-return-statements
-def plan_skill_write(
-    root: Path,
-    entries: dict[str, Any],
-    name: str,
-    incoming_rel: str,
-    *,
-    mode: str = "create",
-    source_rel: str = "",
-) -> SkillWritePlan:
-    """Resolve where one identity write must land.
-
-    Shared policy for install / download / upload / rename / zip import /
-    plugin install:
-
-    - ``create``: the identity must be free; an existing copy anywhere is a
-      conflict and is never silently replaced.
-    - ``update``: an existing identity is updated in place at its selected
-      ``rel_path``; the incoming category is only used for a first install.
-    - ``rename``: the destination is the target identity's selected copy when
-      it exists; otherwise the source category is preserved.
-
-    A destination occupied by a different skill or by a category directory
-    is always a ``destination_occupied`` conflict before any file is removed.
-    """
-    if mode not in {"create", "update", "rename"}:
-        raise ValueError(f"Unknown skill write mode: {mode}")
-
-    try:
-        incoming = normalize_rel_path(
-            incoming_rel or name,
-            expected_leaf=name,
-        )
-    except SkillsError:
-        incoming = name
-
-    by_name = _skill_rel_paths_by_name(root)
-    selected = _selected_skill_rel(root, entries, name)
-    if not selected:
-        selected = (by_name.get(name) or [""])[0]
-    shadowed = tuple(
-        rel for rel in by_name.get(name, []) if rel and rel != selected
-    )
-
-    if mode == "create":
-        if selected:
-            return SkillWritePlan(
-                selected_rel_path=selected,
-                shadowed=shadowed,
-                conflict=build_skill_conflict(
-                    name,
-                    kind="identity_exists",
-                    selected_rel_path=selected,
-                    source_rel_path=incoming,
-                    destination_rel_path=incoming,
-                    shadowed_rel_paths=shadowed,
-                ),
-            )
-        conflict = _destination_conflict(
-            root,
-            incoming,
-            name,
-            source_rel=incoming,
-            shadowed=shadowed,
-        )
-        if conflict is not None:
-            return SkillWritePlan(
-                selected_rel_path=selected,
-                shadowed=shadowed,
-                conflict=conflict,
-            )
-        return SkillWritePlan(rel_path=incoming)
-
-    if mode == "update":
-        if selected:
-            return SkillWritePlan(
-                rel_path=selected,
-                selected_rel_path=selected,
-                shadowed=shadowed,
-            )
-        conflict = _destination_conflict(
-            root,
-            incoming,
-            name,
-            source_rel=incoming,
-            shadowed=shadowed,
-        )
-        if conflict is not None:
-            return SkillWritePlan(
-                selected_rel_path=selected,
-                shadowed=shadowed,
-                conflict=conflict,
-            )
-        return SkillWritePlan(rel_path=incoming)
-
-    # rename: prefer the target identity's selected copy over the source
-    # category, so a rename updates the skill the workspace already uses.
-    try:
-        source = normalize_rel_path(
-            source_rel,
-            expected_leaf=source_rel.split("/")[-1],
-        )
-    except (SkillsError, IndexError):
-        source = source_rel
-    if selected:
-        return SkillWritePlan(
-            rel_path=selected,
-            selected_rel_path=selected,
-            shadowed=shadowed,
-            conflict=build_skill_conflict(
-                name,
-                kind="identity_exists",
-                selected_rel_path=selected,
-                source_rel_path=source,
-                destination_rel_path=selected,
-                shadowed_rel_paths=shadowed,
-            ),
-        )
-    dest_rel = renamed_skill_rel_path(source, name) if source else incoming
-    conflict = _destination_conflict(
-        root,
-        dest_rel,
-        name,
-        source_rel=source,
-        shadowed=shadowed,
-    )
-    if conflict is not None:
-        return SkillWritePlan(
-            selected_rel_path=selected,
-            shadowed=shadowed,
-            conflict=conflict,
-        )
-    return SkillWritePlan(rel_path=dest_rel)
 
 
 def ensure_skill_dir_contained(
@@ -1651,11 +1555,18 @@ def build_import_conflict(
     destination_rel_path: str = "",
     shadowed_rel_paths: Iterable[str] | None = None,
     kind: str = "identity_exists",
+    suggested_name: str | None = None,
 ) -> dict[str, Any]:
-    """Build a ZIP/import conflict using the canonical conflict item."""
+    """Build a ZIP/import conflict using the canonical conflict item.
+
+    ``suggested_name`` defaults to a free variant of the identity; pass an
+    empty string when renaming cannot resolve the conflict.
+    """
     shadowed_list = list(shadowed_rel_paths or [])
     if shadowed and shadowed not in shadowed_list:
         shadowed_list.append(shadowed)
+    if suggested_name is None:
+        suggested_name = suggest_conflict_name(skill_name, existing_names)
     return build_skill_conflict(
         skill_name,
         kind=kind,
@@ -1663,7 +1574,7 @@ def build_import_conflict(
         source_rel_path=source_rel_path,
         destination_rel_path=destination_rel_path,
         shadowed_rel_paths=shadowed_list,
-        suggested_name=suggest_conflict_name(skill_name, existing_names),
+        suggested_name=suggested_name,
     )
 
 

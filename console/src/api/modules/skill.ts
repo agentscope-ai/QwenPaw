@@ -471,10 +471,10 @@ export const skillApi = {
         reason?: string;
         conflict_kind?: string;
         skill_name?: string;
-        identity?: string;
         workspace_id?: string;
         workspace_name?: string;
         suggested_name?: string;
+        message?: string;
         selected_rel_path?: string;
         source_rel_path?: string;
         destination_rel_path?: string;
@@ -656,8 +656,8 @@ export const skillApi = {
         reason: string;
         conflict_kind?: string;
         skill_name: string;
-        identity?: string;
-        suggested_name: string;
+        suggested_name?: string;
+        message?: string;
         selected_rel_path?: string;
         source_rel_path?: string;
         destination_rel_path?: string;
@@ -679,8 +679,8 @@ export const skillApi = {
         reason: string;
         conflict_kind?: string;
         skill_name: string;
-        identity?: string;
-        suggested_name: string;
+        suggested_name?: string;
+        message?: string;
         selected_rel_path?: string;
         source_rel_path?: string;
         destination_rel_path?: string;

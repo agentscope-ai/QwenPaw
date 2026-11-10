@@ -2516,8 +2516,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             f"Plugin '{self.plugin_id}' unregistered as skill provider",
         )
 
-    def _get_skill_names(self, skills_dir: Path) -> List[Tuple[str, str]]:
-        """Return ``(rel_path, leaf_name)`` for every packaged plugin skill."""
+    def _get_skill_names(
+        self,
+        skills_dir: Path,
+    ) -> List[Tuple[str, str, Path]]:
+        """Return ``(rel_path, leaf_name, directory)`` for plugin skills."""
         from ..agents.skill_system.store import iter_skill_dirs, rel_path_of
 
         if not skills_dir.exists() or not skills_dir.is_dir():
@@ -2527,8 +2530,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             )
             return []
         return sorted(
-            (rel_path_of(skills_dir, path), path.name)
-            for path in iter_skill_dirs(skills_dir)
+            (
+                (rel_path_of(skills_dir, path), path.name, path)
+                for path in iter_skill_dirs(skills_dir)
+            ),
+            key=lambda item: (item[0], item[1]),
         )
 
     # pylint: disable-next=too-many-statements
@@ -2552,11 +2558,11 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 get_workspace_skill_manifest_path,
                 default_workspace_manifest,
                 mutate_json,
-                plan_skill_write,
                 read_skill_manifest,
                 rel_path_of,
-                resolve_skill_dir,
                 safe_nested_skill_dir,
+                selected_skill_rel,
+                validate_skill_destination,
             )
             from .provision import (
                 commit_migrations,
@@ -2581,7 +2587,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             created_names = []
             installed_rels: dict[str, str] = {}
             seen_names: set[str] = set()
-            for rel, skill_name in skill_names:
+            for rel, skill_name, src_dir in skill_names:
                 if skill_name in seen_names:
                     # Identity is the leaf name: the first copy wins, the
                     # later one is shadowed with a warning.
@@ -2591,25 +2597,29 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     )
                     continue
                 seen_names.add(skill_name)
-                src_dir = resolve_skill_dir(skills_dir, skill_name)
-                if src_dir is None:
-                    continue
                 src_rel = rel_path_of(skills_dir, src_dir) or rel or skill_name
-                plan = plan_skill_write(
+                selected_rel = selected_skill_rel(
                     ws_skills_dir,
-                    entries,
                     skill_name,
-                    src_rel,
-                    mode="update",
+                    entries.get(skill_name),
                 )
-                if plan.conflict is not None:
-                    logger.warning(
-                        f"Plugin '{self.plugin_id}' cannot install "
-                        f"'{skill_name}': "
-                        f"{plan.conflict.get('conflict_kind')}",
+                if selected_rel:
+                    dest_rel = selected_rel
+                else:
+                    dest_rel = src_rel
+                    conflict = validate_skill_destination(
+                        ws_skills_dir,
+                        dest_rel,
+                        skill_name,
+                        source_rel_path=src_rel,
                     )
-                    continue
-                dest_rel = plan.rel_path or src_rel
+                    if conflict is not None:
+                        logger.warning(
+                            f"Plugin '{self.plugin_id}' cannot install "
+                            f"'{skill_name}': "
+                            f"{conflict.get('conflict_kind')}",
+                        )
+                        continue
                 dest = safe_nested_skill_dir(ws_skills_dir, dest_rel)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 previous = load_inventory(self.plugin_id)["locations"].get(
@@ -2739,6 +2749,7 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 get_workspace_skills_dir,
                 get_workspace_skill_manifest_path,
                 default_workspace_manifest,
+                manifest_rel_path,
                 mutate_json,
             )
             from ..agents.skill_system.registry import (
@@ -2772,32 +2783,43 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                     _owned=owned_dests,
                 ):
                     skills = payload.setdefault("skills", {})
-                    to_remove = [
-                        name
-                        for name, entry in skills.items()
-                        if entry.get("source") == _tag
-                        and (_ws_skills / name).absolute() in _owned
-                    ]
-                    for name in to_remove:
-                        skills.pop(name, None)
-                        skill_dir = _ws_skills / name
-                        if skill_dir.exists():
-                            try:
-                                safe_remove(
-                                    skill_dir,
-                                    purpose="remove sourced skill",
-                                )
-                            except (OSError, ValueError) as rmtree_exc:
-                                logger.warning(
-                                    "Failed to fully remove skill "
-                                    "directory %s: %s",
-                                    skill_dir,
-                                    rmtree_exc,
-                                )
-                    if to_remove:
+                    # Cleanup follows the location the manifest selects, not
+                    # the flat root/<name> layout: a nested plugin skill (or
+                    # a user copy selected at another path) must be handled
+                    # by its actual rel_path. Entries that select a copy the
+                    # plugin does not own stay untouched.
+                    kept: set[Path] = set()
+                    removed_names: list[str] = []
+                    for name, entry in list(skills.items()):
+                        rel = manifest_rel_path(entry, name) or name
+                        skill_dir = (_ws_skills / rel).absolute()
+                        if entry.get("source") == _tag and skill_dir in _owned:
+                            skills.pop(name, None)
+                            removed_names.append(name)
+                        else:
+                            kept.add(skill_dir)
+                    ws_root = _ws_skills.absolute()
+                    for path in _owned:
+                        if path in kept or not path.is_relative_to(ws_root):
+                            continue
+                        if not path.exists():
+                            continue
+                        try:
+                            safe_remove(
+                                path,
+                                purpose="remove sourced skill",
+                            )
+                        except (OSError, ValueError) as rmtree_exc:
+                            logger.warning(
+                                "Failed to fully remove skill "
+                                "directory %s: %s",
+                                path,
+                                rmtree_exc,
+                            )
+                    if removed_names:
                         logger.info(
                             "Removed skills %s from workspace '%s'",
-                            to_remove,
+                            removed_names,
                             _agent_id,
                         )
                     return payload

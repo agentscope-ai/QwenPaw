@@ -34,7 +34,6 @@ from .store import (
     iter_skill_dirs,
     mutate_json,
     normalize_skill_dir_name,
-    plan_skill_write,
     read_skill_from_dir,
     read_skill_manifest,
     rel_path_of,
@@ -44,9 +43,12 @@ from .store import (
     safe_nested_skill_dir,
     safe_skill_dir,
     scan_skill_dir_or_raise,
+    selected_skill_rel,
+    shadowed_skill_rel_paths,
     staged_skill_dir,
     suggest_conflict_name,
     validate_skill_content,
+    validate_skill_destination,
     write_skill_to_dir,
 )
 
@@ -292,7 +294,6 @@ class SkillService:
         source_dir: Path,
         *,
         target_name: str | None = None,
-        rel_path: str = "",
         enable: bool = False,
         source: str | None = None,
         installed_from: str = "",
@@ -332,17 +333,37 @@ class SkillService:
                 "skills",
                 {},
             )
-            plan = plan_skill_write(
+            # Publication never overwrites: an identity that already exists
+            # anywhere in the workspace is reported with its selected path.
+            selected_rel = selected_skill_rel(
                 resolved_skill_root,
-                entries,
                 skill_name,
-                rel_path or skill_name,
-                mode="create",
+                entries.get(skill_name),
             )
-            if plan.conflict is not None:
-                return _install_conflict_result(skill_name, plan.conflict)
-
-            target_rel = plan.rel_path
+            if selected_rel:
+                return _install_conflict_result(
+                    skill_name,
+                    build_skill_conflict(
+                        skill_name,
+                        selected_rel_path=selected_rel,
+                        source_rel_path=skill_name,
+                        destination_rel_path=selected_rel,
+                        shadowed_rel_paths=shadowed_skill_rel_paths(
+                            resolved_skill_root,
+                            skill_name,
+                            selected_rel,
+                        ),
+                    ),
+                )
+            target_rel = skill_name
+            conflict = validate_skill_destination(
+                resolved_skill_root,
+                target_rel,
+                skill_name,
+                source_rel_path=skill_name,
+            )
+            if conflict is not None:
+                return _install_conflict_result(skill_name, conflict)
             target_dir = safe_nested_skill_dir(
                 resolved_skill_root,
                 target_rel,
@@ -483,29 +504,43 @@ class SkillService:
         source_rel = rel_path_of(skill_root, old_dir)
         # The destination is the target identity's selected copy when it
         # exists; only a free target keeps the source category.
-        plan = plan_skill_write(
-            skill_root,
-            manifest.get("skills", {}),
-            final_name,
-            renamed_skill_rel_path(source_rel, final_name),
-            mode="rename",
-            source_rel=source_rel,
-        )
-        conflict = plan.conflict
-        if conflict is not None:
+        target_entry = manifest.get("skills", {}).get(final_name)
+        selected_rel = selected_skill_rel(skill_root, final_name, target_entry)
+        if selected_rel:
+            shadowed = shadowed_skill_rel_paths(
+                skill_root,
+                final_name,
+                selected_rel,
+            )
+            if not overwrite:
+                return {
+                    **build_skill_conflict(
+                        final_name,
+                        selected_rel_path=selected_rel,
+                        source_rel_path=source_rel,
+                        destination_rel_path=selected_rel,
+                        shadowed_rel_paths=shadowed,
+                    ),
+                    "success": False,
+                    "name": final_name,
+                }
+            target_rel = selected_rel
+        else:
+            target_rel = renamed_skill_rel_path(source_rel, final_name)
             # An occupied category/non-skill directory is never replaced,
             # even with overwrite=True: it belongs to other skills.
-            conflict_kind = conflict.get("conflict_kind")
-            if not overwrite or conflict_kind == "destination_occupied":
+            conflict = validate_skill_destination(
+                skill_root,
+                target_rel,
+                final_name,
+                source_rel_path=source_rel,
+            )
+            if conflict is not None:
                 return {
                     **conflict,
                     "success": False,
                     "name": final_name,
                 }
-        target_rel = plan.rel_path or renamed_skill_rel_path(
-            source_rel,
-            final_name,
-        )
         target_dir = safe_nested_skill_dir(skill_root, target_rel)
         return self._save_skill_as_rename(
             skill_name=skill_name,
@@ -800,14 +835,12 @@ class SkillService:
                     if rel != current_rel
                 ]
                 target_dir = safe_nested_skill_dir(skill_root, dest_rel)
-                exists = target_dir.exists()
                 discarded_prepared = False
-                if exists and pawport_owner is not None:
+                if target_dir.exists() and pawport_owner is not None:
                     discarded_prepared = discard_prepared_pawport_skill(
                         target_dir,
                         pawport_owner,
                     )
-                    exists = not discarded_prepared
                 # Skill identity is the leaf name, not the path: importing
                 # ``a/foo`` while ``foo`` exists elsewhere would silently
                 # replace (and re-enable) the existing identity. ZIP import
@@ -828,16 +861,36 @@ class SkillService:
                     conflicts.append(conflict)
                     taken.add(str(conflict["suggested_name"]))
                     continue
-                if exists:
+                destination_conflict = validate_skill_destination(
+                    skill_root,
+                    dest_rel,
+                    skill_name,
+                    source_rel_path=source_rel,
+                    shadowed_rel_paths=shadowed,
+                )
+                if destination_conflict is not None:
+                    inside_skill = (
+                        destination_conflict.get("conflict_kind")
+                        == "inside_skill"
+                    )
                     conflict = build_import_conflict(
                         skill_name,
                         taken,
                         source_rel_path=source_rel,
                         destination_rel_path=dest_rel,
-                        kind="destination_occupied",
+                        shadowed_rel_paths=shadowed,
+                        kind=(
+                            "inside_skill"
+                            if inside_skill
+                            else "destination_occupied"
+                        ),
+                        # Renaming the leaf cannot lift a skill out of an
+                        # occupied parent, so leave the rename dialog out.
+                        suggested_name="" if inside_skill else None,
                     )
                     conflicts.append(conflict)
-                    taken.add(str(conflict["suggested_name"]))
+                    if conflict.get("suggested_name"):
+                        taken.add(str(conflict["suggested_name"]))
                     continue
                 planned.append((skill_dir, skill_name, dest_rel))
             if conflicts:

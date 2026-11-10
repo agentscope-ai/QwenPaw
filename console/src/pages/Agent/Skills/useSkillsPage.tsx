@@ -31,19 +31,39 @@ import { useSkillFilter } from "./useSkillFilter";
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type DownloadConflict =
-  | { skill_name: string; reason: "conflict" }
+  | {
+      skill_name: string;
+      reason: "conflict";
+      selected_rel_path?: string;
+      source_rel_path?: string;
+      destination_rel_path?: string;
+    }
   | {
       skill_name: string;
       reason: "builtin_upgrade";
       current_version_text: string;
       source_version_text: string;
+      selected_rel_path?: string;
+      source_rel_path?: string;
+      destination_rel_path?: string;
     }
   | {
       skill_name: string;
       reason: "language_switch";
       source_language: string;
       current_language: string;
+      selected_rel_path?: string;
+      source_rel_path?: string;
+      destination_rel_path?: string;
     };
+
+type RenameableConflict = {
+  skill_name: string;
+  suggested_name: string;
+  source_rel_path?: string;
+  selected_rel_path?: string;
+  destination_rel_path?: string;
+};
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
@@ -342,16 +362,46 @@ export function useSkillsPage() {
         ? result.conflict.conflicts
         : [];
       if (conflicts.length === 0) break;
+      // A skill nested inside another skill cannot be fixed by renaming the
+      // leaf: report the rejected destination instead of looping the dialog.
+      const blocked = conflicts.filter(
+        (c) => c.conflict_kind === "inside_skill",
+      );
+      if (blocked.length > 0) {
+        message.error(
+          blocked
+            .map(
+              (c) =>
+                c.message ||
+                `${c.source_rel_path || c.skill_name} → ${
+                  c.destination_rel_path || ""
+                }`,
+            )
+            .join("; "),
+        );
+        break;
+      }
+      const renameable: RenameableConflict[] = [];
+      for (const c of conflicts) {
+        if (!c.skill_name || !c.suggested_name) continue;
+        renameable.push({
+          skill_name: c.skill_name,
+          suggested_name: c.suggested_name,
+          source_rel_path: c.source_rel_path,
+          selected_rel_path: c.selected_rel_path,
+          destination_rel_path: c.destination_rel_path,
+        });
+      }
+      if (renameable.length === 0) break;
       const newRenames = await showConflictRenameModal(
-        conflicts
-          .filter((c) => Boolean(c.skill_name && c.suggested_name))
-          .map((c) => ({
-            key: c.source_rel_path || c.skill_name,
-            label: c.source_rel_path || c.skill_name,
-            suggested_name: c.suggested_name,
-            source_rel_path: c.source_rel_path,
-            destination_rel_path: c.destination_rel_path,
-          })),
+        renameable.map((c) => ({
+          key: c.source_rel_path || c.skill_name,
+          label: c.source_rel_path || c.skill_name,
+          suggested_name: c.suggested_name,
+          source_rel_path: c.source_rel_path,
+          selected_rel_path: c.selected_rel_path,
+          destination_rel_path: c.destination_rel_path,
+        })),
       );
       if (!isCurrentOperation()) return;
       if (!newRenames) break;
@@ -541,6 +591,13 @@ export function useSkillsPage() {
             <ul>
               <li>{targetName}</li>
             </ul>
+            {detail?.source_rel_path || detail?.destination_rel_path ? (
+              <div style={{ fontSize: 12, opacity: 0.6 }}>
+                {detail.source_rel_path || sourceName}
+                {" → "}
+                {detail.destination_rel_path || targetName}
+              </div>
+            ) : null}
           </div>,
         );
         if (!confirmed) return false;
@@ -589,7 +646,11 @@ export function useSkillsPage() {
   const handleUploadToPool = async (workspaceSkillNames: string[]) => {
     if (workspaceSkillNames.length === 0) return;
     try {
-      const conflictingNames: string[] = [];
+      const conflicting: Array<{
+        skill_name: string;
+        source_rel_path?: string;
+        destination_rel_path?: string;
+      }> = [];
       for (const skillName of workspaceSkillNames) {
         try {
           await api.uploadWorkspaceSkillToPool({
@@ -600,31 +661,49 @@ export function useSkillsPage() {
         } catch (error) {
           const detail = parseErrorDetail(error);
           if (detail?.reason === "conflict") {
-            conflictingNames.push(skillName);
+            conflicting.push({
+              skill_name: detail.skill_name || skillName,
+              source_rel_path: detail.source_rel_path,
+              destination_rel_path: detail.destination_rel_path,
+            });
             continue;
           }
           throw error;
         }
       }
-      if (conflictingNames.length > 0) {
+      if (conflicting.length > 0) {
         const confirmed = await confirmOverwrite(
           t("skillPool.overwriteConfirm"),
           <div style={{ display: "grid", gap: 8 }}>
             <div>{t("skills.overwriteExistingList")}</div>
             <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {conflictingNames.map((name) => (
-                <li key={name}>{name}</li>
+              {conflicting.map((conflict) => (
+                <li key={conflict.skill_name}>
+                  {conflict.skill_name}
+                  {conflict.source_rel_path || conflict.destination_rel_path ? (
+                    <div style={{ fontSize: 12, opacity: 0.6 }}>
+                      {t("skillPool.workspaceLocation")}{" "}
+                      {conflict.source_rel_path || conflict.skill_name}
+                      {" → "}
+                      {t("skillPool.poolLocation")}{" "}
+                      {conflict.destination_rel_path || conflict.skill_name}
+                    </div>
+                  ) : null}
+                </li>
               ))}
             </ul>
           </div>,
         );
         if (!confirmed) return;
       }
+      const overwriteNames = new Set(
+        conflicting.map((conflict) => conflict.skill_name),
+      );
       for (const skillName of workspaceSkillNames) {
         await api.uploadWorkspaceSkillToPool({
           workspace_id: selectedAgent,
           skill_name: skillName,
-          overwrite: conflictingNames.includes(skillName),
+          overwrite: overwriteNames.has(skillName),
         });
       }
       message.success(t("skills.uploadedToPool"));
@@ -664,6 +743,9 @@ export function useSkillsPage() {
                   reason: "builtin_upgrade" as const,
                   current_version_text: conflict.current_version_text || "",
                   source_version_text: conflict.source_version_text || "",
+                  selected_rel_path: conflict.selected_rel_path,
+                  source_rel_path: conflict.source_rel_path,
+                  destination_rel_path: conflict.destination_rel_path,
                 };
               }
               if (conflict?.reason === "language_switch") {
@@ -672,11 +754,17 @@ export function useSkillsPage() {
                   reason: "language_switch" as const,
                   source_language: conflict.source_language || "",
                   current_language: conflict.current_language || "",
+                  selected_rel_path: conflict.selected_rel_path,
+                  source_rel_path: conflict.source_rel_path,
+                  destination_rel_path: conflict.destination_rel_path,
                 };
               }
               return {
                 skill_name: conflict?.skill_name || skillName,
                 reason: "conflict" as const,
+                selected_rel_path: conflict?.selected_rel_path,
+                source_rel_path: conflict?.source_rel_path,
+                destination_rel_path: conflict?.destination_rel_path,
               };
             }),
           );
@@ -706,6 +794,17 @@ export function useSkillsPage() {
             {conflicts.map((conflict) => (
               <div key={conflict.skill_name}>
                 <strong>{conflict.skill_name}</strong>
+                {conflict.reason === "conflict" &&
+                (conflict.source_rel_path || conflict.destination_rel_path) ? (
+                  <>
+                    {"  "}
+                    {t("skillPool.poolLocation")}{" "}
+                    {conflict.source_rel_path || conflict.skill_name}
+                    {" → "}
+                    {t("skillPool.workspaceLocation")}{" "}
+                    {conflict.destination_rel_path || conflict.skill_name}
+                  </>
+                ) : null}
                 {conflict.reason === "builtin_upgrade" ? (
                   <>
                     {"  "}
