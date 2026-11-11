@@ -337,54 +337,60 @@ async def test_stream_card_final_reply_uses_original_card(native):
 
 @pytest.mark.parametrize("native", ["card"], indirect=True)
 async def test_stream_card_separates_table_from_paragraph(native):
-    """Card content gets a blank line before a table so DingTalk renders it."""
+    """Separate the outgoing table and keep the cached stream text intact."""
     rt = native
-    event = await ingress(rt, message("table", group=True))
-    handle = event["response_handle"]
-    text = "Details:\n| k | v |\n|---|---|\n| a | 1 |"
-    expected = "Details:\n\n| k | v |\n|---|---|\n| a | 1 |"
+    event = await ingress(rt, message(f"table", group=True))
+    handle = event[f"response_handle"]
+    table = f"| k | v |\n| --- | --- |\n| a | 1 |"
+    text = f"Details:\n{table}"
+    expected = f"Details:\n\n{table}"
     assert (
         await send(
             rt,
             handle,
-            operation="stream.start",
-            stream_type="message",
+            operation=f"stream.start",
+            stream_type=f"message",
             sequence=0,
             accumulated_text=text,
         )
-    )["state"] == "acknowledged"
-    update_count = sum(kind == "update" for kind, _ in rt.rows)
+    )[f"state"] == f"acknowledged"
+    updates = [row for kind, row in rt.rows if kind == f"update"]
+    assert len(updates) == 1
+    assert updates[0][f"content"] == expected
+    assert updates[0][f"isFull"] and not updates[0][f"isFinalize"]
+    assert any(
+        card.last_streamed_content == text
+        for card in rt.driver._platform._active_cards.values()
+    )
     assert (
         await send(
             rt,
             handle,
-            delivery_id="same-content",
-            target_delivery_id="delivery",
-            operation="stream.delta",
-            stream_type="message",
+            delivery_id=f"same-content",
+            target_delivery_id=f"delivery",
+            operation=f"stream.delta",
+            stream_type=f"message",
             sequence=1,
             accumulated_text=text,
         )
-    )["state"] == "acknowledged"
-    assert sum(kind == "update" for kind, _ in rt.rows) == update_count
-    params = SendParams.from_mapping(
-        {
-            **rt.identity,
-            "to_handle": handle,
-            "delivery_id": "end",
-            "target_delivery_id": "delivery",
-            "operation": "stream.end",
-            "stream_type": "message",
-            "sequence": 2,
-            "accumulated_text": text,
-        },
-    )
-    assert (await rt.peer.methods["channel.send"](params, None))[
-        "state"
-    ] == "acknowledged"
-    updates = [row for kind, row in rt.rows if kind == "update"]
-    assert updates and all(row["content"] == expected for row in updates)
-    assert updates[-1]["isFinalize"]
+    )[f"state"] == f"acknowledged"
+    assert sum(kind == f"update" for kind, _ in rt.rows) == 1
+    assert (
+        await send(
+            rt,
+            handle,
+            delivery_id=f"end",
+            target_delivery_id=f"delivery",
+            operation=f"stream.end",
+            stream_type=f"message",
+            sequence=2,
+            accumulated_text=text,
+        )
+    )[f"state"] == f"acknowledged"
+    updates = [row for kind, row in rt.rows if kind == f"update"]
+    assert len(updates) == 2
+    assert updates[-1][f"content"] == expected
+    assert updates[-1][f"isFull"] and updates[-1][f"isFinalize"]
 
 
 async def test_failed_feedback_archives_current_receipt_and_replays(
@@ -502,6 +508,10 @@ async def test_markdown_chunks_keeps_short_and_splits_long_table():
             "Details:\n| k | v |\n|---|---|\n| a | 1 |",
             "Details:\n\n| k | v |\n|---|---|\n| a | 1 |",
         ),
+        (
+            f"Details:\r\n| k | v |\r\n| --- | --- |\r\n",
+            f"Details:\r\n\r\n| k | v |\r\n| --- | --- |\r\n",
+        ),
         ("x\nk | v\n:-- | --:", "x\n\nk | v\n:-- | --:"),
         ("x\n| k |\n|---|", "x\n\n| k |\n|---|"),
         ("x\n\n| k | v |\n|---|---|", "x\n\n| k | v |\n|---|---|"),
@@ -530,7 +540,10 @@ async def test_ensure_table_spacing(text, expected):
     assert markdown.ensure_table_spacing(expected) == expected
 
 
-@pytest.mark.parametrize("rows_before_dashes", ["", "| Alice | OK |\n"])
+@pytest.mark.parametrize(
+    f"rows_before_dashes",
+    [f"", f"| Alice | OK |\n", f"Alice\n| Carol | OK |\n"],
+)
 async def test_table_spacing_preserves_delimiter_like_body_rows(
     rows_before_dashes,
 ):
@@ -546,6 +559,12 @@ async def test_table_spacing_preserves_delimiter_like_body_rows(
     assert markdown.ensure_table_spacing(f"{table}\n\nDetails:\n{table}") == (
         f"{table}\n\nDetails:\n\n{table}"
     )
+
+
+async def test_table_spacing_preserves_code_span_with_mismatched_columns():
+    markdown = module(f"dingtalk", f"markdown")
+    text = f"Example: `heading\n| a | b |\n| --- |\nliteral`"
+    assert markdown.ensure_table_spacing(text) == text
 
 
 @pytest.mark.parametrize(
@@ -573,6 +592,7 @@ async def test_table_spacing_preserves_fences(opening, inner, closing):
     ("opening", "indent", "closing"),
     [
         ("* ```markdown", "  ", "```\n"),
+        (f"* Example:\n\n    ```markdown", f"  ", f"```\n"),
         ("10. ~~~markdown", "    ", "~~~\n"),
         ("- ```markdown", "  ", ""),
     ],
@@ -593,7 +613,6 @@ async def test_table_spacing_preserves_list_fences(opening, indent, closing):
 
 @pytest.mark.parametrize("native", ["card"], indirect=True)
 async def test_stream_card_preserves_non_table_code(native):
-    platform = native.driver._platform
     event = await ingress(native, message("code", group=True))
     text = "```text\nx\n1. literal\n```"
     assert (
@@ -608,10 +627,6 @@ async def test_stream_card_preserves_non_table_code(native):
     )["state"] == "acknowledged"
     updates = [row for kind, row in native.rows if kind == "update"]
     assert updates[-1]["content"] == text
-    assert any(
-        card.last_streamed_content == text
-        for card in platform._active_cards.values()
-    )
 
 
 async def test_long_markdown_table_splits_on_session_webhook(native):

@@ -3,6 +3,11 @@
 
 import re
 
+from markdown_it import MarkdownIt
+
+
+_TABLE_PARSER = MarkdownIt(f"commonmark").enable(f"table").disable(f"inline")
+
 
 def ensure_list_spacing(text: str) -> str:
     """
@@ -41,67 +46,20 @@ def ensure_list_spacing(text: str) -> str:
     return "\n".join(out)
 
 
-_FENCE_RE = re.compile(
-    r"^( {0,3}(?:(?:[-+*]|[0-9]{1,9}[.)]) {1,4})?)(`{3,}|~{3,})(.*)$",
-)
-_TABLE_DELIMITER_RE = re.compile(r"\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?")
-
-
-def _is_table_delimiter(line: str) -> bool:
-    stripped = line.strip()
-    return (
-        "|" in stripped and _TABLE_DELIMITER_RE.fullmatch(stripped) is not None
-    )
-
-
 def ensure_table_spacing(text: str) -> str:
-    """Separate pipe tables from preceding text for DingTalk's renderer."""
-    lines = text.split("\n")
-    out = []
-    fence = ""
-    fence_indent = 0
-    in_table = False
+    """Separate top-level pipe tables from preceding text for DingTalk."""
+    if f"|" not in text:
+        return text
 
-    for i, line in enumerate(lines):
-        fence_line = line.expandtabs(4)
-        if (
-            fence_indent
-            and fence_line.strip()
-            and not fence_line.startswith(" " * fence_indent)
-        ):
-            # Dedenting out of a list item also ends its unclosed fence.
-            fence, fence_indent = "", 0
-        match = _FENCE_RE.match(fence_line[fence_indent:])
-        if match:
-            prefix, marker, suffix = match.groups()
-            in_table = False
-            if not fence:
-                if marker[0] != "`" or "`" not in suffix:
-                    fence = marker
-                    fence_indent = len(prefix) if prefix.strip() else 0
-            elif (
-                not prefix.strip()
-                and marker[0] == fence[0]
-                and len(marker) >= len(fence)
-                and not suffix.strip()
-            ):
-                fence, fence_indent = "", 0
-        elif not fence:
-            if "|" not in line or fence_line.startswith("    "):
-                in_table = False
-            elif (
-                not in_table
-                and i + 1 < len(lines)
-                and not lines[i + 1].expandtabs(4).startswith("    ")
-                and _is_table_delimiter(lines[i + 1])
-            ):
-                # Delimiter-like rows inside this table are ordinary cells.
-                in_table = True
-                if i > 0 and lines[i - 1].strip():
-                    out.append("")
-        out.append(line)
-
-    return "\n".join(out)
+    # Source line offsets index the even entries; odd entries hold newlines.
+    parts = re.split(rf"(\r\n?|\n)", text)
+    for token in _TABLE_PARSER.parse(text):
+        if token.type != f"table_open" or token.level or token.map is None:
+            continue
+        header = token.map[0] * 2
+        if header and parts[header - 2].strip():
+            parts[header - 1] *= 2
+    return f"".join(parts)
 
 
 def dedent_code_blocks(text: str) -> str:
