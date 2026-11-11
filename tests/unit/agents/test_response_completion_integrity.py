@@ -26,9 +26,13 @@ from agentscope.tool import Toolkit
 
 from qwenpaw.agents.react_agent import QwenPawAgent
 from qwenpaw.config.config import AgentProfileConfig
-from qwenpaw.app.chats.utils import agentscope_msg_to_message
+from qwenpaw.app.chats.utils import (
+    agentscope_msg_to_message,
+    clean_display_text,
+)
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
 from qwenpaw.providers.dashscope_provider import _DashScopeChatModelCompat
+from qwenpaw.providers.fallback_chat_model import FallbackChatModel
 from qwenpaw.providers.openai_chat_model_compat import OpenAIChatModelCompat
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 from qwenpaw.runtime.envelope import Envelope
@@ -134,7 +138,17 @@ def question():
 
 @pytest.mark.parametrize(f"provider", [f"openai", f"dashscope"])
 @pytest.mark.parametrize(f"stream", [False, True])
-@pytest.mark.parametrize(f"content", [f"", f" \n"])
+@pytest.mark.parametrize(
+    f"content",
+    [
+        f"",
+        f" \n",
+        f"⟦ Internal index title ⟧",
+        f"<!-- ⟦ Internal index title ⟧ -->",
+        f"〚 Internal index title 〛",
+        f"⟦ Unfinished index title",
+    ],
+)
 async def test_empty_terminal_answer_is_not_completed(
     provider,
     stream,
@@ -359,6 +373,146 @@ async def test_later_success_does_not_inherit_earlier_truncation():
             f"finish_reason": f"stop",
             f"truncated": False,
         }
+
+
+@pytest.mark.parametrize(f"provider", [f"openai", f"dashscope"])
+@pytest.mark.parametrize(f"stream", [False, True])
+@pytest.mark.parametrize(
+    f"headline",
+    [f"⟦ Internal index title ⟧", f"<!-- ⟦ Internal index title ⟧ -->"],
+)
+async def test_visible_answer_keeps_original_headline_in_history(
+    provider,
+    stream,
+    headline,
+):
+    """Validation must not mutate the text used by context and indexing."""
+    content = f"42\n{headline}"
+    async with model_response(
+        provider,
+        stream,
+        [(content, None, f"stop")],
+    ) as (model, _requests):
+        agent = make_agent(model)
+        events = [event async for event in agent._reply(inputs=question())]
+        assert any(isinstance(event, ReplyEndEvent) for event in events)
+        assert agent.state.context[-1].get_text_content() == content
+        assert clean_display_text(content, f"assistant") == f"42"
+
+
+def _reloaded_history_completion(agent):
+    """Inspect metadata after a state reload and history conversion."""
+    restored = make_agent(_BlockModel([]))
+    restored.load_state_dict(agent.state_dict())
+    messages = agentscope_msg_to_message(restored.state.context[-1])
+    metadata = messages[-1].metadata[f"metadata"]
+    return metadata.get(f"qwenpaw_model_completion")
+
+
+@pytest.mark.parametrize(f"provider", [f"openai", f"dashscope"])
+@pytest.mark.parametrize(f"stream", [False, True])
+async def test_unknown_final_reason_clears_old_history_warning(
+    provider,
+    stream,
+):
+    """A later answer without finish metadata must clear an old warning."""
+    replies = [(None, f"Thinking", f"length"), (f"42", None, None)]
+    async with model_response(provider, stream, replies) as (model, requests):
+        agent = make_agent(model)
+        envelope = Envelope()
+        _ = [
+            event
+            async for event in AgentExecutor(agent, envelope).run([question()])
+        ]
+        final = [event async for event in envelope.finalize()][-1]
+        assert len(requests) == 2
+        assert final.status.value == f"completed"
+        assert not (final.metadata or {}).get(f"qwenpaw_model_completion")
+        assert agent.state.context[-1].get_text_content() == f"42"
+        assert _reloaded_history_completion(agent) is None
+
+
+class _RateLimitedPrimary(_BlockModel):
+    """Think once, then trigger the configured cross-provider fallback."""
+
+    def __init__(self):
+        super().__init__([ThinkingBlock(thinking=f"Thinking")])
+        self.calls = 0
+
+    async def __call__(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls > 1:
+            raise httpx.HTTPStatusError(
+                f"Rate limited",
+                request=httpx.Request(f"POST", f"https://example.test/v1"),
+                response=httpx.Response(429),
+            )
+        response = await super().__call__(*args, **kwargs)
+        response.metadata[f"qwenpaw_model_completion"] = {
+            f"finish_reason": f"length",
+            f"truncated": True,
+        }
+        return response
+
+
+async def test_successful_cross_provider_fallback_clears_history_warning():
+    """A native fallback answer must not inherit the primary model limit."""
+    native = _BlockModel([TextBlock(text=f"42")])
+    native.model = f"native-fallback"
+    agent = make_agent(FallbackChatModel([_RateLimitedPrimary(), native]))
+    envelope = Envelope()
+    _ = [
+        event
+        async for event in AgentExecutor(agent, envelope).run([question()])
+    ]
+    final = [event async for event in envelope.finalize()][-1]
+    assert final.status.value == f"completed"
+    assert not (final.metadata or {}).get(f"qwenpaw_model_completion")
+    assert agent.state.context[-1].get_text_content() == f"42"
+    assert _reloaded_history_completion(agent) is None
+
+
+async def test_audio_only_reply_preserves_previous_reply_completion():
+    """Audio omitted from context must not change a previous reply marker."""
+    audio = DataBlock(
+        source=Base64Source(media_type=f"audio/wav", data=f"YWJj"),
+    )
+    agent = make_agent(_BlockModel([audio]))
+    metadata = {
+        f"custom": f"keep",
+        f"qwenpaw_model_completion": {
+            f"finish_reason": f"length",
+            f"truncated": True,
+        },
+    }
+    previous = Msg(
+        id=f"previous-reply",
+        name=agent.name,
+        role=f"assistant",
+        content=[TextBlock(text=f"Previous answer")],
+        metadata=metadata,
+    )
+    agent.state.context.append(previous)
+    events = [event async for event in agent._reasoning()]
+    assert any(isinstance(event, Msg) for event in events)
+    assert agent.state.context == [previous]
+    assert previous.metadata == metadata
+
+
+def test_completion_metadata_clear_preserves_unrelated_metadata():
+    """Removing a stale completion marker must preserve extension metadata."""
+    agent = make_agent(_BlockModel([]))
+    target = Msg(
+        name=agent.name,
+        role=f"assistant",
+        content=[TextBlock(text=f"Answer")],
+        metadata={
+            f"custom": f"keep",
+            f"qwenpaw_model_completion": {f"truncated": True},
+        },
+    )
+    agent._attach_model_completion(target)
+    assert target.metadata == {f"custom": f"keep"}
 
 
 class _HangingBody(httpx.AsyncByteStream):

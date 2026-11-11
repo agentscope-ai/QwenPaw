@@ -1446,8 +1446,9 @@ class QwenPawAgent(Agent):
                 if should_strip_video:
                     self._set_formatter_video_strip(False)
 
-        if self._model_completion:
-            self._attach_model_completion(self._get_last_msg())
+        stored_msg = self._get_last_msg()
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -1502,12 +1503,15 @@ class QwenPawAgent(Agent):
 
     def _attach_model_completion(self, target: Any) -> None:
         """Keep raw completion details in events and persisted messages."""
+        if target is None:
+            return
         completion = getattr(self, f"_model_completion", None)
-        if target is not None and completion:
-            target.metadata = {
-                **(target.metadata or {}),
-                COMPLETION_METADATA_KEY: dict(completion),
-            }
+        metadata = dict(target.metadata or {})
+        if completion:
+            metadata[COMPLETION_METADATA_KEY] = dict(completion)
+        else:
+            metadata.pop(COMPLETION_METADATA_KEY, None)
+        target.metadata = metadata
 
     @staticmethod
     def _attach_fallback_notices(

@@ -67,6 +67,7 @@ def _bare_agent(model: ChatModelBase) -> QwenPawAgent:
 
     agent._inject_pending_hints = _noop
     agent._model_rejects_media = lambda: False
+    agent._get_last_msg = lambda: None
     agent._run_stop_handlers = _stop_result
     return agent
 

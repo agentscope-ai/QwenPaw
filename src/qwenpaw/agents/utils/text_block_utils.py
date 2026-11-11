@@ -16,6 +16,8 @@ that carries no information but breaks replay.
 import logging
 from typing import Any
 
+from ..context.scroll.serialize import strip_headline
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,7 +56,8 @@ def has_answer_content(blocks: list) -> bool:
     for block in blocks:
         block_type = _block_attr(block, f"type")
         if block_type == f"text":
-            if (_block_attr(block, f"text") or f"").strip():
+            text = _block_attr(block, f"text") or f""
+            if (strip_headline(text) or f"").strip():
                 return True
         elif block_type == f"data":
             source = _block_attr(block, f"source")
