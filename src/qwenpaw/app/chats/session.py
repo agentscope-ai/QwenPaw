@@ -471,3 +471,47 @@ class SafeJSONSession:
                 f"because it does not exist"
             ),
         )
+
+    def delete_session_file(
+        self,
+        session_id: str,
+        user_id: str = "",
+        channel: str = "",
+    ) -> bool:
+        """Remove the persisted session file for one conversation.
+
+        Per-run cron sessions accumulate one file per execution; retention
+        trimming calls this so storage stays bounded along with the chat
+        specs. Returns True when a file was removed, False when it did not
+        exist or could not be removed (logged, never raised).
+        """
+        if not session_id:
+            return False
+        try:
+            session_save_path = self._get_save_path(
+                session_id,
+                user_id,
+                channel,
+            )
+        except (ValueError, AgentStateError):
+            logger.warning(
+                "Cannot build session path for deletion: session_id=%s",
+                session_id[:40] if session_id else "",
+            )
+            return False
+        try:
+            if not os.path.exists(session_save_path):
+                return False
+            os.remove(session_save_path)
+            logger.info(
+                "Deleted session file %s.",
+                session_save_path,
+            )
+            return True
+        except OSError as exc:
+            logger.warning(
+                "Failed to delete session file %s: %s",
+                session_save_path,
+                exc,
+            )
+            return False

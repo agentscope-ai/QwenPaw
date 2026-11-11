@@ -4,8 +4,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import re
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict
 
 from ...utils.io_utils import run_sync_io
@@ -24,6 +26,15 @@ logger = logging.getLogger(__name__)
 _SESSION_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
 _SESSION_COMPONENT_MAX_LENGTH = 32
 _TRACE_META_MAX_LENGTH = 256
+
+# Per-run cron sessions: how many of a job's most recent run chats (and their
+# session files) to keep. Older run chats are trimmed after each execution so
+# high-frequency jobs stay bounded on disk and in the frontend chat list.
+# Audit facts remain available via cron execution records (CRON_HISTORY_LIMIT).
+_CRON_PER_RUN_CHAT_KEEP = max(
+    1,
+    int(os.environ.get("QWENPAW_CRON_RUN_SESSION_KEEP", "50")),
+)
 
 
 def _safe_session_component(value: str | None, *, fallback: str) -> str:
@@ -52,6 +63,26 @@ def _cron_session_id(
     target = _safe_session_component(target_session_id, fallback="session")
     job = _safe_session_component(job_id, fallback="job")
     return f"cron:{target}:job:{job}"
+
+
+def _cron_run_session_prefix(
+    *,
+    target_session_id: str | None,
+    job_id: str | None,
+) -> str:
+    """Prefix shared by every per-run session id of one cron job."""
+    return f"{_cron_session_id(target_session_id=target_session_id, job_id=job_id)}:run:"
+
+
+def _cron_run_session_id(
+    *,
+    target_session_id: str | None,
+    job_id: str | None,
+    run_id: str | None,
+) -> str:
+    """Build one bounded dedicated session id for a single cron run."""
+    run = _safe_session_component(run_id, fallback="run")
+    return f"{_cron_run_session_prefix(target_session_id=target_session_id, job_id=job_id)}{run}"
 
 
 def _bounded_trace_meta(value: str | None) -> str:
@@ -112,6 +143,72 @@ class CronExecutor:
             return
         async with delivery(self._workspace.agent_id) as channels:
             await getattr(channels, method)(**kwargs)
+
+    async def _trim_per_run_chats(
+        self,
+        chat_manager: Any,
+        *,
+        job: CronJobSpec,
+        channel: str,
+        keep: int,
+    ) -> None:
+        """Keep only the newest *keep* run chats (and session files) of a job.
+
+        Per-run sessions produce one chat and one session file per execution;
+        without trimming a high-frequency job would flood the chat list and
+        disk. Best-effort housekeeping: failures are logged, never raised —
+        trimming must not affect the current run's outcome.
+        """
+        prefix = _cron_run_session_prefix(
+            target_session_id=job.dispatch.target.session_id,
+            job_id=job.id,
+        )
+        user_id = job.dispatch.target.user_id or "cron"
+        try:
+            chats = await chat_manager.list_chats(user_id=user_id)
+        except Exception:
+            logger.debug(
+                "cron: failed to list run chats for job %s",
+                job.id,
+                exc_info=True,
+            )
+            return
+        run_chats = [
+            chat
+            for chat in chats
+            if getattr(chat, "session_id", "").startswith(prefix)
+        ]
+        if len(run_chats) <= keep:
+            return
+        run_chats.sort(key=lambda chat: chat.created_at, reverse=True)
+        stale = run_chats[keep:]
+        stale_ids = [chat.id for chat in stale]
+        try:
+            await chat_manager.delete_chats(stale_ids)
+        except Exception:
+            logger.warning(
+                "cron: failed to trim run chats for job %s (%d stale)",
+                job.id,
+                len(stale_ids),
+                exc_info=True,
+            )
+            return
+        session = getattr(self._workspace, "session", None)
+        for chat in stale:
+            if session is None:
+                break
+            try:
+                session.delete_session_file(
+                    chat.session_id,
+                    chat.user_id,
+                    getattr(chat, "channel", "") or channel,
+                )
+            except Exception:
+                logger.debug(
+                    "cron: failed to remove session file for chat %s",
+                    chat.id,
+                    exc_info=True,
+                )
 
     # pylint: disable=too-many-statements,too-many-branches
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
@@ -206,8 +303,24 @@ class CronExecutor:
 
         # Determine session_id based on share_session
         share_session = job.runtime.share_session
+        per_run_session = not share_session and bool(
+            getattr(job.runtime, "per_run_session", False),
+        )
         if share_session:
             req["session_id"] = target_session_id or f"cron:{job.id}"
+        elif per_run_session:
+            # One dedicated session per run: context loading and persisted
+            # history stay bounded to a single execution. Without this,
+            # high-frequency jobs accumulate every run's conversation in one
+            # per-job session without bound (memory grows with full history
+            # on every execution). Run chats beyond the retention window are
+            # trimmed below; run audit facts remain in execution records.
+            req["session_id"] = _cron_run_session_id(
+                target_session_id=target_session_id,
+                job_id=job.id,
+                run_id=run_id,
+            )
+            req["session_source"] = "cron"
         else:
             # Keep one dedicated visible chat per job. Cron hooks isolate the
             # model context for each execution while retaining run history.
@@ -222,12 +335,16 @@ class CronExecutor:
         chat_manager = getattr(self._workspace, "chat_manager", None)
         _chat_spec = None
         if chat_manager is not None:
+            chat_name = job.name or f"Cron: {job.id}"
+            if per_run_session:
+                stamp = datetime.now(timezone.utc).strftime("%m-%d %H:%M")
+                chat_name = f"{chat_name} · {stamp}"
             try:
                 _chat_spec = await chat_manager.get_or_create_chat(
                     session_id=req["session_id"],
                     user_id=req.get("user_id", "cron"),
                     channel=target_channel,
-                    name=job.name or f"Cron: {job.id}",
+                    name=chat_name,
                     source="cron",
                 )
             except Exception:
@@ -235,6 +352,13 @@ class CronExecutor:
                     "cron: failed to register chat spec for job %s",
                     job.id,
                     exc_info=True,
+                )
+            if per_run_session:
+                await self._trim_per_run_chats(
+                    chat_manager,
+                    job=job,
+                    channel=target_channel,
+                    keep=_CRON_PER_RUN_CHAT_KEEP,
                 )
 
         delivery_error: str | None = None

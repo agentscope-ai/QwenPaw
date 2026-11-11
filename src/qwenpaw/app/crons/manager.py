@@ -332,14 +332,22 @@ class CronManager(ManagerBase):
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
         async with self._lock:
             previous = await self._repo.get_job(spec.id or "")
-            if (
-                previous is not None
-                and "share_session" not in spec.runtime.model_fields_set
-            ):
-                # Defaults apply to creation, not omitted legacy update fields.
-                spec.runtime = spec.runtime.model_copy(
-                    update={"share_session": previous.runtime.share_session},
-                )
+            if previous is not None:
+                # Defaults apply to creation, not omitted legacy update
+                # fields: each omitted runtime flag carries over from the
+                # previous definition independently.
+                omitted = {
+                    field
+                    for field in ("share_session", "per_run_session")
+                    if field not in spec.runtime.model_fields_set
+                }
+                if omitted:
+                    spec.runtime = spec.runtime.model_copy(
+                        update={
+                            field: getattr(previous.runtime, field)
+                            for field in omitted
+                        },
+                    )
             await self._persist_and_register(spec, previous=previous)
 
     async def create_job_if_absent(self, spec: CronJobSpec) -> bool:
