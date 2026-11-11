@@ -1558,7 +1558,8 @@ async def test_omitted_parameters_clears_stale_auto_detected(
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")
             return _FakeResponse(
-                200, {"model_info": {"general.architecture": "qwen3"}}
+                200,
+                {"model_info": {"general.architecture": "qwen3"}},
             )
 
     _patch_list_and_native(
