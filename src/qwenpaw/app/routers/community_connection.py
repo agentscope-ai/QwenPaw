@@ -75,6 +75,12 @@ class PasswordConnection(BaseModel):
 async def connect_with_password(request: Request):
     # Access is controlled by the deployment and existing app middleware,
     # rather than a second community-specific owner/proxy check.
+    # request.json() also parses text/plain bodies. Require a non-safelisted
+    # media type so cross-origin browser writes must pass CORS preflight.
+    # CORS (including the gateway's policy) must allow only trusted frontends.
+    content_type = request.headers.get("content-type", "")
+    if content_type.partition(";")[0].strip().lower() != "application/json":
+        raise HTTPException(415, detail="json_content_type_required")
     try:
         body = PasswordConnection.model_validate(await request.json())
     except (ValueError, ValidationError) as exc:

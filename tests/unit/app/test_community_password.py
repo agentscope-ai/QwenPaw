@@ -11,6 +11,7 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from qwenpaw.app import community_credentials as credentials
 from qwenpaw.app import community_store as store
@@ -513,6 +514,139 @@ async def test_password_flow_uses_deployment_access(
         cleared = await client.delete("/api/community/connection/password")
         assert cleared.status_code == 200
         assert not credentials.load()["password"]
+
+
+@pytest.fixture(params=[False, True], ids=["no-cors", "trusted-cors"])
+def browser_app(deployment_app, request):
+    if request.param:
+        # Match the app's explicit-origin CORS configuration, including the
+        # desktop frontend. Untrusted origins must not pass JSON preflight.
+        deployment_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["https://trusted.example", "tauri://localhost"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    return deployment_app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        None,
+        "text/plain",
+        "text/plain; charset=UTF-8",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data; boundary=example",
+        "application/json-invalid",
+    ],
+)
+async def test_password_rejects_non_json_without_changing_connection(
+    browser_app,
+    service,
+    requests,
+    content_type,
+):
+    await service.connect_password("owner@example.com", "owner-secret")
+    before = await store.get_connection()
+    saved = credentials.load()
+    requests.clear()
+    headers = {"Origin": "https://untrusted.example"}
+    if content_type:
+        headers["Content-Type"] = content_type
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=browser_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        response = await client.post(
+            "/api/community/connection/password",
+            headers=headers,
+            content=json.dumps(
+                {"account": "attacker@example.com", "password": "valid"},
+            ),
+        )
+    assert response.status_code == 415
+    assert response.json()["detail"] == "json_content_type_required"
+    assert requests == []
+    assert credentials.load() == saved
+    assert await store.get_connection() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["https://untrusted.example", "null"])
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+async def test_password_untrusted_preflight_is_not_authorized(
+    browser_app,
+    service,
+    requests,
+    origin,
+    method,
+):
+    await service.connect_password("owner@example.com", "owner-secret")
+    saved = credentials.load()
+    before = await store.get_connection()
+    requests.clear()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=browser_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        response = await client.options(
+            "/api/community/connection/password",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+    assert response.status_code >= 400
+    assert "access-control-allow-origin" not in response.headers
+    assert requests == []
+    assert credentials.load() == saved
+    assert await store.get_connection() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "origin",
+    ["https://trusted.example", "tauri://localhost"],
+)
+async def test_password_trusted_json_preflight_and_login(
+    deployment_app,
+    origin,
+):
+    deployment_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=deployment_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        preflight = await client.options(
+            "/api/community/connection/password",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers["access-control-allow-origin"] == origin
+        response = await client.post(
+            "/api/community/connection/password",
+            headers={
+                "Origin": origin,
+                "Content-Type": "Application/JSON; charset=utf-8",
+            },
+            json={"account": "owner@example.com", "password": "valid"},
+        )
+    assert response.status_code == 200
+    assert credentials.load()["account"] == "owner@example.com"
 
 
 @pytest.mark.asyncio

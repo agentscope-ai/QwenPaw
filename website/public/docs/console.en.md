@@ -684,6 +684,8 @@ Persist the private directory and its key when recreating Docker containers, and
 
 Password login relies on the deployment entry point and existing QwenPaw access controls. It does not add a separate local-login requirement, backend HTTPS check, or Hub origin header requirement. Users accessing an instance through an authenticated gateway such as AgentScope Platform can use the password form directly; Docker port mapping and proxy forwarding do not disable it. Self-hosted deployments should protect instance access at the entry point and use HTTPS to protect credentials in transit. Browser authorization still requires the computer running QwenPaw.
 
+Password submissions require `Content-Type: application/json`; plain-text and form submissions are rejected to prevent cross-site login requests that bypass CORS preflight. Keep `QWENPAW_CORS_ORIGINS` unset for a same-origin web console, or list only trusted frontend origins when cross-origin access is needed. Do not allow arbitrary origins or `*` in QwenPaw or the gateway's CORS policy. Gateway authentication alone does not prevent login CSRF when a browser automatically supplies its login cookies.
+
 ---
 
 ## Related Pages
