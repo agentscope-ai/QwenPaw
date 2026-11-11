@@ -11,7 +11,7 @@ import zipfile
 
 from ..constant import CONFIG_FILE, PLUGINS_DIR, WORKING_DIR
 from ..utils.io_utils import run_sync_io
-from .dependency_gate import DependencyGate, combined_requirements
+from .dependency_gate import SharedDependencyError
 from .loader import PluginLoader
 
 _LEGACY_PLUGINS = {
@@ -94,8 +94,9 @@ def _prepare(plugin_dir: Path, staging: Path, loader: PluginLoader):
         if plugin_id := _LEGACY_PLUGINS.get(agent.get("backend", "")):
             used.setdefault(plugin_id, []).append(agent_id)
     if not used:
-        return {"plugins": []}, {}
+        return {"plugins": []}, {}, {}
     sources = _bundle_sources(plugin_dir, set(used), staging)
+    dependency_sources = {}
     rows = []
     for plugin_id, agents in sorted(used.items()):
         settings = config.get("plugins", {}).get(plugin_id, {})
@@ -128,19 +129,9 @@ def _prepare(plugin_dir: Path, staging: Path, loader: PluginLoader):
                 dependency_source = source
                 row["action"] = "install"
         if dependency_source is not None:
-            with combined_requirements(dependency_source) as requirements:
-                decision = DependencyGate().evaluate(
-                    requirements,
-                    allow_install=False,
-                    plugin_id=plugin_id,
-                )
-            row["missing_dependencies"] = decision.missing
-            if decision.unsupported:
-                raise ValueError(decision.reason)
-            if decision.missing:
-                row["action"] = "prepare-dependencies"
+            dependency_sources[plugin_id] = dependency_source
         rows.append(row)
-    return {"plugins": rows}, sources
+    return {"plugins": rows}, sources, dependency_sources
 
 
 async def migrate_legacy_harnesses(
@@ -162,12 +153,28 @@ async def migrate_legacy_harnesses(
                 ),
             ),
         )
-        report, sources = await run_sync_io(
+        report, sources, dependency_sources = await run_sync_io(
             _prepare,
             Path(plugin_dir),
             staging,
             loader,
         )
+        for row in report["plugins"]:
+            plugin_id = row["plugin_id"]
+            if plugin_id not in dependency_sources:
+                continue
+            decision = await loader._ensure_dependencies_installed(
+                dependency_sources[plugin_id],
+                plugin_id,
+                allow_install=False,
+            )
+            if decision.require_restart:
+                raise SharedDependencyError(decision)
+            row["missing_dependencies"] = decision.missing
+            if decision.unsupported:
+                raise ValueError(decision.reason)
+            if decision.missing:
+                row["action"] = "prepare-dependencies"
         if apply:
             for row in report["plugins"]:
                 if row["action"] == "keep-installed":
