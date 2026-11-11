@@ -71,6 +71,105 @@ describe("FilesDrawer", () => {
     localStorage.clear();
   });
 
+  it("opens Markdown relatives in the same preview root", async () => {
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "[next](./b.md)",
+      etag: "v1",
+    });
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: {
+            source: "workspace",
+            root: "workspace",
+            path: "docs/a.md",
+          },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+          chatId: "chat-1",
+        }}
+      />,
+    );
+    fireEvent.click(await screen.findByRole("link", { name: "next" }));
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "OPEN_PREVIEW",
+      target: { source: "workspace", root: "workspace", path: "docs/b.md" },
+      trigger: null,
+    });
+  });
+
+  it.each(["Escape", "close button"])(
+    "restores the original trigger after Markdown navigation and %s",
+    async (closeMethod) => {
+      vi.mocked(workspaceApi.loadFileText)
+        .mockResolvedValueOnce({ content: "[next](./b.md)", etag: "v1" })
+        .mockResolvedValueOnce({ content: "# Linked document", etag: "v2" });
+      const user = userEvent.setup();
+
+      function PreviewHarness() {
+        const [state, dispatch] = useReducer(filesDrawerReducer, {
+          kind: "closed",
+        });
+        return (
+          <>
+            <button
+              type="button"
+              onClick={(event) =>
+                dispatch({
+                  type: "OPEN_PREVIEW",
+                  target: {
+                    source: "workspace",
+                    root: "workspace",
+                    path: "docs/a.md",
+                  },
+                  trigger: event.currentTarget,
+                })
+              }
+            >
+              Open preview
+            </button>
+            {state.kind !== "closed" && (
+              <FilesDrawer
+                state={state}
+                dispatch={dispatch}
+                scope={{
+                  kind: "session",
+                  agentId: "default",
+                  sessionId: "session-1",
+                  chatId: "chat-1",
+                }}
+              />
+            )}
+          </>
+        );
+      }
+
+      renderWithProviders(<PreviewHarness />);
+      const trigger = screen.getByRole("button", { name: "Open preview" });
+      await user.click(trigger);
+      await user.click(await screen.findByRole("link", { name: "next" }));
+      expect(
+        await screen.findByRole("heading", { name: "Linked document" }),
+      ).toBeInTheDocument();
+
+      if (closeMethod === "Escape") {
+        await user.keyboard("{Escape}");
+      } else {
+        await user.click(screen.getByRole("button", { name: "common.close" }));
+      }
+
+      await waitFor(() => expect(trigger).toHaveFocus());
+      expect(screen.queryByRole("region")).not.toBeInTheDocument();
+    },
+  );
+
   it.each(["adbpg", "powercontext"])(
     "keeps preview tags as text for %s",
     async (backend) => {

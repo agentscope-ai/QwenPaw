@@ -29,6 +29,8 @@ from ...plugins.dependency_upgrade import (
 )
 from ...plugins.dependency_gate import SharedDependencyError
 from ...market.registry import MarketProviderBusyError
+from ...installation_origin import read_plugin_origin
+from ...utils.io_utils import run_sync_io
 from ...plugins.activity import PluginBusyError
 from ...plugins.registry import MemoryBackendInUseError
 
@@ -48,13 +50,30 @@ def dependency_http_error(exc):
                 "operation": exc.operation,
             },
         )
+    code = exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED"
+    instructions = {
+        "DEPENDENCY_UNSATISFIED": "Resolve the missing dependency requirements, then retry installation.",
+        "DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED": (
+            "The dependency environment changed; verify the active "
+            "environment, then retry installation."
+        ),
+        "DEPENDENCY_REPAIR_REQUIRED": "Complete the pending dependency repair before retrying installation.",
+        "DEPENDENCY_RESTART_REQUIRED": (
+            "Restart the backend to release the affected dependencies, "
+            "then retry installation."
+        ),
+    }
+    logger.info("Plugin dependency refusal: code=%s", _log_safe(code))
     return HTTPException(
         status_code=409,
         detail={
-            "code": exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED",
+            "code": code,
             "message": str(exc),
             "instructions": [
-                "Resolve the shared dependency requirements, then retry installation.",
+                instructions.get(
+                    code,
+                    "Review the dependency preparation error before retrying installation.",
+                ),
             ],
         },
     )
@@ -295,6 +314,10 @@ def _list_plugins_from_disk() -> list[dict]:
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
                 "market_id": _read_market_id(item),
+                "installation_origin": read_plugin_origin(
+                    plugins_dir,
+                    manifest.id,
+                ),
             },
         )
     return result
@@ -357,6 +380,7 @@ async def _load_plugin_with_optional_force_reinstall(
     reload_agents: bool = True,
     pawport_owner: dict | None = None,
     recover_incomplete: bool = False,
+    installation_source: str = "",
 ):
     """Load a plugin, optionally unloading first under one lifecycle lock.
 
@@ -393,6 +417,7 @@ async def _load_plugin_with_optional_force_reinstall(
         before_force_unload=_before_force_unload if force else None,
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
+        installation_source=installation_source,
     )
 
     from ..mcp.feature_gate import reconcile_mcp_features
@@ -455,6 +480,11 @@ async def list_plugins(request: Request):
             "plugin_type": manifest.plugin_type,
             "frontend_entry": manifest.entry.frontend,
             "market_id": _read_market_id(record.source_path),
+            "installation_origin": await run_sync_io(
+                read_plugin_origin,
+                record.source_path.parent,
+                manifest.id,
+            ),
         }
 
     return list(result.values())
@@ -536,6 +566,11 @@ async def install_plugin_source(
             request,
             source_path,
             force=force,
+            installation_source=(
+                normalized
+                if normalized.startswith(("http://", "https://"))
+                else ""
+            ),
             **_interrupt_options(interrupt_tasks),
             reload_agents=reload_agents,
             pawport_owner=pawport_owner,
@@ -634,6 +669,11 @@ async def install_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": record.status == "active",
@@ -718,6 +758,11 @@ async def upload_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": record.status == "active",
@@ -861,7 +906,8 @@ async def unload_plugin_keep_config(
     summary="Repair plugin dependencies",
     description=(
         "Explicitly install missing plugin dependencies, then load. "
-        "Host-package upgrades are rejected and require a backend restart."
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
     ),
 )
 async def repair_plugin_dependencies(plugin_id: str, request: Request):

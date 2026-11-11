@@ -16,6 +16,7 @@ const requiredPaths = [
   "readonlySettings",
   "readonlyReason.startup",
   "readonlyReason.initial_default",
+  "variableDescriptions.QWENPAW_SHELL_MEMORY_LIMIT_MB",
   "variableDescriptions.QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT",
   "variableDescriptions.QWENPAW_LLM_STREAM_IDLE_TIMEOUT",
 ];

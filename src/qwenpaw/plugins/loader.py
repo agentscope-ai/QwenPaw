@@ -15,7 +15,7 @@ import threading
 import tempfile
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
@@ -244,6 +244,11 @@ def _marker_matches(marker: dict[str, Any], owner: dict[str, Any]) -> bool:
 # - asyncio.create_task() children that inherit ContextVar cannot bypass;
 # - different PluginLoader instances never share re-entrancy.
 _LifecycleHoldKey = tuple[int, int, str]
+_DEPENDENCY_FORCE: ContextVar[tuple | None] = ContextVar(
+    "dependency_force",
+    default=None,
+)
+
 _LIFECYCLE_HELD: ContextVar[Optional[_LifecycleHoldKey]] = ContextVar(
     "qwenpaw_plugin_lifecycle_held",
     default=None,
@@ -270,22 +275,6 @@ def _prepare_plugin_site_path(site_dir, path_snapshot):
         # remains responsible for reporting invalid runtime policy.
         return None
     paths = list(path_snapshot)
-    if (
-        target.parent.name.startswith("bundle-")
-        and target.parent.parent.parent == _plugin_runtime_dir()
-    ):
-        bucket = target.parent.parent.resolve()
-        active = target.resolve()
-        paths = []
-        for entry in path_snapshot:
-            path = Path(_norm_realpath(entry))
-            managed = path == bucket / "site" or (
-                path.name == "site"
-                and path.parent.name.startswith("bundle-")
-                and path.parent.parent == bucket
-            )
-            if not managed or path == active:
-                paths.append(entry)
     site = str(target)
     if site not in paths:
         paths.insert(0, site)
@@ -400,12 +389,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Acquire process lifetime runtime custody before loop publication."""
         from ..utils.io_utils import run_sync_io
         from .dependency_maintenance import lease_environment
+        from .dependency_recovery import recover_additions
 
         validate = _capture_runtime_selection(
             lambda: channel_runtime,
             _is_frozen,
         )
         if channel_runtime is not None:
+            await run_sync_io(
+                recover_additions,
+                tuple(channel_runtime.dependency_paths),
+            )
             await run_sync_io(
                 lease_environment,
                 tuple(channel_runtime.dependency_paths),
@@ -500,9 +494,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             return False
         return True
 
-    def _require_recovered(self, plugin_id: str) -> None:
+    def _require_recovered(
+        self,
+        plugin_id: str,
+        *,
+        for_uninstall: bool = False,
+    ) -> None:
         """Do not import or commit a version whose boot recovery failed."""
-        if plugin_id == "cloudpaw":
+        # Uninstall may finish its own pending cleanup; loading may not.
+        if plugin_id == "cloudpaw" and not for_uninstall:
             from .legacy_cloudpaw import has_pending_uninstall
 
             if has_pending_uninstall(self):
@@ -560,7 +560,25 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         return (id(self), id(task), plugin_id)
 
     @asynccontextmanager
-    async def plugin_lifecycle(
+    async def plugin_lifecycle(self, plugin_id, *, dependency_force=None):
+        """Retain the exact operation's replacement intent through preparation."""
+        async with self._plugin_lifecycle_lock(plugin_id):
+            token = None
+            if dependency_force is not None:
+                token = _DEPENDENCY_FORCE.set(
+                    (
+                        self._lifecycle_hold_key(plugin_id),
+                        bool(dependency_force),
+                    ),
+                )
+            try:
+                yield
+            finally:
+                if token is not None:
+                    _DEPENDENCY_FORCE.reset(token)
+
+    @asynccontextmanager
+    async def _plugin_lifecycle_lock(
         self,
         plugin_id: str,
     ) -> AsyncIterator[None]:
@@ -587,7 +605,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 return
             token = _LIFECYCLE_HELD.set(hold_key)
             try:
-                yield
+                async with self._channel_backend.preparation_scope(plugin_id):
+                    yield
             finally:
                 _LIFECYCLE_HELD.reset(token)
 
@@ -738,6 +757,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         host_paths = tuple(sys.path)
         roots = await run_sync_io(dependency_sites, host_paths)
+        from .dependency_recovery import recover_additions
+
+        try:
+            await run_sync_io(recover_additions, roots, timeout=300)
+        except RuntimeError as exc:
+            if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
+                raise
+            # Keep the existing gate result for legacy or unverified damage.
+            logger.warning("Dependency recovery refused: %s", exc)
         try:
             async with environment_observation(roots):
                 dirty = await run_sync_io(
@@ -816,6 +844,62 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             return decision
         if decision.already_satisfied or not decision.allow_install:
             return decision
+        if decision.reason == "dependency version unknown" and _is_frozen():
+            from .execution.dependencies import (
+                _dependency_closure,
+                read_dependency_inventory,
+            )
+
+            from .dependency_gate import parse_requirements_file
+
+            def bundled_satisfies():
+                context = self._dependency_environment()
+                parsed = parse_requirements_file(requirements_file)
+                view, _ = read_dependency_inventory(
+                    source_path,
+                    context.dependency_paths,
+                    tuple(map(str, parsed.requirements)),
+                )
+                return all(
+                    name in view.distributions
+                    and requirement.specifier.contains(
+                        view.distributions[name]["version"],
+                        prereleases=True,
+                    )
+                    for name, requirement in _dependency_closure(
+                        tuple(map(str, parsed.requirements)),
+                        view.distributions,
+                        view.marker_environment,
+                        verify_sources=False,
+                    )
+                )
+
+            try:
+                verified = await run_sync_io(bundled_satisfies)
+            except (RuntimeError, ValueError, OSError):
+                verified = False
+            if verified:
+                return GateDecision(
+                    False,
+                    True,
+                    reason="bundled requirements verified",
+                )
+            # Importability is a read compatibility fallback, not proof that a
+            # bundled provider satisfies an explicit versioned installation.
+            from .dependency_gate import SharedDependencyError
+
+            raise SharedDependencyError(
+                GateDecision(
+                    False,
+                    False,
+                    warnings=decision.warnings,
+                    reason=(
+                        "Bundled dependency version is unknown. Update the desktop app "
+                        "or repair its dependency runtime."
+                    ),
+                    reason_code="DEPENDENCY_ENVIRONMENT_PROTECTED",
+                ),
+            )
         logger.info(
             "Plugin '%s' has %d unsatisfied dependency(ies): %s. "
             "Installing...",
@@ -1140,6 +1224,11 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             async with environment_observation(paths):
                 snapshot = (await process.audit(spec)).snapshot
             observe(snapshot)
+            installer_identity = {
+                "executable": snapshot.executable,
+                "prefix": snapshot.prefix,
+                "supported_tags": list(snapshot.supported_tags),
+            }
             wheel_tags = snapshot.supported_tags if frozen else None
             audit_process = process
             if frozen:
@@ -1191,7 +1280,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     targets=snapshot.dependency_sites or (),
                 )
             except SharedDependencyError as exc:
-                if exc.decision.require_restart or exc.decision.unsupported:
+                if (
+                    exc.reason_code != "DEPENDENCY_UNSATISFIED"
+                    or not exc.decision.missing
+                    or exc.decision.require_restart
+                    or exc.decision.unsupported
+                    or exc.decision.host_conflicts
+                ):
                     raise
                 if target is None:
                     raise RuntimeError(
@@ -1207,6 +1302,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path=root,
                     wheel_tags=wheel_tags,
                     dependency_context=context if frozen else None,
+                    installer_identity=installer_identity,
                 )
             if frozen:
                 await self._publish_dependency_site(
@@ -1241,10 +1337,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         source_path=None,
         wheel_tags=None,
         dependency_context=None,
+        installer_identity=None,
     ):
         """Build/stage wheels; the shared gate owns actual package writes."""
         import hashlib
         from packaging.utils import parse_wheel_filename
+        from ..config.utils import get_config_path
         from .dependency_gate import (
             SharedDependencyError,
             WheelAddition,
@@ -1330,22 +1428,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
             await run_sync_io(prepare_requirements)
 
-            def constrain(observed):
-                constraints.write_text(
-                    "".join(
-                        f"{name}=={row['version']}\n"
-                        for name, row in observed.distributions.items()
-                    )
-                    + "".join(
-                        f"{name}=={row['version']}\n"
-                        for name, row in immutable.items()
-                        if name not in observed.distributions
-                        or row["version"]
-                        != observed.distributions[name]["version"]
-                    ),
-                    encoding="utf-8",
-                )
-
             if not await run_sync_io(
                 require_pip,
                 spec.python_executable,
@@ -1389,7 +1471,83 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                             reason_code="DEPENDENCY_INSTALLER_UNAVAILABLE",
                         ),
                     )
-            await run_sync_io(constrain, snapshot)
+            from .dependency_upgrade import (
+                DependencyUpgradeRequired,
+                PreparedResolution,
+                _candidate_scope,
+                _protected_providers,
+                _resolution_requirements,
+                _source_hash,
+                dependency_upgrades,
+                resolution_constraints,
+            )
+            from .dependency_gate import parse_requirements_file
+            from .execution.dependencies import DependencySnapshot
+            from .dependency_context import DependencyEnvironmentContext
+
+            parsed = await run_sync_io(
+                parse_requirements_file,
+                requirements_file,
+            )
+            requirements = _resolution_requirements(
+                snapshot,
+                tuple(map(str, parsed.requirements)),
+            )
+            context = dependency_context
+            if context is None and isinstance(snapshot, DependencySnapshot):
+                context = replace(
+                    DependencyEnvironmentContext.from_snapshot(snapshot),
+                    install_target=Path(target),
+                )
+            manager, candidates, binding = dependency_upgrades(self), [], None
+            origin = Path(source_path or spec.code_root)
+            if await run_sync_io((origin / "plugin.json").is_file):
+                binding = await manager._binding(origin)
+                candidates = await manager._consumer_candidates(
+                    binding,
+                    snapshot,
+                )
+            if binding is not None and dependency_context is None:
+                context = await manager._environment(binding, snapshot)
+            protected = (
+                await run_sync_io(
+                    _protected_providers,
+                    snapshot,
+                    context,
+                    get_config_path().parent / "plugin_runtime",
+                )
+                if isinstance(snapshot, DependencySnapshot)
+                else set()
+            )
+            preferences = manager._soft_preferences(candidates, snapshot)
+
+            def constrain(prefer_installed):
+                constraints.write_text(
+                    resolution_constraints(
+                        snapshot,
+                        requirements,
+                        immutable=immutable,
+                        protected=protected,
+                        prefer_installed=prefer_installed,
+                        soft_preferences=preferences,
+                    ),
+                    encoding="utf-8",
+                )
+                # Keep accepted pip options and the source's exact declaration.
+                resolver.write_text(
+                    requirements_file.read_text(encoding="utf-8")
+                    + "\n"
+                    + "\n".join(
+                        sorted(
+                            set(requirements)
+                            - set(map(str, parsed.requirements)),
+                        ),
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+
+            await run_sync_io(constrain, True)
             command = [
                 spec.python_executable,
                 "-I",
@@ -1407,50 +1565,113 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 str(resolver),
             ]
             result = await run(command)
+            preferences_failed = bool(result.returncode)
             if result.returncode:
-                unpinned = command.copy()
-                index = unpinned.index("--constraint")
-                del unpinned[index : index + 2]
-                control_cleanup = ExitStack()
-                try:
-                    control = await run_sync_io(
-                        lambda: control_cleanup.enter_context(
-                            tempfile.TemporaryDirectory(
-                                prefix="qwenpaw-dependency-control-",
-                            ),
-                        ),
-                    )
-                    unpinned[unpinned.index("--wheel-dir") + 1] = control
-                    resolved = await run(unpinned)
-                finally:
-                    await run_sync_io(control_cleanup.close)
-                restart = resolved.returncode == 0
-                code = (
-                    "DEPENDENCY_RESTART_REQUIRED"
-                    if restart
-                    else "DEPENDENCY_PLAN_UNVERIFIED"
-                )
+                await run_sync_io(constrain, False)
+                for path in await run_sync_io(
+                    lambda: tuple(staging.glob("*.whl")),
+                ):
+                    await run_sync_io(path.unlink)
+                result = await run(command)
+            if result.returncode:
                 logger.info(
-                    "Dependency solver failed: plugin=%s "
-                    "constrained_returncode=%s unconstrained_returncode=%s "
-                    "code=%s",
+                    "Dependency solver failed: plugin=%s returncode=%s code=DEPENDENCY_CONFLICT",
                     ascii(str(plugin_id))[1:-1][:160],
                     result.returncode,
-                    resolved.returncode,
-                    code,
                 )
                 raise SharedDependencyError(
                     GateDecision(
                         False,
                         False,
-                        require_restart=restart,
-                        reason=(
-                            f"{code}: complete wheels compatible with "
-                            "installed versions required"
-                        ),
-                        reason_code=code,
+                        reason="Plugin requirements cannot be resolved for the selected Python environment.",
+                        reason_code="DEPENDENCY_CONFLICT",
                     ),
                 )
+            replacements = await run_sync_io(
+                lambda: any(
+                    str(parse_wheel_filename(path.name)[0])
+                    in snapshot.distributions
+                    and snapshot.distributions[
+                        str(parse_wheel_filename(path.name)[0])
+                    ]["version"]
+                    != str(parse_wheel_filename(path.name)[1])
+                    for path in staging.glob("*.whl")
+                ),
+            )
+            if replacements:
+                if binding is None:
+                    raise SharedDependencyError(
+                        GateDecision(
+                            False,
+                            False,
+                            require_restart=True,
+                            reason=(
+                                "DEPENDENCY_RESTART_REQUIRED: shared dependency replacement "
+                                "requires a retained plugin source."
+                            ),
+                            reason_code="DEPENDENCY_RESTART_REQUIRED",
+                        ),
+                    )
+                from .dependency_transaction import environment_fingerprint
+
+                admission = current_admission_token(usage, plugin_id, origin)
+                owners = self.registry.runtime_owners
+                preparation = tuple(
+                    lease
+                    for lease in owners.leases(plugin_id)
+                    if lease.key.kind == "preparation"
+                    and lease.instance_id == getattr(spec, "instance_id", None)
+                    and lease.generation == getattr(spec, "generation", None)
+                    and owners.resource(lease) is process
+                )
+                excluded_tokens = tuple(
+                    token
+                    for token in (
+                        admission,
+                        *usage.capture_admissions(preparation).values(),
+                    )
+                    if token is not None
+                )
+                prepared = PreparedResolution(
+                    await run_sync_io(_source_hash, origin),
+                    await run_sync_io(
+                        environment_fingerprint,
+                        snapshot.to_mapping(),
+                    ),
+                    context.to_mapping(),
+                    tuple(requirements),
+                    _candidate_scope(candidates),
+                    await run_sync_io(
+                        lambda: tuple(
+                            WheelAddition(
+                                path,
+                                hashlib.sha256(path.read_bytes()).hexdigest(),
+                            )
+                            for path in staging.glob("*.whl")
+                        ),
+                    ),
+                    preferences_failed,
+                    excluded_tokens=excluded_tokens,
+                )
+                # Stage claims verified copies while this caller still owns the
+                # temporary directory; exceptions never carry temporary paths.
+                intent = _DEPENDENCY_FORCE.get()
+                force = bool(
+                    intent
+                    and intent[0] == self._lifecycle_hold_key(plugin_id)
+                    and intent[1],
+                )
+                # A stopped inspection must release its exact custody before
+                # stage can audit with another generation. Wheels remain owned
+                # by this method's separate temporary resource scope.
+                for lease in preparation:
+                    await self._finish_preparation(lease)
+                operation = await manager.stage(
+                    origin,
+                    force=force,
+                    prepared=prepared,
+                )
+                raise DependencyUpgradeRequired(operation)
 
             def collect_wheels():
                 wheels = tuple(
@@ -1498,6 +1719,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 expected_snapshot=snapshot,
                 wheel_tags=wheel_tags,
                 installer_python=spec.python_executable,
+                installer_identity=installer_identity,
                 collision_sites=(
                     dependency_context.immutable_roots
                     if dependency_context
@@ -2090,17 +2312,93 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 record.diagnostics = list(instance.diagnostics)
         return record
 
+    async def _recover_plugin_transactions_unlocked(
+        self,
+        plugin_id: str,
+    ) -> None:
+        """Retry one plugin's recovery under its existing lifecycle lock."""
+        from ..utils.io_utils import run_sync_io
+        from .provision import recover_migrating_inventory
+        from .updates import recover_interrupted_updates
+
+        if not self.lifecycle.delegate.owns_commit(plugin_id):
+            return
+        record = self._loaded_plugins.get(plugin_id)
+        if record is not None and record.status in (
+            "registered",
+            "active",
+        ):
+            return
+        instance = self.lifecycle.get_instance(plugin_id)
+        if self._has_runtime_custody(plugin_id) or (
+            instance is not None and instance.has_runtime_ledger()
+        ):
+            error = "Recovery has runtime resources; unload first"
+            self._recovery_blocked[plugin_id] = error
+            self._recovery_errors[plugin_id] = error
+            self._add_recovery_diagnostics(plugin_id)
+            return
+
+        blocked: dict[str, str] = {}
+        errors: dict[str, str] = {}
+        try:
+            updates = await run_sync_io(
+                recover_interrupted_updates,
+                plugin_id=plugin_id,
+            )
+            provisions = await run_sync_io(
+                recover_migrating_inventory,
+                plugin_id,
+            )
+            blocked.update(updates.blocked)
+            blocked.update(provisions.blocked)
+            errors.update(updates.failures)
+            errors.update(provisions.failures)
+        except Exception as exc:  # noqa: BLE001
+            error = str(exc) or type(exc).__name__
+            blocked[plugin_id] = error
+            errors[plugin_id] = error
+            logger.exception(
+                "Startup recovery failed for '%s'",
+                plugin_id,
+            )
+        if plugin_id in blocked:
+            self._recovery_blocked[plugin_id] = blocked[plugin_id]
+            manifest, path = next(
+                (
+                    (manifest, path)
+                    for manifest, path in await run_sync_io(
+                        self.discover_plugins,
+                    )
+                    if manifest.id == plugin_id
+                ),
+                (
+                    PluginManifest(id=plugin_id, version="unknown"),
+                    (
+                        self.plugin_dirs[0] / plugin_id
+                        if self.plugin_dirs
+                        else Path(plugin_id)
+                    ),
+                ),
+            )
+            self._record_failed_backend(
+                manifest,
+                path,
+                RuntimeError(blocked[plugin_id]),
+            )
+        elif self._recovery_blocked.pop(plugin_id, None) is not None:
+            self._loaded_plugins.pop(plugin_id, None)
+            self.lifecycle.drop_instance(plugin_id)
+        self._recovery_errors.pop(plugin_id, None)
+        self._recovery_errors.update(errors)
+        if plugin_id in errors:
+            self._add_recovery_diagnostics(plugin_id)
+
     async def _recover_startup_transactions(self) -> None:
         """Recover leftovers under each id's lock, never a live transaction."""
         from ..utils.io_utils import run_sync_io
-        from .provision import (
-            provision_ids_to_recover,
-            recover_migrating_inventory,
-        )
-        from .updates import (
-            interrupted_update_ids,
-            recover_interrupted_updates,
-        )
+        from .provision import provision_ids_to_recover
+        from .updates import interrupted_update_ids
 
         try:
             ids = await run_sync_io(
@@ -2115,78 +2413,40 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         ids.update(self._recovery_blocked)
         for plugin_id in sorted(ids):
             async with self.plugin_lifecycle(plugin_id):
-                if not self.lifecycle.delegate.owns_commit(plugin_id):
-                    continue
-                record = self._loaded_plugins.get(plugin_id)
-                if record is not None and record.status in (
-                    "registered",
-                    "active",
-                ):
-                    continue
-                instance = self.lifecycle.get_instance(plugin_id)
-                if self._has_runtime_custody(plugin_id) or (
-                    instance is not None and instance.has_runtime_ledger()
-                ):
-                    error = "Recovery has runtime resources; unload first"
-                    self._recovery_blocked[plugin_id] = error
-                    self._recovery_errors[plugin_id] = error
-                    self._add_recovery_diagnostics(plugin_id)
-                    continue
+                await self._recover_plugin_transactions_unlocked(plugin_id)
 
-                blocked: dict[str, str] = {}
-                errors: dict[str, str] = {}
-                try:
-                    updates = await run_sync_io(
-                        recover_interrupted_updates,
-                        plugin_id=plugin_id,
-                    )
-                    provisions = await run_sync_io(
-                        recover_migrating_inventory,
-                        plugin_id,
-                    )
-                    blocked.update(updates.blocked)
-                    blocked.update(provisions.blocked)
-                    errors.update(updates.failures)
-                    errors.update(provisions.failures)
-                except Exception as exc:  # noqa: BLE001
-                    error = str(exc) or type(exc).__name__
-                    blocked[plugin_id] = error
-                    errors[plugin_id] = error
-                    logger.exception(
-                        "Startup recovery failed for '%s'",
-                        plugin_id,
-                    )
-                if plugin_id in blocked:
-                    self._recovery_blocked[plugin_id] = blocked[plugin_id]
-                    manifest, path = next(
-                        (
-                            (manifest, path)
-                            for manifest, path in await run_sync_io(
-                                self.discover_plugins,
-                            )
-                            if manifest.id == plugin_id
-                        ),
-                        (
-                            PluginManifest(id=plugin_id, version="unknown"),
-                            (
-                                self.plugin_dirs[0] / plugin_id
-                                if self.plugin_dirs
-                                else Path(plugin_id)
-                            ),
-                        ),
-                    )
-                    self._record_failed_backend(
-                        manifest,
-                        path,
-                        RuntimeError(blocked[plugin_id]),
-                    )
-                elif self._recovery_blocked.pop(plugin_id, None) is not None:
-                    self._loaded_plugins.pop(plugin_id, None)
-                    self.lifecycle.drop_instance(plugin_id)
-                self._recovery_errors.pop(plugin_id, None)
-                self._recovery_errors.update(errors)
-                if plugin_id in errors:
-                    self._add_recovery_diagnostics(plugin_id)
+    async def _retry_plugin_recovery_unlocked(
+        self,
+        plugin_id: str,
+        *,
+        require_clean: bool = False,
+        for_uninstall: bool = False,
+    ) -> None:
+        """Refresh a blocked/unfinished transaction before changing files."""
+        from ..utils.io_utils import run_sync_io
+        from .provision import load_inventory
+        from .updates import marker_path
+
+        def pending():
+            return marker_path(plugin_id).is_file() or any(
+                location and location.get("migrating")
+                for location in load_inventory(plugin_id, strict=True)
+                .get("locations", {})
+                .values()
+            )
+
+        if (
+            plugin_id in self._recovery_blocked
+            or plugin_id in self._recovery_errors
+            or await run_sync_io(pending)
+        ):
+            await self._recover_plugin_transactions_unlocked(plugin_id)
+        self._require_recovered(plugin_id, for_uninstall=for_uninstall)
+        if require_clean and plugin_id in self._recovery_errors:
+            raise RuntimeError(
+                f"Plugin '{plugin_id}' update cleanup is incomplete: "
+                f"{self._recovery_errors[plugin_id]}",
+            )
 
     async def load_all_plugins(
         self,
@@ -2559,6 +2819,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     candidate_admission.snapshot,
                 )
         except Exception as exc:
+            from .dependency_upgrade import DependencyUpgradeRequired
+
+            if isinstance(exc, DependencyUpgradeRequired):
+                # Staging changed no installed bytes; preserve the typed review
+                # response and leave the serving generation untouched.
+                raise
             return ReloadReport(
                 plugin_id=plugin_id,
                 ok=False,
@@ -3277,7 +3543,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         if not compatible:
             raise ValueError(reason)
         async with self.plugin_lifecycle(manifest.id):
-            self._require_recovered(manifest.id)
+            await self._retry_plugin_recovery_unlocked(manifest.id)
             if self.find_installed_plugin_dir(manifest.id) is not None:
                 raise ValueError("Official source already exists")
             # Reuse A first-copy/publication, never replacement.
@@ -3319,6 +3585,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         allow_install: bool = True,
         install_origin: Optional[Dict] = None,
         user_requested: bool = True,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Install offline without registering or starting resources."""
         from ..utils.io_utils import run_sync_io
@@ -3371,6 +3638,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 replace_files=force,
                 enabled=False,
                 install_origin=install_origin,
+                installation_source=installation_source,
             )
             if user_requested:
                 await self._commit_explicit_install(record)
@@ -3400,6 +3668,34 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         await run_sync_io(commit)
         self.startup_blocked_plugins.discard(record.manifest.id)
 
+    @staticmethod
+    async def _write_installation_origin(
+        record: PluginRecord,
+        installation_source: str,
+    ) -> None:
+        from ..installation_origin import (
+            origin_from_platform_url,
+            write_plugin_origin,
+        )
+        from ..utils.io_utils import run_sync_io
+
+        manifest = record.manifest
+        origin = origin_from_platform_url(
+            installation_source,
+            (
+                "app"
+                if manifest.plugin_type == "app" or manifest.meta.get("pawapp")
+                else "plugin"
+            ),
+            manifest.version,
+        )
+        await run_sync_io(
+            write_plugin_origin,
+            record.source_path.parent,
+            manifest.id,
+            origin,
+        )
+
     async def load_plugin_from_path(
         self,
         source_path: Path,
@@ -3414,6 +3710,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         after_load: Optional[Any] = None,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -3458,7 +3755,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         del _manifest_path
         plugin_id = manifest.id
-        async with self.plugin_lifecycle(plugin_id):
+        async with self.plugin_lifecycle(plugin_id, dependency_force=force):
+            await self._retry_plugin_recovery_unlocked(plugin_id)
             startup_blocked = plugin_id in self.startup_blocked_plugins
             if force and plugin_id in self._loaded_plugins:
                 report = None
@@ -3504,6 +3802,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                         missing_ok=True,
                     )
                 await self._commit_explicit_install(record)
+                await self._write_installation_origin(
+                    record,
+                    installation_source,
+                )
                 return record
             record = None
             from ..config import load_config
@@ -3523,6 +3825,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     manifest,
                     incoming,
                     install_dir,
+                    installation_source=installation_source,
                     replace_files=force,
                     pawport_owner=pawport_owner,
                     recover_incomplete=recover_incomplete,
@@ -3577,6 +3880,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         replace_files: bool = False,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
+        installation_source: str = "",
         enabled: bool = True,
         install_origin: Optional[Dict] = None,
         wheels=(),
@@ -3832,6 +4136,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 )
                 if cleanup_errors:
                     raise RuntimeError("; ".join(cleanup_errors))
+            await self._write_installation_origin(record, installation_source)
             return record
         except BaseException:
             if files_committed:
@@ -3982,7 +4287,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         """Explicit repair: gate + install + load a FAILED or disk plugin."""
         from ..utils.io_utils import run_sync_io
 
-        async with self.plugin_lifecycle(plugin_id):
+        async with self.plugin_lifecycle(plugin_id, dependency_force=True):
             record = self._loaded_plugins.get(plugin_id)
             if record is not None:
                 source_path = record.source_path
@@ -4016,8 +4321,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path,
                     manifest,
                 )
-            from .dependency_gate import SharedDependencyError
-
             try:
                 await self.lifecycle.preflight_backend(
                     binding,
@@ -4025,7 +4328,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     probe=True,
                     wheels=wheels,
                 )
-            except SharedDependencyError as exc:
+            except RuntimeError as exc:
                 from .dependency_upgrade import stage_dependency_refusal
 
                 await stage_dependency_refusal(
@@ -4383,6 +4686,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         del self._loaded_plugins[plugin_id]
 
         if mode is UnloadMode.UNINSTALL:
+            try:
+                await self._retry_plugin_recovery_unlocked(
+                    plugin_id,
+                    require_clean=True,
+                    for_uninstall=True,
+                )
+            except RuntimeError as exc:
+                report.clean = False
+                report.needs_restart = True
+                report.errors.append(str(exc))
+                return report
             await _recheck_created_locations(plugin_id, report)
 
         # Optionally delete files from disk (off the event loop).
@@ -4401,6 +4715,15 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 logger.info(
                     f"Deleted plugin files at {source_path}",
                 )
+            from ..installation_origin import write_plugin_origin
+            from ..utils.io_utils import run_sync_io
+
+            await run_sync_io(
+                write_plugin_origin,
+                source_path.parent,
+                plugin_id,
+                None,
+            )
 
         if mode is not UnloadMode.SHUTDOWN:
             self.lifecycle.drop_instance(plugin_id)
@@ -4698,6 +5021,18 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             report.needs_restart = True
             report.errors.append("CHANNEL_INSTANCE_STILL_OWNED")
             return report
+        try:
+            await self._retry_plugin_recovery_unlocked(
+                plugin_id,
+                require_clean=True,
+                for_uninstall=True,
+            )
+        except RuntimeError as exc:
+            report.clean = False
+            report.needs_restart = True
+            report.errors.append(str(exc))
+            return report
+        source_path = self._find_installed_plugin_dir(plugin_id) or source_path
         has_inventory = inventory_path(plugin_id).is_file()
         from .legacy_cloudpaw import has_pending_cleanup
 
@@ -4796,6 +5131,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path,
                     purpose="uninstall plugin directory",
                 )
+            from ..installation_origin import write_plugin_origin
+
+            await run_sync_io(
+                write_plugin_origin,
+                source_path.parent,
+                plugin_id,
+                None,
+            )
         self.lifecycle.drop_instance(plugin_id)
         if cloudpaw_cleanup is not None and report.clean:
             from .legacy_cloudpaw import finish_uninstall

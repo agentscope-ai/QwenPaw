@@ -65,7 +65,10 @@ import { useMenuItems, useRoutes } from "../plugins/registry/hooks";
 import { Slot } from "../plugins/registry/Slot";
 import { flattenMenu } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
-import { filterMenuForAgentCapabilities } from "./registry/capabilities";
+import {
+  filterMenuForAgentCapabilities,
+  getAgentMenuCapabilities,
+} from "./registry/capabilities";
 import {
   filterSidebarMenuItems,
   orderSidebarEntries,
@@ -219,16 +222,7 @@ export default function Sidebar({
     [agents],
   );
   const backendCapabilities = useMemo(
-    () =>
-      currentAgent
-        ? {
-            ...currentAgent.backend_capabilities,
-            workspace_ui:
-              currentAgent.backend === "qwenpaw"
-                ? currentAgent.backend_capabilities?.workspace_ui ?? true
-                : false,
-          }
-        : undefined,
+    () => getAgentMenuCapabilities(currentAgent),
     [currentAgent],
   );
 

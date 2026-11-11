@@ -323,6 +323,7 @@ jobs:
           python -m pip install --upgrade "pip>=26.2.2"
           python -m pip install --upgrade "certifi>=2026.10.19"
 
+      # Prepare CloudPaw before workers share the Python environment.
       - name: Install dependencies
         shell: bash
         run: |
@@ -341,7 +342,7 @@ jobs:
           # the install: a separate `pip install "setuptools<82"` step
           # beforehand gets upgraded away by this resolution again
           # (reproduced with pip 26.2.1; see CI run 31571533395).
-          pip install -e ".[dev,test,full]" "setuptools<82"
+          pip install -e ".[dev,test,full]" -r plugins/bundle/cloudpaw/requirements.txt "setuptools<82"
 
       # tests/integration/browser drives a real Chromium through the
       # Playwright control link, so the browser binary must exist before the
