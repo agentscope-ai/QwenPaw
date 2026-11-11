@@ -11,10 +11,9 @@ import pytest
 
 from qwenpaw.providers.ollama_provider import (
     OllamaProvider,
-    _ollama_model_aliases,
+    _parse_positive_context_int,
     parse_ollama_model_training_context,
     parse_ollama_num_ctx,
-    parse_ollama_served_context_length,
     resolve_ollama_context_window,
 )
 from qwenpaw.providers.provider import ModelInfo
@@ -201,39 +200,38 @@ def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx(None) is None
 
 
-def test_parse_ollama_served_context_length_is_strict() -> None:
-    assert parse_ollama_served_context_length(65536) == 65536
-    assert parse_ollama_served_context_length(512) == 512
-    assert parse_ollama_served_context_length("8192") == 8192
-    assert parse_ollama_served_context_length(" 4096 ") == 4096
+def test_parse_positive_context_int_is_strict() -> None:
+    assert _parse_positive_context_int(65536) == 65536
+    assert _parse_positive_context_int(512) == 512
+    assert _parse_positive_context_int("8192") == 8192
+    assert _parse_positive_context_int(" 4096 ") == 4096
     # Bools are ints; do not coerce True to 1.
-    assert parse_ollama_served_context_length(True) is None
-    assert parse_ollama_served_context_length(False) is None
-    # Floats must not be truncated into a window.
-    assert parse_ollama_served_context_length(8192.0) is None
-    assert parse_ollama_served_context_length(12.5) is None
-    assert parse_ollama_served_context_length(0) is None
-    assert parse_ollama_served_context_length(-1) is None
-    assert parse_ollama_served_context_length("invalid") is None
-    assert parse_ollama_served_context_length("8192.0") is None
-    assert parse_ollama_served_context_length({"value": 8192}) is None
-    assert parse_ollama_served_context_length(None) is None
+    assert _parse_positive_context_int(True) is None
+    assert _parse_positive_context_int(False) is None
+    # Floats must not be truncated into a context length.
+    assert _parse_positive_context_int(8192.0) is None
+    assert _parse_positive_context_int(12.5) is None
+    assert _parse_positive_context_int(0) is None
+    assert _parse_positive_context_int(-1) is None
+    assert _parse_positive_context_int("invalid") is None
+    assert _parse_positive_context_int("8192.0") is None
+    assert _parse_positive_context_int({"value": 8192}) is None
+    assert _parse_positive_context_int(None) is None
 
 
 def test_parse_ollama_model_training_context() -> None:
     assert parse_ollama_model_training_context(None) is None
     assert parse_ollama_model_training_context([]) is None
     assert parse_ollama_model_training_context("32768") is None
-    # Several keys: the minimum is the safe cap. Invalid siblings drop out.
+    # Only general.architecture + ".context_length". Do not take the
+    # minimum, and do not fall back to a bare context_length key.
     assert (
         parse_ollama_model_training_context(
             {
-                "qwen3.context_length": 65536,
-                "context_length": "32768",
-                "llama.context_length": 0,
-                "llama.context_length.extra": 1024,
-                "ignored": 4096,
-                1: 2048,
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 32768,
+                "context_length": 16384,
+                "llama.context_length": 65536,
             },
         )
         == 32768
@@ -241,43 +239,53 @@ def test_parse_ollama_model_training_context() -> None:
     assert (
         parse_ollama_model_training_context(
             {
-                "qwen3.context_length": True,
-                "other.context_length": 12.5,
-                "context_length": "nope",
+                "general.architecture": "  qwen3  ",
+                "qwen3.context_length": "32768",
             },
         )
-        is None
+        == 32768
     )
+    missing_architecture = (
+        {"qwen3.context_length": 32768},
+        {"general.architecture": "", "qwen3.context_length": 32768},
+        {"general.architecture": "   ", "qwen3.context_length": 32768},
+        {"general.architecture": 1, "qwen3.context_length": 32768},
+        {"general.architecture": None, "qwen3.context_length": 32768},
+        {"general.architecture": "qwen3"},
+    )
+    for model_info in missing_architecture:
+        assert parse_ollama_model_training_context(model_info) is None
+    for raw in (0, True, False, 32768.0, 12.5, "nope", "8192.0", -1):
+        assert (
+            parse_ollama_model_training_context(
+                {
+                    "general.architecture": "qwen3",
+                    "qwen3.context_length": raw,
+                },
+            )
+            is None
+        )
 
 
-def test_resolve_ollama_context_prefers_clamped_show_over_foreign_served() -> (
-    None
-):
+def test_resolve_ollama_context_uses_modelfile_num_ctx() -> None:
     show = {
         "parameters": "num_ctx 131072\n",
-        "model_info": {"qwen3.context_length": 262144},
+        "model_info": {
+            "general.architecture": "qwen3",
+            "qwen3.context_length": 262144,
+        },
     }
-    # A foreign /api/ps window must not beat the Modelfile default.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=262144,
-        )
-        == 131072
-    )
-    # Served is kept only when it matches the Modelfile window.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=131072,
-        )
-        == 131072
-    )
+    # A higher training cap does not raise the Modelfile window.
     assert resolve_ollama_context_window(show_payload=show) == 131072
-    # GGUF *.context_length is the model maximum, not the served window.
+    # Training context alone is not a window.
     assert (
         resolve_ollama_context_window(
-            show_payload={"model_info": {"qwen3.context_length": 65536}},
+            show_payload={
+                "model_info": {
+                    "general.architecture": "qwen3",
+                    "qwen3.context_length": 65536,
+                },
+            },
         )
         is None
     )
@@ -288,14 +296,6 @@ def test_resolve_ollama_context_prefers_clamped_show_over_foreign_served() -> (
     assert (
         resolve_ollama_context_window(
             show_payload={"parameters": {"num_ctx": 8192}},
-        )
-        is None
-    )
-    # An unverified served window is not persisted.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=None,
-            served_context=8192,
         )
         is None
     )
@@ -338,7 +338,7 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         )
         is None
     )
-    # Explicit num_ctx and a loaded window still win.
+    # Explicit num_ctx still wins.
     assert (
         resolve_ollama_context_window(
             show_payload={
@@ -348,79 +348,83 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         )
         == 16384
     )
-    # A served window cannot be verified against a show with no num_ctx.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=remote,
-            served_context=32768,
-        )
-        is None
-    )
 
 
 def test_resolve_caps_num_ctx_by_training_context() -> None:
-    """Ollama clamps NumCtx to the training context before /api/ps.
+    """Ollama clamps NumCtx to the architecture training context.
 
     A 32K model with Modelfile ``num_ctx 65536`` is served at 32768.
     Persisting the raw Modelfile value would disagree with that runner.
+    The cap is ``general.architecture + ".context_length"`` only.
     """
     show = {
         "parameters": "num_ctx 65536\n",
-        "model_info": {"qwen3.context_length": 32768},
+        "model_info": {
+            "general.architecture": "qwen3",
+            "qwen3.context_length": 32768,
+        },
     }
-    assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=32768,
-        )
-        == 32768
-    )
-    # Same show without a served window keeps the clamped Modelfile value.
     assert resolve_ollama_context_window(show_payload=show) == 32768
-    # A served window that still reports the unclamped Modelfile loses.
-    assert (
-        resolve_ollama_context_window(
-            show_payload=show,
-            served_context=65536,
-        )
-        == 32768
-    )
-    # Several training keys: cap at the minimum before comparing.
+    # Sibling keys do not replace the architecture cap.
     assert (
         resolve_ollama_context_window(
             show_payload={
                 "parameters": "num_ctx 65536\n",
                 "model_info": {
+                    "general.architecture": "qwen3",
                     "qwen3.context_length": 32768,
                     "context_length": 16384,
+                    "llama.context_length": 65536,
                 },
             },
-            served_context=16384,
         )
-        == 16384
+        == 32768
     )
 
     # 0 / missing / invalid context_length is not a cap.
     no_cap_payloads: list[dict[str, Any]] = [
         {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": 0},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 0,
+            },
         },
         {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": True},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": True,
+            },
         },
         {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": 32768.0},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 32768.0,
+            },
         },
         {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": "nope"},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": "nope",
+            },
         },
         {"parameters": "num_ctx 65536\n", "model_info": {}},
         {"parameters": "num_ctx 65536\n"},
         {"parameters": "num_ctx 65536\n", "model_info": "32768"},
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {"qwen3.context_length": 32768},
+        },
+        {
+            "parameters": "num_ctx 65536\n",
+            "model_info": {
+                "general.architecture": " ",
+                "qwen3.context_length": 32768,
+            },
+        },
     ]
     for payload in no_cap_payloads:
         assert resolve_ollama_context_window(show_payload=payload) == 65536
@@ -428,30 +432,15 @@ def test_resolve_caps_num_ctx_by_training_context() -> None:
     # Training max alone is not a window.
     assert (
         resolve_ollama_context_window(
-            show_payload={"model_info": {"qwen3.context_length": 32768}},
-            served_context=32768,
+            show_payload={
+                "model_info": {
+                    "general.architecture": "qwen3",
+                    "qwen3.context_length": 32768,
+                },
+            },
         )
         is None
     )
-
-
-def test_ollama_model_aliases_registry_port_gets_latest() -> None:
-    """Tag lives in the final path segment; a port colon is not a tag."""
-    model_id = "registry.example.com:5000/team/qwen3"
-    aliases = _ollama_model_aliases(model_id)
-    assert model_id in aliases
-    assert f"{model_id}:latest" in aliases
-    assert f"{model_id}:latest".lower() in aliases
-
-    tagged = "registry.example.com:5000/team/qwen3:latest"
-    tagged_aliases = _ollama_model_aliases(tagged)
-    assert tagged in tagged_aliases
-    assert model_id in tagged_aliases
-    assert model_id.lower() in tagged_aliases
-
-    # Ordinary untagged / :latest ids still round-trip.
-    assert "qwen3:latest" in _ollama_model_aliases("qwen3")
-    assert "qwen3" in _ollama_model_aliases("qwen3:latest")
 
 
 def test_native_probe_headers_add_bearer_without_overriding() -> None:
@@ -497,15 +486,21 @@ class _FakeResponse:
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
+async def test_fetch_models_attaches_show_num_ctx(monkeypatch) -> None:
+    """Attach Modelfile ``num_ctx`` from ``/api/show``.
+
+    Discovery does not call ``/api/ps``.
+    """
     provider = _make_provider()
+    requested: list[str] = []
 
     async def fake_super_fetch(self, timeout: float = 5):
+        del self, timeout
         return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
-            pass
+            del args, kwargs
 
         async def __aenter__(self):
             return self
@@ -517,21 +512,11 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
             return None
 
         async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": "qwen3:8b",
-                            "model": "qwen3:8b",
-                            "context_length": 4096,
-                        },
-                    ],
-                },
-            )
+            requested.append(url)
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
+            requested.append(url)
             assert url.endswith("/api/show")
             assert json == {"model": "qwen3:8b"}
             return _FakeResponse(200, {"parameters": "num_ctx 4096\n"})
@@ -547,50 +532,9 @@ async def test_fetch_models_attaches_served_context(monkeypatch) -> None:
 
     models = await provider.fetch_models()
     assert len(models) == 1
-    # Served window is kept only after it matches the Modelfile num_ctx.
     assert models[0].max_input_length_auto_detected == 4096
-
-
-@pytest.mark.asyncio
-async def test_fetch_models_ignores_foreign_served_context(
-    monkeypatch,
-) -> None:
-    """A runner loaded by another client must not size our compaction.
-
-    ``/api/ps`` may report 262144 from a temporary ``num_ctx`` override,
-    but our next chat request reloads at the Modelfile's 131072.
-    """
-    provider = _make_provider()
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": "qwen3:8b",
-                            "model": "qwen3:8b",
-                            "context_length": 262144,
-                        },
-                    ],
-                },
-            )
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, {"parameters": "num_ctx 131072\n"})
-
-    _patch_list_and_native(monkeypatch, FakeClient)
-    models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected == 131072
+    assert requested == [f"{provider.base_url}/api/show"]
+    assert not any(url.endswith("/api/ps") for url in requested)
 
 
 @pytest.mark.asyncio
@@ -600,12 +544,12 @@ async def test_fetch_models_ignores_chat_num_ctx_and_uses_clamped_show(
     """Chat ``options.num_ctx`` must not skip probes or be persisted.
 
     The OpenAI-compatible chat path cannot set Ollama's context size.
-    The window comes from the clamped Modelfile value, which matches
-    the served ``/api/ps`` window.
+    The window is the Modelfile ``num_ctx`` clamped to the architecture
+    training context.
     """
     provider = _make_provider()
     provider.generate_kwargs = {"options": {"num_ctx": 131072}}
-    calls = {"ps": 0, "show": 0}
+    calls = {"get": 0, "show": 0}
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -615,20 +559,8 @@ async def test_fetch_models_ignores_chat_num_ctx_and_uses_clamped_show(
             return None
 
         async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            calls["ps"] += 1
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": "qwen3:8b",
-                            "model": "qwen3:8b",
-                            "context_length": 32768,
-                        },
-                    ],
-                },
-            )
+            calls["get"] += 1
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")
@@ -637,13 +569,16 @@ async def test_fetch_models_ignores_chat_num_ctx_and_uses_clamped_show(
                 200,
                 {
                     "parameters": "num_ctx 65536\n",
-                    "model_info": {"qwen3.context_length": 32768},
+                    "model_info": {
+                        "general.architecture": "qwen3",
+                        "qwen3.context_length": 32768,
+                    },
                 },
             )
 
     _patch_list_and_native(monkeypatch, FakeClient)
     models = await provider.fetch_models()
-    assert calls == {"ps": 1, "show": 1}
+    assert calls == {"get": 0, "show": 1}
     assert models[0].max_input_length_auto_detected == 32768
 
 
@@ -653,9 +588,8 @@ async def test_fetch_models_model_chat_num_ctx_does_not_skip_probes(
 ) -> None:
     """Per-model ``options.num_ctx`` is not a window and does not skip probes.
 
-    A served runner at that chat value is still discarded when ``/api/show``
-    has no Modelfile ``num_ctx``. Training ``*.context_length`` is not used
-    as the window either.
+    A show with no Modelfile ``num_ctx`` leaves the window unset. Training
+    context is not used as the window either.
     """
     provider = _make_provider()
     provider.generate_kwargs = {"options": {"num_ctx": 8192}}
@@ -666,7 +600,7 @@ async def test_fetch_models_model_chat_num_ctx_does_not_skip_probes(
             generate_kwargs={"options": {"num_ctx": 16384}},
         ),
     ]
-    calls = {"ps": 0, "show": 0}
+    calls = {"get": 0, "show": 0}
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -676,32 +610,25 @@ async def test_fetch_models_model_chat_num_ctx_does_not_skip_probes(
             return None
 
         async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            calls["ps"] += 1
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": "qwen3:8b",
-                            "model": "qwen3:8b",
-                            "context_length": 16384,
-                        },
-                    ],
-                },
-            )
+            calls["get"] += 1
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")
             calls["show"] += 1
             return _FakeResponse(
                 200,
-                {"model_info": {"qwen3.context_length": 32768}},
+                {
+                    "model_info": {
+                        "general.architecture": "qwen3",
+                        "qwen3.context_length": 32768,
+                    },
+                },
             )
 
     _patch_list_and_native(monkeypatch, FakeClient)
     models = await provider.fetch_models()
-    assert calls == {"ps": 1, "show": 1}
+    assert calls == {"get": 0, "show": 1}
     assert models[0].max_input_length_auto_detected is None
 
 
@@ -756,12 +683,11 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
 ) -> None:
     """Persist the clamped Modelfile window, not the raw ``num_ctx``.
 
-    Ollama serves ``min(num_ctx, training context)``. ``/api/ps`` then
-    reports that clamped value, so an unclamped 65536 no longer matches.
+    Ollama serves ``min(num_ctx, architecture training context)``.
     """
     provider = _make_provider()
-    loaded_id = "loaded:latest"
-    unloaded_id = "unloaded:latest"
+    clamped_id = "clamped:latest"
+    other_id = "other:latest"
     zero_id = "zero-cap:latest"
     missing_id = "missing-cap:latest"
     invalid_id = "invalid-cap:latest"
@@ -769,8 +695,8 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
     listed = [
         ModelInfo(id=model_id, name=model_id)
         for model_id in (
-            loaded_id,
-            unloaded_id,
+            clamped_id,
+            other_id,
             zero_id,
             missing_id,
             invalid_id,
@@ -778,24 +704,43 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
         )
     ]
     shows: dict[str, dict[str, Any]] = {
-        loaded_id: {
+        clamped_id: {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": 32768},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 32768,
+                "context_length": 16384,
+                "llama.context_length": 65536,
+            },
         },
-        unloaded_id: {
+        other_id: {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": 32768},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 32768,
+            },
         },
         zero_id: {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": 0},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 0,
+            },
         },
         missing_id: {"parameters": "num_ctx 65536\n"},
         invalid_id: {
             "parameters": "num_ctx 65536\n",
-            "model_info": {"qwen3.context_length": "nope"},
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": "nope",
+            },
         },
-        info_only_id: {"model_info": {"qwen3.context_length": 32768}},
+        info_only_id: {
+            "model_info": {
+                "general.architecture": "qwen3",
+                "qwen3.context_length": 32768,
+            },
+        },
     }
 
     class FakeClient:
@@ -806,19 +751,7 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
             return None
 
         async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": loaded_id,
-                            "model": loaded_id,
-                            "context_length": 32768,
-                        },
-                    ],
-                },
-            )
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")
@@ -827,8 +760,8 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
     _patch_list_and_native(monkeypatch, FakeClient, listed)
     models = await provider.fetch_models()
     by_id = {model.id: model for model in models}
-    assert by_id[loaded_id].max_input_length_auto_detected == 32768
-    assert by_id[unloaded_id].max_input_length_auto_detected == 32768
+    assert by_id[clamped_id].max_input_length_auto_detected == 32768
+    assert by_id[other_id].max_input_length_auto_detected == 32768
     assert by_id[zero_id].max_input_length_auto_detected == 65536
     assert by_id[missing_id].max_input_length_auto_detected == 65536
     assert by_id[invalid_id].max_input_length_auto_detected == 65536
@@ -874,7 +807,7 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
     )
 
     models = await provider.fetch_models()
-    # No served window and no num_ctx → leave auto-detected unset.
+    # model_info alone is not a window.
     assert models[0].max_input_length_auto_detected is None
 
 
@@ -882,7 +815,7 @@ async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
 async def test_fetch_models_unknown_server_override_does_not_invent_4096(
     monkeypatch,
 ) -> None:
-    """Unloaded local model without num_ctx must not invent 4096.
+    """A local model without num_ctx must not invent 4096.
 
     Inventing 4096 is unsafe when OLLAMA_CONTEXT_LENGTH may be below 4096.
     """
@@ -981,7 +914,7 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
     assert by_id["kimi-k3:cloud"].max_input_length_auto_detected is None
     # Explicit num_ctx still wins on a cloud model.
     assert by_id["gemma4:cloud"].max_input_length_auto_detected == 16384
-    # Local unloaded model without num_ctx stays unset.
+    # Local model without num_ctx stays unset.
     assert by_id["qwen3:8b"].max_input_length_auto_detected is None
 
 
@@ -1056,8 +989,8 @@ async def test_fetch_models_native_probes_send_configured_headers(
             return None
 
         async def get(self, url: str):
-            captured["get_url"] = url
-            return _FakeResponse(200, {"models": []})
+            captured.setdefault("get_urls", []).append(url)
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
             captured["post_url"] = url
@@ -1075,7 +1008,7 @@ async def test_fetch_models_native_probes_send_configured_headers(
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected == 8192
-    assert captured["get_url"].endswith("/api/ps")
+    assert captured.get("get_urls", []) == []
     assert captured["post_url"].endswith("/api/show")
     assert captured["headers"]["X-Proxy-Token"] == "abc"
     assert captured["headers"]["Authorization"] == "Bearer sk-remote-secret"
@@ -1099,7 +1032,7 @@ def _patch_list_and_native(monkeypatch, client_cls, models=None):
 
 
 class _ShowStatusClient:
-    """``/api/ps`` is empty; ``/api/show`` returns a non-200 status."""
+    """``/api/show`` returns a non-200 status."""
 
     def __init__(self, status_code: int) -> None:
         self._status_code = status_code
@@ -1178,10 +1111,10 @@ async def test_fetch_models_deadline_keeps_completed_probes(
 ) -> None:
     """A slow ``/api/show`` must not discard probes that already finished.
 
-    A verified ``/api/ps`` match is kept even when another model's show
-    exceeds the deadline. A show that returns in time is kept.
-    Unfinished models stay unset, and the pre-enrichment list is not
-    returned.
+    HTTPX's per-call timeout does not bound total response time. The
+    shared wall-clock deadline cancels unfinished shows. A show that
+    returns in time is kept. Unfinished models stay unset, and the
+    pre-enrichment list is not returned.
     """
     provider = _make_provider()
     loaded_id = "loaded:latest"
@@ -1204,21 +1137,6 @@ async def test_fetch_models_deadline_keeps_completed_probes(
 
         async def aclose(self) -> None:
             return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": loaded_id,
-                            "model": loaded_id,
-                            "context_length": 8192,
-                        },
-                    ],
-                },
-            )
 
         async def post(self, url: str, json: dict):
             nonlocal started_slow, finished_slow
@@ -1258,66 +1176,6 @@ async def test_fetch_models_deadline_keeps_completed_probes(
     assert by_id[fast_id].max_input_length_auto_detected == 16384
     for model_id in slow_ids:
         assert by_id[model_id].max_input_length_auto_detected is None
-
-
-@pytest.mark.asyncio
-async def test_fetch_models_shared_deadline_cancels_slow_ps(
-    monkeypatch,
-) -> None:
-    """HTTPX per-call timeout does not bound total /api/ps response time."""
-    provider = _make_provider()
-    listed = [
-        ModelInfo(id="slow-ps:latest", name="slow-ps:latest"),
-        ModelInfo(id="fast:latest", name="fast:latest"),
-    ]
-    ps_finished = 0
-    show_ids: list[str] = []
-    probe_timeout = 0.1
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            nonlocal ps_finished
-            assert url.endswith("/api/ps")
-            await asyncio.sleep(1)
-            ps_finished += 1
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": "slow-ps:latest",
-                            "model": "slow-ps:latest",
-                            "context_length": 262144,
-                        },
-                    ],
-                },
-            )
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            show_ids.append(json["model"])
-            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
-
-    _patch_list_and_native(monkeypatch, FakeClient, listed)
-
-    started_at = time.monotonic()
-    models = await provider.fetch_models(timeout=probe_timeout)
-    elapsed = time.monotonic() - started_at
-
-    assert elapsed < 0.5
-    assert ps_finished == 0
-    by_id = {model.id: model for model in models}
-    # The cancelled /api/ps must not persist a late served window.
-    assert by_id["slow-ps:latest"].max_input_length_auto_detected is None
-    # No time remains for /api/show after the ps deadline.
-    assert show_ids == []
-    assert by_id["fast:latest"].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
@@ -1472,54 +1330,6 @@ async def test_check_model_connection_does_not_probe_show(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "ps_payload",
-    [
-        [],  # top-level list (wangfei repro)
-        {"models": 123},  # models not iterable
-        "not-a-dict",  # unexpected scalar
-    ],
-)
-async def test_fetch_models_invalid_ps_still_probes_show(
-    monkeypatch,
-    ps_payload: Any,
-) -> None:
-    """Invalid ``/api/ps`` JSON must not skip ``/api/show`` probes.
-
-    A top-level list or non-iterable ``models`` previously raised inside
-    ``_fetch_served_contexts`` and was swallowed by
-    ``_enrich_listed_models``, which returned before any show call.
-    """
-    provider = _make_provider()
-    show_calls: list[str] = []
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(200, ps_payload)
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            show_calls.append(json["model"])
-            return _FakeResponse(
-                200,
-                {"parameters": "num_ctx 8192\n"},
-            )
-
-    _patch_list_and_native(monkeypatch, FakeClient)
-
-    models = await provider.fetch_models()
-    assert show_calls == ["qwen3:8b"]
-    assert models[0].max_input_length_auto_detected == 8192
-
-
-@pytest.mark.asyncio
 async def test_successful_unknown_context_clears_stale_auto_detected(
     monkeypatch,
 ) -> None:
@@ -1552,8 +1362,7 @@ async def test_successful_unknown_context_clears_stale_auto_detected(
             return None
 
         async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(200, {"models": []})
+            raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")
@@ -1625,124 +1434,6 @@ async def test_failed_show_probe_retains_previous_auto_detected(
 
 
 @pytest.mark.asyncio
-async def test_failed_ps_then_unknown_show_retains_previous_auto_detected(
-    monkeypatch,
-) -> None:
-    """A failed /api/ps must not clear a prior window via unknown show.
-
-    ps timeout + successful show without num_ctx used to clear 65536 back
-    to the 128k default. Clear only when both probes succeed.
-    """
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
-    provider = _make_provider()
-    model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=65536,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class FailedPsUnknownShowClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            raise TimeoutError("ps timed out")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
-
-    _patch_list_and_native(
-        monkeypatch,
-        FailedPsUnknownShowClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
-    )
-    fetched = await provider.fetch_models()
-    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
-
-    merged = merge_discovered_model(
-        provider,
-        fetched[0],
-        "2026-11-06T01:00:00Z",
-    )
-    assert merged.max_input_length_auto_detected == 65536
-
-
-@pytest.mark.asyncio
-async def test_malformed_ps_entry_then_unknown_show_retains_previous(
-    monkeypatch,
-) -> None:
-    """Invalid /api/ps context_length must not clear a prior window.
-
-    A malformed per-model entry used to be skipped while the overall
-    probe stayed ok=True, so a later show without num_ctx cleared 65536
-    back to the 128k default.
-    """
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
-    provider = _make_provider()
-    model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=65536,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class MalformedPsUnknownShowClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": model_id,
-                            "model": model_id,
-                            "context_length": "invalid",
-                        },
-                    ],
-                },
-            )
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
-
-    _patch_list_and_native(
-        monkeypatch,
-        MalformedPsUnknownShowClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
-    )
-    fetched = await provider.fetch_models()
-    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
-
-    merged = merge_discovered_model(
-        provider,
-        fetched[0],
-        "2026-11-06T01:00:00Z",
-    )
-    assert merged.max_input_length_auto_detected == 65536
-
-
-@pytest.mark.asyncio
 async def test_malformed_parameters_retains_previous_auto_detected(
     monkeypatch,
 ) -> None:
@@ -1787,50 +1478,6 @@ async def test_malformed_parameters_retains_previous_auto_detected(
         "2026-11-06T01:00:00Z",
     )
     assert merged.max_input_length_auto_detected == 8192
-
-
-@pytest.mark.asyncio
-async def test_fetch_models_registry_port_alias_matches_served_context(
-    monkeypatch,
-) -> None:
-    """registry:port/name without a tag still matches /api/ps :latest rows."""
-    provider = _make_provider()
-    model_id = "registry.example.com:5000/team/qwen3"
-
-    class RegistryPortClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            assert url.endswith("/api/ps")
-            return _FakeResponse(
-                200,
-                {
-                    "models": [
-                        {
-                            "name": f"{model_id}:latest",
-                            "model": f"{model_id}:latest",
-                            "context_length": 32768,
-                        },
-                    ],
-                },
-            )
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            assert json == {"model": model_id}
-            return _FakeResponse(200, {"parameters": "num_ctx 32768\n"})
-
-    _patch_list_and_native(
-        monkeypatch,
-        RegistryPortClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
-    )
-    models = await provider.fetch_models()
-    assert models[0].max_input_length_auto_detected == 32768
 
 
 @pytest.mark.asyncio
