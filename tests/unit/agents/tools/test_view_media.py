@@ -48,7 +48,8 @@ from qwenpaw.providers.capping_formatter import (
     MAX_INLINE_MEDIA_BYTES,
     _CappingOpenAIFormatter,
 )
-from qwenpaw.agents import model_factory
+from qwenpaw.agents import model_factory, prompt
+from qwenpaw.providers.model_info import ModelInfo
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +497,40 @@ class TestCheckMultimodalSupport:
 
         assert _check_multimodal_support("image") is False
 
+    @pytest.mark.parametrize(
+        (f"overrides", f"expected"),
+        [
+            ([], False),
+            ([f"supports_multimodal"], True),
+            ([f"supports_image", f"supports_multimodal"], False),
+        ],
+    )
+    def test_multimodal_opt_in_keeps_strict_image_checks(
+        self,
+        overrides,
+        expected,
+    ):
+        """兼容开启图片输入，但不放宽 Visual Compact 的严格检查。"""
+        model = ModelInfo(
+            id=f"m",
+            name=f"m",
+            supports_image=False,
+            supports_video=False,
+            supports_audio=False,
+            supports_multimodal=True,
+            config_overrides=overrides,
+            probe_source=f"probed",
+        )
+        with patch.object(
+            prompt,
+            f"_get_active_model_info",
+            return_value=(model, model.id),
+        ):
+            assert _check_multimodal_support(f"image") is expected
+            assert prompt.get_active_model_supports_multimodal() is expected
+            assert prompt.get_model_supports_image() is False
+            assert _check_multimodal_support(f"video") is False
+
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_exception_returns_true(self, mock_info):
         mock_info.side_effect = ImportError("no module")
@@ -510,6 +545,62 @@ class TestCheckMultimodalSupport:
 class TestGetMultimodalFallbackHint:
     """Tests for _get_multimodal_fallback_hint."""
 
+    @pytest.mark.parametrize(f"media_type", [f"image", f"video"])
+    @pytest.mark.parametrize(f"supported", [None, False])
+    def test_hint_points_to_effective_media_setting(
+        self,
+        media_type,
+        supported,
+        caplog,
+    ):
+        """能力未知或被拒绝时，提示和日志均指向对应媒体配置。"""
+        model = ModelInfo(
+            id=f"m",
+            name=f"m",
+            **{f"supports_{media_type}": supported},
+        )
+        with patch.object(
+            prompt,
+            f"_get_active_model_info",
+            return_value=(model, model.id),
+        ):
+            hint = _get_multimodal_fallback_hint(
+                media_type,
+                f"unused-path",
+            )
+
+        assert f"supports_{media_type}: true" in hint
+        assert f"supports_{media_type}=true" in caplog.text
+        assert f"supports_multimodal" not in hint + caplog.text
+        assert f"cannot analyze the {media_type}" in hint
+        reason = (
+            f"has not been confirmed"
+            if supported is None
+            else f"does not support {media_type} input"
+        )
+        assert reason in hint
+
+    @pytest.mark.parametrize(f"media_type", [f"image", f"video"])
+    def test_explicit_denial_is_not_described_as_unknown(self, media_type):
+        """显式关闭提示应说明禁用状态，而不是建议自动探测。"""
+        model = ModelInfo(
+            id=f"m",
+            name=f"m",
+            config_overrides=[f"supports_{media_type}"],
+            **{f"supports_{media_type}": False},
+        )
+        with patch.object(
+            prompt,
+            f"_get_active_model_info",
+            return_value=(model, model.id),
+        ):
+            hint = _get_multimodal_fallback_hint(media_type, f"unused-path")
+
+        assert f"input is disabled" in hint
+        assert f"has not been confirmed" not in hint
+        assert f"supports_multimodal" not in hint
+        assert f"supports_{media_type}: true" in hint
+
     @patch("qwenpaw.agents.prompt._get_active_model_info")
     def test_when_raw_is_none(self, mock_info):
         from qwenpaw.providers.model_info import ModelInfo
@@ -519,7 +610,10 @@ class TestGetMultimodalFallbackHint:
             "custom",
         )
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
-        assert "no multimodal capability was detected" in hint
+        assert (
+            f"image input support for this model has not been confirmed"
+            in hint
+        )
 
     @patch("qwenpaw.agents.prompt._get_active_model_info")
     def test_when_raw_is_false(self, mock_info):
@@ -535,7 +629,7 @@ class TestGetMultimodalFallbackHint:
             "custom",
         )
         hint = _get_multimodal_fallback_hint("video", "/path/vid.mp4")
-        assert "multimodal" in hint.lower()
+        assert f"does not support video input" in hint
 
     @patch("qwenpaw.agents.prompt._get_active_model_info")
     def test_when_raw_is_true(self, mock_info):
@@ -550,13 +644,16 @@ class TestGetMultimodalFallbackHint:
             "custom",
         )
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
-        assert "multimodal" in hint.lower()
+        assert f"cannot see this image" in hint
 
     @patch("qwenpaw.agents.prompt._get_active_model_info")
     def test_exception_returns_none_hint(self, mock_info):
         mock_info.side_effect = ImportError("no module")
         hint = _get_multimodal_fallback_hint("image", "/path/img.png")
-        assert "no multimodal capability was detected" in hint
+        assert (
+            f"image input support for this model has not been confirmed"
+            in hint
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -971,7 +1068,8 @@ class TestViewImage:
             for b in result.content
             if getattr(b, "type", None) == "text"
         ]
-        assert any("multimodal" in t.lower() for t in text_parts)
+        assert any(f"supports_image: true" in text for text in text_parts)
+        assert any(f"cannot analyze the image" in text for text in text_parts)
 
     @pytest.mark.asyncio
     @patch("qwenpaw.providers.provider_manager.ProviderManager.get_instance")

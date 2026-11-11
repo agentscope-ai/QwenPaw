@@ -38,6 +38,12 @@ def get_media_decision(
         and model_info.supports_multimodal is False
     ):
         return MediaDecision(False, True)
+    if (
+        allow_generic
+        and f"supports_multimodal" in overrides
+        and model_info.supports_multimodal is True
+    ):
+        return MediaDecision(True, True)
 
     specific = getattr(model_info, capability)
     if specific is not None:

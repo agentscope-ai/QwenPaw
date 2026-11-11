@@ -106,3 +106,85 @@ def test_get_media_decision(fields, media_type, allow_generic, expected):
         )
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    (f"media_type", f"specific", f"overrides", f"generic", f"expected"),
+    [
+        (f"image", False, [], None, MediaDecision(False, False)),
+        (
+            f"image",
+            False,
+            [f"supports_multimodal"],
+            None,
+            MediaDecision(True, True),
+        ),
+        (
+            f"image",
+            False,
+            [f"supports_image", f"supports_multimodal"],
+            None,
+            MediaDecision(False, True),
+        ),
+        (
+            f"image",
+            False,
+            [f"supports_multimodal"],
+            False,
+            MediaDecision(False, False),
+        ),
+        (
+            f"image",
+            None,
+            [f"supports_multimodal"],
+            False,
+            MediaDecision(None, False),
+        ),
+        (
+            f"audio",
+            False,
+            [f"supports_multimodal"],
+            None,
+            MediaDecision(False, False),
+        ),
+        (
+            f"audio",
+            None,
+            [f"supports_multimodal"],
+            None,
+            MediaDecision(None, False),
+        ),
+        (
+            f"video",
+            False,
+            [f"supports_multimodal"],
+            None,
+            MediaDecision(False, False),
+        ),
+        (
+            f"video",
+            None,
+            [f"supports_multimodal"],
+            None,
+            MediaDecision(None, False),
+        ),
+    ],
+)
+def test_multimodal_opt_in_respects_per_media_policy(
+    media_type,
+    specific,
+    overrides,
+    generic,
+    expected,
+):
+    """全局显式开启仅用于允许 generic fallback 的媒体。"""
+    model = ModelInfo(
+        id=f"m",
+        name=f"m",
+        supports_multimodal=True,
+        config_overrides=overrides,
+        probe_source=f"probed",
+        **{f"supports_{media_type}": specific},
+    )
+
+    assert get_media_decision(model, media_type, generic) == expected

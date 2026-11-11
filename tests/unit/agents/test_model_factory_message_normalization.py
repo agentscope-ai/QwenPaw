@@ -45,6 +45,7 @@ from qwenpaw.providers.capping_formatter import (
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
 )
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
 
 
@@ -251,6 +252,104 @@ async def test_specific_image_override_wins_over_global_opt_out() -> None:
     wire = await formatter.format([message])
 
     assert "image_url" in json.dumps(wire)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"overrides", f"send_image"),
+    [
+        ([], False),
+        ([f"supports_multimodal"], True),
+        ([f"supports_image", f"supports_multimodal"], False),
+    ],
+)
+async def test_multimodal_opt_in_controls_final_image_payload(
+    overrides,
+    send_image,
+) -> None:
+    """显式全局开启仅恢复图片，具体关闭仍优先且历史保持不变。"""
+    model_info = model_factory.ModelInfo(
+        id=f"custom-vision",
+        name=f"custom-vision",
+        supports_image=False,
+        supports_audio=False,
+        supports_video=False,
+        supports_multimodal=True,
+        config_overrides=overrides,
+        probe_source=f"probed",
+    )
+    model = SimpleNamespace(formatter=_CappingOpenAIFormatter())
+    formatter = model_factory._install_model_formatter(
+        model,
+        model_info=model_info,
+    )
+    message = Msg(
+        name=f"user",
+        role=f"user",
+        content=[
+            TextBlock(text=f"keep this"),
+            _base64_data_block(f"image/png", _png_bytes((1, 1))),
+            _base64_data_block(f"audio/wav", b"audio"),
+            _base64_data_block(f"video/mp4", b"video"),
+        ],
+    )
+    before = message.model_dump()
+
+    wire = await formatter.format([message])
+
+    assert (f"image_url" in json.dumps(wire)) is send_image
+    assert f"keep this" in json.dumps(wire)
+    assert model_factory._count_wire_audio_blocks(wire) == 0
+    assert model_factory._count_wire_video_blocks(wire) == 0
+    assert message.model_dump() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"multimodal", [False, True])
+async def test_provider_image_update_restores_final_image_payload(
+    multimodal,
+) -> None:
+    """真实配置更新记录图片 override 并使最终请求重新包含图片。"""
+    raw = model_factory.ModelInfo(
+        id=f"custom-vision",
+        name=f"custom-vision",
+        supports_image=False,
+        supports_audio=False,
+        supports_video=False,
+        supports_multimodal=multimodal,
+        probe_source=f"probed",
+    )
+    discovered = model_factory.ModelInfo(
+        id=raw.id,
+        name=raw.name,
+        supports_image=False,
+        probe_source=f"api",
+    )
+    provider = OpenAIProvider(
+        id=f"custom",
+        name=f"Custom",
+        extra_models=[raw],
+        discovered_models=[discovered],
+    )
+
+    assert provider.update_model_config(raw.id, {f"supports_image": True})
+    assert f"supports_image" in raw.config_overrides
+    resolved = provider.model_capabilities(raw)
+    assert resolved.supports_image is True
+    model = SimpleNamespace(formatter=_CappingOpenAIFormatter())
+    formatter = model_factory._install_model_formatter(
+        model,
+        model_info=resolved,
+    )
+    message = Msg(
+        name=f"user",
+        role=f"user",
+        content=[_base64_data_block(f"image/png", _png_bytes((1, 1)))],
+    )
+
+    wire = await formatter.format([message])
+
+    assert f"image_url" in json.dumps(wire)
 
 
 @pytest.mark.asyncio

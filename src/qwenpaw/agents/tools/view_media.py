@@ -605,6 +605,7 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     frontend/user can see it; the hint tells the agent it cannot perceive
     the media itself.
     """
+    capability = f"supports_{media_type}"
     try:
         from ..prompt import get_active_media_decision
 
@@ -616,53 +617,60 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
 
     if raw is None:
         logger.warning(
-            "view_%s was called but multimodal capability has not been "
-            "confirmed for the active model. The %s at '%s' will be "
-            "shown to the user but the model cannot see it. "
-            "To fix, set supports_multimodal=true in provider settings.",
+            f"view_%s was called but %s capability has not been confirmed "
+            f"for the active model. The media at '%s' will be shown to "
+            f"the user but the model cannot see it. "
+            f"To enable this input, set %s=true in provider settings.",
             media_type,
             media_type,
             path,
+            capability,
         )
         return (
-            f"[Note: this model does not appear to support multimodal "
-            f"input — no multimodal capability was detected. You cannot "
-            f"see this {media_type}, but it has been shown to the user. "
-            f"Inform the user that you cannot analyze the {media_type} "
-            f"content. If they believe this model supports vision, they "
-            f"can override this in provider settings by setting "
-            f"`supports_multimodal: true`, then retry.]"
+            f"[Note: {media_type} input support for this model has not been "
+            f"confirmed. You cannot see this {media_type}, but it has "
+            f"been shown to the user. Inform the user that you cannot "
+            f"analyze the {media_type} content. If they believe this "
+            f"model supports {media_type} input, they can set "
+            f"`{capability}: true` in provider settings, then retry.]"
         )
 
     if raw is False and decision is not None and decision.explicit:
         logger.warning(
-            "view_%s was called but %s input is disabled in provider "
-            "settings for the active model.",
+            f"view_%s was called but %s input is disabled in provider "
+            f"settings for the active model. To re-enable this input, "
+            f"set %s=true in provider settings.",
             media_type,
             media_type,
+            capability,
         )
         return (
             f"[Note: {media_type} input is disabled for the active model "
             f"in provider settings. You cannot see this {media_type}, "
             f"but it has been shown to the user. Inform the user that "
-            f"you cannot analyze the {media_type} content.]"
+            f"you cannot analyze the {media_type} content. If the user "
+            f"wants to re-enable {media_type} input, they can set "
+            f"`{capability}: true` in provider settings.]"
         )
 
     logger.warning(
-        "view_%s was called but the active model explicitly does not "
-        "support multimodal input. The %s at '%s' will be shown to "
-        "the user but the model cannot see it.",
+        f"view_%s was called but the active model does not support %s "
+        f"input. The media at '%s' will be shown to the user but the "
+        f"model cannot see it. If this input is supported, set %s=true "
+        f"in provider settings.",
         media_type,
         media_type,
         path,
+        capability,
     )
     return (
-        f"[Note: the current model does not support multimodal input — "
+        f"[Note: the current model does not support {media_type} input — "
         f"you cannot see this {media_type}, but it has been shown to "
         f"the user. Inform the user that you cannot analyze the "
         f"{media_type} content. If they believe this model actually "
-        f"supports vision, they can override `supports_multimodal: true` "
-        f"in the provider settings, or switch to a vision-capable model.]"
+        f"supports {media_type} input, they can set `{capability}: true` "
+        f"in provider settings, or switch to a model that supports "
+        f"{media_type} input.]"
     )
 
 
