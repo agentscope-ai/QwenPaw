@@ -6014,7 +6014,7 @@
     "reopen": "重新打开授权页面",
     "invalidAuthorization": "社区授权地址无效，请重试。",
     "not_configured": "当前部署尚未启用社区账号连接。",
-    "unsupported_remote": "远程连接需要通过 HTTPS 访问，并登录 QwenPaw 管理账号；也可以在运行 QwenPaw 的本机使用浏览器授权。",
+    "unsupported_remote": "浏览器授权需要在运行 QwenPaw 的本机完成；远程部署请使用账号密码连接。",
     "syncTitle": "消息同步",
     "syncDescription": "将 Platform“我的消息”中的评论、关联、互动、反馈和通知同步到收件箱。",
     "messagesUnavailable": "此 QwenPaw 实例已关闭消息同步功能，账号连接不受影响。",
@@ -6240,7 +6240,7 @@
     "unavailable": "操作暂未完成，请稍后重试。",
     "credentialsRejected": "账号或密码验证失败，请检查后重试。原有连接未被替换。",
     "credentialsRequired": "请输入账号和密码。更换账号时需要重新输入密码。",
-    "passwordUnavailable": "远程账号密码连接需要 HTTPS 和已登录的 QwenPaw 管理账号。"
+    "passwordUnavailable": "当前实例暂不支持账号密码连接，请检查服务配置或升级 QwenPaw。"
   },
   "communityDrafts": {
     "title": "草稿箱",

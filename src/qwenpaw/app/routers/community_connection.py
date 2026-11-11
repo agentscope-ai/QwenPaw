@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Owner-only community connection via local PKCE or HTTPS password login."""
+"""Community connection via local PKCE or deployment-protected password login."""
 
 from __future__ import annotations
 
@@ -14,9 +14,6 @@ from ..community_connection import (
     CommunityConnectionError,
     CommunityConnectionService,
 )
-from ..auth import runtime_token_matches
-from ...plugins.browser_access import PAWAPP_SCOPE_HEADER
-from ...utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER, https_origin
 
 router = APIRouter(prefix="/community/connection", tags=["community"])
 
@@ -69,36 +66,6 @@ async def call(awaitable):
         ) from exc
 
 
-def password_login_allowed(request: Request) -> bool:
-    """Require loopback or an authenticated owner over trusted HTTPS."""
-    if request.headers.get(PAWAPP_SCOPE_HEADER):
-        return False
-    if is_local_request(request):
-        return True
-    expected = os.getenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "")
-    if expected:
-        if not runtime_token_matches(
-            expected,
-            request.headers.get("x-qwenpaw-runtime-token", ""),
-        ):
-            return False
-        # Runtime proxy headers describe the internal hop, not the browser's
-        # connection. Managed password login requires Hub's verified entry.
-        canonical = https_origin(
-            request.headers.get(HUB_PUBLIC_ORIGIN_HEADER, ""),
-        )
-        origin = request.headers.get("origin")
-        return bool(canonical) and (
-            origin is None or https_origin(origin) == canonical
-        )
-    if request.url.scheme != "https":
-        return False
-    origin = request.headers.get("origin")
-    if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
-        return False
-    return bool(getattr(request.state, "user", None))
-
-
 class PasswordConnection(BaseModel):
     account: str
     password: SecretStr = SecretStr("")
@@ -106,8 +73,8 @@ class PasswordConnection(BaseModel):
 
 @router.post("/password")
 async def connect_with_password(request: Request):
-    if not password_login_allowed(request):
-        raise HTTPException(403, detail="password_login_unavailable")
+    # Access is controlled by the deployment and existing app middleware,
+    # rather than a second community-specific owner/proxy check.
     try:
         body = PasswordConnection.model_validate(await request.json())
     except (ValueError, ValidationError) as exc:
@@ -123,8 +90,6 @@ async def connect_with_password(request: Request):
 
 @router.delete("/password")
 async def clear_saved_password(request: Request):
-    if not password_login_allowed(request):
-        raise HTTPException(403, detail="password_login_unavailable")
     return await call(get_service(request).clear_credentials())
 
 
@@ -133,7 +98,6 @@ async def get_connection_status(request: Request):
     return await call(
         get_service(request).status(
             local=is_local_request(request),
-            password_allowed=password_login_allowed(request),
         ),
     )
 

@@ -682,7 +682,7 @@ Credentials are encrypted in `SECRET_DIR/community_credentials.json`. They are n
 
 Persist the private directory and its key when recreating Docker containers, and retain the working directory to preserve the existing connection state. Save and update community credentials through the settings page; deployment environment variables are not used for login.
 
-Remote login requires an authenticated owner and an HTTPS entry point. For standalone TLS-terminating proxies, configure their IP/CIDR in `security.trusted_proxies`, preserve the public Host, and send `X-Forwarded-Proto: https`. For Hub, set `control_plane.public_base_url`; TLS-terminating proxies must also be listed in `control_plane.security.trusted_proxy_ips`. Hub validates the entry protocol and supplies a trusted public origin to the personal runtime, stripping client-supplied internal origin headers.
+Password login relies on the deployment entry point and existing QwenPaw access controls. It does not add a separate local-login requirement, backend HTTPS check, or Hub origin header requirement. Users accessing an instance through an authenticated gateway such as AgentScope Platform can use the password form directly; Docker port mapping and proxy forwarding do not disable it. Self-hosted deployments should protect instance access at the entry point and use HTTPS to protect credentials in transit. Browser authorization still requires the computer running QwenPaw.
 
 ---
 
