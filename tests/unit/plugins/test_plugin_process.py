@@ -132,6 +132,51 @@ async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
 
 
 @pytest.mark.asyncio
+async def test_startup_failure_preserves_redacted_cause_after_log_flood(
+    tmp_path,
+    process,
+    worker_logs,
+    monkeypatch,
+):
+    from qwenpaw.plugins.execution import worker_logs as log_bridge
+
+    monkeypatch.setattr(log_bridge, "monotonic", lambda: 1.0)
+    spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import sys\n"
+        "class Worker:\n"
+        "    def bind(self, context): self.context = context\n"
+        "    async def start(self, config):\n"
+        "        for _ in range(100): print('sdk noise', file=sys.stderr)\n"
+        "        try:\n"
+        "            raise ValueError(\n"
+        "                'https://user:url-secret@example.test/ws?ticket=query-secret '\n"
+        "                + config['app_secret'])\n"
+        "        except ValueError as cause:\n"
+        "            raise RuntimeError('component startup failed') from cause\n"
+        "    async def stop(self): pass\n",
+    )
+    spec = replace(
+        spec,
+        source_revision=digest(spec.code_root),
+        config={**spec.config, "app_secret": "unlabelled-config-secret"},
+    )
+    await process.start(spec)
+    await eventually(
+        lambda: process.health_snapshot()["component_state"] == "failed",
+    )
+    await eventually(lambda: "component startup failed" in worker_logs.text)
+    output = worker_logs.text
+    assert "ValueError" in output and "RuntimeError" in output
+    assert "worker.py" in output and "component_start" in output
+    assert "example.test/ws" in output
+    for secret in ("url-secret", "query-secret", "unlabelled-config-secret"):
+        assert secret not in output
+    assert (await process.stop()).exited
+
+
+@pytest.mark.asyncio
 async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     tmp_path,
     process,
@@ -145,6 +190,9 @@ async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     spec, _ = launch(tmp_path)
     health = await process.start(spec)
     await eventually(lambda: "sample SDK diagnostic" in worker_logs.text)
+    await eventually(
+        lambda: '"phase": "component_started"' in worker_logs.text,
+    )
     worker_logs.clear()
     baseline = process.health_snapshot()["log_bytes"]
     cleaned = []
@@ -278,6 +326,7 @@ async def test_crash_restarts_generation_and_retains_host_handler(
 async def test_blocked_sdk_start_keeps_parent_loop_responsive(
     tmp_path,
     process,
+    worker_logs,
 ):
     spec, marker = launch(tmp_path, mode="blocked")
     ticks = []
@@ -298,6 +347,11 @@ async def test_blocked_sdk_start_keeps_parent_loop_responsive(
         == "responsive"
     )
     assert int(marker.read_text()) == health["pid"]
+    await eventually(lambda: '"event": "startup_slow"' in worker_logs.text)
+    assert (
+        sum('"await_frames"' in row.message for row in worker_logs.records)
+        == 1
+    )
     stopped = await asyncio.wait_for(process.stop(timeout=0.3), 3)
     assert stopped.exited and stopped.forced and not alive(health["pid"])
 
