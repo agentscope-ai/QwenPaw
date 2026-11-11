@@ -1481,6 +1481,104 @@ async def test_malformed_parameters_retains_previous_auto_detected(
 
 
 @pytest.mark.asyncio
+async def test_null_parameters_retains_previous_auto_detected(
+    monkeypatch,
+) -> None:
+    """Explicit parameters: null must keep a previously detected window."""
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=8192,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class NullParametersClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            return _FakeResponse(200, {"models": []})
+
+        async def post(self, url: str, json: dict):
+            return _FakeResponse(200, {"parameters": None})
+
+    _patch_list_and_native(
+        monkeypatch,
+        NullParametersClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected == 8192
+
+
+@pytest.mark.asyncio
+async def test_omitted_parameters_clears_stale_auto_detected(
+    monkeypatch,
+) -> None:
+    """A successful show that omits parameters must clear a stale window."""
+    from qwenpaw.providers.provider_discovery import merge_discovered_model
+
+    provider = _make_provider()
+    model_id = "qwen3:8b"
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=8192,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+    class OmittedParametersClient:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def aclose(self) -> None:
+            return None
+
+        async def get(self, url: str):
+            raise AssertionError(f"unexpected GET {url}")
+
+        async def post(self, url: str, json: dict):
+            assert url.endswith("/api/show")
+            return _FakeResponse(
+                200, {"model_info": {"general.architecture": "qwen3"}}
+            )
+
+    _patch_list_and_native(
+        monkeypatch,
+        OmittedParametersClient,
+        models=[ModelInfo(id=model_id, name=model_id)],
+    )
+    fetched = await provider.fetch_models()
+    assert fetched[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" in fetched[0].model_fields_set
+
+    merged = merge_discovered_model(
+        provider,
+        fetched[0],
+        "2026-11-06T01:00:00Z",
+    )
+    assert merged.max_input_length_auto_detected is None
+
+
+@pytest.mark.asyncio
 async def test_fetch_models_repeated_cancel_drains_probes_before_aclose(
     monkeypatch,
 ) -> None:

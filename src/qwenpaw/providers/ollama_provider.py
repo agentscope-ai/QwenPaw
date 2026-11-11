@@ -138,9 +138,16 @@ def resolve_ollama_context_window(
 
 
 def _show_parameters_malformed(show_payload: dict[str, Any]) -> bool:
-    """True when ``parameters`` is present but not a Modelfile string."""
-    parameters = show_payload.get("parameters")
-    return parameters is not None and not isinstance(parameters, str)
+    """True when ``parameters`` is present but not a Modelfile string.
+
+    An explicit JSON ``null`` is an invalid value and must be treated as
+    malformed. An omitted ``parameters`` field is not malformed: the show
+    succeeded, but there is no Modelfile ``num_ctx``.
+    """
+    return "parameters" in show_payload and not isinstance(
+        show_payload["parameters"],
+        str,
+    )
 
 
 class OllamaProvider(OpenAIProvider):
