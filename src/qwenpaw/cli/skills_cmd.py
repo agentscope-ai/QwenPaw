@@ -26,6 +26,7 @@ from ..agents.skill_system import (
     reconcile_pool_manifest,
     reconcile_workspace_manifest,
     resolve_pool_skill_dir,
+    resolve_workspace_skill_dir,
 )
 from ..agents.skill_system.models import SkillRequirements
 from ..agents.skill_system.registry import (
@@ -232,7 +233,10 @@ def _resolve_skill_test_dir(
         return resolve_pool_skill_dir(skill) or get_skill_pool_dir() / skill
 
     working_dir = _get_agent_workspace(agent_id or "default")
-    return get_workspace_skills_dir(working_dir) / skill
+    reconcile_workspace_manifest(working_dir)
+    return resolve_workspace_skill_dir(working_dir, skill) or (
+        get_workspace_skills_dir(working_dir) / skill
+    )
 
 
 def _get_skill_test_env(
@@ -248,11 +252,15 @@ def _get_skill_test_env(
         if not is_bootstrap_protected_env_key(name)
     }
     env = {**configured_envs, **env}
+    expected_dir = (
+        resolve_workspace_skill_dir(workspace_dir, skill_dir.name)
+        if workspace_dir is not None
+        else None
+    )
     if (
         not require_envs
-        or workspace_dir is None
-        or skill_dir.resolve()
-        != (get_workspace_skills_dir(workspace_dir) / skill_dir.name).resolve()
+        or expected_dir is None
+        or skill_dir.resolve() != expected_dir.resolve()
     ):
         return env
 
@@ -879,7 +887,10 @@ def info_cmd(
     entry = manifest.get(skill_name, {})
     channels = entry.get("channels") or ["all"]
     enabled = bool(entry.get("enabled", False))
-    skill_dir = get_workspace_skills_dir(working_dir) / skill_name
+    skill_dir = resolve_workspace_skill_dir(
+        working_dir,
+        skill_name,
+    ) or (get_workspace_skills_dir(working_dir) / skill_name)
 
     click.echo(f"Skill: {skill.name}")
     click.echo(f"Enabled: {'yes' if enabled else 'no'}")

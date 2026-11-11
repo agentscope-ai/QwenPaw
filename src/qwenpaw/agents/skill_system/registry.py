@@ -49,9 +49,9 @@ from .store import (
     get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
-    is_ignored_skill_entry,
     is_pool_builtin_entry,
     is_primary_pool_skill_dir,
+    iter_skill_dirs,
     load_skill_frontmatter_from_dir,
     mutate_json,
     mutate_pool_manifest,
@@ -61,7 +61,12 @@ from .store import (
     read_pool_skill_automation,
     read_skill_manifest,
     read_skill_pool_manifest,
-    safe_skill_dir,
+    rel_path_of,
+    resolve_skill_dir,
+    safe_nested_skill_dir,
+    selected_skill_dir,
+    selected_skill_rel,
+    validate_skill_destination,
     write_json_atomic,
 )
 
@@ -83,7 +88,7 @@ _BUILTIN_CACHE_LOCK = threading.Lock()
 class _WorkspaceInventory:
     manifest: FileSignature | None
     skills: tuple[
-        tuple[str, FileSignature, FileSignature],
+        tuple[str, str, FileSignature, FileSignature],
         ...,
     ]
 
@@ -262,11 +267,7 @@ def _iter_packaged_builtin_dirs() -> Iterator[Path]:
     builtin_dir = get_builtin_skills_dir()
     if not builtin_dir.exists():
         return
-    for skill_dir in sorted(builtin_dir.iterdir()):
-        if is_ignored_skill_entry(skill_dir.name):
-            continue
-        if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
-            yield skill_dir
+    yield from iter_skill_dirs(builtin_dir)
 
 
 def get_packaged_builtin_versions() -> dict[str, str]:
@@ -708,6 +709,7 @@ def _collect_builtin_import_conflicts(
 # ---------------------------------------------------------------------------
 
 
+# pylint: disable-next=too-many-statements
 def import_builtin_skills(
     imports: list[dict[str, Any]] | None = None,
     *,
@@ -790,8 +792,29 @@ def import_builtin_skills(
         payload["builtin_skill_names"] = sorted(registry.keys())
         for skill_name, language in normalized_imports:
             variant = registry[skill_name][language]
-            target = safe_skill_dir(pool_dir, skill_name)
             existing = skills.get(skill_name) or {}
+            # Builtins obey the same destination policy: update the selected
+            # copy (which may be nested) instead of creating a flat duplicate.
+            selected_rel = selected_skill_rel(pool_dir, skill_name, existing)
+            if selected_rel:
+                target_rel = selected_rel
+            else:
+                target_rel = skill_name
+                conflict = validate_skill_destination(
+                    pool_dir,
+                    target_rel,
+                    skill_name,
+                )
+                if conflict is not None:
+                    conflicts.append(
+                        {
+                            **conflict,
+                            "language": language,
+                            "status": "conflict",
+                        },
+                    )
+                    continue
+            target = safe_nested_skill_dir(pool_dir, target_rel)
 
             if not target.exists():
                 copy_skill_dir(variant.skill_dir, target)
@@ -821,6 +844,8 @@ def import_builtin_skills(
                 source="builtin",
                 protected=False,
             )
+            entry["rel_path"] = target_rel
+            entry["external"] = False
             entry["builtin_language"] = language
             entry["builtin_source_name"] = variant.source_name
             if "config" in existing:
@@ -908,29 +933,37 @@ def ensure_skill_pool_initialized() -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _discover_pool_skill_dirs() -> dict[str, Path]:
+def _discover_pool_skill_dirs(
+    existing_skills: dict[str, Any] | None = None,
+) -> dict[str, Path]:
     """Scan pool roots in priority order, mapping skill name to its dir.
 
     The primary pool is scanned first, then configured read-only roots in
-    order. The first occurrence of a name wins (the pool wins over extras);
-    shadowed duplicates are skipped with a warning.
+    order. Manifest ``rel_path`` entries are seeded first so the copy the
+    user has been using keeps winning when the same leaf name exists under
+    several categories; other duplicates are skipped with a warning.
     """
     discovered: dict[str, Path] = {}
+    primary_root = get_skill_pool_dir()
+    for skill_name, raw_entry in sorted((existing_skills or {}).items()):
+        entry = normalize_skill_manifest_entry(raw_entry)
+        # One selection policy for reads, reconciliation and writes: the
+        # manifest rel_path wins, legacy entries keep their flat copy.
+        candidate = selected_skill_dir(primary_root, skill_name, entry)
+        if candidate is not None:
+            discovered[skill_name] = candidate
     for root in get_skill_pool_dirs():
         if not root.is_dir():
             continue
-        for path in sorted(root.iterdir()):
-            if is_ignored_skill_entry(path.name):
-                continue
-            if not (path.is_dir() and (path / "SKILL.md").exists()):
-                continue
+        for path in iter_skill_dirs(root):
             if path.name in discovered:
-                logger.warning(
-                    "Skill '%s' in '%s' is shadowed by '%s'; skipping",
-                    path.name,
-                    root,
-                    discovered[path.name].parent,
-                )
+                if discovered[path.name] != path:
+                    logger.warning(
+                        "Skill '%s' in '%s' is shadowed by '%s'; skipping",
+                        path.name,
+                        root,
+                        discovered[path.name].parent,
+                    )
                 continue
             discovered[path.name] = path
     return discovered
@@ -965,6 +998,11 @@ def _build_reconciled_pool_entry(
         protected=protected,
     )
     new_entry["external"] = is_external
+    if not is_external:
+        new_entry["rel_path"] = rel_path_of(
+            get_skill_pool_dir().resolve(),
+            skill_dir.resolve(),
+        )
     if not is_external and (
         source == "builtin" or is_pool_builtin_entry(existing)
     ):
@@ -1022,7 +1060,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
         payload.setdefault("builtin_skill_names", [])
         skills = payload["skills"]
 
-        discovered = _discover_pool_skill_dirs()
+        discovered = _discover_pool_skill_dirs(skills)
         for skill_name, skill_dir in sorted(discovered.items()):
             raw_existing = skills.get(skill_name)
             existing = normalize_skill_manifest_entry(raw_existing)
@@ -1059,6 +1097,7 @@ def reconcile_pool_manifest() -> dict[str, Any]:
     return mutate_pool_manifest(_update)
 
 
+# pylint: disable-next=too-many-statements
 def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
     """Reconcile one workspace manifest with the filesystem.
 
@@ -1087,19 +1126,42 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
 
     reconciled: dict[str, Any] | None = None
 
+    # pylint: disable-next=too-many-branches
     def _update(payload: dict[str, Any]) -> dict[str, Any] | bool:
         nonlocal reconciled
         original = copy.deepcopy(payload)
         payload.setdefault("skills", {})
         skills = payload["skills"]
 
-        discovered = {
-            path.name: path
-            for path in workspace_skills_dir.iterdir()
-            if not is_ignored_skill_entry(path.name)
-            and path.is_dir()
-            and (path / "SKILL.md").exists()
-        }
+        discovered: dict[str, Path] = {}
+        # Manifest ``rel_path`` is authoritative: when the same leaf name
+        # exists under several categories, the copy the user/agent has been
+        # using keeps winning instead of whichever path sorts first on disk.
+        for skill_name, raw_entry in sorted(skills.items()):
+            entry = normalize_skill_manifest_entry(raw_entry)
+            # Same selection policy as reads and writes: a legacy entry
+            # keeps its flat copy instead of jumping to a sorted category.
+            candidate = selected_skill_dir(
+                workspace_skills_dir,
+                skill_name,
+                entry,
+            )
+            if candidate is not None:
+                discovered[skill_name] = candidate
+        for path in iter_skill_dirs(workspace_skills_dir):
+            if path.name in discovered:
+                if discovered[path.name] != path:
+                    logger.warning(
+                        (
+                            "Workspace skill '%s' in '%s' is shadowed by "
+                            "'%s'; skipping"
+                        ),
+                        path.name,
+                        path.parent,
+                        discovered[path.name].parent,
+                    )
+                continue
+            discovered[path.name] = path
 
         for skill_name, skill_dir in sorted(discovered.items()):
             raw_existing = skills.get(skill_name)
@@ -1139,6 +1201,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                     "channels": channels,
                     "preload": existing.get("preload") is True,
                     "source": source,
+                    "rel_path": rel_path_of(workspace_skills_dir, skill_dir),
                     "metadata": metadata,
                     "requirements": metadata["requirements"],
                     "updated_at": metadata["updated_at"],
@@ -1265,6 +1328,30 @@ def check_skill_dependencies(
     return missing
 
 
+def resolve_workspace_skill_dir(
+    workspace_dir: Path,
+    skill_name: str,
+) -> Path | None:
+    """Resolve one workspace skill name to its on-disk directory.
+
+    Prefers the manifest ``rel_path`` so nested skills resolve exactly; falls
+    back to a recursive leaf-name match for manually moved directories.
+    """
+    entry = (
+        read_skill_manifest(workspace_dir)
+        .get("skills", {})
+        .get(
+            skill_name,
+        )
+        or {}
+    )
+    return resolve_skill_dir(
+        get_workspace_skills_dir(workspace_dir),
+        skill_name,
+        str(entry.get("rel_path") or ""),
+    )
+
+
 def resolve_effective_skills(
     workspace_dir: Path,
     channel_name: str,
@@ -1283,8 +1370,12 @@ def resolve_effective_skills(
         channels = entry.get("channels") or ["all"]
         if "all" not in channels and channel_name not in channels:
             continue
-        skill_dir = skills_dir / skill_name
-        if not skill_dir.exists():
+        skill_dir = resolve_skill_dir(
+            skills_dir,
+            skill_name,
+            str(entry.get("rel_path") or ""),
+        )
+        if skill_dir is None:
             continue
         try:
             # The manifest retains valid fields but not declaration errors.
@@ -1350,14 +1441,8 @@ def _workspace_skill_inventory(workspace_dir: Path) -> _WorkspaceInventory:
     """Return a metadata-only fingerprint of runtime Skill inputs."""
     manifest = get_workspace_skill_manifest_path(workspace_dir)
     skill_root = get_workspace_skills_dir(workspace_dir)
-    skills: list[tuple[str, FileSignature, FileSignature]] = []
-    try:
-        children = sorted(skill_root.iterdir(), key=lambda item: item.name)
-    except OSError:
-        children = []
-    for child in children:
-        if is_ignored_skill_entry(child.name):
-            continue
+    skills: list[tuple[str, str, FileSignature, FileSignature]] = []
+    for child in iter_skill_dirs(skill_root):
         try:
             child_stat = child.stat()
         except OSError:
@@ -1368,7 +1453,14 @@ def _workspace_skill_inventory(workspace_dir: Path) -> _WorkspaceInventory:
         skill_md = child / "SKILL.md"
         signature = _path_signature(skill_md)
         if signature is not None:
-            skills.append((child.name, child_signature, signature))
+            skills.append(
+                (
+                    child.name,
+                    rel_path_of(skill_root, child),
+                    child_signature,
+                    signature,
+                ),
+            )
     return _WorkspaceInventory(_path_signature(manifest), tuple(skills))
 
 
@@ -1672,6 +1764,7 @@ def _resolve_builtin_update_variant(
     return canonical_name, selected_language, variant
 
 
+# pylint: disable-next=too-many-statements
 def update_single_builtin(
     skill_name: str,
     *,
@@ -1686,7 +1779,28 @@ def update_single_builtin(
 
     pool_dir = get_skill_pool_dir()
     pool_dir.mkdir(parents=True, exist_ok=True)
-    target = pool_dir / canonical_name
+    pool_manifest = read_skill_pool_manifest()
+    target_rel = selected_skill_rel(
+        pool_dir,
+        canonical_name,
+        pool_manifest.get("skills", {}).get(canonical_name),
+    )
+    if not target_rel:
+        target_rel = canonical_name
+        conflict = validate_skill_destination(
+            pool_dir,
+            target_rel,
+            canonical_name,
+        )
+        if conflict is not None:
+            raise SkillsError(
+                message=(
+                    f"Cannot update builtin '{canonical_name}': destination "
+                    f"'{conflict.get('destination_rel_path', '')}' is "
+                    "occupied"
+                ),
+            )
+    target = safe_nested_skill_dir(pool_dir, target_rel)
     transaction_root = Path(
         tempfile.mkdtemp(
             prefix=f".builtin_update_{canonical_name}_",
@@ -1728,6 +1842,8 @@ def update_single_builtin(
             source="builtin",
             protected=False,
         )
+        entry["rel_path"] = target_rel
+        entry["external"] = False
         entry["builtin_language"] = selected_language
         entry["builtin_source_name"] = variant.source_name
         if "config" in current:

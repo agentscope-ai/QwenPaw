@@ -1470,6 +1470,8 @@
     "renameAndRetry": "同名技能已存在，是否使用建议的名称？",
     "multiConflictTitle": "检测到多个冲突",
     "multiConflictDesc": "以下技能已存在，请逐一解决冲突后重试：",
+    "poolLocation": "技能池",
+    "workspaceLocation": "工作区",
     "singleConflictRename": "\"{{name}}\" 已存在。重命名为 \"{{suggested}}\" 以继续？",
     "statusUpToDate": "最新",
     "statusSynced": "已同步",

@@ -6,6 +6,9 @@ export interface ConflictItem {
   key: string;
   label: string;
   suggested_name: string;
+  source_rel_path?: string;
+  selected_rel_path?: string;
+  destination_rel_path?: string;
 }
 
 interface InternalItem extends ConflictItem {
@@ -70,6 +73,14 @@ export function useConflictRenameModal(): {
           <div style={{ marginBottom: 4 }}>
             {t("skillPool.renameEntry", { name: item.label })}
           </div>
+          {item.selected_rel_path || item.destination_rel_path ? (
+            <div style={{ fontSize: 12, opacity: 0.6, marginBottom: 4 }}>
+              {item.selected_rel_path
+                ? `${item.selected_rel_path} → `
+                : ""}
+              {item.destination_rel_path || item.source_rel_path || ""}
+            </div>
+          ) : null}
           <Input
             value={item.new_name}
             onChange={(e) => {

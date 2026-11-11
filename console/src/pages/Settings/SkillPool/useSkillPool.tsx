@@ -51,29 +51,31 @@ interface BuiltinImportSelection {
   language: BuiltinSkillLanguage;
 }
 
-type BroadcastConflict =
-  | {
-      skill_name: string;
-      workspace_id: string;
-      workspace_name: string;
-      reason: "conflict";
-    }
-  | {
-      skill_name: string;
-      workspace_id: string;
-      workspace_name: string;
-      reason: "builtin_upgrade";
-      current_version_text: string;
-      source_version_text: string;
-    }
-  | {
-      skill_name: string;
-      workspace_id: string;
-      workspace_name: string;
-      reason: "language_switch";
-      source_language: string;
-      current_language: string;
-    };
+interface BroadcastConflictBase {
+  skill_name: string;
+  workspace_id: string;
+  workspace_name: string;
+  selected_rel_path?: string;
+  source_rel_path?: string;
+  destination_rel_path?: string;
+}
+
+type BroadcastConflict = BroadcastConflictBase &
+  (
+    | {
+        reason: "conflict";
+      }
+    | {
+        reason: "builtin_upgrade";
+        current_version_text: string;
+        source_version_text: string;
+      }
+    | {
+        reason: "language_switch";
+        source_language: string;
+        current_language: string;
+      }
+  );
 
 const BUILTIN_NOTICE_ACK_STORAGE_KEY = "qwenpaw.skill-pool.builtin-notice.ack";
 
@@ -596,6 +598,9 @@ export function useSkillPool() {
                     },
                     t,
                   ),
+                selected_rel_path: conflict.selected_rel_path || "",
+                source_rel_path: conflict.source_rel_path || "",
+                destination_rel_path: conflict.destination_rel_path || "",
               };
               if (conflict.reason === "builtin_upgrade") {
                 return {
@@ -646,6 +651,16 @@ export function useSkillPool() {
                 <strong>{conflict.skill_name}</strong>
                 {"  "}
                 <span>{conflict.workspace_name}</span>
+                {conflict.reason === "conflict" ? (
+                  <>
+                    {"  "}
+                    <span>
+                      {conflict.source_rel_path || conflict.skill_name}
+                      {" → "}
+                      {conflict.destination_rel_path || conflict.skill_name}
+                    </span>
+                  </>
+                ) : null}
                 {conflict.reason === "builtin_upgrade" ? (
                   <>
                     {"  "}
@@ -1210,12 +1225,50 @@ export function useSkillPool() {
           );
           break;
         }
+        // A skill nested inside another skill cannot be fixed by renaming
+        // the leaf: report the rejected destination instead of looping.
+        const blocked = conflicts.filter(
+          (c: { conflict_kind?: string }) => c.conflict_kind === "inside_skill",
+        );
+        if (blocked.length > 0) {
+          message.error(
+            blocked
+              .map(
+                (c: {
+                  skill_name?: string;
+                  source_rel_path?: string;
+                  destination_rel_path?: string;
+                  message?: string;
+                }) =>
+                  c.message ||
+                  `${c.source_rel_path || c.skill_name} → ${
+                    c.destination_rel_path || ""
+                  }`,
+              )
+              .join("; "),
+          );
+          break;
+        }
+        const renameable = conflicts.filter(
+          (c: { skill_name?: string; suggested_name?: string }) =>
+            Boolean(c.skill_name && c.suggested_name),
+        );
+        if (renameable.length === 0) break;
         const newRenames = await showConflictRenameModal(
-          conflicts.map(
-            (c: { skill_name?: string; suggested_name?: string }) => ({
-              key: c.skill_name || "",
-              label: c.skill_name || "",
+          renameable.map(
+            (c: {
+              skill_name?: string;
+              suggested_name?: string;
+              selected_rel_path?: string;
+              source_rel_path?: string;
+              destination_rel_path?: string;
+            }) => ({
+              key: c.source_rel_path || c.skill_name || "",
+              label: c.source_rel_path || c.skill_name || "",
               suggested_name: c.suggested_name || "",
+              selected_rel_path: c.selected_rel_path,
+              source_rel_path: c.source_rel_path,
+              destination_rel_path: c.destination_rel_path,
             }),
           ),
         );
