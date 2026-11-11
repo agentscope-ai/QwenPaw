@@ -29,6 +29,38 @@ def _sibling(name: str) -> Any:
     return module
 
 
+def _install_windows_crypto_path_fix() -> None:
+    """Normalize raw-library paths when the optional Crypto helper loads."""
+    from importlib.machinery import PathFinder, SourceFileLoader
+    import ntpath
+
+    class Finder:
+        def find_spec(self, name, path=None, target=None):
+            if name != "Crypto.Util._file_system":
+                return None
+            spec = PathFinder.find_spec(name, path, target)
+            if spec is None or not isinstance(spec.loader, SourceFileLoader):
+                return None
+            execute = spec.loader.exec_module
+
+            def load(module):
+                execute(module)
+                original = module.pycryptodome_filename
+
+                def filename(dir_comps, filename):
+                    return ntpath.normpath(original(dir_comps, filename))
+
+                module.pycryptodome_filename = filename
+
+            spec.loader.exec_module = load
+            return spec
+
+    for index, finder in enumerate(sys.meta_path):
+        if finder is PathFinder:
+            sys.meta_path.insert(index, Finder())
+            break
+
+
 def _configure(
     boot: Any,
     packet: dict[str, Any],
@@ -349,6 +381,8 @@ async def _prepare_component(
     root = Path(packet["code_root"])
     sys.path.insert(0, str(root))
     sys.modules["qwenpaw"].__path__.insert(0, str(root / "qwenpaw"))
+    if sys.platform == "win32":
+        _install_windows_crypto_path_fix()
     diagnostics.mark("driver_import", entrypoint=entrypoint)
     component_class = boot._load_driver_class(entrypoint, source)
     if mode == "probe":

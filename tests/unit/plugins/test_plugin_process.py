@@ -176,6 +176,84 @@ async def test_startup_failure_preserves_redacted_cause_after_log_flood(
     assert (await process.stop()).exited
 
 
+def test_windows_crypto_paths_are_normalized_before_native_lookup():
+    from importlib import metadata
+
+    script = r"""
+import importlib.util
+import ntpath
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+sys.path.insert(0, sys.argv[2])
+spec = importlib.util.spec_from_file_location("worker", sys.argv[1])
+worker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(worker)
+worker._install_windows_crypto_path_fix()
+assert "Crypto" not in sys.modules  # Optional SDK remains lazy.
+from Crypto.Util import _file_system, _raw_api
+_file_system.os = SimpleNamespace(path=ntpath)
+for root in ("C:\\sdk", "\\\\?\\C:\\sdk", "\\\\?\\UNC\\server\\share",
+             "\\\\?\\C:\\" + "long-folder\\" * 30):
+    root = root.rstrip("\\")
+    _file_system.__file__ = root + "\\Crypto\\Util\\_file_system.py"
+    actual = _raw_api.pycryptodome_filename(["Crypto", "Util"], "_cpuid_c.pyd")
+    assert actual == root + "\\Crypto\\Util\\_cpuid_c.pyd", actual
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            script,
+            str(ROOT / "src/qwenpaw/plugins/execution/worker.py"),
+            str(metadata.distribution("pycryptodome").locate_file("")),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+@pytest.mark.asyncio
+async def test_windows_worker_imports_crypto_from_extended_path(
+    tmp_path,
+    process,
+    worker_logs,
+):
+    from importlib import metadata
+
+    site = tmp_path / "dependencies"
+    distribution = metadata.distribution("pycryptodome")
+    shutil.copytree(distribution.locate_file("Crypto"), site / "Crypto")
+    site = Path("\\\\?\\" + str(site.resolve()))
+    spec, _ = launch(tmp_path, dependency_paths=(site,))
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        source.read_text().replace(
+            "    async def start(self, config):\n",
+            "    async def start(self, config):\n"
+            "        from Crypto.Cipher import AES\n"
+            "        key = bytes.fromhex('000102030405060708090a0b0c0d0e0f')\n"
+            "        plain = bytes.fromhex('00112233445566778899aabbccddeeff')\n"
+            "        assert AES.new(key, AES.MODE_ECB).encrypt(plain).hex() == "
+            "'69c4e0d86a7b0430d8cdb78070b4c55a'\n",
+        ),
+    )
+    await process.start(replace(spec, source_revision=digest(spec.code_root)))
+    await eventually(
+        lambda: process.health_snapshot()["component_state"]
+        in {"ready", "failed"},
+    )
+    assert (
+        process.health_snapshot()["component_state"] == "ready"
+    ), worker_logs.text
+    assert (await process.stop()).exited
+
+
 @pytest.mark.asyncio
 async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     tmp_path,
