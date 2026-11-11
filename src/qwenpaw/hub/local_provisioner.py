@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import socket
@@ -32,7 +33,20 @@ from .process_isolation import (
 from .windows_reverse_tunnel import WindowsReverseTunnelBroker
 
 _START_TIMEOUT_SECONDS = 30.0
+# Windows AppContainer cold starts spend additional time in the sandbox
+# boundary, service initialization, and skill staging. The cross-platform
+# E2E budget was already raised to 120s; the product budget must match it.
+_WINDOWS_START_TIMEOUT_SECONDS = 120.0
 _STOP_TIMEOUT_SECONDS = 10.0
+
+logger = logging.getLogger(__name__)
+
+
+def _default_start_timeout() -> float:
+    """Return the startup budget for the current platform."""
+    if sys.platform == "win32":
+        return _WINDOWS_START_TIMEOUT_SECONDS
+    return _START_TIMEOUT_SECONDS
 
 
 def allocate_loopback_port() -> int:
@@ -51,11 +65,15 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
     def __init__(
         self,
         *,
-        start_timeout: float = _START_TIMEOUT_SECONDS,
+        start_timeout: float | None = None,
         stop_timeout: float = _STOP_TIMEOUT_SECONDS,
         isolator: ProcessIsolator | None = None,
     ) -> None:
-        self._start_timeout = start_timeout
+        self._start_timeout = (
+            _default_start_timeout()
+            if start_timeout is None
+            else start_timeout
+        )
         self._stop_timeout = stop_timeout
         self._isolator = isolator or platform_process_isolator()
         if self._isolator.name == "macos-seatbelt":
@@ -404,15 +422,18 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         process: ManagedProcess,
         runtime_token: str,
     ) -> None:
-        deadline = time.monotonic() + self._start_timeout
+        started = time.monotonic()
+        deadline = started + self._start_timeout
         url = f"http://{record.host}:{record.port}/api/version"
         last_error = "readiness endpoint was not reachable"
+        attempts = 0
         while time.monotonic() < deadline:
             exit_code = process.poll()
             if exit_code is not None:
                 raise RuntimeError(
                     f"process exited with code {exit_code}",
                 )
+            attempts += 1
             try:
                 request = urllib.request.Request(
                     url,
@@ -422,12 +443,24 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 )
                 with urllib.request.urlopen(request, timeout=1) as response:
                     if response.status == 200:
+                        logger.debug(
+                            "Runtime %s readiness succeeded after %.1fs",
+                            record.runtime_id,
+                            time.monotonic() - started,
+                        )
                         return
                     last_error = (
                         f"readiness endpoint returned {response.status}"
                     )
             except (OSError, urllib.error.URLError) as exc:
                 last_error = str(exc)
+            if attempts % 50 == 1:
+                logger.debug(
+                    "Runtime %s readiness probe on %s failed: %s",
+                    record.runtime_id,
+                    url,
+                    last_error,
+                )
             time.sleep(0.1)
         raise TimeoutError(last_error)
 
