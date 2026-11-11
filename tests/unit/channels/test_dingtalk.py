@@ -530,6 +530,24 @@ async def test_ensure_table_spacing(text, expected):
     assert markdown.ensure_table_spacing(expected) == expected
 
 
+@pytest.mark.parametrize("rows_before_dashes", ["", "| Alice | OK |\n"])
+async def test_table_spacing_preserves_delimiter_like_body_rows(
+    rows_before_dashes,
+):
+    markdown = module("dingtalk", "markdown")
+    table = (
+        "| Name | Status |\n"
+        "| --- | --- |\n"
+        f"{rows_before_dashes}"
+        "| --- | --- |\n"
+        "| Bob | OK |"
+    )
+    assert markdown.ensure_table_spacing(table) == table
+    assert markdown.ensure_table_spacing(f"{table}\n\nDetails:\n{table}") == (
+        f"{table}\n\nDetails:\n\n{table}"
+    )
+
+
 @pytest.mark.parametrize(
     ("opening", "inner", "closing"),
     [
@@ -548,6 +566,28 @@ async def test_table_spacing_preserves_fences(opening, inner, closing):
     assert markdown.ensure_table_spacing(code) == code
     assert markdown.ensure_table_spacing(f"{code}\n{table}") == (
         f"{code}\nDetails:\n\n| k | v |\n|---|---|"
+    )
+
+
+@pytest.mark.parametrize(
+    ("opening", "indent", "closing"),
+    [
+        ("* ```markdown", "  ", "```\n"),
+        ("10. ~~~markdown", "    ", "~~~\n"),
+        ("- ```markdown", "  ", ""),
+    ],
+)
+async def test_table_spacing_preserves_list_fences(opening, indent, closing):
+    markdown = module("dingtalk", "markdown")
+    code = (
+        f"{opening}\n{indent}Details:\n"
+        f"{indent}| k | v |\n{indent}| --- | --- |\n"
+    )
+    if closing:
+        code += indent + closing
+    table = "| k | v |\n| --- | --- |\n| a | 1 |"
+    assert markdown.ensure_table_spacing(f"{code}\nDetails:\n{table}") == (
+        f"{code}\nDetails:\n\n{table}"
     )
 
 
