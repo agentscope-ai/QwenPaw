@@ -214,7 +214,6 @@ interruption with `reload(plugin_id, interrupt_tasks=True)` when needed. A timeo
 unreleased resource still prevents replacement; retry public lifecycle operations after
 the fault is resolved. Old contexts cannot write or register resources for a new generation.
 
-
 ## Public capabilities
 
 | Capability                                          | Public entry                                                                               |

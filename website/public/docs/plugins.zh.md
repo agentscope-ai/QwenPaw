@@ -193,7 +193,6 @@ asyncio.run(main())
 `reload(plugin_id, interrupt_tasks=True)`；超时或资源未释放仍拒绝换代。
 故障解除后可通过公开生命周期操作重试。旧上下文不能写入或注册新一代资源。
 
-
 ## 能力与公开模块
 
 | 能力                         | 公开入口                                                             |
