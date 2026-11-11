@@ -1201,6 +1201,77 @@ async def test_application_shutdown_reaps_workers_and_preserves_installed_code(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    ["failed", "disconnected", "exited", "timeout"],
+)
+async def test_connection_failure_logs_actual_state_without_changing_refusal(
+    host,
+    caplog,
+    failure,
+):
+    import logging
+    from dataclasses import replace
+
+    caplog.set_level(logging.INFO, logger="qwenpaw.plugins.startup")
+    host.registry.channel_runtime = replace(
+        host.registry.channel_runtime,
+        connection_timeout=0.2 if failure == "timeout" else None,
+    )
+    await host.workspace("diagnostic")
+    source = host.artifact(fail_start=failure == "failed")
+    if failure != "failed":
+        code = source / "sample.py"
+        injected = {
+            "disconnected": 'await self._context.set_platform_state("disconnected")',
+            "exited": "os._exit(23)",
+            "timeout": "pass",
+        }[failure]
+        code.write_text(
+            code.read_text().replace(
+                "    async def start(self, config):\n",
+                "    async def start(self, config):\n"
+                f"        {injected}\n"
+                "        import asyncio\n"
+                "        await asyncio.sleep(2)\n",
+            ),
+        )
+    with pytest.raises(Exception) as refused:
+        await host.loader.load_plugin_from_path(source)
+    if failure != "timeout":
+        assert "CHANNEL_NOT_CONNECTED" in str(refused.value)
+
+    def observed():
+        return [
+            json.loads(record.getMessage().partition(" ")[2])
+            for record in caplog.records
+            if record.name == "qwenpaw.plugins.startup"
+        ]
+
+    await eventually(
+        lambda: any(row["event"] == "connection_failed" for row in observed()),
+    )
+    if failure == "exited":
+        await eventually(
+            lambda: any(row["event"] == "worker_exited" for row in observed()),
+        )
+    events = observed()
+    event = next(row for row in events if row["event"] == "connection_failed")
+    assert event["plugin_id"] == KEY and event["instance_id"]
+    assert event["generation"] >= 1 and event["elapsed_ms"] >= 0
+    if failure in {"failed", "disconnected"}:
+        assert event["health"]["platform_state"] == failure
+    elif failure == "timeout":
+        assert event["reason"] == "timeout"
+        assert event["health"]["platform_state"] == "connecting"
+    else:
+        assert any(
+            row["event"] == "worker_exited" and row["returncode"] == 23
+            for row in events
+        )
+
+
+@pytest.mark.asyncio
 async def test_failed_worker_update_restores_usable_source_and_config(host):
     ws = await host.workspace("rollback")
     await host.loader.load_plugin_from_path(host.artifact())
