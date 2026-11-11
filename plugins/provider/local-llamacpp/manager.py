@@ -20,6 +20,7 @@ from .model_types import LocalModelConfig
 from .llamacpp import LlamaCppBackend, LlamaCppServerSetupResult
 from .model_manager import LocalModelInfo as RecommendedLocalModelInfo
 from .model_manager import ModelManager, DownloadSource
+from .runtime_release import RELEASE
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,8 @@ class _StoredConfig(BaseModel):
 class LocalModelManager:  # pylint: disable=too-many-public-methods
     """Single entry point for local runtime downloads and server control."""
 
-    DEFAULT_LLAMA_CPP_BASE_URL = (
-        # Mirror of "https://github.com/ggml-org/llama.cpp/releases/download"
-        "https://download.qwenpaw.agentscope.io/files/models/llama_cpp"
-    )
-    DEFAULT_LLAMA_CPP_RELEASE_TAG = "b8744"
+    DEFAULT_LLAMA_CPP_BASE_URL = RELEASE["base_url"]
+    DEFAULT_LLAMA_CPP_RELEASE_TAG = RELEASE["release"]
     CONFIG_FILE_NAME = "config.json"
 
     async def start(self, data_dir: Path) -> None:

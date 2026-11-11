@@ -44,7 +44,12 @@ class ProviderTurn:
         self.token = _turn_usage.set(self)
 
     async def close(self):
-        if self.closed and not self.producers and not self.leases:
+        if (
+            self.closed
+            and not self.producers
+            and not self.leases
+            and self.token is None
+        ):
             return
         self.closed = True
         try:
@@ -54,8 +59,13 @@ class ProviderTurn:
                 await run_async_to_completion(self._close_resources())
         finally:
             if self.token is not None:
-                _turn_usage.reset(self.token)
-                self.token = None
+                try:
+                    _turn_usage.reset(self.token)
+                except ValueError:
+                    # Stream finalizers can run outside the owning context.
+                    pass
+                else:
+                    self.token = None
 
     async def _close_resources(self):
         from .custody import stop_task
@@ -91,7 +101,7 @@ class ProviderBinding:
             )
         return provider
 
-    async def select(self, model_id):
+    async def select(self, model_id, *, model_type="chat"):
         from ..exceptions import AppBaseException
         from ..providers.provider_manager import ProviderManager
 
@@ -99,17 +109,24 @@ class ProviderBinding:
             self.provider()
             manager = ProviderManager.get_instance()
             try:
-                await manager.activate_model(self.spec.id, model_id)
+                await manager.activate_model(
+                    self.spec.id,
+                    model_id,
+                    model_type=model_type,
+                )
             except AppBaseException as exc:
                 raise SDKError(str(exc)) from exc
 
-    async def clear_selection(self):
+    async def clear_selection(self, *, model_type="chat"):
         from ..providers.provider_manager import ProviderManager
 
         with self.context._admission():
             self.provider()
             manager = ProviderManager.get_instance()
-            return await manager.clear_active_model_async(self.spec.id)
+            return await manager.clear_active_model_async(
+                self.spec.id,
+                model_type=model_type,
+            )
 
     async def update(
         self,
@@ -301,6 +318,10 @@ def register_native(context, spec):
     from ..providers.openai_chat_model_compat import OpenAIChatModelCompat
     from ..providers.model_info import ModelInfo
     from ..providers.provider import ModelConnectionResult
+    from ..providers.local_decision_model import (
+        LocalDecisionModel,
+        LocalDecisionProviderMixin,
+    )
 
     binding = ProviderBinding(context, spec)
 
@@ -311,7 +332,35 @@ def register_native(context, spec):
         async def _call_native(self, *args, **kwargs):
             return await super().__call__(*args, **kwargs)
 
-    class Adapter(OpenAIProvider):
+    class DecisionModel(LocalDecisionModel):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self._settings = kwargs
+
+        async def __call__(self, *args, **kwargs):
+            from ..utils.io_utils import run_async_to_completion
+
+            async with binding.connect(self.model) as endpoint:
+                base_url = endpoint.rstrip("/").removesuffix("/v1")
+                credential = self._settings["credential"]
+                if base_url == credential.base_url:
+                    return await super().__call__(*args, **kwargs)
+                # A restarted runtime can have a different port. Keep each
+                # call's client independent of other in-flight requests.
+                model = LocalDecisionModel(
+                    **{
+                        **self._settings,
+                        "credential": credential.model_copy(
+                            update={"base_url": base_url},
+                        ),
+                    },
+                )
+                try:
+                    return await model(*args, **kwargs)
+                finally:
+                    await run_async_to_completion(model.client.aclose())
+
+    class Adapter(LocalDecisionProviderMixin, OpenAIProvider):
         _sdk_binding: ClassVar[ProviderBinding] = binding
 
         @classmethod
@@ -325,6 +374,11 @@ def register_native(context, spec):
         @staticmethod
         def _create_chat_model(**kwargs):
             return Model(**kwargs)
+
+        @staticmethod
+        def _create_decision_model(**kwargs):
+            binding.guard()
+            return DecisionModel(**kwargs)
 
         async def check_model_connection(self, model_id, timeout=5):
             try:
@@ -662,7 +716,7 @@ def register(context, spec):
 
 
 def configured_models(provider_manager):
-    """Read effective chat selections without constructing model clients."""
+    """Read effective typed selections without constructing model clients."""
     from ..config.utils import load_config
     from ..config.config import load_agent_config
 
@@ -671,13 +725,19 @@ def configured_models(provider_manager):
     for agent_id, profile in config.agents.profiles.items():
         if not profile.enabled:
             continue
-        slot = load_agent_config(agent_id).active_model
-        if slot is None or not slot.provider_id or not slot.model:
-            slot = provider_manager.active_model
-        if slot is not None:
-            choices.append(slot)
-    if not config.agents.profiles and provider_manager.active_model:
-        choices.append(provider_manager.active_model)
+        agent = load_agent_config(agent_id)
+        for model_type, slot in (
+            ("chat", agent.active_model),
+            ("decision", agent.decision_model),
+        ):
+            if slot is None or not slot.provider_id or not slot.model:
+                slot = provider_manager.default_models[model_type]
+            if slot is not None:
+                choices.append(slot)
+    if not config.agents.profiles:
+        choices.extend(
+            slot for slot in provider_manager.default_models.values() if slot
+        )
     return choices
 
 

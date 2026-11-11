@@ -106,8 +106,10 @@ async def test_restore_requires_effective_selection_of_published_model(
     assert restored == (["A"] if selected == "A" else [])
 
 
+@pytest.mark.parametrize("model_type", ["chat", "decision"])
 def test_effective_choices_respect_agent_overrides_and_disabled_agents(
     monkeypatch,
+    model_type,
 ):
     from qwenpaw.config import config, utils
 
@@ -127,11 +129,20 @@ def test_effective_choices_respect_agent_overrides_and_disabled_agents(
         config,
         "load_agent_config",
         lambda agent: SimpleNamespace(
-            active_model=cloud if agent == "override" else None,
+            active_model=(
+                cloud if model_type == "chat" and agent == "override" else None
+            ),
+            decision_model=(
+                cloud
+                if model_type == "decision" and agent == "override"
+                else None
+            ),
         ),
     )
+    defaults = {"chat": None, "decision": None}
+    defaults[model_type] = local
     assert _providers.configured_models(
-        SimpleNamespace(active_model=local),
+        SimpleNamespace(default_models=defaults),
     ) == [
         cloud,
         local,
@@ -457,6 +468,14 @@ async def test_bundle_upgrade_repairs_missing_download_dependencies(
 
     missing = {"modelscope", "huggingface-hub"}
     original = dependency_gate.is_requirement_satisfied
+    version = dependency_gate._dist_version
+
+    def version_of(name):
+        if name.replace("_", "-") in missing:
+            raise dependency_gate.PackageNotFoundError(name)
+        return version(name)
+
+    monkeypatch.setattr(dependency_gate, "_dist_version", version_of)
 
     def satisfied(req):
         return (
@@ -473,11 +492,6 @@ async def test_bundle_upgrade_repairs_missing_download_dependencies(
             dependency_gate,
             "is_requirement_satisfied",
             satisfied,
-        )
-        monkeypatch.setattr(
-            dependency_gate,
-            "hits_imported_host_package",
-            lambda req: False,
         )
 
         async def install(path, plugin_id, **kwargs):
@@ -524,6 +538,14 @@ async def test_installed_plugin_reports_missing_dependencies_on_boot(
         {"modelscope", "huggingface-hub"} if missing == "both" else {missing}
     )
     original = dependency_gate.is_requirement_satisfied
+    version = dependency_gate._dist_version
+
+    def version_of(name):
+        if name.replace("_", "-") in names:
+            raise dependency_gate.PackageNotFoundError(name)
+        return version(name)
+
+    monkeypatch.setattr(dependency_gate, "_dist_version", version_of)
 
     async with PluginTestHost(tmp_path / "host") as host:
         monkeypatch.setattr(
@@ -541,11 +563,7 @@ async def test_installed_plugin_reports_missing_dependencies_on_boot(
             if req.name.replace("_", "-") in names
             else original(req),
         )
-        monkeypatch.setattr(
-            dependency_gate,
-            "hits_imported_host_package",
-            lambda req: False,
-        )
+
         installer = AsyncMock(
             side_effect=AssertionError("Boot must not install"),
         )

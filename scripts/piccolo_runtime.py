@@ -17,7 +17,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads(
-    (ROOT / "src/qwenpaw/local_models/runtime-release.json").read_text(),
+    (
+        ROOT / "plugins/provider/local-llamacpp/runtime-release.json"
+    ).read_text(),
 )
 PATCH = ROOT / "docs/patches/piccolo-llama.cpp.patch"
 

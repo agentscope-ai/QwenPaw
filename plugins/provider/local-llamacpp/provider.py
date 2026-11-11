@@ -72,7 +72,7 @@ class LocalProvider:
             await self._start()
             yield self._manager
 
-    async def _publish(self, result):
+    async def _publish(self, result, *, model_type=None):
         model = result.model_info
         await self.handle.update(
             base_url=f"http://127.0.0.1:{result.port}/v1",
@@ -86,6 +86,7 @@ class LocalProvider:
                     supports_image=model.supports_image,
                     supports_video=model.supports_video,
                     probe_source=model.probe_source,
+                    model_type=model_type,
                 ),
             ),
         )
@@ -97,11 +98,15 @@ class LocalProvider:
         self._server_info = None
         await self.handle.update(base_url="", models=())
         await self.handle.clear_selection()
+        await self.handle.clear_selection(model_type="decision")
 
     async def ensure_server(self, model_id):
         async with self._operation() as manager:
             result = await manager.ensure_server(model_id)
-            await self._publish(result)
+            await self._publish(
+                result,
+                model_type=result.model_info.model_type,
+            )
             self._manually_stopped = False
             return result
 

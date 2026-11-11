@@ -10,7 +10,7 @@ from .tools import ToolContext
 from .resources import Registration
 
 
-# TODO: Define shared model facts for cloud Provider plugins: model type,
+# TODO: Define shared model facts for cloud Provider plugins:
 # limits, thinking/tool capabilities and pricing. Keep user settings and
 # derived availability, billing policy and ranking in the host.
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class ModelInfo:
     is_free: bool | None = False
     supports_multimodal: bool | None = None
     probe_source: str | None = None
+    model_type: Literal["chat", "decision"] | None = None
 
 
 @dataclass(frozen=True)
@@ -129,13 +130,22 @@ class ProviderHandle(Registration):
 
     _provider: Any
 
-    async def select(self, model_id: str) -> None:
-        """Select this provider's model as the default chat model."""
-        await self._provider.select(model_id)
+    async def select(
+        self,
+        model_id: str,
+        *,
+        model_type: Literal["chat", "decision"] = "chat",
+    ) -> None:
+        """Select this provider's model as the default for its type."""
+        await self._provider.select(model_id, model_type=model_type)
 
-    async def clear_selection(self) -> bool:
-        """Clear the default chat selection if it uses this provider."""
-        return await self._provider.clear_selection()
+    async def clear_selection(
+        self,
+        *,
+        model_type: Literal["chat", "decision"] = "chat",
+    ) -> bool:
+        """Clear a typed default if it uses this provider."""
+        return await self._provider.clear_selection(model_type=model_type)
 
     async def update(
         self,
