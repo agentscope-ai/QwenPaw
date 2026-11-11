@@ -532,6 +532,39 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.queryByText("channels.autoCollapseThinking")).toBeNull();
   });
 
+  it("saves the selected tool-call format and disables it with tool calls", async () => {
+    const onSubmit = vi.fn();
+    renderDrawer({
+      activeKey: "console",
+      onSubmit,
+      initialValues: { show_tool_calls: true, tool_call_format: "full" },
+    });
+    fireEvent.mouseDown(document.getElementById("tool_call_format")!);
+    fireEvent.click(await screen.findByText("channels.toolCallFormatNameOnly"));
+    await waitFor(
+      () =>
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.objectContaining({ tool_call_format: "name_only" }),
+        ),
+      { timeout: 2000 },
+    );
+    fireEvent.click(document.getElementById("show_tool_calls")!);
+    expect(
+      (document.getElementById("tool_call_format") as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+    await waitFor(
+      () =>
+        expect(onSubmit).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            show_tool_calls: false,
+            tool_call_format: "name_only",
+          }),
+        ),
+      { timeout: 2000 },
+    );
+  });
+
   it.each([
     ["show_tool_calls", "toolCallMaxLength"],
     ["show_tool_results", "toolResultMaxLength"],

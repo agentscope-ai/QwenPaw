@@ -118,6 +118,7 @@ const BASE_FIELDS = [
   "bot_prefix",
   "show_tool_calls",
   "show_tool_results",
+  "tool_call_format",
   "tool_call_max_length",
   "tool_result_max_length",
   "show_thinking",
@@ -2282,6 +2283,29 @@ export function ChannelDrawer({
                         tooltip={t("channels.showToolCallsTooltip")}
                       >
                         <Switch />
+                      </Form.Item>
+                      <Form.Item
+                        name="tool_call_format"
+                        label={t("channels.toolCallFormat")}
+                        tooltip={t("channels.toolCallFormatTooltip")}
+                      >
+                        <Select
+                          disabled={!showToolCalls}
+                          options={[
+                            {
+                              value: "full",
+                              label: t("channels.toolCallFormatFull"),
+                            },
+                            {
+                              value: "name_only",
+                              label: t("channels.toolCallFormatNameOnly"),
+                            },
+                            {
+                              value: "compact",
+                              label: t("channels.toolCallFormatCompact"),
+                            },
+                          ]}
+                        />
                       </Form.Item>
                       {showToolCalls && (
                         <Form.Item

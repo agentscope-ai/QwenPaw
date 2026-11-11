@@ -3,6 +3,7 @@ export interface BaseChannelConfig {
   bot_prefix: string;
   show_tool_calls?: boolean;
   show_tool_results?: boolean;
+  tool_call_format?: "full" | "name_only" | "compact";
   tool_call_max_length?: number;
   tool_result_max_length?: number;
   show_thinking?: boolean;

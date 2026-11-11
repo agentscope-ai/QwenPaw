@@ -54,6 +54,7 @@ class ChannelDisplayConfig:
     # A value of 0 means unlimited (do not truncate).
     tool_call_max_length: int = 200
     tool_result_max_length: int = 500
+    tool_call_format: str = "full"
 
     @classmethod
     def from_config(
@@ -96,7 +97,12 @@ class ChannelDisplayConfig:
             except (TypeError, ValueError):
                 return default
 
+        tool_call_format = read("tool_call_format", "full")
+        if tool_call_format not in ("full", "name_only", "compact"):
+            tool_call_format = "full"
+
         return cls(
+            tool_call_format=tool_call_format,
             show_tool_details=show_tool_details,
             show_thinking=read_bool("show_thinking", True),
             show_tool_calls=read_bool("show_tool_calls", True),
@@ -134,9 +140,32 @@ def _truncate_tool_text(value: Any, limit: int) -> str:
 
 def _fmt_tool_call(
     name: str,
-    args_preview: str,
+    arguments: Any,
     style: RenderStyle,
 ) -> str:
+    display = style.display_config
+    limit = display.tool_call_max_length
+    if display.tool_call_format in ("name_only", "compact"):
+        name = " ".join(str(name).split())
+        label = f"**{name}**" if style.supports_markdown else name
+        if style.use_emoji:
+            label = f"🔧 {label}"
+        if display.tool_call_format == "name_only":
+            return label
+        limit = min(limit, 80) if limit > 0 else 80
+        arguments = " ".join(str(arguments or "").split())
+        preview = (
+            _truncate_tool_text(arguments, limit)
+            if display.show_tool_details
+            else "..."
+        )
+        return f"{label}: {preview}"
+
+    args_preview = (
+        _truncate_tool_text(arguments, limit)
+        if display.show_tool_details
+        else "..."
+    )
     if style.supports_markdown and style.use_emoji:
         return f"🔧 **{name}**\n```\n{args_preview}\n```"
     if style.supports_markdown:
@@ -228,15 +257,7 @@ class MessageRenderer:
                 if not s.display_config.show_tool_calls:
                     continue
                 args = data.get("arguments") or "{}"
-                args_preview = (
-                    "..."
-                    if not s.display_config.show_tool_details
-                    else _truncate_tool_text(
-                        args,
-                        s.display_config.tool_call_max_length,
-                    )
-                )
-                text = _fmt_tool_call(name, args_preview, s)
+                text = _fmt_tool_call(name, args, s)
                 out.append(TextContent(text=text))
             return out
 
@@ -500,6 +521,17 @@ class MessageRenderer:
                         )
                         if not allowed:
                             suppressed_tool_data = True
+                            continue
+                        if is_call and s.display_config.tool_call_format in (
+                            "name_only",
+                            "compact",
+                        ):
+                            append(
+                                TextContent(
+                                    text=_fmt_tool_call(name, args, s),
+                                ),
+                                "rendered",
+                            )
                             continue
                         preview_limit = (
                             s.display_config.tool_result_max_length
