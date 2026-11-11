@@ -763,11 +763,17 @@ async def test_preparation_cancellation_retains_custody_and_rejects_changed_sour
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    ["missing-child", "warning-order", "warning-content", "version"],
+)
 async def test_channel_preflight_rechecks_metadata_read_during_probe(
     host,
     monkeypatch,
+    change,
 ):
     import zipfile
+    from contextlib import nullcontext
     from qwenpaw.app.channels.process_supervisor import ChannelProcess
     from qwenpaw.plugins.dependency_gate import SharedDependencyError
 
@@ -775,27 +781,63 @@ async def test_channel_preflight_rechecks_metadata_read_during_probe(
     wheel = next(local_wheel(host.root / "wheels").glob("*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         archive.extractall(host.site)
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
+    if change != "missing-child":
+        minimum = "1" if change == "version" else "2"
+        (source / "requirements.txt").write_text(
+            f"sample-warning-child>=2\nsample-shared-sdk>={minimum}\n",
+        )
+        child = host.site / "sample_warning_child-1.0.dist-info"
+        child.mkdir()
+        (child / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: sample-warning-child\n"
+            "Version: 1.0\n",
+        )
+        if change == "warning-content":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: sample-warning-child>=2\n")
     manifest = host.loader.read_source_manifest(source)[1]
     binding = host.loader.backend_resolver.resolve(source, manifest)
     probe = ChannelProcess.probe
 
     async def changed_after_read(process, spec):
         result = await probe(process, spec)
-        metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
-        with metadata.open("a") as stream:
-            stream.write("Requires-Dist: new-missing-child>=1\n")
+        if change == "missing-child":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: new-missing-child>=1\n")
+        elif change == "warning-content":
+            metadata.write_text(
+                metadata.read_text().replace(
+                    "sample-warning-child>=2",
+                    "sample-warning-child>=3",
+                ),
+            )
+        elif change == "version":
+            metadata.write_text(
+                metadata.read_text().replace("Version: 1.0", "Version: 1.1"),
+            )
         return result
 
     monkeypatch.setattr(ChannelProcess, "probe", changed_after_read)
-    with pytest.raises(SharedDependencyError) as rejected:
+    if change == "warning-order":
+        expectation = nullcontext()
+    elif change == "missing-child":
+        expectation = pytest.raises(SharedDependencyError)
+    else:
+        expectation = pytest.raises(
+            RuntimeError,
+            match="^DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED$",
+        )
+    with expectation as rejected:
         async with host.loader.plugin_lifecycle(KEY):
             await host.loader.lifecycle.preflight_backend(
                 binding,
                 allow_install=False,
                 probe=True,
             )
-    assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
-    assert "new-missing-child" in str(rejected.value)
+    if change == "missing-child":
+        assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+        assert "new-missing-child" in str(rejected.value)
     assert not host.loader._channel_backend._preparation_scopes
 
 
