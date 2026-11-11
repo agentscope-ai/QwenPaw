@@ -44,6 +44,13 @@ export function parseInternalFileLink(rawHref: string): FileTarget | null {
   };
 }
 
+export function parseAbsoluteWorkspaceFileLink(rawHref: string): string | null {
+  const href = rawHref.trim();
+  if (!href.startsWith("/workspace/")) return null;
+  const target = parseInternalFileLink(href.slice(1));
+  return target ? `/${target.path}` : null;
+}
+
 export function toProjectRelativePath(
   rawPath: string,
   projectDirectory?: string,

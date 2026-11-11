@@ -117,6 +117,9 @@ first, then send text to the model).
 You can attach **files** such as documents, images, and audio/video (follow
 on-screen limits; per-file size caps apply).
 
+In Docker deployments, click a reply link to a generated file under `/workspace/`
+to download it. Relative file links open the file preview.
+
 **Create a new session:**
 Click the **New Chat** button at the top-right of the chat page to start a new
 conversation. Each session keeps separate history.

@@ -18,6 +18,12 @@ import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
 import { useStoppedTurnsStore } from "./stoppedTurns";
+import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+
+vi.mock("../../utils/downloadFileFromUrl", () => ({
+  downloadFileFromUrl: vi.fn().mockResolvedValue(undefined),
+  DownloadCancelledError: class DownloadCancelledError extends Error {},
+}));
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -685,6 +691,30 @@ describe("ChatPage coverage", () => {
     await act(async () => acquireOwnership?.());
 
     expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+  });
+
+  it("downloads an absolute workspace link through the authenticated file API", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    const chat = await screen.findByTestId("chat-ui");
+    const anchor = document.createElement("a");
+    anchor.href = "/workspace/workspaces/default/outputs/回填最终版.xlsx";
+    anchor.textContent = "下载回填后的表格";
+    chat.appendChild(anchor);
+
+    fireEvent.click(anchor);
+
+    await waitFor(() => {
+      expect(mockFilePreviewUrl).toHaveBeenCalledWith(
+        "/workspace/workspaces/default/outputs/%E5%9B%9E%E5%A1%AB%E6%9C%80%E7%BB%88%E7%89%88.xlsx",
+      );
+      expect(downloadFileFromUrl).toHaveBeenCalledWith(
+        expect.stringContaining("/preview/"),
+        "回填最终版.xlsx",
+        expect.objectContaining({ headers: expect.any(Object) }),
+      );
+    });
   });
 
   it("renders ChatPage and captures options", async () => {
