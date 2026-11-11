@@ -362,7 +362,7 @@ jobs:
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
