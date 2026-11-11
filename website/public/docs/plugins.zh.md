@@ -214,19 +214,19 @@ asyncio.run(main())
 
 ## 能力与公开模块
 
-| 能力                         | 公开入口                                                             |
-| ---------------------------- | -------------------------------------------------------------------- |
-| 声明与版本                   | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
-| 工具与配置字段               | `qwenpaw.plugins.tools`                                              |
-| 配置、持久数据、媒体         | `qwenpaw.plugins.storage`，实例由上下文提供                          |
-| 日志、已配置模型调用         | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
-| 消息、附件、运行与审批观察   | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
-| 命令、钩子、模式、提示词     | `commands`、`hooks`、`modes`、`prompts`                              |
-| 渠道、应用                   | `channels`、`apps`                                                   |
-| 模型提供方                   | `providers.ProviderSpec`、`providers.ProviderHandle`                |
-| 记忆、市场、技能             | `memory`、`markets`、`skills`                                        |
-| 资源、结果、测试             | `resources`、`results`、`testing`                                    |
-| 异常                         | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
+| 能力                       | 公开入口                                                             |
+| -------------------------- | -------------------------------------------------------------------- |
+| 声明与版本                 | `PluginContext`、`SDK_VERSION`、`SDK_CAPABILITIES`                   |
+| 工具与配置字段             | `qwenpaw.plugins.tools`                                              |
+| 配置、持久数据、媒体       | `qwenpaw.plugins.storage`，实例由上下文提供                          |
+| 日志、已配置模型调用       | `qwenpaw.plugins.logging`、`qwenpaw.plugins.models`                  |
+| 消息、附件、运行与审批观察 | `qwenpaw.plugins.messages`、`qwenpaw.plugins.events`                 |
+| 命令、钩子、模式、提示词   | `commands`、`hooks`、`modes`、`prompts`                              |
+| 渠道、应用                 | `channels`、`apps`                                                   |
+| 模型提供方                 | `providers.ProviderSpec`、`providers.ProviderHandle`                 |
+| 记忆、市场、技能           | `memory`、`markets`、`skills`                                        |
+| 资源、结果、测试           | `resources`、`results`、`testing`                                    |
+| 异常                       | 从 `qwenpaw.plugins` 导入 `SDKError`、`StaleContextError` 等公开异常 |
 
 后六行模块均位于 `qwenpaw.plugins` 下，具体公开符号以白名单为准。
 
@@ -309,27 +309,27 @@ plugin = Plugin()
 `API_EXPORTS` 为每个符号列出 `module/symbol/since/stability`；兼容入口单独标注。
 以下模块的列出类型属于 SDK 1.x 稳定契约；以下表格不能解释为允许模块所有属性。
 
-| 能力       | 公开声明                                                                          | 实际接入                                                          |
-| ---------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| 插件       | `Plugin`, `PluginContext`                                                         | Loader / Lifecycle                                                |
-| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                        | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
-| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                  | AgentScope 转换，未知块明确拒绝                                   |
-| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                         | Workspace SlashCommandRegistry                                    |
-| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                   | 原 Runtime 各阶段                                                 |
-| 模式       | `modes.ModeSpec`, `ModeContext`                                                   | 每工作区 AgentMode 与工具模式过滤                                 |
-| 日志       | `logging.PluginLogger`                                                            | 宿主日志，固定插件及调用身份与独立作者字段                        |
-| 模型调用   | `models.ModelService`                                                             | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
+| 能力       | 公开声明                                                                                            | 实际接入                                                          |
+| ---------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 插件       | `Plugin`, `PluginContext`                                                                           | Loader / Lifecycle                                                |
+| 工具       | `tools.ToolSpec`, `ToolContext`, `ToolResult`, `ToolEvent`                                          | 原工具注册、JSON schema、治理、真实 FunctionTool                  |
+| 消息       | `messages.Message`, `ContentBlock`, `Attachment`                                                    | AgentScope 转换，未知块明确拒绝                                   |
+| 命令       | `commands.CommandSpec`, `CommandContext`, `CommandResult`                                           | Workspace SlashCommandRegistry                                    |
+| 钩子       | `hooks.HookSpec`, `HookPhase`, `HookResult`, `ContextInjection`                                     | 原 Runtime 各阶段                                                 |
+| 模式       | `modes.ModeSpec`, `ModeContext`                                                                     | 每工作区 AgentMode 与工具模式过滤                                 |
+| 日志       | `logging.PluginLogger`                                                                              | 宿主日志，固定插件及调用身份与独立作者字段                        |
+| 模型调用   | `models.ModelService`                                                                               | 当前工作区已配置模型，一次请求，沿原 factory/formatter/重试与计量 |
 | 模型提供方 | `providers.ProviderSpec`, `ProviderHandle`, `ModelInfo`, `ModelRequest`, `ModelChunk`, `ModelUsage` | ProviderManager / model_factory、formatter、token 计量与重试      |
-| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`               | 原 BaseMemoryManager / ServiceManager / shared worker             |
-| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability` | 原 Market 搜索及 Hub 安装/扫描                                    |
-| 技能       | `skills.SkillSpec`                                                                | 原技能投影、inventory、三方合并                                   |
-| 提示词     | `prompts.PromptSpec`                                                              | PromptManager，真实 priority 排序                                 |
-| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`     | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
-| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                       | 原 PawApp 聚合、身份与标准能力路由                                |
-| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`        | 真实 Workspace.stream_query 和审批状态变更                        |
-| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                        | 原 custody 及生命周期清理账本                                     |
-| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                             | 所有权限定的持久配置/数据/实际文件预览                            |
-| 测试       | `testing.PluginTestHost`、公开测试结果类型                                        | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
+| 记忆       | `memory.MemorySpec`, `MemoryBackend`, `MemoryContext`, `MemoryTask`                                 | 原 BaseMemoryManager / ServiceManager / shared worker             |
+| 市场       | `markets.MarketSpec`, `SearchPage`, `MarketResult`, `SkillBundle`, `Availability`                   | 原 Market 搜索及 Hub 安装/扫描                                    |
+| 技能       | `skills.SkillSpec`                                                                                  | 原技能投影、inventory、三方合并                                   |
+| 提示词     | `prompts.PromptSpec`                                                                                | PromptManager，真实 priority 排序                                 |
+| 渠道       | `channels.ChannelSpec`, `ChannelBackend`, `ChannelMessage`, `OutgoingMessage`                       | 原 ChannelManager 队列、ACL、TaskTracker、Runtime                 |
+| 应用       | `apps.PawApp`, `AppContext`, HTTP/流/WS DTO                                                         | 原 PawApp 聚合、身份与标准能力路由                                |
+| 观察       | `events.EventSubscription`, `RunEvent`, `ApprovalEvent`, `SubscriptionGap`                          | 真实 Workspace.stream_query 和审批状态变更                        |
+| 资源       | `resources.ResourceScope`, `Registration`, `ResourceOwner`                                          | 原 custody 及生命周期清理账本                                     |
+| 数据       | `storage.PluginConfig`, `PluginStorage`, `MediaStore`                                               | 所有权限定的持久配置/数据/实际文件预览                            |
+| 测试       | `testing.PluginTestHost`、公开测试结果类型                                                          | 真实 Loader / Lifecycle / Workspace / 治理与服务                  |
 
 根模块原有 `PluginApi/PluginLoader/PluginRegistry/PluginLifecycle` 导出仍保留，
 但属于 **legacy 兼容**，不进入新 SDK 白名单。`qwenpaw.pawapp.PawApp.sdk(...)`

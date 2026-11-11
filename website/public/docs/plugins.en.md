@@ -246,7 +246,7 @@ Await the following handle methods:
 | Messages, attachments, run and approval observation | `qwenpaw.plugins.messages`, `qwenpaw.plugins.events`                                       |
 | Commands, hooks, modes, prompts                     | `commands`, `hooks`, `modes`, `prompts`                                                    |
 | Channels and applications                           | `channels`, `apps`                                                                         |
-| Model providers                                    | `providers.ProviderSpec`, `providers.ProviderHandle`                                       |
+| Model providers                                     | `providers.ProviderSpec`, `providers.ProviderHandle`                                       |
 | Memory, markets, skills                             | `memory`, `markets`, `skills`                                                              |
 | Resources, results, testing                         | `resources`, `results`, `testing`                                                          |
 | Exceptions                                          | Import public exceptions such as `SDKError` and `StaleContextError` from `qwenpaw.plugins` |
