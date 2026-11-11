@@ -261,6 +261,128 @@ def test_managed_runtime_rejects_non_loopback_host(tmp_path: Path) -> None:
     assert service.get(created.runtime_id).state is RuntimeState.CREATED
 
 
+class _ContainerEndpointProvisioner(_FakeProvisioner):
+    """Allow the one non-loopback host a containerized Hub can reach."""
+
+    def managed_endpoint_allowed(self, host: str) -> bool:
+        return host in {"127.0.0.1", "localhost", "host.docker.internal"}
+
+
+def test_start_accepts_container_runtime_endpoint(tmp_path: Path) -> None:
+    provisioner = _ContainerEndpointProvisioner()
+    service = _service_with_provisioner(tmp_path, provisioner)
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(
+        replace(created, host="host.docker.internal", port=8088),
+    )
+
+    started = service.start(created.runtime_id)
+
+    assert started.state is RuntimeState.RUNNING
+    assert started.host == "host.docker.internal"
+    assert provisioner.start_calls == 1
+
+
+def test_start_rejects_arbitrary_host_beside_container_endpoint(
+    tmp_path: Path,
+) -> None:
+    provisioner = _ContainerEndpointProvisioner()
+    service = _service_with_provisioner(tmp_path, provisioner)
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(replace(created, host="192.0.2.10"))
+
+    with pytest.raises(ValueError, match="loopback-only"):
+        service.start(created.runtime_id)
+
+    assert service.get(created.runtime_id).state is RuntimeState.CREATED
+    assert provisioner.start_calls == 0
+
+
+class _GatewayDockerProvisioner(_FakeProvisioner):
+    """Docker start replaces the saved dial host when refresh_host is set."""
+
+    def __init__(self, *, refresh_host: str | None) -> None:
+        super().__init__(name="docker")
+        self.refresh_host = refresh_host
+
+    def managed_endpoint_allowed(self, host: str) -> bool:
+        return host.strip().strip("[]") in {
+            "127.0.0.1",
+            "localhost",
+            "172.19.0.1",
+        }
+
+    def start(
+        self,
+        record: RuntimeRecord,
+        credentials: Mapping[str, str],
+    ) -> RuntimeRecord:
+        del credentials
+        self.start_calls += 1
+        host = record.host if self.refresh_host is None else self.refresh_host
+        return replace(
+            record,
+            host=host,
+            port=8088,
+            state=RuntimeState.RUNNING,
+            pid=None,
+        )
+
+
+def _docker_gateway_service(
+    tmp_path: Path,
+    provisioner: _GatewayDockerProvisioner,
+) -> RuntimeService:
+    return RuntimeService(
+        root_dir=tmp_path,
+        registry=RuntimeRegistry(tmp_path / "control.db"),
+        provisioners={"docker": provisioner},
+        credential_provider=lambda _: {},
+        hub_config=_docker_config("qwenpaw-hub-test:gateway"),
+    )
+
+
+@pytest.mark.parametrize("operation", ["start", "restart", "rebuild"])
+def test_docker_lifecycle_refreshes_stale_dial_host(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    """A previous bridge gateway must not wedge Docker start."""
+    provisioner = _GatewayDockerProvisioner(refresh_host="172.19.0.1")
+    service = _docker_gateway_service(tmp_path, provisioner)
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(
+        replace(created, host="172.18.0.1", port=18088),
+    )
+
+    started = getattr(service, operation)(created.runtime_id)
+
+    assert started.state is RuntimeState.RUNNING
+    assert started.host == "172.19.0.1"
+    assert started.port == 8088
+    assert provisioner.start_calls == 1
+    assert service.get(created.runtime_id).host == "172.19.0.1"
+
+
+def test_docker_start_stops_when_refresh_keeps_disallowed_host(
+    tmp_path: Path,
+) -> None:
+    """Docker may run, but a disallowed dial host must not stay up."""
+    provisioner = _GatewayDockerProvisioner(refresh_host=None)
+    service = _docker_gateway_service(tmp_path, provisioner)
+    created = service.create(_spec("runtime-a"))
+    service.registry.save(replace(created, host="192.0.2.10"))
+
+    with pytest.raises(ValueError, match="loopback-only"):
+        service.start(created.runtime_id)
+
+    persisted = service.get(created.runtime_id)
+    assert persisted.state is RuntimeState.FAILED
+    assert persisted.host == "192.0.2.10"
+    assert provisioner.start_calls == 1
+    assert provisioner.stop_calls == 1
+
+
 def test_running_runtime_limit_is_global(tmp_path: Path) -> None:
     service = _service(
         tmp_path,

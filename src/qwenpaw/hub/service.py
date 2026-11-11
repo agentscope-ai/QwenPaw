@@ -219,12 +219,24 @@ class RuntimeService:
         with self._runtime_lock(runtime_id):
             return self._start_locked(runtime_id)
 
+    def _managed_endpoint_allowed(self, record: RuntimeRecord) -> bool:
+        """Return whether this record's dial host may be used as-is."""
+        provisioner = self.provisioners.get(record.provisioner)
+        if provisioner is None:
+            return is_loopback_host(record.host)
+        return provisioner.managed_endpoint_allowed(record.host)
+
     def _start_locked(self, runtime_id: str) -> RuntimeRecord:
         """Start a runtime while the lifecycle lock is held."""
         record = self._status_locked(runtime_id)
         if record.state is RuntimeState.RUNNING:
             return record
-        if not is_loopback_host(record.host):
+        # Docker start publishes a fresh socket and overwrites host.
+        # A saved gateway from an earlier network must not block that
+        # refresh. The host returned by start is checked below.
+        if record.provisioner != "docker" and not (
+            self._managed_endpoint_allowed(record)
+        ):
             raise ValueError("Managed runtime host must be loopback-only.")
         self.require_provisioner_available(record.provisioner)
         failure_metadata = record.metadata
@@ -268,6 +280,18 @@ class RuntimeService:
             failure_metadata = starting.metadata
             credentials = self.credential_provider(starting)
             running = provisioner.start(starting, credentials)
+            if not self._managed_endpoint_allowed(running):
+                try:
+                    provisioner.stop(running)
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        f"Managed runtime {running.runtime_id} returned "
+                        "a disallowed host and could not be stopped",
+                        exc_info=True,
+                    )
+                raise ValueError(
+                    "Managed runtime host must be loopback-only.",
+                )
         except Exception as exc:
             self.registry.save(
                 replace(
