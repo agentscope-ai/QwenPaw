@@ -429,6 +429,7 @@ def test_post_api_models_openrouter_models_filter_17(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_server_18(app_server) -> None:
     """Contract: GET /api/local-models/server responds with a parseable
     payload."""
@@ -450,6 +451,7 @@ def test_get_api_local_models_server_18(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_server_update_19(app_server) -> None:
     """Contract: GET /api/local-models/server/update responds with a parseable
     payload."""
@@ -471,6 +473,7 @@ def test_get_api_local_models_server_update_19(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_post_api_local_models_server_download_20(app_server) -> None:
     """Contract: POST /api/local-models/server/download with empty body is
     rejected or safely
@@ -495,6 +498,7 @@ def test_post_api_local_models_server_download_20(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_server_download_21(app_server) -> None:
     """Contract: GET /api/local-models/server/download responds with a
     parseable payload."""
@@ -516,6 +520,7 @@ def test_get_api_local_models_server_download_21(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_delete_api_local_models_server_download_22(app_server) -> None:
     """Contract: DELETE /api/local-models/server/download with unknown id is
     rejected or no-op."""
@@ -532,6 +537,7 @@ def test_delete_api_local_models_server_download_22(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_post_api_local_models_server_23(app_server) -> None:
     """Contract: POST /api/local-models/server with empty body is rejected or
     safely handled."""
@@ -550,6 +556,7 @@ def test_post_api_local_models_server_23(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_delete_api_local_models_server_24(app_server) -> None:
     """Contract: DELETE /api/local-models/server with unknown id is rejected
     or no-op."""
@@ -566,6 +573,7 @@ def test_delete_api_local_models_server_24(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_models_25(app_server) -> None:
     """Contract: GET /api/local-models/models responds with a parseable
     payload."""
@@ -587,6 +595,7 @@ def test_get_api_local_models_models_25(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_post_api_local_models_models_download_26(app_server) -> None:
     """Contract: POST /api/local-models/models/download with empty body is
     rejected or safely
@@ -611,6 +620,7 @@ def test_post_api_local_models_models_download_26(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_models_download_27(app_server) -> None:
     """Contract: GET /api/local-models/models/download responds with a
     parseable payload."""
@@ -632,6 +642,7 @@ def test_get_api_local_models_models_download_27(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_delete_api_local_models_models_download_28(app_server) -> None:
     """Contract: DELETE /api/local-models/models/download with unknown id is
     rejected or no-op."""
@@ -648,6 +659,7 @@ def test_delete_api_local_models_models_download_28(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_delete_api_local_models_models_model_id_path_29(app_server) -> None:
     """Contract: DELETE /api/local-models/models/{model_id:path} with unknown
     id is rejected
@@ -669,6 +681,7 @@ def test_delete_api_local_models_models_model_id_path_29(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_put_api_local_models_config_30(app_server) -> None:
     """Contract: PUT /api/local-models/config with empty body is rejected or
     safely handled."""
@@ -687,6 +700,7 @@ def test_put_api_local_models_config_30(app_server) -> None:
 
 @pytest.mark.integration
 @pytest.mark.p1
+@pytest.mark.usefixtures("local_model_plugin")
 def test_get_api_local_models_config_31(app_server) -> None:
     """Contract: GET /api/local-models/config responds with a parseable
     payload."""

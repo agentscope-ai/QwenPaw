@@ -100,12 +100,6 @@ datas.append(
         "qwenpaw/browser/control_link/injected",
     ),
 )
-datas.append(
-    (
-        str(SRC / "local_models/runtime-release.json"),
-        "qwenpaw/local_models",
-    ),
-)
 
 # Include ReMe package data files (configs, tool yamls, plugin manifests, etc.).
 # The plugin packages are discovered through importlib.metadata entry points,

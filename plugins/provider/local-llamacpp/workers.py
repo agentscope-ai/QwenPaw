@@ -2,6 +2,7 @@
 """Standalone download workers shared by source and packaged Python."""
 from __future__ import annotations
 import contextlib
+import hashlib
 import importlib
 import logging
 import os
@@ -24,12 +25,16 @@ if __name__ == "__main__":
             setattr(sys, stream_name, open(os.devnull, "w", encoding="utf-8"))
 
 try:
+    from .runtime_release import matches_release, validate_runtime_bundle
+    from .model_types import PICCOLO_REPO_IDS, PICCOLO_DOWNLOAD_PATTERNS
     from .download_types import (
         DownloadTaskResult,
         DownloadTaskStatus,
         DownloadProgressUpdate,
     )
 except ImportError:
+    from runtime_release import matches_release, validate_runtime_bundle
+    from model_types import PICCOLO_REPO_IDS, PICCOLO_DOWNLOAD_PATTERNS
     from download_types import (
         DownloadTaskResult,
         DownloadTaskStatus,
@@ -104,9 +109,14 @@ class ModelDownloads:
                 "huggingface_hub is required for Hugging Face downloads.",
             ) from exc
 
+        kwargs = {}
+        if repo_id in PICCOLO_REPO_IDS:
+            # Fetch only GGUF/runtime metadata, including for legacy base IDs.
+            kwargs["allow_patterns"] = PICCOLO_DOWNLOAD_PATTERNS
         return snapshot_download(
             repo_id=repo_id,
             local_dir=str(local_dir),
+            **kwargs,
         )
 
     @staticmethod
@@ -115,6 +125,9 @@ class ModelDownloads:
         local_dir: Path,
     ) -> str:
         """Download a model repository from ModelScope."""
+        options = {}
+        if repo_id in PICCOLO_REPO_IDS:
+            options["allow_file_pattern"] = PICCOLO_DOWNLOAD_PATTERNS
         with open(
             os.devnull,
             "a",
@@ -122,12 +135,16 @@ class ModelDownloads:
             buffering=1,
             errors="replace",
         ) as sink_stream:
-            with contextlib.redirect_stdout(
-                sink_stream,
-            ), contextlib.redirect_stderr(sink_stream):
+            with (
+                contextlib.redirect_stdout(
+                    sink_stream,
+                ),
+                contextlib.redirect_stderr(sink_stream),
+            ):
                 return ModelDownloads._get_modelscope_snapshot_download()(
                     model_id=repo_id,
                     local_dir=str(local_dir),
+                    **options,
                 )
 
     @staticmethod
@@ -176,6 +193,23 @@ class BinaryDownloads:
                 follow_redirects=True,
                 timeout=timeout,
             ) as client:
+                expected = None
+                if payload.get("release"):
+                    manifest_url = (
+                        url.rsplit("/", 1)[0] + "/runtime-release.json"
+                    )
+                    manifest_response = client.get(
+                        manifest_url,
+                        headers=headers,
+                    )
+                    manifest_response.raise_for_status()
+                    manifest = manifest_response.json()
+                    if not matches_release(manifest):
+                        raise ValueError(
+                            "Runtime release is not ready for installation.",
+                        )
+                    expected = manifest["artifacts"][file_name]
+                digest = hashlib.sha256()
                 with client.stream(
                     "GET",
                     url,
@@ -197,6 +231,7 @@ class BinaryDownloads:
                             if not chunk:
                                 continue
                             file_obj.write(chunk)
+                            digest.update(chunk)
                             downloaded += len(chunk)
                             queue.put(
                                 DownloadProgressUpdate(
@@ -205,12 +240,19 @@ class BinaryDownloads:
                                     source=url,
                                 ).to_message(),
                             )
+                if expected and (
+                    downloaded != expected["size"]
+                    or digest.hexdigest() != expected["sha256"]
+                ):
+                    raise ValueError("Runtime download checksum mismatch.")
 
             BinaryDownloads._extract_archive(
                 temp_path,
                 staging_dir,
             )
             temp_path.unlink(missing_ok=True)
+            if payload.get("release"):
+                validate_runtime_bundle(staging_dir, payload["target"])
             queue.put(
                 DownloadTaskResult(
                     status=DownloadTaskStatus.COMPLETED,

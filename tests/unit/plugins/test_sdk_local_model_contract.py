@@ -26,6 +26,7 @@ class LocalModelInfo:
     supports_multimodal: bool = True
     supports_video: bool = False
     probe_source: str = "probed"
+    model_type: str = "chat"
 
 
 @dataclass
@@ -717,7 +718,8 @@ async def test_download_route_preserves_the_selected_source(tmp_path, source):
         assert downloads == [("local-A", source)]
 
 
-async def test_turn_end_closes_open_model_stream(tmp_path):
+@pytest.mark.parametrize("cross_task", [False, True])
+async def test_turn_end_closes_open_model_stream(tmp_path, cross_task):
     async with PluginTestHost(tmp_path / "host") as host:
         _binding, runtime = await load_backend(host, tmp_path)
         closed = asyncio.Event()
@@ -744,7 +746,10 @@ async def test_turn_end_closes_open_model_stream(tmp_path):
         )
         try:
             assert await anext(stream) == "one"
-            await turn.close()
+            if cross_task:
+                await asyncio.create_task(turn.close())
+            else:
+                await turn.close()
             assert (
                 closed.is_set()
             ), "Turn ended but HTTP producer is still suspended"
@@ -752,6 +757,9 @@ async def test_turn_end_closes_open_model_stream(tmp_path):
         finally:
             await stream.aclose()
             await turn.close()
+        async with _binding.connect("local-A"):
+            assert runtime._users
+        assert not runtime._users
 
 
 async def test_cross_task_consumption_keeps_original_turn(tmp_path):

@@ -82,10 +82,9 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "qwenpaw.plugins.bundled.hub" = ["*/plugin.json"]
-"qwenpaw.plugins.bundled.provider" = ["*/plugin.json", "*/requirements.txt", "*/*.py"]
+"qwenpaw.plugins.bundled.provider" = ["*/plugin.json", "*/requirements.txt", "*/*.py", "*/runtime-release.json"]
 # Dockerfile copies console build output to src/qwenpaw/console/ (no dist subdir).
 "qwenpaw" = [
-    "local_models/runtime-release.json",
     "official_channels/*.json",
     "official_channels/*.zip",
     "console/**",

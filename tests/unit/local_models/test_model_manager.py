@@ -195,7 +195,7 @@ def test_cancel_download_delegates_to_controller() -> None:
 
 @pytest.mark.parametrize(
     "source",
-    [DownloadSource.HUGGINGFACE, DownloadSource.AUTO],
+    [DownloadSource.HUGGINGFACE, DownloadSource.MODELSCOPE],
 )
 def test_start_download_uses_explicit_source_without_probe(
     monkeypatch: pytest.MonkeyPatch,

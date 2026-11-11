@@ -4,7 +4,6 @@
 import importlib
 import inspect
 import threading
-from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -82,3 +81,19 @@ async def test_lifespan_initializes_provider_manager_in_worker_thread(
     assert initialization_threads[0] != caller_thread
 
 
+def test_lifespan_does_not_preload_managed_chromium() -> None:
+    """Startup must not call managed Chromium download (#7023)."""
+    source = inspect.getsource(app_module_for_source)
+    assert "start_managed_chromium_download" not in source
+    assert "ensure_managed_chromium" not in source
+
+
+class _nullcontext:
+    """Minimal context manager for isolating import-time restore locking."""
+
+    def __enter__(self):
+        return None
+
+    def __exit__(self, exc_type, exc, traceback):
+        del exc_type, exc, traceback
+        return False

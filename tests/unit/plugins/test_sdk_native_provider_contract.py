@@ -793,3 +793,87 @@ plugin = Plugin()
                 pytest.fail("An invalid connection must not be used")
         assert ctx.storage.read_json("closed.json") is True
         assert host.resource_snapshot(ctx.plugin_id)["active_calls"] == 0
+
+
+@pytest.mark.parametrize("outcome", ["ok", "http_error", "cancel"])
+@pytest.mark.parametrize("endpoint", ["configured", "prepared"])
+async def test_native_decision_calls_retain_transport_and_turn_ownership(
+    tmp_path,
+    monkeypatch,
+    outcome,
+    endpoint,
+):
+    import httpx2
+    from agentscope.classifier import BinaryQuestion
+    from typesafe_sdk import AsyncTypeSafeClient, TypeSafeError
+    from qwenpaw.plugins import PluginBusyError
+
+    source = SOURCE.replace(
+        "supports_multimodal=False)",
+        'supports_multimodal=False, model_type="decision")',
+    ).replace("https://prepared.test/v1", f"https://{endpoint}.test/v1")
+    clients = []
+    requests = []
+
+    async def respond(request):
+        requests.append(request)
+        assert str(request.url) == f"https://{endpoint}.test/v1/systemone"
+        assert "content-encoding" not in request.headers
+        assert json.loads(request.content)["model"] == "model-A"
+        if outcome == "cancel":
+            raise asyncio.CancelledError
+        if outcome == "http_error":
+            return httpx2.Response(503, json={"error": {"message": "Loading"}})
+        return httpx2.Response(
+            200,
+            json={
+                "model": "model-A",
+                "answers": {"q": {"type": "noul", "noul": 0.1}},
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            },
+        )
+
+    def client(**kwargs):
+        result = AsyncTypeSafeClient(
+            transport=httpx2.MockTransport(respond),
+            **kwargs,
+        )
+        clients.append(result)
+        return result
+
+    monkeypatch.setattr(
+        "qwenpaw.providers.local_decision_model.AsyncTypeSafeClient",
+        client,
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(
+            make_plugin(tmp_path, source, ["providers", "resources"]),
+        )
+        provider = ProviderManager.get_instance().get_provider("native-test")
+        model = await provider.as_decision_model_async(
+            "model-A",
+            max_retries=0,
+        )
+        turn = ProviderTurn()
+        try:
+            call = model("state", {"q": BinaryQuestion(instructions="Safe?")})
+            if outcome == "ok":
+                result = await call
+                assert result.content["q"].probability == 0.1
+                assert result.usage.input_tokens == 12
+            else:
+                expected = (
+                    asyncio.CancelledError
+                    if outcome == "cancel"
+                    else TypeSafeError
+                )
+                with pytest.raises(expected):
+                    await call
+            with pytest.raises(PluginBusyError):
+                await host.unload("extension-contract")
+        finally:
+            await model.client.aclose()
+            await turn.close()
+        assert len(requests) == 1
+        assert all(c._http_client.is_closed for c in clients)
+        assert (await host.unload("extension-contract")).quiescent

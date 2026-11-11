@@ -25,12 +25,12 @@ from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_types import LocalModelInfo as ModelInfo
 
 
-async def test_setup_still_requires_an_installed_runtime_during_download(
+async def test_setup_requires_an_installed_runtime(
     monkeypatch,
     tmp_path,
 ):
     downloader = _build_downloader(monkeypatch)
-    monkeypatch.setattr(downloader, "_is_download_active", lambda: True)
+    monkeypatch.setattr(downloader, "_is_download_active", lambda: False)
     monkeypatch.setattr(
         downloader,
         "check_llamacpp_installation",
@@ -201,11 +201,13 @@ async def test_setup_preserves_existing_service_behavior(
     monkeypatch.setattr(downloader, "_resolve_server_port", lambda _: 43110)
     monkeypatch.setattr(downloader, "_create_server_process", create)
     monkeypatch.setattr(downloader, "server_ready", ready)
-    if next_request == "runtime_download":
-        monkeypatch.setattr(downloader, "_is_download_active", lambda: True)
     first = await downloader.setup_server(model, "A")
     original = processes[0]
-    if next_request == "invalid":
+    if next_request == "runtime_download":
+        monkeypatch.setattr(downloader, "_is_download_active", lambda: True)
+        with pytest.raises(RuntimeError, match="engine update"):
+            await downloader.setup_server(model, "A")
+    elif next_request == "invalid":
         with pytest.raises(FileNotFoundError):
             await downloader.setup_server(tmp_path / "missing.gguf", "B")
     else:
@@ -267,18 +269,17 @@ async def test_piccolo_requires_whole_prompt_without_cache(
     backend = _build_downloader(monkeypatch)
     calls = []
 
-    async def start(command, **_kwargs):
+    def start(command, **_kwargs):
         calls.append(command)
         return _FakeServerProcess()
 
-    monkeypatch.setattr(downloader_module, "start_command_async", start)
+    monkeypatch.setattr(subprocess, "Popen", start)
     await backend._create_server_process(
         tmp_path / "model.gguf",
         None,
         f"{owner}/Piccolo-{size}{suffix}",
         9001,
         requested,
-        {},
     )
     command = calls[0]
     for option in ("--ctx-size", "--batch-size", "--ubatch-size"):

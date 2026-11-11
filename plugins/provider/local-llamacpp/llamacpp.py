@@ -20,6 +20,7 @@ from .io_helpers import finish, run_io, stop_server, process_options
 from . import hardware as system_info
 
 from .model_types import (
+    PICCOLO_REPO_IDS,
     LocalModelInfo as ModelInfo,
     LocalServerInfo as LlamaCppServerSetupResult,
 )
@@ -32,6 +33,11 @@ from .download_manager import (
     ProcessDownloadTaskSpec,
 )
 from .workers import BinaryDownloads
+from .runtime_release import (
+    RELEASE,
+    matches_release,
+    read_runtime_metadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +127,12 @@ class LlamaCppBackend(BinaryDownloads):
         """Check if there is a newer version of llama.cpp available."""
         if not self.check_llamacpp_installation()[0]:
             return False
+        if latest_version == RELEASE["release"]:
+            metadata = read_runtime_metadata(self.target_dir)
+            return not (
+                matches_release(metadata)
+                and metadata.get("target") == self._runtime_target()
+            )
         try:
             return int(latest_version[1:]) > int(
                 (await self.get_version()),
@@ -186,6 +198,8 @@ class LlamaCppBackend(BinaryDownloads):
                     "chunk_size": chunk_size,
                     "timeout": timeout,
                     "headers": self._download_headers,
+                    "release": tag if tag == RELEASE["release"] else None,
+                    "target": self._runtime_target(),
                 },
                 finalize_result=lambda result: self._finalize_download_result(
                     result,
@@ -214,6 +228,11 @@ class LlamaCppBackend(BinaryDownloads):
             max_context_length: Optional context window passed to llama.cpp
             port: Optional fixed server port. None means auto select.
         """
+        if self._is_download_active():
+            raise RuntimeError(
+                "Wait for the inference engine update to finish before "
+                "starting a model.",
+            )
         installed, message = self.check_llamacpp_installation()
         if not installed:
             raise RuntimeError(message or "llama.cpp server is not installed")
@@ -275,6 +294,8 @@ class LlamaCppBackend(BinaryDownloads):
 
             logger.info("Waiting for llama.cpp server to become ready...")
             await self.server_ready()
+            if model_name in PICCOLO_REPO_IDS:
+                await self._verify_decision_runtime(port)
             logger.info("llama.cpp server is ready")
         except BaseException:
             await self.shutdown_server()
@@ -387,7 +408,29 @@ class LlamaCppBackend(BinaryDownloads):
             "Start llama.cpp server with command:\n  > %s",
             " ".join(command),
         )
-        if max_context_length is not None:
+        if model_name in PICCOLO_REPO_IDS:
+            # Noncausal full-attention layers require one complete prompt.
+            # Keep the initial full-attention allocation within the tested
+            # 8K budget, even when the shared chat window defaults to 64K.
+            # Oversized requests fail rather than be split or truncated.
+            context = min(max_context_length or 8192, 8192)
+            command.extend(
+                [
+                    "--ctx-size",
+                    str(context),
+                    "--batch-size",
+                    str(context),
+                    "--ubatch-size",
+                    str(context),
+                    "--parallel",
+                    "1",
+                    "--no-cache-prompt",
+                    "--cache-ram",
+                    "0",
+                    "--no-context-shift",
+                ],
+            )
+        elif max_context_length is not None:
             command.extend(["--ctx-size", str(max_context_length)])
         if resolved_mmproj_path is not None:
             command.extend(
@@ -419,6 +462,24 @@ class LlamaCppBackend(BinaryDownloads):
             return self._server_process
 
         return await finish(launch())
+
+    async def _verify_decision_runtime(self, port: int) -> None:
+        """Reject an older causal/chat-only binary before selecting Piccolo."""
+        async with httpx.AsyncClient(timeout=5, trust_env=False) as client:
+            response = await client.get(f"http://127.0.0.1:{port}/v1/models")
+            response.raise_for_status()
+            models = response.json().get("data", [])
+        if not any(
+            item.get("id") == self._server_model_name
+            and item.get("architecture", {}).get("output_modalities")
+            == ["decisions"]
+            for item in models
+        ):
+            raise RuntimeError(
+                "Piccolo requires a llama.cpp runtime with Piccolo SystemOne "
+                "and bidirectional prompt attention support. "
+                "Update the inference engine in Models > QwenPaw Local.",
+            )
 
     async def shutdown_server(self) -> None:
         """Shutdown the llama.cpp server if it's running."""
@@ -502,6 +563,9 @@ class LlamaCppBackend(BinaryDownloads):
         return ModelInfo(
             id=model_name,
             name=model_name,
+            model_type=(
+                "decision" if model_name in PICCOLO_REPO_IDS else "chat"
+            ),
             supports_multimodal=supports_multimodal,
             # TODO: add more detailed capability flags
             supports_image=supports_multimodal,
@@ -519,12 +583,20 @@ class LlamaCppBackend(BinaryDownloads):
         if result.status != DownloadTaskStatus.COMPLETED:
             return result, None
 
+        backup_dir = final_dir.with_name(
+            f".llamacpp-backup-{uuid.uuid4().hex}",
+        )
         try:
-            if final_dir.exists():
-                shutil.rmtree(final_dir)
             final_dir.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(staging_dir), str(final_dir))
-        except (OSError, shutil.Error) as exc:
+            if final_dir.exists():
+                final_dir.rename(backup_dir)
+            try:
+                staging_dir.rename(final_dir)
+            except OSError:
+                if backup_dir.exists():
+                    backup_dir.rename(final_dir)
+                raise
+        except OSError as exc:
             logger.warning(
                 "Failed to finalize llama.cpp download from %s to %s: %s",
                 staging_dir,
@@ -541,6 +613,9 @@ class LlamaCppBackend(BinaryDownloads):
                 ),
                 None,
             )
+
+        # A successful swap is complete even if old-file cleanup is delayed.
+        shutil.rmtree(backup_dir, ignore_errors=True)
 
         return (
             DownloadTaskResult(
@@ -774,3 +849,13 @@ class LlamaCppBackend(BinaryDownloads):
             return f"llama-{tag}-bin-win-cpu-{self.arch}.zip"
 
         raise RuntimeError(f"Unsupported OS: {self.os_name}")
+
+    def _runtime_target(self) -> str:
+        filename = self._build_filename("runtime")
+        return (
+            filename.removeprefix("llama-runtime-bin-")
+            .removesuffix(
+                ".tar.gz",
+            )
+            .removesuffix(".zip")
+        )

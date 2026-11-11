@@ -28,7 +28,14 @@ def install_and_verify(args, workspace):
     # Set the workspace before importing QwenPaw, including in spawned workers.
     os.environ["QWENPAW_WORKING_DIR"] = str(workspace / "qwenpaw")
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-    from qwenpaw.local_models.llamacpp import LlamaCppBackend
+    from qwenpaw.plugins.local_model_legacy import bundled_local_source
+
+    sys.path.insert(0, str(bundled_local_source().parent))
+    import importlib
+
+    LlamaCppBackend = importlib.import_module(
+        "local-llamacpp.llamacpp",
+    ).LlamaCppBackend
 
     config = target_config(args.target)
     public = workspace / "public" / CONFIG["release"]
@@ -53,7 +60,7 @@ def install_and_verify(args, workspace):
     try:
         for upgrade in (False, True):
             case = "upgrade" if upgrade else "clean-install"
-            backend = LlamaCppBackend()
+            backend = LlamaCppBackend(data_dir=workspace / case)
             backend.target_dir = workspace / case / "bin"
             # Hosted CUDA builders have no GPU; install their produced target.
             backend.os_name = config["os"]

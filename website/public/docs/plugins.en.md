@@ -229,8 +229,9 @@ Await the following handle methods:
 - `update(base_url=..., models=..., generate_kwargs=...)` persists supplied fields;
   `None` leaves a field unchanged. `models` replaces the published list while
   retaining saved settings for matching model IDs.
-- `select(model_id)` selects this provider's model as the default chat model.
-- `clear_selection()` clears the default chat selection if it uses this provider
+- `select(model_id, model_type="chat")` selects this provider's default for a
+  type: `chat` or `decision`. The type must match the published `ModelInfo.model_type`.
+- `clear_selection(model_type="chat")` clears that type's default if it uses this provider
   and returns whether it was cleared. Agent overrides remain unchanged.
 - `close()` revokes the registration. Old handles become invalid after reload.
 

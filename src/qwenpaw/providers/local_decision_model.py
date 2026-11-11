@@ -72,6 +72,10 @@ class LocalDecisionModel(TypeSafeDecisionModel):
 class LocalDecisionProviderMixin:
     """Add native decision calls to QwenPaw's managed llama.cpp provider."""
 
+    @staticmethod
+    def _create_decision_model(**kwargs):
+        return LocalDecisionModel(**kwargs)
+
     def as_decision_model(self, model, *, timeout=30, max_retries=1):
         from ..exceptions import AppBaseException
         from .typesafe_provider import TypeSafeEvaluationError
@@ -87,7 +91,7 @@ class LocalDecisionProviderMixin:
             base_url = base_url[:-3]
         if not base_url:
             raise TypeSafeEvaluationError("Local runtime is not running")
-        return LocalDecisionModel(
+        return self._create_decision_model(
             credential=TypeSafeCredential(
                 api_key=self.api_key.strip() or "local",
                 base_url=base_url,

@@ -206,8 +206,9 @@ asyncio.run(main())
 
 - `update(base_url=..., models=..., generate_kwargs=...)` 持久化提供的字段；
   `None` 保持原值。`models` 替换发布列表，并保留同 ID 模型的已有配置。
-- `select(model_id)` 将自身 Provider 的模型设为默认聊天模型。
-- `clear_selection()` 仅清除指向自身 Provider 的默认聊天选择，返回是否清除。
+- `select(model_id, model_type="chat")` 将自身模型设为指定类型的默认模型；
+  `model_type` 可为 `chat` 或 `decision`，应与发布的 `ModelInfo.model_type` 一致。
+- `clear_selection(model_type="chat")` 仅清除该类型中指向自身 Provider 的默认选择，返回是否清除。
   Agent 独立配置保持不变。
 - `close()` 撤销注册。重载后旧 Handle 失效。
 

@@ -182,7 +182,10 @@ def create_app(provider):
     async def start(payload, _manager):
         try:
             result = await provider.ensure_server(payload.model_id)
-            await provider.handle.select(result.model_info.id)
+            await provider.handle.select(
+                result.model_info.id,
+                model_type=result.model_info.model_type,
+            )
         except PluginBusyError:
             raise
         except (FileNotFoundError, RuntimeError, ValueError) as exc:
