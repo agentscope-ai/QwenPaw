@@ -69,7 +69,13 @@ function serializeRichInput(root: Node): string {
   return out.join("");
 }
 
-function buildEmojiImg(src: string): HTMLImageElement {
+/*
+ * The only place an emoji URL may reach img.src; re-gates here so the
+ * allowlist invariant holds even if a future caller forgets to check.
+ */
+function buildEmojiImg(raw: string): HTMLImageElement | null {
+  const src = customEmojiSrc(raw);
+  if (!src) return null;
   const img = document.createElement("img");
   img.src = src;
   img.alt = "emoji";
@@ -128,9 +134,9 @@ function renderValue(root: HTMLElement, value: string): void {
   parts.forEach((part, index) => {
     if (!part) return;
     if (index % 2 === 1) {
-      const src = customEmojiSrc(part);
-      if (src) {
-        root.appendChild(buildEmojiImg(src));
+      const img = buildEmojiImg(part);
+      if (img) {
+        root.appendChild(img);
         return;
       }
       root.appendChild(document.createTextNode(`[emoji:${part}]`));
@@ -297,9 +303,8 @@ const CommentRichInput = forwardRef<
       if (text) insertNode(document.createTextNode(text), text.length);
     },
     insertEmoji: (url: string) => {
-      if (customEmojiSrc(url)) {
-        insertNode(buildEmojiImg(url), `[emoji:${url}]`.length);
-      }
+      const img = buildEmojiImg(url);
+      if (img) insertNode(img, `[emoji:${url}]`.length);
     },
     focus: () => rootRef.current?.focus(),
     focusEnd: () => {

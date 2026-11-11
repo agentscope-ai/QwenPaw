@@ -302,6 +302,33 @@ it("renders animated snow leopard GIF stickers at the large size", async () => {
   expect(sticker.className).toContain("customAnimatedEmoji");
 });
 
+it("renders unlisted emoji tokens in comments as literal text", async () => {
+  vi.mocked(communityPostsApi.comments).mockResolvedValue({
+    items: [
+      {
+        id: "c1",
+        author_name: "Alice",
+        content:
+          "x [emoji:javascript:alert(1)] " +
+          "[emoji:https://evil.example.com/x.png] y",
+      },
+    ],
+    total: 1,
+  });
+  renderWithProviders(<CommunityPage />, {
+    initialEntries: ["/market?tab=community&post=p1"],
+  });
+  // Off-allowlist tokens stay visible as plain text…
+  expect(
+    await screen.findByText("[emoji:javascript:alert(1)]"),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByText("[emoji:https://evil.example.com/x.png]"),
+  ).toBeInTheDocument();
+  // …and never materialize as image nodes.
+  expect(screen.queryAllByRole("img", { name: "emoji" })).toHaveLength(0);
+});
+
 it("inserts quick emojis beside the picker into the comment draft", async () => {
   const { CUSTOM_ANIMATED_EMOJI_URLS } = await import("./customEmoji");
   renderWithProviders(<CommunityPage />, {
