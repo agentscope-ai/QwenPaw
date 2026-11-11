@@ -3,13 +3,21 @@
 import asyncio
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import sys
 import threading
 import pytest
 import pytest_asyncio
 from websockets.sync.server import serve
+from qwenpaw.agents.context.scroll.serialize import strip_headline
+from qwenpaw.app.channels.isolated_proxy import (
+    ChannelDeliveryError,
+    IsolatedChannelProxy,
+)
+from qwenpaw.app.channels.process_supervisor import LaunchSpec
 from qwenpaw.channel_protocol.models import ResponseFinishParams, SendParams
 from qwenpaw.channel_protocol.response_lifecycle import ResponseResourceRef
-from tests.channel_support.driver import bind, module
+from qwenpaw.channel_protocol.shared import SharedChannelDescriptor
+from tests.channel_support.driver import ROOT, bind, module
 
 
 async def eventually(predicate):
@@ -22,6 +30,7 @@ class Gateway:
     def __init__(self):
         self.calls, self.frames, self.connections = [], [], []
         self.drop_next = 0
+        self.reject_next_stream = None
         # QQ answers ``40007`` when a ``replace`` slice does not start with the
         # content it already delivered, so a test can opt into that contract.
         self.reject_prefix_rewrites = False
@@ -36,15 +45,18 @@ class Gateway:
         ]
 
     def prefix_conflict(self, payload):
-        if not self.reject_prefix_rewrites or not isinstance(payload, dict):
+        if (
+            not self.reject_prefix_rewrites
+            or not isinstance(payload, dict)
+            or payload.get("input_mode") != "replace"
+        ):
             return False
-        text = str(payload.get("content_raw") or "")
-        key = str(
-            payload.get("stream_msg_id") or payload.get("msg_id") or "",
-        )
-        previous = self.delivered.get(key)
+        text = payload["content_raw"]
+        key = (payload["msg_id"], payload["msg_seq"])
+        if not text.startswith(self.delivered.get(key, "")):
+            return True
         self.delivered[key] = text
-        return previous is not None and not text.startswith(previous)
+        return False
 
     def start(self):
         owner = self
@@ -68,17 +80,25 @@ class Gateway:
                         "content_type": self.headers.get("Content-Type", ""),
                     },
                 )
-                if owner.drop_next:
-                    # Accept the request, then lose the response: the native
-                    # side has already applied it while the worker cannot know.
-                    owner.drop_next -= 1
-                    self.close_connection = True
+                if (
+                    self.path.endswith("/stream_messages")
+                    and owner.reject_next_stream is not None
+                ):
+                    status = owner.reject_next_stream
+                    owner.reject_next_stream = None
+                    self.respond(status, {"message": "slice rejected"})
                     return
                 if owner.prefix_conflict(payload):
                     self.respond(
                         400,
                         {"code": 40007, "message": "prefix rewritten"},
                     )
+                    return
+                if owner.drop_next:
+                    # Accept the request, then lose the response: the native
+                    # side has already applied it while the worker cannot know.
+                    owner.drop_next -= 1
+                    self.close_connection = True
                     return
                 value = (
                     {"access_token": "native-token", "expires_in": 7200}
@@ -490,6 +510,121 @@ async def test_stream_slices_extend_the_delivered_prefix(native_driver):
     }
 
 
+@pytest.mark.parametrize("first_operation", ["delta", "end"])
+@pytest.mark.parametrize("status", [400, 500])
+async def test_host_falls_back_only_when_qq_rejects_opening(
+    native_driver,
+    monkeypatch,
+    first_operation,
+    status,
+):
+    driver, peer, identity, server = native_driver
+    driver._config["streaming_enabled"] = True
+    code_root = ROOT / "plugins" / "channel" / "qq"
+    descriptor_path = code_root / "channel.json"
+    descriptor = SharedChannelDescriptor.load(descriptor_path)
+    proxy = IsolatedChannelProxy(
+        None,
+        descriptor=descriptor,
+        launch_spec=LaunchSpec(
+            python_executable=sys.executable,
+            support_root=ROOT,
+            code_root=code_root,
+            descriptor_path=descriptor_path,
+            source_revision="test",
+            descriptor=descriptor,
+            requirements=(),
+            qwenpaw_version="1.0.0",
+            config={"streaming_enabled": True},
+            **identity,
+        ),
+    )
+
+    async def call(method, params):
+        if method == "channel.send":
+            params = SendParams.from_mapping(params)
+        return await peer.methods[method](params, None)
+
+    monkeypatch.setattr(proxy.channel_process, "call", call)
+    monkeypatch.setattr(
+        proxy.channel_process,
+        "health_snapshot",
+        lambda: {"state": "ready", "platform_state": "connected", **identity},
+    )
+    handle = await open_route(peer, identity, message_id="original-msg")
+    meta = {"response_handle": handle}
+    args = (None, handle, None, meta, "message")
+    await proxy.on_streaming_start(*args)
+    server.reject_next_stream = status
+
+    async def deliver():
+        if first_operation == "delta":
+            await proxy.on_streaming_delta(*args, accumulated_text="first")
+        await proxy.on_streaming_end(*args, accumulated_text="full answer")
+
+    rows = server.api_rows
+    if status == 500:
+        with pytest.raises(ChannelDeliveryError) as rejected:
+            await deliver()
+        assert rejected.value.side_effect_possible
+        assert len(rows()) == 1
+        assert rows()[0]["path"].endswith("/stream_messages")
+    else:
+        await deliver()
+        assert [row["path"].rsplit("/", 1)[-1] for row in rows()] == [
+            "stream_messages",
+            "messages",
+        ]
+        assert rows()[-1]["body"]["markdown"] == {"content": "full answer"}
+        assert meta["_isolated_streams"] == {}
+
+
+@pytest.mark.parametrize(
+    ("first", "suffix"),
+    [("answer  ", ""), ("  answer\n\n\n", "more")],
+)
+async def test_stream_end_preserves_prefix_after_scroll_cleanup(
+    native_driver,
+    first,
+    suffix,
+):
+    _, peer, identity, server = native_driver
+    server.reject_prefix_rewrites = True
+    handle = await open_route(peer, identity, message_id="original-msg")
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.start",
+        sequence=0,
+        accumulated_text="...",
+    )
+    await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.delta",
+        sequence=1,
+        accumulated_text=first,
+        delivery="delivery-B",
+        target_delivery_id="delivery-A",
+    )
+    final = await send_stream(
+        peer,
+        identity,
+        handle,
+        operation="stream.end",
+        sequence=2,
+        accumulated_text=strip_headline(f"{first}{suffix}\n⟦ title ⟧"),
+        delivery="delivery-C",
+        target_delivery_id="delivery-A",
+    )
+    assert final["state"] == "acknowledged"
+    rows = [row["body"] for row in server.api_rows()]
+    assert [row["content_raw"] for row in rows] == [first, f"{first}{suffix}"]
+    assert [row["input_state"] for row in rows] == [1, 10]
+
+
 async def test_stream_policy_is_c2c_only(native_driver):
     driver, peer, identity, _ = native_driver
     anchored = await open_route(
@@ -658,17 +793,34 @@ async def test_cleanup_closes_unfinished_stream(native_driver, outcome):
         target_delivery_id="delivery-A",
         accumulated_text="first more",
     )
+    closing_index = 1
+    if outcome == "failed":
+        server.reject_next_stream = 400
+        rejected = await send_stream(
+            peer,
+            identity,
+            handle,
+            operation="stream.end",
+            sequence=2,
+            accumulated_text="first more final",
+            delivery="delivery-C",
+            target_delivery_id="delivery-A",
+        )
+        assert rejected["state"] == "failed"
+        closing_index = 2
     finish = ResponseFinishParams.from_mapping(
         {**identity, "response_handle": handle, "outcome": outcome},
     )
     await peer.methods["channel.response.finish"](finish, None)
     rows = server.api_rows()
-    assert len(rows) == 2
+    assert [row["body"]["index"] for row in rows] == list(
+        range(closing_index + 1),
+    )
     closing = rows[-1]["body"]
     assert closing == {
         "input_mode": "replace",
         "input_state": 10,
-        "index": 1,
+        "index": closing_index,
         "content_type": "markdown",
         "content_raw": "first more",
         "msg_id": "original-msg",
@@ -761,7 +913,7 @@ async def test_cleanup_skips_already_ended_stream(native_driver):
     ]
 
 
-async def test_empty_stream_closes_with_placeholder_text(native_driver):
+async def test_empty_stream_finishes_without_native_message(native_driver):
     driver, peer, identity, server = native_driver
     driver._config["streaming_enabled"] = True
     handle = await open_route(peer, identity, "qq:c2c:user-A")
@@ -773,8 +925,6 @@ async def test_empty_stream_closes_with_placeholder_text(native_driver):
         sequence=0,
         accumulated_text="...",
     )
-    # A response that produces no text still has to open and close its stream,
-    # and QQ rejects an empty ``content_raw``.
     ended = await send_stream(
         peer,
         identity,
@@ -786,9 +936,19 @@ async def test_empty_stream_closes_with_placeholder_text(native_driver):
         accumulated_text="",
     )
     assert ended["state"] == "acknowledged"
-    rows = [row["body"] for row in server.api_rows()]
-    assert [row["content_raw"] for row in rows] == ["...", "..."]
-    assert [row["input_state"] for row in rows] == [1, 10]
+    late_delta = await send_stream(
+        peer,
+        identity,
+        handle,
+        delivery="delivery-C",
+        operation="stream.delta",
+        sequence=2,
+        target_delivery_id="delivery-A",
+        accumulated_text="late text",
+    )
+    assert late_delta["state"] == "failed"
+    assert late_delta["reason_code"] == "STREAM_SEQUENCE_STALE"
+    assert server.api_rows() == []
 
 
 async def test_cleanup_closes_each_unfinished_stream(native_driver):

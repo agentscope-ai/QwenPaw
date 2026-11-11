@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import hashlib
+import re
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -219,8 +220,16 @@ class QQDriver(SharedResponseDriver):
         await self._checkpoint(reserve_bytes=1024)
 
     @staticmethod
-    def _text(params):
-        return params.accumulated_text or ""
+    def _preserve_stream_prefix(previous, text):
+        if text.startswith(previous):
+            return text
+        # Headline removal may trim the text and collapse blank lines.
+        normalized = re.sub(r"\n{3,}", "\n\n", previous).lstrip()
+        if normalized and text.startswith(normalized):
+            return f"{previous}{text[len(normalized):]}"
+        if normalized and text == normalized.rstrip():
+            return previous
+        return text
 
     async def _perform_stream(self, platform, params):
         """Stream slices use the QQ replace-mode stream_messages API."""
@@ -232,7 +241,7 @@ class QQDriver(SharedResponseDriver):
             ),
         )
         stream_type = params.stream_type.value
-        text = self._text(params)
+        text = params.accumulated_text or ""
         operation = params.operation.value
         if operation == "stream.start":
             # The native stream is opened by the first slice that carries real
@@ -270,16 +279,20 @@ class QQDriver(SharedResponseDriver):
                 side_effect_possible=False,
             )
         sequence = params.sequence or 0
-        if sequence <= int(resource.get("sequence", "0")):
+        if resource.get("final") == "true" or sequence <= int(
+            resource.get("sequence", "0"),
+        ):
             raise QQDeliveryError(
                 "STREAM_SEQUENCE_STALE",
                 side_effect_possible=False,
             )
         final = operation == "stream.end"
         if not resource.get("stream_msg_id"):
-            if not text and not final:
-                # Nothing to show yet: opening now would deliver a slice the
-                # answer cannot extend.
+            if not text.strip():
+                resource.update(
+                    sequence=str(sequence),
+                    final=f"true" if final else f"false",
+                )
                 return ResponseResourceRef.create(
                     "qq.delivery",
                     params.target_delivery_id,
@@ -287,23 +300,26 @@ class QQDriver(SharedResponseDriver):
                 )
             # The opening slice is the first text QQ ever receives, so it is
             # never a placeholder the later slices would have to rewrite.
-            created = await platform.start_stream(route, text, markdown)
+            try:
+                created = await platform.start_stream(route, text, markdown)
+            except QQDeliveryError as exc:
+                if exc.side_effect_possible:
+                    raise
+                raise QQDeliveryError(f"STREAM_OPEN_REJECTED") from exc
             resource.update(created)
-            resource.update(sequence=str(sequence), final="false")
-            await self._reserve_slice(
-                params.to_handle,
-                params.target_delivery_id,
-                resource,
-            )
             if not final:
+                resource["sequence"] = str(sequence)
                 return ResponseResourceRef.create(
                     "qq.delivery",
                     params.target_delivery_id,
                     resource,
                 )
+        previous_text = resource.get("text", "")
         if final and not text:
             # QQ rejects an empty closing slice, so keep the delivered text.
-            text = str(resource.get("text") or "...")
+            text = previous_text or "..."
+        else:
+            text = self._preserve_stream_prefix(previous_text, text)
         # QQ rejects a repeated slice index for one stream. The index is
         # therefore reserved durably before the native call, so a slice whose
         # result is lost locally still consumes it. Replace mode resends the
@@ -311,19 +327,31 @@ class QQDriver(SharedResponseDriver):
         # while reusing an index that QQ already accepted would be rejected.
         index = int(resource.get("index", "0")) + 1
         resource.update(index=str(index), text=text)
-        await self._reserve_slice(
+        self._record_slice(
             params.to_handle,
             params.target_delivery_id,
             resource,
         )
-        await platform.update_stream(
-            route,
-            resource,
-            text,
-            index=index,
-            markdown=markdown,
-            final=final,
-        )
+        await self._checkpoint()
+        try:
+            await platform.update_stream(
+                route,
+                resource,
+                text,
+                index=index,
+                markdown=markdown,
+                final=final,
+            )
+        except QQDeliveryError as exc:
+            if not exc.side_effect_possible:
+                # Cleanup must reuse text that QQ may have delivered.
+                resource["text"] = previous_text
+                self._record_slice(
+                    params.to_handle,
+                    params.target_delivery_id,
+                    resource,
+                )
+            raise
         # Only an acknowledged slice advances these, so a lost ``stream.end``
         # is archived as unknown evidence instead of a confirmed close.
         resource.update(
@@ -336,25 +364,17 @@ class QQDriver(SharedResponseDriver):
             resource,
         )
 
-    async def _reserve_slice(self, handle, delivery_id, resource):
-        """Persist the next slice index before the native call.
-
-        The reservation deliberately leaves ``sequence`` and ``final`` alone:
-        only an acknowledged slice advances them. Marking the delivery
-        ``unsettled`` is also avoided here, because an unsettled delivery makes
-        the shared cleanup skip the stream instead of closing it.
-        """
+    def _record_slice(self, handle, delivery_id, resource):
         self._routes.record_delivery(
             handle,
             [
                 ResponseResourceRef.create(
                     "qq.delivery",
                     delivery_id,
-                    dict(resource),
+                    resource,
                 ),
             ],
         )
-        await self._checkpoint()
 
     def _needs_stream_cleanup(self, ref):
         # QQ keeps a started stream generating until it sees a slice with
@@ -363,16 +383,15 @@ class QQDriver(SharedResponseDriver):
         return bool(dict(ref.attributes).get("stream_msg_id"))
 
     async def _perform_stream_cleanup(self, ref, resource, sequence):
-        attributes = dict(resource)
         # The host sequence is not the QQ slice index; the closing slice must
         # continue the native index, not the response-level sequence.
         await self._require_connected().update_stream(
             {},
-            attributes,
-            attributes.get("text") or "...",
-            index=int(attributes.get("index", "0")) + 1,
+            resource,
+            resource.get("text") or "...",
+            index=int(resource.get("index", "0")) + 1,
             markdown=_as_bool(
-                attributes.get(
+                resource.get(
                     "markdown",
                     self._config.get("markdown_enabled", True),
                 ),

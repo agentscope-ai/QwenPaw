@@ -544,9 +544,8 @@ class QQPlatform:
             )
         msg_id = str(route.get("message_id") or "")
         msg_seq = self._next_seq(route, msg_id, path)
-        body_text = text or "..."
         body = self._stream_body(
-            body_text,
+            text,
             1,
             0,
             markdown,
@@ -568,7 +567,7 @@ class QQPlatform:
             "index": "0",
             # Effective native content, so cleanup closes the stream with the
             # text QQ is actually showing.
-            "text": body_text,
+            "text": text,
         }
 
     async def update_stream(
@@ -599,7 +598,6 @@ class QQPlatform:
             stream_msg_id,
         )
         await self._api_request_async("POST", path, body)
-        return True
 
     @staticmethod
     def _receipt(route, ids):
