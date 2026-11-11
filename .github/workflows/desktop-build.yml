@@ -220,7 +220,7 @@ jobs:
 
   build-tauri-macos:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
