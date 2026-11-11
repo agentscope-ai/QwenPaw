@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Local settings endpoints for an explicitly configured community client."""
+"""Owner-only community connection via local PKCE or HTTPS password login."""
 
 from __future__ import annotations
 
@@ -8,12 +8,15 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from ..community_connection import (
     CommunityConnectionError,
     CommunityConnectionService,
 )
+from ..auth import runtime_token_matches
+from ...plugins.browser_access import PAWAPP_SCOPE_HEADER
+from ...utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER, https_origin
 
 router = APIRouter(prefix="/community/connection", tags=["community"])
 
@@ -66,10 +69,72 @@ async def call(awaitable):
         ) from exc
 
 
+def password_login_allowed(request: Request) -> bool:
+    """Require loopback or an authenticated owner over trusted HTTPS."""
+    if request.headers.get(PAWAPP_SCOPE_HEADER):
+        return False
+    if is_local_request(request):
+        return True
+    expected = os.getenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "")
+    if expected:
+        if not runtime_token_matches(
+            expected,
+            request.headers.get("x-qwenpaw-runtime-token", ""),
+        ):
+            return False
+        # Runtime proxy headers describe the internal hop, not the browser's
+        # connection. Managed password login requires Hub's verified entry.
+        canonical = https_origin(
+            request.headers.get(HUB_PUBLIC_ORIGIN_HEADER, ""),
+        )
+        origin = request.headers.get("origin")
+        return bool(canonical) and (
+            origin is None or https_origin(origin) == canonical
+        )
+    if request.url.scheme != "https":
+        return False
+    origin = request.headers.get("origin")
+    if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+        return False
+    return bool(getattr(request.state, "user", None))
+
+
+class PasswordConnection(BaseModel):
+    account: str
+    password: SecretStr = SecretStr("")
+
+
+@router.post("/password")
+async def connect_with_password(request: Request):
+    if not password_login_allowed(request):
+        raise HTTPException(403, detail="password_login_unavailable")
+    try:
+        body = PasswordConnection.model_validate(await request.json())
+    except (ValueError, ValidationError) as exc:
+        # Default validation errors include rejected input, possibly secrets.
+        raise HTTPException(422, detail="credentials_required") from exc
+    return await call(
+        get_service(request).connect_password(
+            body.account,
+            body.password.get_secret_value(),
+        ),
+    )
+
+
+@router.delete("/password")
+async def clear_saved_password(request: Request):
+    if not password_login_allowed(request):
+        raise HTTPException(403, detail="password_login_unavailable")
+    return await call(get_service(request).clear_credentials())
+
+
 @router.get("")
 async def get_connection_status(request: Request):
     return await call(
-        get_service(request).status(local=is_local_request(request)),
+        get_service(request).status(
+            local=is_local_request(request),
+            password_allowed=password_login_allowed(request),
+        ),
     )
 
 

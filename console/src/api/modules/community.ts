@@ -23,10 +23,26 @@ export interface CommunityConnectionStatus {
   configured?: boolean;
   local_login_supported?: boolean;
   connection_available?: boolean;
+  password_login_supported?: boolean;
+  saved_account?: string;
+  password_saved?: boolean;
+  credential_state?:
+    | "active"
+    | "paused"
+    | "rejected"
+    | "cleared"
+    | "unreadable";
 }
 
 const connectionPath = "/community/connection";
 export const communityConnectionApi = {
+  connectPassword: (account: string, password: string) =>
+    request(`${connectionPath}/password`, {
+      method: "POST",
+      body: JSON.stringify({ account, password }),
+    }),
+  clearPassword: () =>
+    request(`${connectionPath}/password`, { method: "DELETE" }),
   status: (signal?: AbortSignal) =>
     request<CommunityConnectionStatus>(connectionPath, { signal }),
   start: () =>
