@@ -26,6 +26,22 @@ from tests.channel_support.host import (
 from tests.channel_support.process import alive, eventually
 
 
+def _runtime_identity():
+    from packaging.markers import default_environment
+    from packaging.tags import sys_tags
+
+    environment = default_environment()
+    return {
+        "version": list(sys.version_info[:2]),
+        "implementation": environment["implementation_name"],
+        "cache_tag": sys.implementation.cache_tag,
+        "sys_platform": environment["sys_platform"],
+        "system": environment["platform_system"],
+        "machine": environment["platform_machine"],
+        "supported_tags": [str(tag) for tag in sys_tags()],
+    }
+
+
 @pytest_asyncio.fixture
 async def host(tmp_path, monkeypatch):
     case = await Host.create(tmp_path, monkeypatch)
@@ -510,6 +526,7 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         ),
     )
     prepared = description.prepare_proxy_config({"enabled": True})
+    identity = _runtime_identity()
     proxy = description.create_proxy(
         None,
         prepared.config,
@@ -519,6 +536,7 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         generation=1,
         qwenpaw_version=__version__,
         prepared_config=prepared,
+        runtime_identity=identity,
     )
     spec = replace(proxy._launch_spec, workspace_id="test-workspace")
     process = ChannelProcess()
@@ -559,11 +577,15 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
         release.set()
         await pending
         assert opened and process.dependency_snapshot is not None
+        snapshot = process.dependency_snapshot
+        assert snapshot.supported_tags == tuple(identity["supported_tags"])
+        assert type(snapshot).from_mapping(snapshot.to_mapping()) == snapshot
         if mode == "audit":
             assert (
                 process.observed_hello is None
             )  # Audit never imports the driver.
         else:
+            assert snapshot.to_mapping()["evidence_version"] == 2
             assert (
                 process.observed_hello["source_revision"]
                 == spec.source_revision
@@ -606,6 +628,47 @@ async def test_execution_preparation_yields_and_consumes_session_snapshot(
     finally:
         release.set()
         await asyncio.gather(pending, return_exceptions=True)
+        stopped = await process.stop()
+        assert stopped.exited and not stopped.residual
+
+
+@pytest.mark.asyncio
+async def test_channel_probe_rejects_runtime_abi_mismatch(host):
+    from qwenpaw.__version__ import __version__
+    from qwenpaw.app.channels.process_supervisor import ChannelProcess
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.channel_adapter import describe_channel
+
+    source = host.artifact()
+    description = describe_channel(
+        source,
+        PluginManifest.from_dict(
+            json.loads((source / "plugin.json").read_text()),
+        ),
+    )
+    prepared = description.prepare_proxy_config({"enabled": True})
+    identity = {**_runtime_identity(), "supported_tags": ["cp999-cp999-any"]}
+    proxy = description.create_proxy(
+        None,
+        prepared.config,
+        python_executable=sys.executable,
+        support_root=Path(__file__).resolve().parents[3] / "src",
+        instance_id="abi-mismatch",
+        generation=1,
+        qwenpaw_version=__version__,
+        prepared_config=prepared,
+        runtime_identity=identity,
+    )
+    process = ChannelProcess()
+    try:
+        with pytest.raises(process.error_type) as rejected:
+            await process.probe(proxy._launch_spec)
+        assert (
+            rejected.value.reason_code == "CHANNEL_RUNTIME_IDENTITY_MISMATCH"
+        )
+        assert process.observed_hello is None
+        assert not rows(host.ledger, "connected")
+    finally:
         stopped = await process.stop()
         assert stopped.exited and not stopped.residual
 

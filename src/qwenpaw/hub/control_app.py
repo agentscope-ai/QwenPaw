@@ -36,6 +36,7 @@ from ..app.exception_handlers import register_exception_handlers
 from ..constant import CORS_ORIGINS
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
+from ..utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER, https_origin
 from ..plugins.browser_access import PAWAPP_SCOPE_HEADER
 from .access_security import HubAccessSecurity
 from .pawapp_access import (
@@ -1638,6 +1639,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             "content-length",
             "host",
             HUB_OAUTH_CALLBACK_URL_HEADER.lower(),
+            HUB_PUBLIC_ORIGIN_HEADER.lower(),
         }
         headers = {
             name: value
@@ -1645,6 +1647,18 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_request_headers
         }
         headers["X-QwenPaw-Runtime-Token"] = internal_token
+        if access_security.is_https(request):
+            public_url = (
+                app.state.hub_config.control_plane.public_base_url
+                or str(request.base_url)
+            )
+            # A trusted proxy may terminate TLS while preserving the public
+            # Host. Never derive the public host from a client-supplied XFH.
+            if not app.state.hub_config.control_plane.public_base_url:
+                public_url = str(request.base_url.replace(scheme="https"))
+            origin = https_origin(public_url, allow_path=True)
+            if origin:
+                headers[HUB_PUBLIC_ORIGIN_HEADER] = origin
         session = getattr(request.state, "pawapp_session", None)
         headers.update(
             {PAWAPP_SCOPE_HEADER: quote(str(session["app"]), safe="")}
