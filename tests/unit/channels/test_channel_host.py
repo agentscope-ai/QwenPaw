@@ -763,11 +763,17 @@ async def test_preparation_cancellation_retains_custody_and_rejects_changed_sour
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    ["missing-child", "warning-order", "warning-content", "version"],
+)
 async def test_channel_preflight_rechecks_metadata_read_during_probe(
     host,
     monkeypatch,
+    change,
 ):
     import zipfile
+    from contextlib import nullcontext
     from qwenpaw.app.channels.process_supervisor import ChannelProcess
     from qwenpaw.plugins.dependency_gate import SharedDependencyError
 
@@ -775,27 +781,63 @@ async def test_channel_preflight_rechecks_metadata_read_during_probe(
     wheel = next(local_wheel(host.root / "wheels").glob("*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         archive.extractall(host.site)
+    metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
+    if change != "missing-child":
+        minimum = "1" if change == "version" else "2"
+        (source / "requirements.txt").write_text(
+            f"sample-warning-child>=2\nsample-shared-sdk>={minimum}\n",
+        )
+        child = host.site / "sample_warning_child-1.0.dist-info"
+        child.mkdir()
+        (child / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: sample-warning-child\n"
+            "Version: 1.0\n",
+        )
+        if change == "warning-content":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: sample-warning-child>=2\n")
     manifest = host.loader.read_source_manifest(source)[1]
     binding = host.loader.backend_resolver.resolve(source, manifest)
     probe = ChannelProcess.probe
 
     async def changed_after_read(process, spec):
         result = await probe(process, spec)
-        metadata = host.site / "sample_shared_sdk-1.0.dist-info/METADATA"
-        with metadata.open("a") as stream:
-            stream.write("Requires-Dist: new-missing-child>=1\n")
+        if change == "missing-child":
+            with metadata.open("a") as stream:
+                stream.write("Requires-Dist: new-missing-child>=1\n")
+        elif change == "warning-content":
+            metadata.write_text(
+                metadata.read_text().replace(
+                    "sample-warning-child>=2",
+                    "sample-warning-child>=3",
+                ),
+            )
+        elif change == "version":
+            metadata.write_text(
+                metadata.read_text().replace("Version: 1.0", "Version: 1.1"),
+            )
         return result
 
     monkeypatch.setattr(ChannelProcess, "probe", changed_after_read)
-    with pytest.raises(SharedDependencyError) as rejected:
+    if change == "warning-order":
+        expectation = nullcontext()
+    elif change == "missing-child":
+        expectation = pytest.raises(SharedDependencyError)
+    else:
+        expectation = pytest.raises(
+            RuntimeError,
+            match="^DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED$",
+        )
+    with expectation as rejected:
         async with host.loader.plugin_lifecycle(KEY):
             await host.loader.lifecycle.preflight_backend(
                 binding,
                 allow_install=False,
                 probe=True,
             )
-    assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
-    assert "new-missing-child" in str(rejected.value)
+    if change == "missing-child":
+        assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
+        assert "new-missing-child" in str(rejected.value)
     assert not host.loader._channel_backend._preparation_scopes
 
 
@@ -1156,6 +1198,77 @@ async def test_application_shutdown_reaps_workers_and_preserves_installed_code(
             for ws in workspaces
         ],
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    ["failed", "disconnected", "exited", "timeout"],
+)
+async def test_connection_failure_logs_actual_state_without_changing_refusal(
+    host,
+    caplog,
+    failure,
+):
+    import logging
+    from dataclasses import replace
+
+    caplog.set_level(logging.INFO, logger="qwenpaw.plugins.startup")
+    host.registry.channel_runtime = replace(
+        host.registry.channel_runtime,
+        connection_timeout=0.2 if failure == "timeout" else None,
+    )
+    await host.workspace("diagnostic")
+    source = host.artifact(fail_start=failure == "failed")
+    if failure != "failed":
+        code = source / "sample.py"
+        injected = {
+            "disconnected": 'await self._context.set_platform_state("disconnected")',
+            "exited": "os._exit(23)",
+            "timeout": "pass",
+        }[failure]
+        code.write_text(
+            code.read_text().replace(
+                "    async def start(self, config):\n",
+                "    async def start(self, config):\n"
+                f"        {injected}\n"
+                "        import asyncio\n"
+                "        await asyncio.sleep(2)\n",
+            ),
+        )
+    with pytest.raises(Exception) as refused:
+        await host.loader.load_plugin_from_path(source)
+    if failure != "timeout":
+        assert "CHANNEL_NOT_CONNECTED" in str(refused.value)
+
+    def observed():
+        return [
+            json.loads(record.getMessage().partition(" ")[2])
+            for record in caplog.records
+            if record.name == "qwenpaw.plugins.startup"
+        ]
+
+    await eventually(
+        lambda: any(row["event"] == "connection_failed" for row in observed()),
+    )
+    if failure == "exited":
+        await eventually(
+            lambda: any(row["event"] == "worker_exited" for row in observed()),
+        )
+    events = observed()
+    event = next(row for row in events if row["event"] == "connection_failed")
+    assert event["plugin_id"] == KEY and event["instance_id"]
+    assert event["generation"] >= 1 and event["elapsed_ms"] >= 0
+    if failure in {"failed", "disconnected"}:
+        assert event["health"]["platform_state"] == failure
+    elif failure == "timeout":
+        assert event["reason"] == "timeout"
+        assert event["health"]["platform_state"] == "connecting"
+    else:
+        assert any(
+            row["event"] == "worker_exited" and row["returncode"] == 23
+            for row in events
+        )
 
 
 @pytest.mark.asyncio
