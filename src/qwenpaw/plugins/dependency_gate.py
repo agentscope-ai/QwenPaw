@@ -721,7 +721,11 @@ async def prepare_shared_dependencies(
     """Coordinate, audit, query current usage and publish safe additions."""
     from .install_lock import canonical_environment_path as canonical
     from .wheel_additions import validate_additions
-    from .execution.dependencies import protected_dependency_target
+    from .execution.dependencies import (
+        _complete_dependency_file_tops,
+        _dependency_closure,
+        protected_dependency_target,
+    )
     from ..utils.io_utils import run_sync_io
 
     def inspect_target():
@@ -734,12 +738,20 @@ async def prepare_shared_dependencies(
 
     target = await run_sync_io(inspect_target)
 
+    inspection_names = ()
+
     async def audit():
         from .execution.dependencies import DependencySnapshot
 
         observed = (await process.audit(spec)).snapshot
         if not isinstance(observed, DependencySnapshot):
             raise _unverified("complete write evidence required")
+        if inspection_names:
+            observed = await run_sync_io(
+                _complete_dependency_file_tops,
+                observed,
+                inspection_names,
+            )
         _refine_admission(usage_registry, admission_token, observed, plugin_id)
         return observed
 
@@ -926,6 +938,31 @@ async def prepare_shared_dependencies(
                 f"{name}=={row['version']}"
                 for name, row in proposed.distributions.items()
                 if name not in snapshot.distributions
+            )
+            # New wheels can make existing providers reachable for the first
+            # time. Complete those records before writing, then inspect the
+            # same providers after publication; richer audit evidence is not
+            # itself a package replacement.
+            inspection_names = tuple(
+                {
+                    name
+                    for name, _ in _dependency_closure(
+                        added,
+                        proposed.distributions,
+                        proposed.marker_environment,
+                    )
+                    if name in snapshot.distributions
+                },
+            )
+            snapshot = await run_sync_io(
+                _complete_dependency_file_tops,
+                snapshot,
+                inspection_names,
+            )
+            proposed = await run_sync_io(
+                _complete_dependency_file_tops,
+                proposed,
+                inspection_names,
             )
             # No await separates the final usage check from submitting publication.
             decision = await evaluate(proposed, added)

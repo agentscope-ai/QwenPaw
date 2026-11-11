@@ -2193,3 +2193,117 @@ sys.stdout.buffer.flush()
         record = records["publication-probe"]
         assert record.status == "active", record.diagnostics
         await following.unload_plugin("publication-probe")
+
+
+@pytest.mark.parametrize("shadows_loaded_module", [False, True])
+async def test_additions_keep_dependency_inspection_scope_stable(
+    tmp_path,
+    shadows_loaded_module,
+):
+    """A newly reachable dependency is inspected equally before/after writes."""
+    import hashlib
+    import zipfile
+
+    from qwenpaw.plugins.dependency_gate import (
+        SharedDependencyError,
+        prepare_shared_dependencies,
+    )
+    from qwenpaw.plugins.dependency_usage import HostModuleFact
+    from qwenpaw.plugins.execution.dependencies import (
+        observe_dependencies,
+        repair_marker,
+    )
+    from qwenpaw.plugins.wheel_additions import WheelAddition
+    from .test_manifest_dependencies import write_wheel
+
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "audit-owner",
+        payload={
+            "audit-owner-extra.pth": "# Existing file, discovered by a deeper audit\n",
+            "audit_owner/_vendor/loaded_external.py": "VALUE = 'embedded'\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    before = {
+        str(p.relative_to(site)): p.read_bytes()
+        for p in site.rglob("*")
+        if p.is_file()
+    }
+    wheel = write_wheel(
+        tmp_path,
+        "audit-request",
+        metadata_headers="Requires-Dist: audit-owner>=1\n",
+        payload={"loaded_external.py": "VALUE = 'public'\n"}
+        if shadows_loaded_module
+        else {},
+    )
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("audit-request==1.0\n")
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["audit-request==1.0"],
+    }
+    initial = observe_dependencies(packet)
+    assert initial.distributions["audit-owner"]["top_level"] == (
+        "audit_owner",
+    )
+    facts = tuple(
+        HostModuleFact(name, 1, str(site / path), (), ())
+        for name, path in (
+            ("audit_owner", "audit_owner/__init__.py"),
+            ("loaded_external", "audit_owner/_vendor/loaded_external.py"),
+        )
+    )
+    use = SimpleNamespace(
+        origin="host",
+        plugin_id="running-hub",
+        host_modules=facts,
+        snapshot=None,
+        read_admitted=False,
+        environment=SimpleNamespace(sites=(str(site),)),
+    )
+    usage = SimpleNamespace(
+        snapshot=lambda *args, **kwargs: SimpleNamespace(uses=(use,)),
+    )
+
+    async def audit(_spec):
+        return SimpleNamespace(snapshot=observe_dependencies(packet))
+
+    install = prepare_shared_dependencies(
+        SimpleNamespace(audit=audit),
+        None,
+        plugin_id="incoming",
+        requirements_file=requirements,
+        usage_registry=usage,
+        install_target=site,
+        wheels=(
+            WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    if shadows_loaded_module:
+        with pytest.raises(
+            SharedDependencyError,
+            match="audit-request.*shadows",
+        ):
+            await install
+        assert not (site / "audit_request").exists()
+    else:
+        result = await install
+        assert result.distributions["audit-request"]["version"] == "1.0"
+        assert (
+            "audit-owner-extra"
+            in result.distributions["audit-owner"]["top_level"]
+        )
+        assert (site / "audit_request/__init__.py").is_file()
+    assert all(
+        (site / path).read_bytes() == content
+        for path, content in before.items()
+    )
+    assert not repair_marker(site).exists()
