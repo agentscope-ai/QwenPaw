@@ -6014,7 +6014,7 @@
     "reopen": "重新打开授权页面",
     "invalidAuthorization": "社区授权地址无效，请重试。",
     "not_configured": "当前部署尚未启用社区账号连接。",
-    "unsupported_remote": "请在运行 QwenPaw 的本机打开此页面完成社区账号连接。",
+    "unsupported_remote": "远程连接需要通过 HTTPS 访问，并登录 QwenPaw 管理账号；也可以在运行 QwenPaw 的本机使用浏览器授权。",
     "syncTitle": "消息同步",
     "syncDescription": "将 Platform“我的消息”中的评论、关联、互动、反馈和通知同步到收件箱。",
     "messagesUnavailable": "此 QwenPaw 实例已关闭消息同步功能，账号连接不受影响。",
@@ -6030,7 +6030,19 @@
       "interactions": "互动",
       "feedback": "反馈",
       "notifications": "通知"
-    }
+    },
+    "passwordTitle": "账号密码连接",
+    "passwordHelp": "填写一次，在此 QwenPaw 实例中加密记住。账号或密码变化后，可在这里重新输入并连接。",
+    "loginAccount": "Platform 账号（邮箱）",
+    "loginPassword": "密码",
+    "savedPasswordPlaceholder": "已保存，留空则继续使用原密码",
+    "saveAndConnect": "保存并连接",
+    "clearPassword": "清除已保存账号密码",
+    "clearPasswordDescription": "清除本实例中加密保存的账号密码，并停止通过密码自动连接。当前连接会保持到你断开连接或 Token 失效。",
+    "passwordRejected": "已保存的账号密码验证失败，已暂停自动登录。请在下方输入更新后的账号密码。",
+    "passwordPaused": "已暂停通过密码自动连接。点击“保存并连接”可恢复。",
+    "passwordUnreadable": "无法解密已保存的凭证，请重新输入账号密码。",
+    "browserConnect": "通过浏览器授权"
   },
   "communityReport": {
     "title": "完善反馈报告：{{name}}",
@@ -6225,7 +6237,10 @@
     "openFailed": "未能打开系统浏览器，请重试或检查系统默认浏览器设置。",
     "service": "社区服务暂时不可用，请稍后重试。",
     "network": "暂时无法连接社区服务，请检查运行 QwenPaw 设备的网络连接后重试。",
-    "unavailable": "操作暂未完成，请稍后重试。"
+    "unavailable": "操作暂未完成，请稍后重试。",
+    "credentialsRejected": "账号或密码验证失败，请检查后重试。原有连接未被替换。",
+    "credentialsRequired": "请输入账号和密码。更换账号时需要重新输入密码。",
+    "passwordUnavailable": "远程账号密码连接需要 HTTPS 和已登录的 QwenPaw 管理账号。"
   },
   "communityDrafts": {
     "title": "草稿箱",
