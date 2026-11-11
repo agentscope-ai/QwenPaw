@@ -2,7 +2,7 @@ export * from "./host.js";
 export * from "./paw.js";
 import type { QwenPawWindowNamespace } from "./host.js";
 import type { PawSdk, PawRequestOptions } from "./paw.js";
-export declare const SDK_VERSION: "1.0.0";
+export declare const SDK_VERSION: "1.1.0";
 /** Features of this library, not a claim about the currently running backend. */
 export declare const SDK_CAPABILITIES: readonly string[];
 export interface AppCapabilities {

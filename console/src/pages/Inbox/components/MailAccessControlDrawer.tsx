@@ -1,3 +1,4 @@
+import { MCPFeatureStatus } from "@/components/MCPFeatureStatus";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Drawer,
@@ -88,6 +89,15 @@ export function MailAccessControlDrawer({
 }: MailAccessControlDrawerProps) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const [mcpRecovery, setMcpRecovery] = useState<string[]>([]);
+  const recoverMCP = (error: unknown, agentIds: string[]) => {
+    if (
+      error instanceof Error &&
+      error.message.includes("mcp_plugin_unavailable")
+    ) {
+      setMcpRecovery([...new Set(agentIds)]);
+    }
+  };
 
   // --- Pending section state ---
   const [pending, setPending] = useState<MailPendingEntry[]>([]);
@@ -213,7 +223,8 @@ export function MailAccessControlDrawer({
       message.success(t(`inbox.${action}`));
       await fetchPending();
       await fetchLists();
-    } catch {
+    } catch (error) {
+      recoverMCP(error, [entry.agent_id]);
       message.error(t("common.operationFailed"));
     } finally {
       setActionLoading(null);
@@ -230,7 +241,11 @@ export function MailAccessControlDrawer({
       setSelectedPendingKeys([]);
       await fetchPending();
       await fetchLists();
-    } catch {
+    } catch (error) {
+      recoverMCP(
+        error,
+        selectedPendingEntries.map((entry) => entry.agent_id),
+      );
       message.error(t("common.operationFailed"));
     } finally {
       setBatchLoading(false);
@@ -523,6 +538,9 @@ export function MailAccessControlDrawer({
       onClose={onClose}
       destroyOnHidden
     >
+      {mcpRecovery.map((agentId) => (
+        <MCPFeatureStatus key={agentId} agentId={agentId} active={open} />
+      ))}
       {/* === Pending section === */}
       <div
         style={{

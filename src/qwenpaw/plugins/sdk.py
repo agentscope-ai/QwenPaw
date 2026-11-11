@@ -29,6 +29,7 @@ from .apps import PawApp
 
 if TYPE_CHECKING:
     from .logging import PluginLogger
+    from .drivers import DriverProtocolSpec
 
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
@@ -1375,6 +1376,15 @@ class PluginContext:  # pylint: disable=protected-access
 
     def register_memory(self, spec: MemorySpec) -> Registration:
         from ._memory import register
+
+        return register(self, spec)
+
+    def register_driver_protocol(
+        self,
+        spec: DriverProtocolSpec,
+    ) -> Registration:
+        """Declare an owned protocol without opening or discovering sources."""
+        from ._drivers import register
 
         return register(self, spec)
 

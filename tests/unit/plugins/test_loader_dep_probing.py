@@ -89,6 +89,11 @@ async def test_interrupted_additions_require_verified_recovery(
         (package / "__init__.py").write_text(
             f"__path__ = {[str(Path(context['support_root']) / 'qwenpaw/plugins')]!r}\n",
         )
+        utilities = package.parent / "utils"
+        utilities.mkdir()
+        (utilities / "__init__.py").write_text(
+            f"__path__ = {[str(Path(context['support_root']) / 'qwenpaw/utils')]!r}\n",
+        )
         context["support_root"] = str(support)
 
     async def audit():

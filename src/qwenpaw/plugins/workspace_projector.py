@@ -447,10 +447,15 @@ def default_live_workspaces() -> list[Any]:
     try:
         from .registry import PluginRegistry
 
-        manager = PluginRegistry().get_workspace_manager()
-        if manager is None:
-            return []
-        return list(getattr(manager, "agents", {}).values())
+        registry = PluginRegistry()
+        manager = registry.get_workspace_manager()
+        workspaces = [
+            *getattr(manager, "agents", {}).values(),
+            *registry._stop_workspaces.values(),
+        ]
+        return list(
+            {id(workspace): workspace for workspace in workspaces}.values(),
+        )
     except Exception:  # noqa: BLE001
         return []
 

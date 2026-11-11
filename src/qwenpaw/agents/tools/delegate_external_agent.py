@@ -1081,6 +1081,15 @@ async def delegate_external_agent(
     if validation_error:
         return response_text(validation_error)
 
+    if action_name != "close":
+        from ...app.mcp.feature_gate import (
+            MCPUnavailableError,
+            prepare_mcp_for_use,
+        )
+
+        if not await prepare_mcp_for_use(workspace_id=_current_agent_id()):
+            return response_text(str(MCPUnavailableError()))
+
     immediate_actions = {"list", "status", "close"}
     if action_name in immediate_actions:
         try:

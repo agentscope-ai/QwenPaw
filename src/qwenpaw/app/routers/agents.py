@@ -958,6 +958,10 @@ async def create_agent(
     )
 
     if http_request is not None:
+        if agent_config.mail is not None:
+            from ..mcp.feature_gate import prepare_mcp_for_request
+
+            await prepare_mcp_for_request(http_request, new_id)
         manager = _get_multi_agent_manager(http_request)
         manager.schedule_agent_startup(new_id)
 
@@ -1160,6 +1164,10 @@ async def copy_agent(
     )
 
     if http_request is not None:
+        if agent_config.mail is not None:
+            from ..mcp.feature_gate import prepare_mcp_for_request
+
+            await prepare_mcp_for_request(http_request, new_id)
         manager = _get_multi_agent_manager(http_request)
         manager.schedule_agent_startup(new_id)
 
@@ -1345,6 +1353,10 @@ async def update_agent(  # pylint: disable=too-many-statements
             updated_config.language or config.agents.language or "en",
         )
 
+    if mail_was_set and updated_config.mail is not None:
+        from ..mcp.feature_gate import prepare_mcp_for_request
+
+        await prepare_mcp_for_request(request, agentId)
     schedule_agent_reload(request, agentId)
 
     return updated_config

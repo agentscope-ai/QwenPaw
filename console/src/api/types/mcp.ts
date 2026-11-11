@@ -81,6 +81,7 @@ export interface MCPOAuthStatusResponse {
   authorized: boolean;
   expires_at: number;
   scope: string;
+  attempt_status?: "pending" | "succeeded" | "failed" | "expired";
 }
 
 export interface MCPClientCreateRequest {

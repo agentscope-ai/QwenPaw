@@ -1,4 +1,4 @@
-export const SDK_VERSION = "1.0.0";
+export const SDK_VERSION = "1.1.0";
 // Library features only. Query capabilities(appId) for the running backend.
 export const SDK_CAPABILITIES = Object.freeze(["host", "chat", "routes", "paw", "tasks"]);
 export function getHost() {

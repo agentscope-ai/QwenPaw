@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type React from "react";
 import type { MCPClientInfo } from "@/api/types";
 import { MCPClientCard } from "./MCPClientCard";
 
@@ -21,8 +22,21 @@ vi.mock("@/hooks/useAppMessage", () => ({
   }),
 }));
 vi.mock("@/components/interaction/ServiceCard", () => ({
-  ServiceCard: ({ onConfigure }: { onConfigure: () => void }) => (
-    <button onClick={onConfigure}>Configure connection</button>
+  ServiceCard: ({
+    onConfigure,
+    disabled,
+    actions,
+  }: {
+    onConfigure: () => void;
+    disabled?: boolean;
+    actions?: React.ReactNode;
+  }) => (
+    <div>
+      <button disabled={disabled} onClick={onConfigure}>
+        Configure connection
+      </button>
+      {actions}
+    </div>
   ),
 }));
 vi.mock("./MCPAccessModal", () => ({ MCPAccessModal: () => null }));

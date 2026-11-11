@@ -292,6 +292,11 @@ def legacy_mcp_client_to_driver(
         config={
             "display_name": str(getattr(config, "name", "") or client_key),
             "description": str(getattr(config, "description", "") or ""),
+            **(
+                {"tools": list(config.tools)}
+                if getattr(config, "tools", None) is not None
+                else {}
+            ),
         },
         enabled=bool(getattr(config, "enabled", True)),
         policy=DriverPolicy(

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 import contextlib
 import contextvars
 import os
@@ -78,6 +79,7 @@ def _unmapped_event():
 
 async def _agent_with_stream(monkeypatch, stream):
     agent = QwenPawACPAgent(agent_id="default")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _RecordingConn()
     agent.on_connect(conn)
 
@@ -140,6 +142,7 @@ async def test_keepalive_covers_workspace_initialization(monkeypatch):
         yield _content_event("ok")
 
     agent = QwenPawACPAgent(agent_id="default")
+    monkeypatch.setattr(agent, "_require_mcp", AsyncMock())
     conn = _RecordingConn()
     agent.on_connect(conn)
 

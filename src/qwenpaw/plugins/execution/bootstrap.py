@@ -510,6 +510,10 @@ def _hash_code_root(code_root: Path) -> str:
         if path.is_file()
         and "__pycache__" not in path.parts
         and path.suffix != ".pyc"
+        # Match channel_protocol.artifacts: the host publishes this receipt
+        # after activation, without changing the executable artifact.
+        and path.relative_to(code_root).as_posix()
+        != ".plugin-install-commit.json"
     ]
     for path in sorted(
         files,

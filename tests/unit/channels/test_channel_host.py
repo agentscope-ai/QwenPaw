@@ -139,6 +139,18 @@ def test_official_discovery_and_descriptor_snapshot_are_static(
             json.loads((source / "plugin.json").read_text(encoding="utf-8")),
         ),
     )
+    from qwenpaw.channel_protocol.artifacts import code_root_digest
+    from qwenpaw.plugins.execution.bootstrap import _hash_code_root
+    from qwenpaw.plugins.install_receipts import write_install_commit
+
+    write_install_commit(source, KEY)
+    assert code_root_digest(source) == description.source_revision
+    assert _hash_code_root(source) == description.source_revision
+    hidden_source = source / ".plugin-owned.py"
+    hidden_source.write_text("value = 1\n", encoding="utf-8")
+    assert code_root_digest(source) != description.source_revision
+    assert _hash_code_root(source) == code_root_digest(source)
+    hidden_source.unlink()
     prepared = description.prepare_proxy_config({"enabled": False})
 
     def forbid_descriptor_load(*args, **kwargs):

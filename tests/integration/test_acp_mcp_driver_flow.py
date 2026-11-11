@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Imported pytest fixtures are explicit re-exports for fixture discovery.
+# pylint: disable=redefined-outer-name
 """Integration coverage for ACP MCP cards through DriverManager."""
 
 from __future__ import annotations
@@ -14,17 +16,15 @@ from qwenpaw.agents.acp.session_mcp import (
 )
 from qwenpaw.drivers.capabilities import DriverInvocation
 from qwenpaw.drivers.constants import DRIVER_SCOPE_CONTEXT_KEY
-from qwenpaw.drivers.credentials.store import AsyncCredentialStore
-from qwenpaw.drivers.handlers.mcp import (
-    MCPDriverHandler,
-    validate_mcp_endpoint,
-)
-from qwenpaw.drivers.manager import DriverManager
 from qwenpaw.drivers.policy import DriverInvocationContext
 from tests.integration.driver_mcp_fakes import (
     FakeStdIOClient,
+    mcp_runtime_host as _mcp_runtime_host,
+    sdk_mcp_manager,
     patch_mcp_runtime_clients,
 )
+
+mcp_runtime_host = _mcp_runtime_host
 
 
 class _AutoApprovalGate:
@@ -43,18 +43,14 @@ class _AutoApprovalGate:
 async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
     gate = _AutoApprovalGate()
-    manager = DriverManager(
-        tmp_path / "drivers",
-        AsyncCredentialStore(tmp_path / "credentials.yaml"),
+    manager = await sdk_mcp_manager(
+        mcp_runtime_host,
+        tmp_path,
         approval_gate=gate,
-    )
-    manager.register_handler_type(
-        "mcp",
-        MCPDriverHandler,
-        validate_mcp_endpoint,
     )
     session_id = "session-1"
     scope_id = acp_mcp_scope_id(session_id)
@@ -100,7 +96,7 @@ async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
     )
 
     assert result.ok is True
-    assert result.value == {"has_secret": True}
+    assert result.value.structured_content == {"has_secret": True}
     assert len(gate.contexts) == 1
     assert gate.contexts[0].target.name == "get_secret_status"
     assert FakeStdIOClient.instances[0].kwargs["env"] == {
@@ -114,16 +110,12 @@ async def test_acp_mcp_card_discovers_approves_and_invokes_tool(
 async def test_acp_mcp_tool_cannot_be_invoked_without_session_scope(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_runtime_host,
 ) -> None:
     patch_mcp_runtime_clients(monkeypatch)
-    manager = DriverManager(
-        tmp_path / "drivers",
-        AsyncCredentialStore(tmp_path / "credentials.yaml"),
-    )
-    manager.register_handler_type(
-        "mcp",
-        MCPDriverHandler,
-        validate_mcp_endpoint,
+    manager = await sdk_mcp_manager(
+        mcp_runtime_host,
+        tmp_path,
     )
     scope_id = acp_mcp_scope_id("session-1")
     cards = build_acp_mcp_driver_cards(

@@ -1,4 +1,10 @@
 {
+  "mcpFeature": {
+    "required": "MCP plugin required",
+    "unavailable": "MCP is not installed or is unavailable. Mail and ACP cannot run. Your settings are retained; install, enable or repair MCP on the official plugins page.",
+    "openOfficial": "Open official plugins",
+    "later": "Later"
+  },
   "accessibility": {
     "skipToContent": "Skip to content"
   },
@@ -1643,6 +1649,16 @@
     "custom": "Custom"
   },
   "mcp": {
+    "recovery": {
+      "title": "MCP needs attention",
+      "invalid_upgrade_record": "Review the MCP installation record, then retry",
+      "orphaned_installation_record": "Review the MCP installation record, then retry",
+      "offline_upgrade_failed_check_dependencies_and_storage": "Check offline dependencies and storage, then retry",
+      "workspace_needs_review": "Review this workspace’s saved MCP configuration, then retry",
+      "invalid_plugin_settings": "Review the MCP plugin settings, then retry",
+      "plugin_runtime_failed": "Check the MCP plugin dependencies and settings, then retry",
+      "plugin_diagnostics_present": "Review MCP plugin diagnostics before retrying"
+    },
     "title": "MCP Clients",
     "qwenpawManaged": "QwenPaw managed",
     "qwenpawManagedHint": "Shared control-plane configuration injected into supported third-party Agents at runtime.",
@@ -1762,6 +1778,7 @@
       "reauthorize": "Re-authorize",
       "revoke": "Revoke",
       "startFailed": "Failed to start OAuth flow",
+      "attemptFailed": "This authorization did not complete. Your previous authentication configuration is unchanged. You can try again.",
       "authFailed": "OAuth authorization failed",
       "popupBlocked": "Popup was blocked by the browser. Please allow popups and try again.",
       "windowClosed": "Authorization window was closed. Please try again.",

@@ -20,6 +20,29 @@ from qwenpaw.agents.acp.core import ACPConfigurationError
 from qwenpaw.config.config import ACPConfig
 
 
+@pytest.mark.asyncio
+async def test_acp_turn_requires_mcp_before_opening_a_runner(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.app.mcp.feature_gate import MCPUnavailableError
+
+    monkeypatch.setattr(
+        "qwenpaw.app.mcp.feature_gate.is_mcp_ready",
+        lambda *args, **kwargs: False,
+    )
+    service = acp_service.ACPService(config=ACPConfig())
+    with pytest.raises(MCPUnavailableError):
+        await service.run_turn(
+            chat_id="test",
+            agent="not-installed",
+            prompt_blocks=[],
+            cwd=str(tmp_path),
+            on_message=None,
+        )
+    assert service._sessions == {}
+
+
 @pytest.fixture(autouse=True)
 def _clean_registry():
     acp_service._acp_services.clear()
