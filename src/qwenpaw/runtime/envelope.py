@@ -18,6 +18,7 @@ from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
 from .message_convert import _media_type_to_block_type
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -669,6 +670,15 @@ class Envelope:
 
         # === MODEL_CALL_END ===
         elif evt_type == EventType.MODEL_CALL_END.value:
+            completion = (getattr(event, f"metadata", None) or {}).get(
+                COMPLETION_METADATA_KEY,
+            )
+            metadata = dict(self._response.metadata or {})
+            if isinstance(completion, dict):
+                metadata[COMPLETION_METADATA_KEY] = dict(completion)
+            else:
+                metadata.pop(COMPLETION_METADATA_KEY, None)
+            self._response.metadata = metadata or None
             input_tokens = getattr(event, "input_tokens", 0)
             output_tokens = getattr(event, "output_tokens", 0)
             usage = {

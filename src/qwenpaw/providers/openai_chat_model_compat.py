@@ -22,6 +22,7 @@ from .adapters.usage import (
     cache_usage,
     capture_cache_headers,
 )
+from .completion_reason import CompletionReasonMixin
 
 from ..local_models.tag_parser import (
     parse_tool_calls_from_text,
@@ -678,7 +679,7 @@ def _sanitize_tool_schemas(
     return _map_tool_parameters(tools, _apply_openai_compat_schema_passes)
 
 
-class OpenAIChatModelCompat(OpenAIChatModel):
+class OpenAIChatModelCompat(CompletionReasonMixin, OpenAIChatModel):
     """OpenAIChatModel with robust parsing for malformed tool-call chunks
     and transparent ``extra_content`` (Gemini thought_signature) relay.
 

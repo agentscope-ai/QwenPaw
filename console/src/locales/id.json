@@ -1331,7 +1331,8 @@
     },
     "regenerate": "Buat ulang",
     "regenerateUnavailable": "Giliran lama ini tidak memiliki ID permintaan. Kirim pesan baru untuk melanjutkan.",
-    "turnCanceled": "Dihentikan"
+    "turnCanceled": "Dihentikan",
+    "outputTruncated": "Model telah mencapai batas keluaran. Jawaban ini belum lengkap. Minta model untuk melanjutkan atau tingkatkan batas keluaran."
   },
   "modelSelector": {
     "subagentModel": "Model subagen",

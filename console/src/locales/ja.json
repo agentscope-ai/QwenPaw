@@ -3545,7 +3545,8 @@
     },
     "regenerate": "再生成",
     "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
-    "turnCanceled": "停止済み"
+    "turnCanceled": "停止済み",
+    "outputTruncated": "モデルの出力が上限に達したため、この回答は不完全です。続きを回答するよう依頼するか、出力上限を引き上げてください。"
   },
   "security": {
     "parent": "設定",

@@ -12,6 +12,7 @@ single empty turn poison the whole session.
 Dropping the block at persistence time keeps the context free of an item
 that carries no information but breaks replay.
 """
+
 import logging
 from typing import Any
 
@@ -46,6 +47,23 @@ def drop_empty_text_blocks(blocks: list) -> list:
             len(blocks) - len(kept),
         )
     return kept
+
+
+def has_answer_content(blocks: list) -> bool:
+    """Recognize visible final output without treating thought as an answer."""
+    for block in blocks:
+        block_type = _block_attr(block, f"type")
+        if block_type == f"text":
+            if (_block_attr(block, f"text") or f"").strip():
+                return True
+        elif block_type == f"data":
+            source = _block_attr(block, f"source")
+            if _block_attr(source, f"data") or _block_attr(source, f"url"):
+                return True
+        elif block_type in {f"tool_call", f"tool_use"}:
+            if _block_attr(block, f"name"):
+                return True
+    return False
 
 
 def sanitize_empty_text_blocks(msgs: list) -> list:

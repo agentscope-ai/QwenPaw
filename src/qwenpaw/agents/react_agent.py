@@ -16,6 +16,7 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from inspect import isasyncgen
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -43,8 +44,10 @@ from .utils.message_request_normalizer import (
 )
 from .utils.text_block_utils import (
     drop_empty_text_blocks,
+    has_answer_content,
     sanitize_empty_text_blocks,
 )
+from ..providers.completion_reason import COMPLETION_METADATA_KEY
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
     LOOP_CONTINUATION_MESSAGE_TAG,
@@ -1012,11 +1015,33 @@ class QwenPawAgent(Agent):
                 **kwargs,
             )
 
-        return await call(
+        result = await call(
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
         )
+
+        def capture_completion(response: Any) -> None:
+            metadata = getattr(response, f"metadata", None) or {}
+            completion = metadata.get(COMPLETION_METADATA_KEY)
+            self._model_completion = (
+                dict(completion) if isinstance(completion, dict) else None
+            )
+
+        if not isasyncgen(result):
+            capture_completion(result)
+            return result
+
+        async def capture_stream():
+            try:
+                async for chunk in result:
+                    if getattr(chunk, f"is_last", False):
+                        capture_completion(chunk)
+                    yield chunk
+            finally:
+                await result.aclose()
+
+        return capture_stream()
 
     async def _recover_model_overflow(
         self,
@@ -1185,6 +1210,7 @@ class QwenPawAgent(Agent):
         # agentscope drops ChatResponse.metadata during event conversion;
         # collect model-fallback transparency data out-of-band instead.
         fallback_sink = install_fallback_notice_sink()
+        self._model_completion = None
 
         # ── Inject background-tool results before each reasoning step ──
         await self._inject_pending_hints()
@@ -1272,6 +1298,8 @@ class QwenPawAgent(Agent):
 
         def acknowledge_seen_inputs(evt: Any) -> None:
             """Acknowledge inputs only after a completed model request."""
+            if isinstance(evt, ModelCallEndEvent):
+                self._attach_model_completion(evt)
             if (
                 isinstance(evt, ModelCallEndEvent)
                 and evt.finished_reason != FinishedReason.INTERRUPTED
@@ -1418,6 +1446,9 @@ class QwenPawAgent(Agent):
                 if should_strip_video:
                     self._set_formatter_video_strip(False)
 
+        if self._model_completion:
+            self._attach_model_completion(self._get_last_msg())
+
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
 
@@ -1460,8 +1491,23 @@ class QwenPawAgent(Agent):
             return  # outer loop continues
 
         outgoing_msg = stop_result.final_message or final_msg
+        self._attach_model_completion(outgoing_msg)
+        if not has_answer_content(outgoing_msg.content):
+            raise RuntimeError(
+                f"The model returned an empty answer. "
+                f"Please retry or switch models.",
+            )
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
         yield outgoing_msg
+
+    def _attach_model_completion(self, target: Any) -> None:
+        """Keep raw completion details in events and persisted messages."""
+        completion = getattr(self, f"_model_completion", None)
+        if target is not None and completion:
+            target.metadata = {
+                **(target.metadata or {}),
+                COMPLETION_METADATA_KEY: dict(completion),
+            }
 
     @staticmethod
     def _attach_fallback_notices(

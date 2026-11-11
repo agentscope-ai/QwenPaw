@@ -17,7 +17,7 @@ from typing import Any
 
 from agentscope.agent import Agent
 from agentscope.event import TextBlockStartEvent
-from agentscope.message import AssistantMsg, Msg
+from agentscope.message import AssistantMsg, Msg, TextBlock
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 
@@ -93,7 +93,7 @@ async def test_reasoning_events_carry_fallback_metadata(
         del tool_choice
         await self.model()
         yield TextBlockStartEvent(reply_id="r1", block_id="b1")
-        yield AssistantMsg("agent", content=[])
+        yield AssistantMsg(f"agent", content=[TextBlock(text=f"ok")])
 
     monkeypatch.setattr(Agent, "_reasoning", fake_base_reasoning)
     monkeypatch.setattr(
@@ -139,7 +139,7 @@ async def test_reasoning_events_stay_clean_without_fallback(
         del tool_choice
         await self.model()
         yield TextBlockStartEvent(reply_id="r1", block_id="b1")
-        yield AssistantMsg("agent", content=[])
+        yield AssistantMsg(f"agent", content=[TextBlock(text=f"ok")])
 
     monkeypatch.setattr(Agent, "_reasoning", fake_base_reasoning)
     monkeypatch.setattr(

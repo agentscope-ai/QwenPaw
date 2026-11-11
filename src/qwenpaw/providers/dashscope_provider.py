@@ -24,6 +24,7 @@ from .provider import ModelInfo
 from .dashscope_discovery import directory_url, fetch_directory
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
+from .completion_reason import CompletionReasonMixin
 from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
 from .openai_provider import (
     CODING_DASHSCOPE_BASE_URL,
@@ -306,7 +307,7 @@ class _DashScopeChatModelCompat:
         )
         extra_generate_kwargs = kwargs.pop("extra_generate_kwargs", None)
 
-        class _Compat(DashScopeChatModel):
+        class _Compat(CompletionReasonMixin, DashScopeChatModel):
             _qp_default_headers = default_headers
             _qp_thinking_explicit = thinking_explicitly_set
             _qp_extra_generate_kwargs = extra_generate_kwargs or {}

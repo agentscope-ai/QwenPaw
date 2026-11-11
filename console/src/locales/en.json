@@ -4488,7 +4488,8 @@
     },
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
-    "turnCanceled": "Canceled"
+    "turnCanceled": "Canceled",
+    "outputTruncated": "The model reached its output limit. This answer is incomplete. Ask it to continue or increase the output limit."
   },
   "security": {
     "parent": "Settings",

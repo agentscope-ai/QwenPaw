@@ -3799,7 +3799,8 @@
     },
     "regenerate": "Gerar novamente",
     "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
-    "turnCanceled": "Interrompido"
+    "turnCanceled": "Interrompido",
+    "outputTruncated": "O modelo atingiu o limite de saída. Esta resposta está incompleta. Peça ao modelo para continuar ou aumente o limite de saída."
   },
   "security": {
     "parent": "Configuracoes",
