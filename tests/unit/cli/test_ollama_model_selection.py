@@ -142,10 +142,9 @@ def test_discovers_and_persists_selected_ollama_model(
         "/ollama-proxy/v1/models",
         "Bearer test-ollama-key",
     )
-    assert (
-        "/ollama-proxy/api/ps",
-        "Bearer test-ollama-key",
-    ) in ollama_endpoint["requests"]
+    assert not any(
+        path.endswith("/api/ps") for path, _auth in ollama_endpoint["requests"]
+    )
     assert (
         "/ollama-proxy/api/show",
         "Bearer test-ollama-key",
@@ -291,10 +290,9 @@ def test_configured_base_url_is_saved_before_ollama_discovery(
         "/ollama-proxy/v1/models",
         "Bearer test-ollama-key",
     )
-    assert (
-        "/ollama-proxy/api/ps",
-        "Bearer test-ollama-key",
-    ) in ollama_endpoint["requests"]
+    assert not any(
+        path.endswith("/api/ps") for path, _auth in ollama_endpoint["requests"]
+    )
     assert (
         "/ollama-proxy/api/show",
         "Bearer test-ollama-key",
