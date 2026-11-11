@@ -284,7 +284,7 @@ async def test_manual_add_overrides_ranking_gate_and_survives_restore():
         name=f"OpenCode",
         models=[ModelInfo(id=model.id, name=model.name, is_free=True)],
     )
-    ProviderManager._restore_builtin_provider(restored, provider)
+    ProviderManager._restore_provider_config(restored, provider)
     assert restored.configured_models()[0].source == f"user"
 
 

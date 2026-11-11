@@ -8,11 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from qwenpaw.local_models.download_manager import (
+from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from qwenpaw.local_models.model_manager import ModelManager, DownloadSource
+from llamacpp.model_manager import ModelManager, DownloadSource
+
+from llamacpp.workers import ModelDownloads
 
 
 class _FakeController:
@@ -80,11 +82,9 @@ def test_start_download_uses_reachable_source(
     downloader.start_download("Qwen/Qwen2-0.5B-Instruct-GGUF")
 
     assert controller.started_spec is not None
-    assert controller.started_spec.command == [
-        "qwenpaw-model-download",
-        "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        "modelscope",
-    ]
+    assert controller.started_spec.task.payload["repo_id"] == (
+        "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    )
     assert (
         controller.started_spec.model_name == "Qwen/Qwen2-0.5B-Instruct-GGUF"
     )
@@ -152,24 +152,17 @@ def test_get_download_progress_returns_idle_by_default() -> None:
     }
 
 
+@pytest.mark.parametrize("source", list(DownloadSource))
 def test_download_model_rejects_repo_without_gguf(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source: DownloadSource,
 ) -> None:
     downloader = ModelManager()
     controller = _FakeController()
     downloader.__dict__["_download_controller"] = controller
-
-    monkeypatch.setattr(
-        downloader,
-        "get_model_dir",
-        lambda repo_id: tmp_path / repo_id,
-    )
-    monkeypatch.setattr(
-        downloader,
-        "_resolve_download_source",
-        lambda: DownloadSource.MODELSCOPE,
-    )
+    downloader.__dict__["_download_tmp_dir"] = tmp_path / "tmp"
+    previous = controller.snapshot().copy()
     monkeypatch.setattr(
         downloader,
         "_estimate_download_size",
@@ -180,20 +173,14 @@ def test_download_model_rejects_repo_without_gguf(
         "_check_gguf_exists",
         lambda **kwargs: (
             False,
-            (
-                "Repository demo/no-gguf does not contain any .gguf "
-                "files on ModelScope."
-            ),
+            "Repository demo/no-gguf does not contain any .gguf files.",
         ),
     )
-
-    with pytest.raises(
-        ValueError,
-        match="does not contain any .gguf files",
-    ):
-        downloader.start_download("demo/no-gguf")
+    with pytest.raises(ValueError, match="does not contain any .gguf files"):
+        downloader.start_download("demo/no-gguf", source=source)
 
     assert controller.started_spec is None
+    assert controller.snapshot() == previous
 
 
 def test_cancel_download_delegates_to_controller() -> None:
@@ -206,9 +193,14 @@ def test_cancel_download_delegates_to_controller() -> None:
     assert controller.cancel_called is True
 
 
+@pytest.mark.parametrize(
+    "source",
+    [DownloadSource.HUGGINGFACE, DownloadSource.MODELSCOPE],
+)
 def test_start_download_uses_explicit_source_without_probe(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source: DownloadSource,
 ) -> None:
     downloader = ModelManager()
     controller = _FakeController()
@@ -243,16 +235,14 @@ def test_start_download_uses_explicit_source_without_probe(
 
     downloader.start_download(
         "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        source=DownloadSource.HUGGINGFACE,
+        source=source,
     )
 
     assert controller.started_spec is not None
-    assert controller.started_spec.command == [
-        "qwenpaw-model-download",
-        "Qwen/Qwen2-0.5B-Instruct-GGUF",
-        "huggingface",
-    ]
-    assert controller.started_spec.source == "huggingface"
+    assert controller.started_spec.task.payload["repo_id"] == (
+        "Qwen/Qwen2-0.5B-Instruct-GGUF"
+    )
+    assert controller.started_spec.source == source.value
 
 
 def test_finalize_download_result_promotes_staging_dir(
@@ -348,28 +338,23 @@ def test_list_downloaded_models_ignores_temporary_download_dirs(
     assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]
 
 
-def test_download_worker_sanitizes_standard_streams(
+def test_download_worker_reports_completion(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     queue_messages: list[dict[str, object | dict[str, object]]] = []
-    calls: list[str] = []
 
     class _Queue:
         def put(self, item):
             queue_messages.append(item)
 
     monkeypatch.setattr(
-        "qwenpaw.local_models.model_manager.ensure_standard_streams",
-        lambda: calls.append("sanitized"),
-    )
-    monkeypatch.setattr(
-        ModelManager,
+        ModelDownloads,
         "_download_to_directory",
         staticmethod(lambda **kwargs: str(tmp_path / "downloaded")),
     )
 
-    getattr(ModelManager, "_download_worker")(
+    getattr(ModelDownloads, "_download_worker")(
         {
             "repo_id": "AgentScope/demo",
             "source": "modelscope",
@@ -378,7 +363,7 @@ def test_download_worker_sanitizes_standard_streams(
         _Queue(),
     )
 
-    assert calls == ["sanitized"]
+    assert len(queue_messages) == 1
     assert queue_messages[0]["type"] == "result"
     payload = queue_messages[0]["payload"]
     assert isinstance(payload, dict)
@@ -412,12 +397,12 @@ def test_download_from_modelscope_redirects_broken_standard_streams(
     monkeypatch.setattr(sys, "stdout", _BrokenStream())
     monkeypatch.setattr(sys, "stderr", _BrokenStream())
     monkeypatch.setattr(
-        ModelManager,
+        ModelDownloads,
         "_get_modelscope_snapshot_download",
         staticmethod(lambda: _fake_snapshot_download),
     )
 
-    result = ModelManager._download_from_modelscope(
+    result = ModelDownloads._download_from_modelscope(
         repo_id="AgentScope/demo",
         local_dir=tmp_path / "download",
     )

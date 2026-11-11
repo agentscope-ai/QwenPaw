@@ -12,12 +12,12 @@ import zipfile
 import httpx
 import pytest
 
-from qwenpaw.local_models.download_manager import (
+from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
-from qwenpaw.local_models.llamacpp import LlamaCppBackend
-from qwenpaw.local_models.runtime_release import RELEASE, RUNTIME_METADATA
+from llamacpp.llamacpp import LlamaCppBackend
+from llamacpp.runtime_release import RELEASE, RUNTIME_METADATA
 
 
 def backend_for(target, directory):

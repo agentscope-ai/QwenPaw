@@ -128,7 +128,11 @@ def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
     ):
         result = catalog()
 
-    hubs = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    hubs = {
+        entry["plugin_id"]: entry
+        for entry in result["plugins"]
+        if entry["kind"] == "hub"
+    }
     assert set(hubs) == {
         "qwenpaw-hub",
         "clawhub-hub",

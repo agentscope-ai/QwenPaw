@@ -2,21 +2,29 @@
 """Model-provider contracts independent of AgentScope and host internals."""
 
 from dataclasses import dataclass, field
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Callable, Literal, Awaitable, AsyncIterator
 
 from .messages import ContentBlock, Message
 from .tools import ToolContext
+from .resources import Registration
 
 
+# TODO: Define shared model facts for cloud Provider plugins:
+# limits, thinking/tool capabilities and pricing. Keep user settings and
+# derived availability, billing policy and ranking in the host.
 @dataclass(frozen=True)
 class ModelInfo:
     id: str
     name: str
-    max_input_length: int = 32768
+    max_input_length: int | None = 32768
     max_output_length: int | None = None
-    supports_image: bool = False
-    supports_video: bool = False
-    is_free: bool = False
+    supports_image: bool | None = False
+    supports_video: bool | None = False
+    is_free: bool | None = False
+    supports_multimodal: bool | None = None
+    probe_source: str | None = None
+    model_type: Literal["chat", "decision"] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,12 +83,23 @@ class ConnectionResult:
 
 @dataclass(frozen=True)
 class ProviderSpec:
+    """Provider identity, configuration, model catalog and inference hooks.
+
+    Declare generate or a native protocol. Native providers may acquire
+    a per-use base URL through connect. Discovery and connection
+    checks may override host defaults. Installation and service management
+    remain plugin responsibilities.
+    """
+
     id: str
     label: str
-    generate: Callable[
-        [ProviderContext, ModelRequest],
-        ModelChunk | Awaitable[ModelChunk] | AsyncIterator[ModelChunk],
-    ]
+    generate: (
+        Callable[
+            [ProviderContext, ModelRequest],
+            ModelChunk | Awaitable[ModelChunk] | AsyncIterator[ModelChunk],
+        ]
+        | None
+    ) = None
     models: tuple[ModelInfo, ...] = ()
     discover: (
         Callable[
@@ -98,3 +117,51 @@ class ProviderSpec:
     ) = None
     base_url: str = ""
     require_api_key: bool = True
+    protocol: Literal["openai-chat"] | None = None
+    connect: (
+        Callable[[ProviderContext, str], AbstractAsyncContextManager[str]]
+        | None
+    ) = None
+    is_local: bool = False
+
+
+class ProviderHandle(Registration):
+    """Manage only the provider registered by this handle."""
+
+    _provider: Any
+
+    async def select(
+        self,
+        model_id: str,
+        *,
+        model_type: Literal["chat", "decision"] = "chat",
+    ) -> None:
+        """Select this provider's model as the default for its type."""
+        await self._provider.select(model_id, model_type=model_type)
+
+    async def clear_selection(
+        self,
+        *,
+        model_type: Literal["chat", "decision"] = "chat",
+    ) -> bool:
+        """Clear a typed default if it uses this provider."""
+        return await self._provider.clear_selection(model_type=model_type)
+
+    async def update(
+        self,
+        *,
+        base_url: str | None = None,
+        models: tuple[ModelInfo, ...] | None = None,
+        generate_kwargs: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist supplied fields; None leaves a field unchanged.
+
+        models replaces the dynamic model list and retains saved per-model
+        settings. Spec.models stays unchanged. None-valued metadata retains
+        stored values.
+        """
+        await self._provider.update(
+            base_url=base_url,
+            models=models,
+            generate_kwargs=generate_kwargs,
+        )

@@ -7,6 +7,7 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
+# TODO: assign one SDK release version to the pending contract additions.
 SDK_VERSION = "1.0.0"
 SDK_CAPABILITIES = frozenset(
     {

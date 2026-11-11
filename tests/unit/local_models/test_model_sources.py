@@ -6,8 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from qwenpaw.local_models.llamacpp import LlamaCppBackend
-from qwenpaw.local_models.model_manager import (
+from llamacpp.llamacpp import LlamaCppBackend
+from llamacpp.workers import ModelDownloads
+from llamacpp.model_manager import (
     DownloadSource,
     ModelManager,
     repository_for_source,
@@ -72,7 +73,7 @@ def test_modelscope_piccolo_downloads_every_shard_without_safetensors(
 ):
     download = MagicMock(return_value=str(tmp_path))
     monkeypatch.setattr(
-        ModelManager,
+        ModelDownloads,
         "_get_modelscope_snapshot_download",
         lambda: download,
     )

@@ -9,6 +9,8 @@ Tests cover:
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("local_model_plugin")
+
 
 @pytest.mark.integration
 @pytest.mark.p1

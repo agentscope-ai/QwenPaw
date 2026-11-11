@@ -3515,24 +3515,39 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             or description.descriptor.channel_key != official["channel_key"]
         ):
             raise ValueError("Unknown official channel owner")
+        record = await self._seed_bundled_source(
+            description.code_root,
+            manifest,
+            config,
+            enabled=is_plugin_enabled(config),
+        )
+        if "channel_validation_pending" not in record.diagnostics:
+            record.diagnostics.append("channel_validation_pending")
+        return record
+
+    async def _seed_bundled_source(
+        self,
+        source_path,
+        manifest,
+        config=None,
+        *,
+        enabled=False,
+    ):
+        """Publish absent source under lifecycle custody without execution."""
         compatible, reason = self._check_version_compatibility(manifest)
         if not compatible:
             raise ValueError(reason)
         async with self.plugin_lifecycle(manifest.id):
             await self._retry_plugin_recovery_unlocked(manifest.id)
             if self.find_installed_plugin_dir(manifest.id) is not None:
-                raise ValueError("Official source already exists")
-            # Reuse A first-copy/publication, never replacement.
-            record = await self._load_plugin_from_path_unlocked(
-                description.code_root,
+                raise ValueError("Bundled source already exists")
+            return await self._load_plugin_from_path_unlocked(
+                source_path,
                 manifest,
                 config,
-                enabled=is_plugin_enabled(config),
+                enabled=enabled,
                 _bundled_seed=True,
             )
-            if "channel_validation_pending" not in record.diagnostics:
-                record.diagnostics.append("channel_validation_pending")
-            return record
 
     def _install_paths(
         self,
@@ -4025,7 +4040,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 target_dir,
                 installed_manifest,
             )
-            if _bundled_seed:
+            if (
+                _bundled_seed
+                and published_binding.backend is self._python_backend
+            ):
+                record = await self._inactive_record(published_binding, config)
+            elif _bundled_seed:
                 record = await self._load_plugin_unlocked(
                     installed_manifest,
                     target_dir,

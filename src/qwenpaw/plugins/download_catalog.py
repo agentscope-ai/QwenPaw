@@ -309,6 +309,12 @@ def build_plugin_catalog() -> dict[str, Any]:
         if bundled_dir.is_dir()
         else get_builtin_hub_plugins_dir().glob("*/plugin.json")
     )
+    from .local_model_legacy import bundled_local_source
+
+    manifests = set(manifests)
+    local_source = bundled_local_source()
+    if (local_source / "plugin.json").is_file():
+        manifests.add(local_source / "plugin.json")
     for path in sorted(manifests):
         manifest = PluginManifest.from_dict(
             json.loads(path.read_text(encoding="utf-8")),

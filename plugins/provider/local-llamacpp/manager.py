@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
 """Facade for local llama.cpp and model download management."""
 
+# The manager owns both internal components.
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 from typing import Any
+from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
 
-from ..constant import DEFAULT_LOCAL_PROVIDER_DIR
+from .io_helpers import run_io
 
+from .model_types import LocalModelConfig
 from .llamacpp import LlamaCppBackend, LlamaCppServerSetupResult
 from .model_manager import LocalModelInfo as RecommendedLocalModelInfo
 from .model_manager import ModelManager, DownloadSource
@@ -20,61 +25,60 @@ from .runtime_release import RELEASE
 logger = logging.getLogger(__name__)
 
 
-class LocalModelConfig(BaseModel):
-    """Persistent local runtime settings for embedded llama.cpp."""
-
-    max_context_length: int = Field(
-        default=65536,
-        description="Maximum context length passed to llama.cpp on startup.",
-        ge=32768,
-    )
-    port: int | None = Field(
-        default=None,
-        description=(
-            "Optional fixed port for llama.cpp startup. Null means auto."
-        ),
-        ge=1,
-        le=65535,
-    )
+class _StoredConfig(BaseModel):
+    max_context_length: int = Field(default=65536, ge=32768)
+    port: int | None = Field(default=None, ge=1, le=65535)
 
 
 class LocalModelManager:  # pylint: disable=too-many-public-methods
     """Single entry point for local runtime downloads and server control."""
 
-    _instance: LocalModelManager | None = None
-
     DEFAULT_LLAMA_CPP_BASE_URL = RELEASE["base_url"]
     DEFAULT_LLAMA_CPP_RELEASE_TAG = RELEASE["release"]
     CONFIG_FILE_NAME = "config.json"
 
-    def __init__(
-        self,
-        *,
-        model_manager: ModelManager | None = None,
-        llamacpp_backend: LlamaCppBackend | None = None,
-    ) -> None:
-        self._model_manager = model_manager or ModelManager()
-        self._llamacpp_backend = llamacpp_backend or LlamaCppBackend()
-        self._server_lifecycle_lock = asyncio.Lock()
-        self._config_path = DEFAULT_LOCAL_PROVIDER_DIR / self.CONFIG_FILE_NAME
-        self._config = self._load_config()
+    async def start(self, data_dir: Path) -> None:
+        def initialize():
+            self._model_manager = ModelManager(
+                data_dir=data_dir,
+            )
+            self._llamacpp_backend = LlamaCppBackend(
+                data_dir=data_dir,
+            )
+            self._config_path = data_dir / self.CONFIG_FILE_NAME
+            self._config = self._load_config()
 
-    def _load_config(self) -> LocalModelConfig:
+        self._server_lifecycle_lock = asyncio.Lock()
+        await run_io(initialize)
+
+    async def close(self) -> None:
+        import atexit
+
+        model_manager = getattr(self, "_model_manager", None)
+        if model_manager is not None:
+            await run_io(model_manager._download_controller.close)
+        backend = getattr(self, "_llamacpp_backend", None)
+        if backend is not None:
+            await run_io(backend._download_controller.close)
+            await backend.shutdown_server()
+            atexit.unregister(backend._shutdown_server_at_exit)
+
+    def _load_config(self) -> _StoredConfig:
         """Load persisted local runtime settings from disk."""
         if not self._config_path.exists():
-            return LocalModelConfig()
+            return _StoredConfig()
 
         try:
             with open(self._config_path, "r", encoding="utf-8") as file_obj:
                 payload = json.load(file_obj)
-            return LocalModelConfig.model_validate(payload)
+            return _StoredConfig.model_validate(payload)
         except (OSError, ValueError, ValidationError) as exc:
             logger.warning(
                 "Failed to load local model config from %s: %s",
                 self._config_path,
                 exc,
             )
-            return LocalModelConfig()
+            return _StoredConfig()
 
     @staticmethod
     def _write_config_file(
@@ -104,8 +108,8 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         )
 
     def get_config(self) -> LocalModelConfig:
-        """Return a defensive copy of the current local runtime settings."""
-        return self._config.model_copy(deep=True)
+        """Return the current local runtime settings."""
+        return LocalModelConfig(**self._config.model_dump())
 
     async def set_max_context_length(self, max_context_length: int) -> None:
         """Persist the max context length for future llama.cpp startups."""
@@ -119,15 +123,15 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             self._config.port = port
             await self._save_config()
 
-    def check_llamacpp_installation(self) -> tuple[bool, str]:
+    def check_installation(self) -> tuple[bool, str]:
         """Return whether llama.cpp is already installed locally."""
         return self._llamacpp_backend.check_llamacpp_installation()
 
-    def check_llamacpp_installability(self) -> tuple[bool, str]:
+    def check_installability(self) -> tuple[bool, str]:
         """Return whether the current environment can install llama.cpp."""
         return self._llamacpp_backend.check_llamacpp_installability()
 
-    async def start_llamacpp_download(self) -> bool:
+    async def start_runtime_download(self) -> bool:
         """Start the llama.cpp binary download task.
 
         Returns whether a running llama.cpp server was stopped first.
@@ -151,26 +155,26 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
         )
 
-    async def check_llamacpp_server_ready(
+    async def server_ready(
         self,
         timeout: float = 120.0,
     ) -> bool:
         """Return whether the llama.cpp server is ready."""
         return await self._llamacpp_backend.server_ready(timeout=timeout)
 
-    def get_llamacpp_download_progress(self) -> dict[str, Any]:
+    def get_runtime_download_progress(self) -> dict[str, Any]:
         """Return the current llama.cpp download progress."""
         return self._llamacpp_backend.get_download_progress()
 
-    def get_llamacpp_server_status(self) -> dict[str, Any]:
+    def get_server_status(self) -> dict[str, Any]:
         """Return the current llama.cpp server status."""
         return self._llamacpp_backend.get_server_status()
 
-    def is_llamacpp_server_transitioning(self) -> bool:
+    def is_server_transitioning(self) -> bool:
         """Return whether the llama.cpp server is starting or stopping."""
         return self._llamacpp_backend.is_server_transitioning()
 
-    def cancel_llamacpp_download(self) -> None:
+    def cancel_runtime_download(self) -> None:
         """Cancel the current llama.cpp download task."""
         self._llamacpp_backend.cancel_download()
 
@@ -208,7 +212,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
         """Delete a downloaded local model by repo id or directory name."""
         self._model_manager.remove_downloaded_model(model_id)
 
-    async def setup_server(
+    async def ensure_server(
         self,
         model_id: str,
     ) -> LlamaCppServerSetupResult:
@@ -221,20 +225,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 port=self._config.port,
             )
 
-    async def shutdown_server(self) -> None:
+    async def stop_server(self) -> None:
         """Stop the current llama.cpp server if it is running."""
         async with self._server_lifecycle_lock:
             await self._llamacpp_backend.shutdown_server()
-
-    def shutdown_server_sync(self) -> None:
-        """Best-effort synchronous shutdown for process teardown paths."""
-        self._llamacpp_backend.shutdown_server_sync()
-
-    @staticmethod
-    def get_instance() -> LocalModelManager:
-        """Return the singleton LocalModelManager instance."""
-        # This is a simple module-level singleton pattern. In a more complex
-        # application, you might want to use a dependency injection framework.
-        if LocalModelManager._instance is None:
-            LocalModelManager._instance = LocalModelManager()
-        return LocalModelManager._instance

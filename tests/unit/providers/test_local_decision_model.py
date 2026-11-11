@@ -14,14 +14,19 @@ from agentscope.classifier import BinaryQuestion
 
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.providers import ProviderManager
-from qwenpaw.providers.services.qwenpaw import QwenPawProvider
+from qwenpaw.providers.local_decision_model import LocalDecisionProviderMixin
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.security import decision_model
+
+
+class LocalProvider(LocalDecisionProviderMixin, OpenAIProvider):
+    """Exercise the shared decision transport without plugin lifecycle."""
 
 
 @pytest.fixture(name="local")
 def local_fixture(monkeypatch):
     # pylint: disable=too-many-statements
-    provider = QwenPawProvider(
+    provider = LocalProvider(
         id="qwenpaw-local",
         name="Local fixture",
         base_url="http://127.0.0.1:9000/v1",
