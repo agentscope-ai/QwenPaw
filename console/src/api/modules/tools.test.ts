@@ -37,6 +37,15 @@ describe("toolsApi", () => {
     vi.mocked(request).mockResolvedValue(tools);
     const result = await toolsApi.listTools();
     expect(result).toEqual(tools);
+    expect(request).toHaveBeenCalledWith("/tools", undefined);
+  });
+
+  it("listTools passes lang query param", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await toolsApi.listTools("agent-a", "zh");
+    expect(request).toHaveBeenCalledWith("/tools?lang=zh", {
+      headers: { "X-Agent-Id": "agent-a" },
+    });
   });
 
   it("lists tools for the captured agent", async () => {
