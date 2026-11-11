@@ -8,6 +8,8 @@ export interface DraftContent {
   resources: ReportResource[];
   instructions?: string;
   media?: { url: string; media_id: string }[];
+  /** Optional GitHub repository link (Platform `github_link`). */
+  githubLink?: string;
 }
 export interface PostDraft extends DraftContent {
   id: string;
@@ -44,6 +46,8 @@ export function listPostDrafts(account: string): PostDraft[] {
                 typeof media.url !== "string" ||
                 typeof media.media_id !== "string",
             ))) ||
+        (item.githubLink !== undefined &&
+          typeof item.githubLink !== "string") ||
         typeof item.updatedAt !== "number",
     )
   )

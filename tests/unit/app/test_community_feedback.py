@@ -387,3 +387,47 @@ async def test_drafts_list_mirrors_platform_type_filter(monkeypatch):
         "page_size": 20,
         "type": "question",
     }
+
+
+def test_github_link_shape_validated_and_canonicalized():
+    """Malformed links are rejected; valid ones canonicalize to https."""
+    from importlib import import_module
+    from pydantic import ValidationError
+
+    router = import_module("qwenpaw.app.routers.community")
+    body = router.CommunityPostRequest(
+        title="T",
+        content="C",
+        account_id="alice",
+        github_link="github.com/owner/repo",
+    )
+    assert router._normalize_github_link(body.github_link) == (
+        "https://github.com/owner/repo"
+    )
+    # Blank / None mean "no link": updates clear it, edits keep the old.
+    assert router._normalize_github_link("  ") == ""
+    assert router._normalize_github_link(None) == ""
+    bad = (
+        "https://evil.example.com/x",
+        "javascript:alert(1)",
+        "https://github.com/o/r>escape",
+        # Unicode homoglyphs: Python \w is Unicode-aware unless re.ASCII,
+        # which would put the backend out of sync with the console regex.
+        "https://github.com/\u0430dmin/repo",
+        "g\u0131thub.com/o/r",
+    )
+    for link in bad:
+        with pytest.raises(ValidationError):
+            router.CommunityPostRequest(
+                title="T",
+                content="C",
+                account_id="alice",
+                github_link=link,
+            )
+        with pytest.raises(ValidationError):
+            router.CommunityEditRequest(
+                account_id="alice",
+                title="T",
+                content="C",
+                github_link=link,
+            )

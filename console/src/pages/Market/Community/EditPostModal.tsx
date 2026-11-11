@@ -3,6 +3,7 @@ import { Alert, Button, Checkbox, Input, Modal, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import { communityErrorKey } from "@/utils/communityError";
 import { communityPostsApi, type Post } from "./api";
+import { isGithubRepoLink } from "./githubLink";
 import { PostBody } from "./PostBody";
 
 export function EditPostModal({
@@ -19,16 +20,29 @@ export function EditPostModal({
   const { t } = useTranslation();
   const [title, setTitle] = useState(post.title);
   const [content, setContent] = useState(post.body_text || "");
+  const [githubLink, setGithubLink] = useState(post.github_link || "");
+  const githubLinkInvalid =
+    githubLink.trim() !== "" && !isGithubRepoLink(githubLink);
   const [preview, setPreview] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const save = async () => {
     if (!confirmed || busy) return;
+    if (githubLink.trim() && !isGithubRepoLink(githubLink)) {
+      setError("communityCompose.githubLinkInvalid");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
-      await communityPostsApi.update(post.id, accountId, title, content);
+      await communityPostsApi.update(
+        post.id,
+        accountId,
+        title,
+        content,
+        githubLink,
+      );
       onSaved();
     } catch (err) {
       setError(communityErrorKey(err));
@@ -78,6 +92,30 @@ export function EditPostModal({
             setConfirmed(false);
           }}
         />
+        <label htmlFor="edit-post-github">
+          {t("communityCompose.githubLinkLabel")}
+        </label>
+        <Input
+          id="edit-post-github"
+          value={githubLink}
+          maxLength={1024}
+          allowClear
+          status={githubLinkInvalid ? "error" : undefined}
+          placeholder={t("communityCompose.githubLinkPlaceholder")}
+          disabled={busy}
+          onChange={(e) => {
+            setGithubLink(e.target.value);
+            setConfirmed(false);
+          }}
+        />
+        {githubLinkInvalid && (
+          <span
+            role="alert"
+            style={{ fontSize: 12, color: "var(--app-error-text)" }}
+          >
+            {t("communityCompose.githubLinkInvalid")}
+          </span>
+        )}
         <Space>
           <label htmlFor="edit-post-body">{t("communityCompose.body")}</label>
           <Button size="small" onClick={() => setPreview(!preview)}>

@@ -9,7 +9,12 @@ import {
 import { Popover, Tooltip } from "antd";
 import { Smile } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CUSTOM_EMOJI_URLS } from "./customEmoji";
+import {
+  CUSTOM_ANIMATED_EMOJI_URLS,
+  CUSTOM_EMOJI_URLS,
+  isAnimatedEmoji,
+} from "./customEmoji";
+import type { CommentRichInputHandle } from "./CommentRichInput";
 import styles from "./index.module.less";
 
 interface EmojiItem {
@@ -201,25 +206,53 @@ const CUSTOM_EMOJIS: EmojiItem[] = CUSTOM_EMOJI_URLS.map((url, index) => ({
   src: url,
 }));
 
+// Animated GIF stickers; distinct art style, shown in their own tab.
+const ANIMATED_EMOJIS: EmojiItem[] = CUSTOM_ANIMATED_EMOJI_URLS.map(
+  (url, index) => ({
+    e: `[emoji:${url}]`,
+    zh: `动态表情 ${index + 1}`,
+    en: `Animated emoji ${index + 1}`,
+    src: url,
+  }),
+);
+
+// Quick bar beside the trigger: one-tap high-frequency picks, led by an
+// animated snow leopard GIF, mirroring agentscope-platform-front.
+const QUICK_EMOJIS: EmojiItem[] = [
+  {
+    e: `[emoji:${CUSTOM_ANIMATED_EMOJI_URLS[2]}]`,
+    zh: "动态表情 3",
+    en: "Animated emoji 3",
+    src: CUSTOM_ANIMATED_EMOJI_URLS[2],
+  },
+  { e: "\u{1F60A}", zh: "害羞笑", en: "Blushing smile" },
+  { e: "\u{1F44D}", zh: "赞", en: "Thumbs up" },
+  { e: "\u{1F44F}", zh: "鼓掌", en: "Clapping" },
+  { e: "\u{1F389}", zh: "拉炮彩带", en: "Party popper" },
+];
+
 const EMOJI_BY_E = new Map(
-  [...EMOJIS, ...CUSTOM_EMOJIS].map((item) => [item.e, item]),
+  [...EMOJIS, ...CUSTOM_EMOJIS, ...ANIMATED_EMOJIS, ...QUICK_EMOJIS].map(
+    (item) => [item.e, item],
+  ),
 );
 
 const RECENT_STORAGE_KEY = "community.emoji.recent";
 const RECENT_MAX = 14;
 
 interface CommentEmojiPickerProps {
-  /** Returns the native textarea so picks insert at the cursor. */
-  getEditor: () => HTMLTextAreaElement | null;
-  onChange: (value: string) => void;
+  /** Returns the rich input handle so picks insert at the caret. */
+  getEditor: () => CommentRichInputHandle | null;
   disabled?: boolean;
+  /** Shows 5 one-tap quick emojis beside the trigger in a capsule. */
+  showQuick?: boolean;
 }
 
 /** Comment composer emoji entry: picks insert at the cursor position. */
 export default function CommentEmojiPicker({
   getEditor,
-  onChange,
   disabled = false,
+  showQuick = false,
 }: CommentEmojiPickerProps) {
   const { t, i18n } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -237,7 +270,7 @@ export default function CommentEmojiPicker({
       return [];
     }
   });
-  const [tab, setTab] = useState<"default" | "custom">("default");
+  const [tab, setTab] = useState<"default" | "custom" | "animated">("default");
 
   // Mount tooltips after the open animation so 200+ popovers don't lag.
   const [tooltipsReady, setTooltipsReady] = useState(false);
@@ -249,20 +282,13 @@ export default function CommentEmojiPicker({
 
   const getEditorRef = useRef(getEditor);
   getEditorRef.current = getEditor;
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
 
   const handlePick = useCallback((item: EmojiItem) => {
     const editor = getEditorRef.current();
-    const base = editor?.value ?? "";
-    const start = editor?.selectionStart ?? base.length;
-    const end = editor?.selectionEnd ?? base.length;
-    onChangeRef.current(base.slice(0, start) + item.e + base.slice(end));
-    const pos = start + item.e.length;
-    window.requestAnimationFrame(() => {
-      editor?.focus();
-      editor?.setSelectionRange(pos, pos);
-    });
+    // The rich input renders sticker picks as inline images and reports the
+    // serialized [emoji:<url>] value through its own onChange.
+    if (item.src) editor?.insertEmoji(item.src);
+    else editor?.insertText(item.e);
     if (!item.src) {
       setRecent((prev) => {
         const next = [item.e, ...prev.filter((x) => x !== item.e)].slice(
@@ -282,6 +308,8 @@ export default function CommentEmojiPicker({
 
   const renderEmojiButton = useCallback(
     (item: EmojiItem) => {
+      // Animated GIFs live in larger 99px cells, static stickers in 66px.
+      const size = item.src && isAnimatedEmoji(item.src) ? 99 : 66;
       const button = (
         <button
           type="button"
@@ -294,11 +322,11 @@ export default function CommentEmojiPicker({
               src={item.src}
               alt={isZh ? item.zh : item.en}
               loading="lazy"
-              // Inline metrics keep the sticker flush with its 66x66 cell
-              // even if a stale CSS generation drops the module rules.
+              // Inline metrics keep the sticker flush with its cell even if a
+              // stale CSS generation drops the module rules.
               style={{
-                width: 66,
-                height: 66,
+                width: size,
+                height: size,
                 objectFit: "fill",
                 display: "block",
               }}
@@ -359,64 +387,124 @@ export default function CommentEmojiPicker({
     [t, renderEmojiButton],
   );
 
-  return (
-    <Popover
-      open={open}
-      overlayClassName={styles.emojiPopover}
-      onOpenChange={(next) => {
-        if (!disabled) setOpen(next);
-      }}
-      trigger="click"
-      placement="bottomLeft"
-      content={
-        <div className={styles.emojiPanel}>
-          <div hidden={tab !== "default"} className={styles.emojiScroll}>
-            {defaultContent}
-          </div>
-          <div hidden={tab !== "custom"} className={styles.emojiScroll}>
-            {customContent}
-          </div>
-          <div className={styles.emojiTabBar}>
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setTab("default")}
-              title={t("communityPage.emojiAll")}
-              aria-label={t("communityPage.emojiAll")}
-              className={`${styles.emojiTab} ${
-                tab === "default" ? styles.emojiTabActive : ""
-              }`}
-            >
-              {"😀"}
-            </button>
-            <button
-              type="button"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setTab("custom")}
-              title={t("communityPage.emojiCustom")}
-              aria-label={t("communityPage.emojiCustom")}
-              className={`${styles.emojiTab} ${
-                tab === "custom" ? styles.emojiTabActive : ""
-              }`}
-            >
-              <img src={CUSTOM_EMOJI_URLS[2]} alt="" loading="lazy" />
-            </button>
-          </div>
+  const animatedContent = useMemo(
+    () => (
+      <>
+        <p className={styles.emojiSectionTitle}>
+          {t("communityPage.emojiAnimated")}
+        </p>
+        <div className={`${styles.emojiGrid} ${styles.emojiAnimatedGrid}`}>
+          {ANIMATED_EMOJIS.map(renderEmojiButton)}
         </div>
-      }
-    >
-      <button
-        type="button"
-        title={t("communityPage.addEmoji")}
-        aria-label={t("communityPage.addEmoji")}
-        disabled={disabled}
-        onMouseDown={(event) => event.preventDefault()}
-        className={`${styles.emojiTrigger} ${
-          open ? styles.emojiTriggerOpen : ""
-        }`}
+      </>
+    ),
+    [t, renderEmojiButton],
+  );
+
+  return (
+    <span className={showQuick ? styles.emojiQuickGroup : undefined}>
+      <Popover
+        open={open}
+        overlayClassName={styles.emojiPopover}
+        onOpenChange={(next) => {
+          if (!disabled) setOpen(next);
+        }}
+        trigger="click"
+        placement="bottomLeft"
+        content={
+          <div className={styles.emojiPanel}>
+            <div hidden={tab !== "default"} className={styles.emojiScroll}>
+              {defaultContent}
+            </div>
+            <div hidden={tab !== "custom"} className={styles.emojiScroll}>
+              {customContent}
+            </div>
+            <div hidden={tab !== "animated"} className={styles.emojiScroll}>
+              {animatedContent}
+            </div>
+            <div className={styles.emojiTabBar}>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setTab("default")}
+                title={t("communityPage.emojiAll")}
+                aria-label={t("communityPage.emojiAll")}
+                className={`${styles.emojiTab} ${
+                  tab === "default" ? styles.emojiTabActive : ""
+                }`}
+              >
+                {"😀"}
+              </button>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setTab("custom")}
+                title={t("communityPage.emojiCustom")}
+                aria-label={t("communityPage.emojiCustom")}
+                className={`${styles.emojiTab} ${
+                  tab === "custom" ? styles.emojiTabActive : ""
+                }`}
+              >
+                <img src={CUSTOM_EMOJI_URLS[2]} alt="" loading="lazy" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setTab("animated")}
+                title={t("communityPage.emojiAnimated")}
+                aria-label={t("communityPage.emojiAnimated")}
+                className={`${styles.emojiTab} ${
+                  tab === "animated" ? styles.emojiTabActive : ""
+                }`}
+              >
+                <img
+                  src={CUSTOM_ANIMATED_EMOJI_URLS[0]}
+                  alt=""
+                  loading="lazy"
+                  className={styles.emojiTabGif}
+                />
+              </button>
+            </div>
+          </div>
+        }
       >
-        <Smile size={16} aria-hidden="true" />
-      </button>
-    </Popover>
+        <button
+          type="button"
+          title={t("communityPage.addEmoji")}
+          aria-label={t("communityPage.addEmoji")}
+          disabled={disabled}
+          onMouseDown={(event) => event.preventDefault()}
+          className={`${styles.emojiTrigger} ${
+            open ? styles.emojiTriggerOpen : ""
+          }`}
+        >
+          <Smile size={16} aria-hidden="true" />
+        </button>
+      </Popover>
+      {showQuick
+        ? QUICK_EMOJIS.map((item) => (
+            <button
+              key={item.e}
+              type="button"
+              disabled={disabled}
+              title={isZh ? item.zh : item.en}
+              aria-label={isZh ? item.zh : item.en}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => handlePick(item)}
+              className={styles.emojiQuickBtn}
+            >
+              {item.src ? (
+                <img
+                  src={item.src}
+                  alt={isZh ? item.zh : item.en}
+                  loading="lazy"
+                />
+              ) : (
+                item.e
+              )}
+            </button>
+          ))
+        : null}
+    </span>
   );
 }

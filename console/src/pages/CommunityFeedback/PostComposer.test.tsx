@@ -133,6 +133,54 @@ it("prefills report title and body, and requires explicit publication", async ()
   ).toBeInTheDocument();
 });
 
+it("publishes the optional GitHub repository link", async () => {
+  vi.mocked(request).mockResolvedValue({ id: "new-post" });
+  render(
+    <PostComposer
+      onClose={() => {}}
+      initialBody={"# Report title\nReport body"}
+    />,
+  );
+  fireEvent.change(
+    await screen.findByLabelText("communityCompose.githubLinkLabel"),
+    { target: { value: "https://github.com/owner/repo" } },
+  );
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "communityCompose.publish" }),
+  );
+  await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+  const options = vi.mocked(request).mock.calls[0][1];
+  expect(JSON.parse(String(options?.body))).toMatchObject({
+    github_link: "https://github.com/owner/repo",
+  });
+});
+
+it("rejects an invalid GitHub repository link before publishing", async () => {
+  vi.mocked(request).mockResolvedValue({ id: "new-post" });
+  render(
+    <PostComposer
+      onClose={() => {}}
+      initialBody={"# Report title\nReport body"}
+    />,
+  );
+  fireEvent.change(
+    await screen.findByLabelText("communityCompose.githubLinkLabel"),
+    { target: { value: "https://gitlab.com/owner/repo" } },
+  );
+  // Inline validation flags the bad value before any submit attempt.
+  expect(
+    await screen.findByText("communityCompose.githubLinkInvalid"),
+  ).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(
+    screen.getByRole("button", { name: "communityCompose.publish" }),
+  );
+  expect(
+    vi.mocked(request).mock.calls.some(([path]) => path === "/community/posts"),
+  ).toBe(false);
+});
+
 it("uses the desktop browser for authorization from the report composer", async () => {
   const { invoke, isTauri } = await import("@/test/tauri-mock");
   isTauri.mockReturnValue(true);

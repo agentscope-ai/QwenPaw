@@ -20,7 +20,7 @@ from fastapi import (
     File,
     UploadFile,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .community_connection import get_service, call
 from ..community_connection import CommunityConnectionError
@@ -476,6 +476,33 @@ def _post_html(content: str) -> str:
     )
 
 
+# Mirrors the console githubLink.ts shape: a public GitHub repository URL.
+# Validated locally because Platform behavior cannot be verified from this
+# repo and the value is rendered back to other users. re.ASCII keeps [\w]
+# and IGNORECASE identical to the JS side, whose \w and /i are ASCII-only;
+# without it Python would accept Unicode homoglyphs (Cyrillic owner,
+# dotless-i host) that the console rejects.
+_GITHUB_LINK_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?github\.com/"
+    r"([\w.-]+)/([\w.-]+?)(?:\.git)?/?\Z",
+    re.IGNORECASE | re.ASCII,
+)
+
+
+def _normalize_github_link(value: str | None) -> str:
+    """Canonical https://github.com/{owner}/{repo}; blank means no link.
+
+    Raises ValueError for anything else, so request models reuse it as the
+    github_link shape validator.
+    """
+    if value is None or not value.strip():
+        return ""
+    match = _GITHUB_LINK_RE.match(value.strip())
+    if not match:
+        raise ValueError("github_link must be a GitHub repository URL")
+    return f"https://github.com/{match.group(1)}/{match.group(2)}"
+
+
 class RelatedRef(BaseModel):
     """A cloud-side association carried by a draft or a post.
 
@@ -511,6 +538,15 @@ class CommunityPostRequest(BaseModel):
         max_length=6,
     )
     related: list[RelatedRef] = Field(default_factory=list, max_length=6)
+    # Optional public GitHub repository link; the shape is validated here
+    # and canonicalized in the payload. Empty string clears it.
+    github_link: str | None = Field(default=None, max_length=1024)
+
+    @field_validator("github_link")
+    @classmethod
+    def _check_github_link(cls, value: str | None) -> str | None:
+        _normalize_github_link(value)
+        return value
 
 
 @router.post("/posts")
@@ -562,6 +598,8 @@ async def _community_post_payload(body: CommunityPostRequest) -> dict:
         "article_type": body.article_type,
         "related_skill_ids": [],
         "related_plugin_ids": [],
+        # Always sent: updates overwrite, an empty value clears the link.
+        "github_link": _normalize_github_link(body.github_link),
     }
     origins = ([body.origin] if body.origin else []) + body.origins
     unique = {
@@ -647,6 +685,7 @@ def _draft_view(post: dict) -> dict:
         "type": post.get("article_type") or "discussion",
         "updated_at": post.get("updated_at") or post.get("created_at"),
         "resources": resources,
+        "github_link": post.get("github_link") or "",
         "editable": editable,
     }
 
@@ -778,6 +817,13 @@ async def delete_community_draft(
 class CommunityEditRequest(CommunityInteractionRequest):
     title: str = Field(min_length=1, max_length=256)
     content: str = Field(min_length=1, max_length=65536)
+    github_link: str | None = Field(default=None, max_length=1024)
+
+    @field_validator("github_link")
+    @classmethod
+    def _check_github_link(cls, value: str | None) -> str | None:
+        _normalize_github_link(value)
+        return value
 
 
 @router.put("/posts/{post_id}")
@@ -811,6 +857,13 @@ async def edit_community_post(
         title=body.title.strip(),
         body_text=body.content,
         body_html=_post_html(body.content),
+    )
+    # The editor always resends the (possibly cleared) link; callers that
+    # omit it keep whatever the post already carries.
+    payload["github_link"] = (
+        _normalize_github_link(body.github_link)
+        if body.github_link is not None
+        else post.get("github_link") or ""
     )
     kind = (
         "questions" if post.get("article_type") == "question" else "articles"

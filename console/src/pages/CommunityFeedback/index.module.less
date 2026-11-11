@@ -213,6 +213,28 @@
     flex: 1;
   }
 }
+.githubRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 16px;
+  align-items: center;
+  label {
+    font-size: 13px;
+    color: var(--app-text-secondary);
+  }
+  :global(:is(.ant-input-affix-wrapper, .qwenpaw-input-affix-wrapper)) {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+}
+.githubError {
+  grid-column: 2;
+  grid-row: 2;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--app-error-text);
+}
 .resourceRow {
   display: flex;
   gap: 6px;
@@ -638,6 +660,23 @@
   }
   .boardRow > *:last-child {
     width: 100%;
+  }
+  .githubRow {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    label {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    :global(:is(.ant-input-affix-wrapper, .qwenpaw-input-affix-wrapper)) {
+      grid-column: 1;
+      grid-row: 2;
+    }
+  }
+  .githubError {
+    grid-column: 1;
+    grid-row: 3;
+    margin-top: 0;
   }
   .footerActions {
     gap: 8px;

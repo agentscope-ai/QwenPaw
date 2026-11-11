@@ -1,6 +1,7 @@
 import { request } from "@/api/request";
 import { removeWritingDraftSessions } from "./writingSession";
 import { splitReportResources } from "@/utils/communityResources";
+import { normalizeGithubLink } from "@/pages/Market/Community/githubLink";
 import type {
   DraftContent,
   PostDraft as StoredDraft,
@@ -13,10 +14,19 @@ export interface PostDraft extends StoredDraft {
 }
 interface PlatformDraft extends Omit<PostDraft, "updatedAt"> {
   updated_at?: string;
+  github_link?: string | null;
 }
 const normalize = (draft: PlatformDraft): PostDraft => ({
   ...draft,
   summary: draft.summary ?? "",
+  // Guard against corrupt payloads: a non-string link would throw inside
+  // savePostDraft and break the whole draft path for the account.
+  githubLink:
+    typeof draft.github_link === "string"
+      ? draft.github_link
+      : typeof draft.githubLink === "string"
+      ? draft.githubLink
+      : "",
   updatedAt: draft.updated_at ? Date.parse(draft.updated_at) : Date.now(),
 });
 export async function listPostDrafts(
@@ -58,6 +68,7 @@ export async function savePostDraft(
       content: content.content,
       article_type: content.type,
       ...splitReportResources(content.resources),
+      github_link: normalizeGithubLink(content.githubLink || ""),
       media_ids: (content.media || [])
         .filter((item) => content.content.includes(item.url))
         .map((item) => item.media_id),
