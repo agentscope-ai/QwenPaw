@@ -430,7 +430,9 @@ class TestShrinkPayload:
     def test_payload_within_budget_is_unchanged(self):
         payload = self._payload()
         assert dump_mod._shrink_payload(
-            payload, payload["trace"], 10**9
+            payload,
+            payload["trace"],
+            10**9,
         ) == (payload)
 
     def test_zero_budget_disables_shrinking(self):

@@ -393,7 +393,11 @@ def _prune_dumps(
         for path, mtime, size in entries:
             age = now - mtime
             removable = path != keep_path and _exceeds_limits(
-                policy, age, kept, total, size
+                policy,
+                age,
+                kept,
+                total,
+                size,
             )
             if removable:
                 try:
