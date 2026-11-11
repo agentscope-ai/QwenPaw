@@ -15,22 +15,17 @@ for single chat only. The plugin never types, edits or recalls messages.
 
 Streaming covers both `message` and `reasoning` response streams; each response
 stream owns its own stream message and the `stream_type` recorded at
-`stream.start` is validated on later slices. Because QQ rejects a repeated slice
-`index`, the index is reserved durably before the native call, so a slice whose
-result is lost still consumes it and the next slice continues from a higher
-index; replace mode resends the whole text, so a reserved-but-lost index loses
-no content. A response that finishes or is cancelled after `stream.start`
-closes the stream with a final `input_state=10` slice through the shared stream
-cleanup hooks instead of leaving the QQ message generating.
+`stream.start` is validated on later slices. The worker reserves each update
+index before sending so an unknown result cannot cause index reuse. The shared
+cleanup hooks close an open stream with a final `input_state=10` slice. If the
+outcome of a closing slice is unknown, cleanup preserves the delivery evidence.
 
-The stream is opened by the first slice that carries real text rather than by
-`stream.start`: QQ rejects a `replace` slice that does not start with the
-content it already delivered (`40007`), so the placeholder the host opens every
-stream with must never be sent. A response that only ends never opens a stream
-for nothing, an empty reply opens and closes with the native `...` placeholder,
-and a stored resource without a recorded `stream_type` keeps streaming rather
-than failing every later slice. The descriptor declares the `streaming`
-capability because the host drops the channel's streaming policy otherwise.
+The first slice with real text opens the QQ stream. QQ rejects `replace`
+slices that change the delivered prefix (`40007`), so the worker keeps that
+prefix when Scroll headline removal changes whitespace. Empty replies finish
+locally. When QQ explicitly rejects opening the stream, the host sends the
+complete reply as a regular message. The descriptor declares the `streaming`
+capability so the host can enable the streaming policy.
 
 Text supports the original bounded chunks and explicit QQ validation fallback.
 C2C/group upload rich media; group cannot send type4 files (including ordinary
