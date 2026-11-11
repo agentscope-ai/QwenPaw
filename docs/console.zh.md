@@ -601,6 +601,18 @@ python -c "import whisper; print('openai-whisper installed')"
 
 ---
 
+## 社区账号连接
+
+在“设置 → 社区与消息”中输入 Platform 账号和密码，点击“保存并连接”。新凭证验证成功后才会替换原连接；密码留空时，仅同一账号可继续使用已保存的密码。断开连接会暂停自动登录；“清除已保存账号密码”会删除保存的账号密码。
+
+凭证加密保存在 `SECRET_DIR/community_credentials.json`，不进入工具进程的环境变量，也不显示在通用环境变量设置中。该文件和加密密钥位于文件守卫保护的私密目录内；POSIX 文件权限为 `0600`、目录为 `0700`。文件守卫不是对同权限任意代码的系统级隔离，运行不受信任工具时仍需保留文件守卫并启用适当的沙箱。
+
+Docker 重建时应持久化私密配置目录及其密钥，同时保留工作目录以继续使用已有连接状态。社区账号密码仅通过页面保存和更新，不从部署环境变量读取。
+
+远程登录要求已认证的管理账号和 HTTPS 入口。独立部署通过反向代理终止 TLS 时，在 `security.trusted_proxies` 中配置代理 IP/CIDR，代理须保留公开 Host 并设置 `X-Forwarded-Proto: https`。Hub 部署在 Hub 配置中设置 `control_plane.public_base_url`；通过代理终止 TLS 时，还须配置 `control_plane.security.trusted_proxy_ips`。Hub 会校验入口协议并向个人 runtime 传递可信的公开来源，客户端自报的内部来源头会被移除。
+
+---
+
 ## 相关页面
 
 - [配置与工作目录](./config) —— 配置字段、提供商、环境变量
