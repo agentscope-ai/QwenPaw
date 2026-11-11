@@ -41,7 +41,9 @@ def ensure_list_spacing(text: str) -> str:
     return "\n".join(out)
 
 
-_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_FENCE_RE = re.compile(
+    r"^( {0,3}(?:(?:[-+*]|[0-9]{1,9}[.)]) {1,4})?)(`{3,}|~{3,})(.*)$",
+)
 _TABLE_DELIMITER_RE = re.compile(r"\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?")
 
 
@@ -57,31 +59,46 @@ def ensure_table_spacing(text: str) -> str:
     lines = text.split("\n")
     out = []
     fence = ""
+    fence_indent = 0
+    in_table = False
 
     for i, line in enumerate(lines):
-        match = _FENCE_RE.match(line)
+        fence_line = line.expandtabs(4)
+        if (
+            fence_indent
+            and fence_line.strip()
+            and not fence_line.startswith(" " * fence_indent)
+        ):
+            # Dedenting out of a list item also ends its unclosed fence.
+            fence, fence_indent = "", 0
+        match = _FENCE_RE.match(fence_line[fence_indent:])
         if match:
-            marker, suffix = match.groups()
+            prefix, marker, suffix = match.groups()
+            in_table = False
             if not fence:
                 if marker[0] != "`" or "`" not in suffix:
                     fence = marker
+                    fence_indent = len(prefix) if prefix.strip() else 0
             elif (
-                marker[0] == fence[0]
+                not prefix.strip()
+                and marker[0] == fence[0]
                 and len(marker) >= len(fence)
                 and not suffix.strip()
             ):
-                fence = ""
-        elif (
-            not fence
-            and not line.startswith(("    ", "\t"))
-            and i > 0
-            and "|" in line
-            and i + 1 < len(lines)
-            and not lines[i + 1].startswith(("    ", "\t"))
-            and _is_table_delimiter(lines[i + 1])
-            and lines[i - 1].strip()
-        ):
-            out.append("")
+                fence, fence_indent = "", 0
+        elif not fence:
+            if "|" not in line or fence_line.startswith("    "):
+                in_table = False
+            elif (
+                not in_table
+                and i + 1 < len(lines)
+                and not lines[i + 1].expandtabs(4).startswith("    ")
+                and _is_table_delimiter(lines[i + 1])
+            ):
+                # Delimiter-like rows inside this table are ordinary cells.
+                in_table = True
+                if i > 0 and lines[i - 1].strip():
+                    out.append("")
         out.append(line)
 
     return "\n".join(out)
