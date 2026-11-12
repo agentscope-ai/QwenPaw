@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import sessionApi from "../../pages/Chat/sessionApi";
 import { useAgentStore } from "../../stores/agentStore";
 import {
+  SESSION_LIST_REFRESH_EVENT,
   syncSessionsGlobal,
   useSessionListStore,
   type ExtendedSession,
@@ -17,12 +18,14 @@ export function SessionListPollingController() {
   useEffect(() => {
     let cancelled = false;
     let inFlight = false;
+    let refreshAfterFlight = false;
     let lastFetchAt = 0;
     let lastSessions: ExtendedSession[] | undefined;
     const owner = sessionApi.getActiveOwner();
 
     const fetchSessions = async (showLoading = false) => {
       if (inFlight || sessionApi.isSessionSwitching) return;
+      refreshAfterFlight = false;
       inFlight = true;
       lastFetchAt = Date.now();
       if (showLoading) useSessionListStore.setState({ loading: true });
@@ -49,7 +52,19 @@ export function SessionListPollingController() {
           useSessionListStore.getState().loading
         )
           useSessionListStore.setState({ loading: false });
+        if (!cancelled && refreshAfterFlight) {
+          refreshAfterFlight = false;
+          void fetchSessions();
+        }
       }
+    };
+
+    const onSessionListRefresh = () => {
+      if (inFlight || sessionApi.isSessionSwitching) {
+        refreshAfterFlight = true;
+        return;
+      }
+      void fetchSessions();
     };
 
     void fetchSessions(true);
@@ -66,11 +81,16 @@ export function SessionListPollingController() {
       if (!document.hidden) void fetchSessions(true);
     };
     document.addEventListener("visibilitychange", onVisibility);
+    document.addEventListener(SESSION_LIST_REFRESH_EVENT, onSessionListRefresh);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
+      document.removeEventListener(
+        SESSION_LIST_REFRESH_EVENT,
+        onSessionListRefresh,
+      );
     };
   }, [selectedAgent]);
 

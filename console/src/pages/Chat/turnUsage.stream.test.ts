@@ -248,6 +248,58 @@ describe("wrapChatResponseUsageStream", () => {
     expect(useTurnUsageStore.getState().snapshot?.usage).toEqual(usage);
   });
 
+  it("notifies after a successful response stream reaches EOF", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+      },
+    });
+    const completed = vi.fn();
+    const { ref } = makeRef([]);
+    const reader = wrapChatResponseUsageStream(
+      new Response(stream),
+      ref,
+      undefined,
+      completed,
+    ).body!.getReader();
+    source.enqueue(
+      new TextEncoder().encode(
+        `data: ${JSON.stringify({
+          object: "response",
+          status: "completed",
+        })}\n\n`,
+      ),
+    );
+
+    await reader.read();
+    expect(completed).not.toHaveBeenCalled();
+    source.close();
+    await reader.read();
+    expect(completed).toHaveBeenCalledOnce();
+  });
+
+  it.each(["failed", "canceled"])(
+    "does not notify for a %s response",
+    async (status) => {
+      const completed = vi.fn();
+      const { ref } = makeRef([]);
+      const body = `data: ${JSON.stringify({
+        object: "response",
+        status,
+      })}\n\n`;
+      const wrapped = wrapChatResponseUsageStream(
+        sseResponse(body),
+        ref,
+        undefined,
+        completed,
+      );
+
+      await wrapped.text();
+      expect(completed).not.toHaveBeenCalled();
+    },
+  );
+
   it("tolerates malformed JSON data lines", async () => {
     const turn = useTurnUsageStore.getState().beginTurn("a", "s");
     const { ref } = makeRef([]);

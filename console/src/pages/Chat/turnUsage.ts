@@ -334,6 +334,19 @@ function snapshotFromSsePayload(raw: string): TurnUsageSnapshot | null {
   }
 }
 
+function isSuccessfulResponseTerminal(raw: string): boolean {
+  try {
+    const payload = JSON.parse(raw) as Record<string, unknown>;
+    return (
+      payload.object === "response" &&
+      payload.status === "completed" &&
+      !payload.error
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Observe usage during streaming and patch the final response card on close.
  *
@@ -345,12 +358,14 @@ export function wrapChatResponseUsageStream(
   response: Response,
   chatRef: React.RefObject<IAgentScopeRuntimeWebUIRef | null>,
   turn?: TurnUsageToken,
+  onSuccessfulCompletion?: () => void,
 ): Response {
   if (!response.body) return response;
 
   const decoder = new TextDecoder();
   let buffer = "";
   let pendingUsage: TurnUsageSnapshot | null = null;
+  let completedSuccessfully = false;
   const previousUsage = useTurnUsageStore.getState().snapshot?.usage;
 
   function publishLive(snap: TurnUsageSnapshot) {
@@ -392,6 +407,7 @@ export function wrapChatResponseUsageStream(
         const parsed = parseSseDataLines(buffer);
         buffer = parsed.rest;
         for (const raw of parsed.events) {
+          completedSuccessfully ||= isSuccessfulResponseTerminal(raw);
           const snap = snapshotFromSsePayload(raw);
           if (snap) publishLive(snap);
         }
@@ -400,6 +416,7 @@ export function wrapChatResponseUsageStream(
         buffer += decoder.decode();
         const parsed = parseSseDataLines(`${buffer}\n\n`);
         for (const raw of parsed.events) {
+          completedSuccessfully ||= isSuccessfulResponseTerminal(raw);
           const snap = snapshotFromSsePayload(raw);
           if (snap) pendingUsage = snap;
         }
@@ -416,6 +433,7 @@ export function wrapChatResponseUsageStream(
             schedulePatchLastResponseCardUsage(chatRef, pendingUsage, turn);
           }
         }
+        if (completedSuccessfully) onSuccessfulCompletion?.();
       },
     }),
   );
