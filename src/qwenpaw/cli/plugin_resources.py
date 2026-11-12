@@ -167,8 +167,14 @@ def ensure_resources(capability):
             session.load(manifest, source)
             if capability == "providers":
                 session.run(session.loader._project_providers(manifest.id))
+        except (click.Abort, click.exceptions.Exit):
+            raise
         except Exception as exc:  # noqa: BLE001
-            click.echo(f"Plugin '{manifest.id}' unavailable: {exc}", err=True)
+            reason = str(exc) or type(exc).__name__
+            click.echo(
+                f"Plugin '{manifest.id}' unavailable: {reason}",
+                err=True,
+            )
 
 
 def doctor_contributions(context):
@@ -238,10 +244,16 @@ def doctor_contributions(context):
 
                 try:
                     result.append((f"{owner}:{name}", session.run(check())))
+                except (click.Abort, click.exceptions.Exit):
+                    raise
                 except Exception as exc:  # noqa: BLE001
+                    reason = str(exc) or type(exc).__name__
                     result.append(
-                        (f"{owner}:{name}", [f"(extension error) {exc}"]),
+                        (f"{owner}:{name}", [f"(extension error) {reason}"]),
                     )
+        except (click.Abort, click.exceptions.Exit):
+            raise
         except Exception as exc:  # noqa: BLE001
-            result.append((manifest.id, [f"(extension error) {exc}"]))
+            reason = str(exc) or type(exc).__name__
+            result.append((manifest.id, [f"(extension error) {reason}"]))
     return result

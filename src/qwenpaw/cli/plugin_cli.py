@@ -6,8 +6,13 @@ from dataclasses import dataclass
 from functools import wraps
 import json
 import logging
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
+
+if TYPE_CHECKING:
+    from ..plugins.architecture import CliDeclaration, PluginManifest
 
 logger = logging.getLogger(__name__)
 _ALIASES = {
@@ -53,9 +58,9 @@ def read_settings():
 
 @dataclass(frozen=True)
 class Mount:
-    manifest: object
-    source: object
-    declaration: object
+    manifest: "PluginManifest"
+    source: Path
+    declaration: "CliDeclaration"
 
 
 class CliCatalog:

@@ -13,6 +13,7 @@ from .doctor import DOCTOR
 from .extensions import ExtensionPoint
 
 if TYPE_CHECKING:
+    from ._contributions import _Contribution
     from .channel_adapter import ChannelDescription
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,6 @@ class HookRegistration:
     reload_safe: bool = False
     # TODO: Separate host preparation/commit from runtime activation.
     # installation currently classifies mixed Tool/Skill setup callbacks.
-    # See docs/plugin-cli-review-todo.md for findings and the target flow.
     installation: bool = False
 
 
@@ -172,11 +172,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             return
 
         self._providers: Dict[str, ProviderRegistration] = {}
-        self.cli_contributions = {}
+        self.cli_contributions: Dict[tuple[str, str], "_Contribution"] = {}
         self.extension_points: Dict[str, "ExtensionPoint[Any]"] = {
             point.id: point for point in _BUILTIN_EXTENSION_POINTS
         }
-        self.extensions = {}
+        self.extensions: Dict[tuple[str, str, str], "_Contribution"] = {}
         self._startup_hooks: List[HookRegistration] = []
         self._shutdown_hooks: List[HookRegistration] = []
         self._uninstall_hooks: List[HookRegistration] = []
@@ -1410,12 +1410,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         self.drop_plugin_manifest(plugin_id)
 
-        for key in tuple(self.cli_contributions):
-            if key[0] == plugin_id:
-                del self.cli_contributions[key]
-        for key in tuple(self.extensions):
-            if key[1] == plugin_id:
-                del self.extensions[key]
+        for cli_key in tuple(self.cli_contributions):
+            if cli_key[0] == plugin_id:
+                del self.cli_contributions[cli_key]
+        for extension_key in tuple(self.extensions):
+            if extension_key[1] == plugin_id:
+                del self.extensions[extension_key]
 
         providers_to_remove = [
             pid

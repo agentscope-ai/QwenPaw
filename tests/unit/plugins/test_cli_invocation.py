@@ -542,6 +542,182 @@ assert events == ['cleaned', 'aborted', 'closed'], events
     assert "Task was destroyed" not in result.stderr
 
 
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize(
+    "failure,exit_code",
+    [
+        ("click.Abort()", 1),
+        ("click.exceptions.Exit(7)", 7),
+        ("TimeoutError()", 0),
+    ],
+)
+def test_doctor_handles_check_errors_and_click_control_flow(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+    asynchronous,
+    failure,
+    exit_code,
+):
+    import threading
+    from types import SimpleNamespace
+
+    import click
+
+    from qwenpaw import constant
+    from qwenpaw.cli.plugin_resources import doctor_contributions
+    from qwenpaw.config import utils
+
+    plugins = tmp_path / "plugins"
+    source = plugins / "doctor-control-flow"
+    source.mkdir(parents=True)
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": source.name,
+                "version": "1.0.0",
+                "entry": {"backend": "main.py"},
+                "sdk": {"version": "1.1.0", "capabilities": ["extensions"]},
+                "extensions": [
+                    {"point": "qwenpaw.doctor", "id": "stop"},
+                    {"point": "qwenpaw.doctor", "id": "next"},
+                ],
+            },
+        ),
+        encoding="utf-8",
+    )
+    signature = "async def" if asynchronous else "def"
+    cleanup = "await asyncio.sleep(0)" if asynchronous else "pass"
+    (source / "main.py").write_text(
+        f"""
+import asyncio
+from pathlib import Path
+import click
+from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
+
+{signature} check(call):
+    try:
+        raise {failure}
+    finally:
+        {cleanup}
+        Path(__file__).with_name('cleaned').touch()
+
+def next_check(call):
+    Path(__file__).with_name('continued').touch()
+    return ['next check']
+
+class Plugin:
+    def register(self, ctx):
+        ctx.register_extension(DOCTOR, DoctorSpec('stop', check))
+        ctx.register_extension(DOCTOR, DoctorSpec('next', next_check))
+
+plugin = Plugin()
+""",
+        encoding="utf-8",
+    )
+
+    @click.command()
+    def doctor():
+        for _, notes in doctor_contributions(
+            SimpleNamespace(
+                cfg=None,
+                raw_cfg={},
+                cli_base_url="http://127.0.0.1:1",
+                timeout=1,
+                deep=False,
+            ),
+        ):
+            for note in notes:
+                click.echo(note)
+
+    threads = set(threading.enumerate())
+    result = CliRunner().invoke(doctor)
+    assert result.exit_code == exit_code
+    if exit_code == 0:
+        assert "(extension error) TimeoutError" in result.output
+    else:
+        assert "extension error" not in result.output
+    assert (source / "cleaned").exists()
+    assert (source / "continued").exists() is (exit_code == 0)
+    assert not fresh_registry.extensions
+    assert not fresh_registry.runtime_owners.leases()
+    assert set(threading.enumerate()) <= threads
+
+
+@pytest.mark.parametrize("capability", ["providers", "channels"])
+def test_native_resource_discovery_preserves_cancellation(
+    tmp_path,
+    monkeypatch,
+    fresh_registry,
+    bounded_dependency_environment,
+    capability,
+):
+    import threading
+
+    import click
+
+    from qwenpaw import constant
+    from qwenpaw.cli.plugin_resources import ensure_resources
+    from qwenpaw.config import utils
+
+    plugins = tmp_path / "plugins"
+    source = plugins / "resource-control-flow"
+    source.mkdir(parents=True)
+    monkeypatch.setattr(constant, "PLUGINS_DIR", plugins)
+    monkeypatch.setattr(constant, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(utils, "WORKING_DIR", tmp_path)
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": source.name,
+                "version": "1.0.0",
+                "entry": {"backend": "main.py"},
+                "sdk": {"version": "1.1.0", "capabilities": [capability]},
+            },
+        ),
+        encoding="utf-8",
+    )
+    (source / "main.py").write_text(
+        """
+import asyncio
+from pathlib import Path
+
+class Plugin:
+    async def register(self, ctx):
+        try:
+            raise asyncio.CancelledError()
+        finally:
+            await asyncio.sleep(0)
+            Path(__file__).with_name('cleaned').touch()
+
+plugin = Plugin()
+""",
+        encoding="utf-8",
+    )
+
+    @click.command()
+    def command():
+        ensure_resources(capability)
+        click.echo("continued")
+
+    threads = set(threading.enumerate())
+    result = CliRunner().invoke(command)
+    assert result.exit_code == 1
+    assert "Aborted!" in result.output
+    assert "continued" not in result.output
+    assert "unavailable:" not in result.output
+    assert (source / "cleaned").exists()
+    assert not fresh_registry.runtime_owners.leases()
+    assert not fresh_registry.leftover_registrations(source.name)
+    assert set(threading.enumerate()) <= threads
+
+
 async def test_extensions_revoke_owned_calls_without_click(sdk_component):
     from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
     from qwenpaw.plugins.extensions import ExtensionPoint
