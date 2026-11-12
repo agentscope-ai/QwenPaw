@@ -351,8 +351,8 @@ function isSuccessfulResponseTerminal(raw: string): boolean {
  * Observe usage during streaming and patch the final response card on close.
  *
  * Trailing `turn_usage` SSE arrives after Completed response. The chat SDK
- * may drop it via isStillActive (session id drift after realId URL resolve),
- * so we capture it here and patch after the SDK has finished reading.
+ * stops reading at that terminal, so drain successful streams through EOF
+ * before patching usage and notifying that completion metadata is ready.
  */
 export function wrapChatResponseUsageStream(
   response: Response,
@@ -438,7 +438,45 @@ export function wrapChatResponseUsageStream(
     }),
   );
 
-  return new Response(transformed, {
+  const reader = transformed.getReader();
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const result = await reader.read();
+        if (cancelled) return;
+        if (result.done) {
+          controller.close();
+          reader.releaseLock();
+        } else {
+          controller.enqueue(result.value);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          controller.error(error);
+          reader.releaseLock();
+        }
+      }
+    },
+    async cancel(reason) {
+      cancelled = true;
+      try {
+        if (completedSuccessfully) {
+          // The SDK cancels at the terminal before the backend persists
+          // completion metadata. Keep observing until the source closes.
+          while (!(await reader.read()).done) {
+            // The upstream transform consumes usage and notifies on EOF.
+          }
+        } else {
+          await reader.cancel(reason);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    },
+  });
+
+  return new Response(body, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,

@@ -5,6 +5,7 @@
  * patching the final card until the turn ends or attempts are exhausted.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import Stream from "@agentscope-ai/chat/lib/Stream";
 import {
   schedulePatchLastResponseCardUsage,
   wrapChatResponseUsageStream,
@@ -277,6 +278,116 @@ describe("wrapChatResponseUsageStream", () => {
     source.close();
     await reader.read();
     expect(completed).toHaveBeenCalledOnce();
+  });
+
+  it("drains the successful tail after the SDK stops at the terminal event", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const cancelled = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+      },
+      cancel: cancelled,
+    });
+    const completed = vi.fn();
+    const { ref, updateMessage } = makeRef([assistantCard({})]);
+    const turn = useTurnUsageStore.getState().beginTurn("a", "s");
+    const wrapped = wrapChatResponseUsageStream(
+      new Response(stream),
+      ref,
+      turn,
+      completed,
+    );
+    const iterator = Stream({
+      readableStream: wrapped.body!,
+    })[Symbol.asyncIterator]();
+    source.enqueue(
+      new TextEncoder().encode(
+        'data: {"object":"response","status":"completed"}\n\n',
+      ),
+    );
+    const terminal = await iterator.next();
+    expect(JSON.parse(terminal.value.data).status).toBe("completed");
+
+    const stopped = iterator.return(undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(completed).not.toHaveBeenCalled();
+
+    source.enqueue(
+      new TextEncoder().encode(
+        `data: ${JSON.stringify({
+          type: "turn_usage",
+          usage,
+          context_usage: ctx,
+        })}\n\n`,
+      ),
+    );
+    source.close();
+    await stopped;
+    await vi.waitFor(() => expect(completed).toHaveBeenCalledOnce());
+    expect(useTurnUsageStore.getState().snapshot).toEqual(snapshot);
+    expect(updateMessage).toHaveBeenCalledOnce();
+    expect(cancelled).not.toHaveBeenCalled();
+  });
+
+  it("cancels the source when the consumer leaves before a successful terminal", async () => {
+    const cancelled = vi.fn();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            'data: {"object":"response","status":"in_progress"}\n\n',
+          ),
+        );
+      },
+      cancel: cancelled,
+    });
+    const completed = vi.fn();
+    const { ref } = makeRef([]);
+    const reader = wrapChatResponseUsageStream(
+      new Response(stream),
+      ref,
+      undefined,
+      completed,
+    ).body!.getReader();
+
+    await reader.read();
+    await reader.cancel("session switched");
+    await vi.waitFor(() =>
+      expect(cancelled).toHaveBeenCalledWith("session switched"),
+    );
+    expect(completed).not.toHaveBeenCalled();
+  });
+
+  it("does not notify when the successful tail errors after consumer cancellation", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        source = controller;
+        controller.enqueue(
+          new TextEncoder().encode(
+            'data: {"object":"response","status":"completed"}\n\n',
+          ),
+        );
+      },
+    });
+    const completed = vi.fn();
+    const { ref } = makeRef([]);
+    const reader = wrapChatResponseUsageStream(
+      new Response(stream),
+      ref,
+      undefined,
+      completed,
+    ).body!.getReader();
+
+    await reader.read();
+    const stopped = reader.cancel();
+    const error = new Error("connection lost");
+    const rejected = expect(stopped).rejects.toBe(error);
+    source.error(error);
+    await rejected;
+    expect(completed).not.toHaveBeenCalled();
   });
 
   it.each(["failed", "canceled"])(
