@@ -9,11 +9,19 @@ from qwenpaw.cli.acp_cmd import acp_cmd
 
 
 @pytest.mark.parametrize(f"budget", [None, -1, 100])
-def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path, budget):
+@pytest.mark.parametrize(f"error", [None, RuntimeError(f"transport failed")])
+def test_acp_cmd_passes_local_diagnostics(
+    monkeypatch,
+    tmp_path,
+    budget,
+    error,
+):
     captured = {}
 
     async def fake_run_qwenpaw_agent(**kwargs):
         captured.update(kwargs)
+        if error is not None:
+            raise error
 
     monkeypatch.setattr(
         "qwenpaw.agents.acp.server.run_qwenpaw_agent",
@@ -38,7 +46,8 @@ def test_acp_cmd_passes_local_diagnostics(monkeypatch, tmp_path, budget):
         ],
     )
 
-    assert result.exit_code == 0
+    assert result.exit_code == (1 if error is not None else 0)
+    assert result.exception is error
     assert captured["agent_id"] == "writer"
     assert captured["workspace_dir"] == tmp_path
     assert captured["local_diagnostics"] is True
