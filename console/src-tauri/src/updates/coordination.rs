@@ -410,24 +410,7 @@ pub(super) fn check_installers(app_data: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct TestDirectory(PathBuf);
-
-    impl TestDirectory {
-        fn new() -> Self {
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../.scratch/issue8616/coordination-tests")
-                .join(uuid::Uuid::new_v4().to_string());
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
+    use crate::test_support::TestDirectory;
 
     #[test]
     fn missing_installer_record_remains_available() {

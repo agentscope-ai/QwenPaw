@@ -543,29 +543,7 @@ fn show_dialog(message: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct TestDirectory(PathBuf);
-
-    impl TestDirectory {
-        fn new() -> Self {
-            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .join("../../.scratch/issue8616/startup-tests")
-                .join(uuid::Uuid::new_v4().to_string());
-            fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-
-        fn child(&self, name: &str) -> PathBuf {
-            self.0.join(name)
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            // Remove only this test's UUID directory; never touch real user data.
-            fs::remove_dir_all(&self.0).unwrap();
-        }
-    }
+    use crate::test_support::TestDirectory;
 
     fn log_path(diagnostics: &Diagnostics) -> PathBuf {
         diagnostics

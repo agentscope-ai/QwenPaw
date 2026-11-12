@@ -14,6 +14,8 @@ mod notification_delivery;
 mod macos_dev_bundle;
 mod runtime_env;
 mod startup_diagnostics;
+#[cfg(test)]
+mod test_support;
 mod tray;
 mod updates;
 #[cfg(windows)]
