@@ -5967,7 +5967,7 @@
     "reopen": "Reopen authorization page",
     "invalidAuthorization": "Invalid community authorization address. Please retry.",
     "not_configured": "Community account connection is not enabled for this deployment.",
-    "unsupported_remote": "Remote connection requires HTTPS and an authenticated QwenPaw owner session. Browser authorization is also available on the computer running QwenPaw.",
+    "unsupported_remote": "Browser authorization requires the computer running QwenPaw. Use account and password login for remote deployments.",
     "syncTitle": "Message sync",
     "syncDescription": "Sync comments, resource mentions, interactions, feedback and notifications from Platform My Messages to your inbox.",
     "messagesUnavailable": "Message sync is disabled for this QwenPaw instance. Your account is still connected.",
@@ -6193,7 +6193,7 @@
     "unavailable": "The operation could not be completed. Please try again.",
     "credentialsRejected": "Account or password was rejected. Check your credentials and try again; your existing connection has not been replaced.",
     "credentialsRequired": "Enter an account and password. Changing accounts requires a new password.",
-    "passwordUnavailable": "Remote password login requires HTTPS and an authenticated QwenPaw owner session."
+    "passwordUnavailable": "Password login is unavailable on this instance. Check the service configuration or update QwenPaw."
   },
   "communityDrafts": {
     "title": "Drafts",
