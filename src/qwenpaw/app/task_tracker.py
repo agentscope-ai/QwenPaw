@@ -72,34 +72,49 @@ async def _notify_finished(
         return
     callback = asyncio.ensure_future(on_finished(run_key, finish_time))
     try:
-        await asyncio.wait_for(
-            asyncio.shield(callback),
-            timeout=ON_FINISHED_TIMEOUT,
+        # asyncio.wait bounds the wait without cancelling the callback task
+        # on timeout, so a callback that suppresses cancellation can outlive
+        # the bound without wedging the producer: cleanup in the caller's
+        # finally runs as soon as the bound fires.
+        done, _ = await asyncio.wait(
+            {callback}, timeout=ON_FINISHED_TIMEOUT
         )
-    except asyncio.TimeoutError:
-        # Distinguish "our bound fired" from a TimeoutError the callback
-        # raised itself; only the former is a hang on our side.
-        if callback.done():
-            logger.exception(
-                "run completion callback failed run_key=%s",
-                run_key,
-            )
-        else:
+        if callback not in done:
             callback.cancel()
             logger.warning(
                 "run completion callback timed out after %ss run_key=%s",
                 ON_FINISHED_TIMEOUT,
                 run_key,
             )
+        else:
+            exc = callback.exception()
+            if exc is not None:
+                logger.exception(
+                    "run completion callback failed run_key=%s",
+                    run_key,
+                )
     except asyncio.CancelledError:
         callback.cancel()
         raise
-    except Exception:  # pylint: disable=broad-except
-        callback.cancel()
-        logger.exception(
-            "run completion callback failed run_key=%s",
-            run_key,
-        )
+
+
+def _has_successful_response(events: list[str]) -> bool:
+    """Require a successful response terminal, not just message completion."""
+    for sse in reversed(events):
+        for line in reversed(sse.splitlines()):
+            if not line.startswith(f"data:"):
+                continue
+            try:
+                event = json.loads(line.removeprefix(f"data:"))
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict):
+                continue
+            if event.get(f"error"):
+                return False
+            if event.get(f"object") == f"response":
+                return event.get(f"status") == f"completed"
+    return False
 
 
 @dataclass
@@ -340,6 +355,8 @@ class TaskTracker:
         """Attach to an existing run or start a new one.
 
         Returns ``(queue, is_new_run)``.
+        ``on_finished`` runs only after a successful response terminal and
+        normal producer exhaustion; cleanup runs for every outcome.
         """
         async with self._lock:
             state = self._runs.get(run_key)
@@ -363,6 +380,7 @@ class TaskTracker:
 
             async def _producer() -> None:
                 start_time = datetime.now(timezone.utc)
+                successful = False
 
                 try:
                     tracker = tracker_ref()
@@ -380,6 +398,10 @@ class TaskTracker:
                             run.buffer.append(sse)
                             for q in run.queues:
                                 q.put_nowait(sse)
+                    successful = (
+                        on_finished is not None
+                        and _has_successful_response(run.buffer)
+                    )
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
@@ -403,11 +425,12 @@ class TaskTracker:
                     # Exception`` guard, which would otherwise leave a
                     # subscriber queue without its end-of-stream sentinel.
                     try:
-                        await _notify_finished(
-                            on_finished,
-                            run_key,
-                            finish_time,
-                        )
+                        if successful and on_finished is not None:
+                            await _notify_finished(
+                                on_finished,
+                                run_key,
+                                finish_time,
+                            )
                     finally:
                         tracker = tracker_ref()
                         if tracker is not None:

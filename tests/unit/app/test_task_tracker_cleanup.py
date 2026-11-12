@@ -23,6 +23,7 @@ fixed sleeps so the tests cannot pass by accident on a slow machine.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -32,6 +33,11 @@ from qwenpaw.app.task_tracker import TaskTracker
 
 async def _one_event_stream(_payload):
     yield "data: one\n\n"
+    # Upstream now invokes on_finished only after a successful response
+    # terminal, so the stream must emit one for the callback-path tests.
+    yield "data: " + json.dumps(
+        {"object": "response", "status": "completed"}
+    ) + "\n\n"
 
 
 def _drain(queue: asyncio.Queue) -> list:
