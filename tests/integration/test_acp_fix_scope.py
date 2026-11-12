@@ -27,10 +27,8 @@ from qwenpaw.agents.acp.server import (
     QwenPawACPAgent,
     _EnvelopeTracker,
 )
-from qwenpaw.harnesses import runtime as harness_runtime
-from qwenpaw.harnesses.events import HarnessEvent, HarnessEventKind
 from qwenpaw.providers.retry_chat_model import StreamIdleTimeoutError
-from qwenpaw.schemas import MessageType, RunStatus
+from qwenpaw.schemas import AgentResponse, MessageType, RunStatus
 
 pytestmark = pytest.mark.p1
 
@@ -385,56 +383,28 @@ async def test_disconnect_does_not_write_an_error_frame(monkeypatch):
 )
 async def test_harness_terminal_preserves_output_and_status(
     monkeypatch,
-    tmp_path,
     outcome,
 ):
-    """Exercise real harness envelopes, including errors caught by it."""
-    runtime = harness_runtime.HarnessRuntime(tmp_path)
-    monkeypatch.setattr(
-        runtime._capability_resolver,
-        f"resolve",
-        AsyncMock(return_value={}),
-    )
-    monkeypatch.setattr(
-        harness_runtime,
-        f"record_agent_activity",
-        AsyncMock(),
-    )
+    """ACP preserves public stream output and terminal status."""
 
-    async def run_turn(**kwargs):
-        del kwargs
-        yield HarnessEvent(kind=HarnessEventKind.TEXT_DELTA, text=f"tail")
+    async def stream():
+        yield _content_event("tail")
         if outcome == f"exception":
             raise RuntimeError(f"backend secret")
-        yield HarnessEvent(
-            kind=HarnessEventKind(outcome),
-            text=f"backend secret",
+        status = {
+            "error": RunStatus.Failed,
+            "cancelled": RunStatus.Cancelled,
+            "completed": RunStatus.Completed,
+        }[outcome]
+        yield AgentResponse(
+            object="response",
+            status=status,
+            error={"message": "backend secret"}
+            if status == RunStatus.Failed
+            else None,
         )
 
-    monkeypatch.setattr(
-        runtime,
-        f"adapter",
-        AsyncMock(return_value=SimpleNamespace(run_turn=run_turn)),
-    )
-    agent = QwenPawACPAgent(agent_id=f"default")
-    conn = _RecordingConn()
-    agent.on_connect(conn)
-    session_id = f"harness-review"
-    agent._sessions[session_id] = {f"user_id": session_id}
-
-    async def stream_query(request):
-        async for event in runtime.stream(
-            backend=f"codex",
-            request=request,
-            cwd=tmp_path,
-        ):
-            yield event
-
-    monkeypatch.setattr(
-        agent,
-        f"_ensure_workspace",
-        AsyncMock(return_value=SimpleNamespace(stream_query=stream_query)),
-    )
+    agent, conn, session_id = await _agent_with_stream(monkeypatch, stream)
     if outcome in {f"error", f"exception"}:
         with pytest.raises(RequestError) as caught:
             await agent.prompt([text_block(f"hello")], session_id)

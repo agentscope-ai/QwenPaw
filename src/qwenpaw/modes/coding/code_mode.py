@@ -95,7 +95,8 @@ def _describe_catalog(catalog: dict[str, dict]) -> str:
         )
     if "execute_shell_command" in catalog:
         examples.append(
-            f'r = await tools.execute_shell_command(command="pwd"); '
+            f"r = await tools.execute_shell_command("
+            f'command="pwd", title="Inspect the working directory"); '
             f'text(r["content"])',
         )
     summaries = []
