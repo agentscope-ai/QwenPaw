@@ -362,7 +362,7 @@ jobs:
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -845,13 +845,20 @@ jobs:
 
       - name: Generate and upload OSS updater manifest
         # The Tauri auto-updater uses OSS only; GitHub Releases only carry
-        # first-install artifacts.
+        # first-install artifacts. Match the web console's stable-only policy.
         if: hashFiles('tauri-updater-meta-*/tauri-*-updater.json') != ''
         env:
           # Pass release.body via env so quotes/newlines/$ in markdown are safe.
           RELEASE_BODY: ${{ github.event.release.body }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          IS_PRERELEASE=$(python -c \
+            'import sys; from packaging.version import Version; print(Version(sys.argv[1]).is_prerelease)' \
+            "$VERSION")
+          if [ "$IS_PRERELEASE" = "True" ]; then
+            echo "Skipping auto-update manifest for pre-release ${VERSION}"
+            exit 0
+          fi
           OSS_BASE="${OSS_PUBLIC_BASE_URL%/}"
           metadata_args=()
           for f in tauri-updater-meta-windows/tauri-windows-*-updater.json \

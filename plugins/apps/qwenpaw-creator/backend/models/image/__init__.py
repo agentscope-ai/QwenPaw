@@ -61,18 +61,11 @@ _PROVIDERS: dict[str, type[BaseImageModel]] = {
 def _is_maas_endpoint(base_url: str) -> bool:
     """True when *base_url*'s host is maas.aliyuncs.com or a subdomain.
 
-    Hostname parsing (instead of substring matching) keeps lookalike
-    URLs such as ``https://evil.example/.maas.aliyuncs.com`` from
-    selecting the DashScope backend.
+    Delegates to ``model_config.is_maas_endpoint``: the media transport
+    classifies the same host to pick an upload route, and two private copies
+    of the match are how a backend and its transport start disagreeing.
     """
-    candidate = base_url if "://" in base_url else f"//{base_url}"
-    try:
-        hostname = (urlsplit(candidate).hostname or "").casefold()
-    except ValueError:
-        return False
-    return hostname == "maas.aliyuncs.com" or hostname.endswith(
-        ".maas.aliyuncs.com",
-    )
+    return model_config.is_maas_endpoint(base_url)
 
 
 def _detect_backend_from_names(model_name: str, base_url: str) -> str | None:
@@ -181,7 +174,7 @@ def image_backend_for_protocol(protocol: str) -> str | None:
     p = protocol.casefold()
     if "dashscope" in p or "百炼" in p:
         return "DASHSCOPE"
-    if "token plan" in p or "tokenplan" in p:
+    if model_config.is_token_plan_protocol(p):
         return "DASHSCOPE"
     if "gemini" in p:
         return "GEMINI"

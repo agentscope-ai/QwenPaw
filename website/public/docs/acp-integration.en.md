@@ -125,7 +125,7 @@ If you need agent-to-agent collaboration, use **ACP as a Tool**.
 
 ## QwenPaw as an ACP Server
 
-In this mode, QwenPaw exposes itself as an [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) compliant agent service over stdio JSON-RPC. External clients, such as [Zed](https://zed.dev), [OpenCode](https://github.com/nicholasgasior/opencode), or any ACP-compatible editor, can connect to QwenPaw via the `qwenpaw acp` command and interact with it programmatically.
+In this mode, QwenPaw exposes itself as an [Agent Client Protocol (ACP)](https://github.com/agentclientprotocol/python-sdk) compliant agent service over stdio JSON-RPC. External clients, such as [Zed](https://zed.dev), [OpenCode](https://github.com/anomalyco/opencode), or any ACP-compatible editor, can connect to QwenPaw via the `qwenpaw acp` command and interact with it programmatically.
 
 ### Quick Start
 

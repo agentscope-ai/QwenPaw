@@ -28,6 +28,7 @@ from .events import EventSubscription
 from .apps import PawApp
 
 if TYPE_CHECKING:
+    from .harnesses import HarnessSpec
     from .logging import PluginLogger
 
 
@@ -341,6 +342,7 @@ class PluginContext:  # pylint: disable=protected-access
         *,
         deadline=None,
         resources=None,
+        wait_for_cleanup=False,
     ):
         """A producer owns the complete stream, including suspended yields."""
         from .custody import stop_task
@@ -398,7 +400,18 @@ class PluginContext:  # pylint: disable=protected-access
                     if not receiver.done():
                         receiver.cancel()
         finally:
-            await stop_task(producer, label)
+            if wait_for_cleanup:
+                from ..utils.io_utils import run_async_to_completion
+
+                # The channel request must retain this producer through its
+                # complete cleanup. Lifecycle owns its separate wait budget.
+                if not producer.done() and not producer.cancelling():
+                    producer.cancel()
+                await run_async_to_completion(
+                    asyncio.gather(producer, return_exceptions=True),
+                )
+            else:
+                await stop_task(producer, label)
 
     def register_channel(self, spec: ChannelSpec) -> Registration:
         from ._channels import register
@@ -648,12 +661,16 @@ class PluginContext:  # pylint: disable=protected-access
                         state=state,
                         is_last=event.kind == "end",
                         metadata=_tool_metadata(
-                            author_metadata
-                            if event.kind == "end"
-                            else result.metadata,
-                            accumulated.content
-                            if event.kind == "end"
-                            else blocks,
+                            (
+                                author_metadata
+                                if event.kind == "end"
+                                else result.metadata
+                            ),
+                            (
+                                accumulated.content
+                                if event.kind == "end"
+                                else blocks
+                            ),
                             event.kind,
                             failed,
                             (
@@ -944,7 +961,7 @@ class PluginContext:  # pylint: disable=protected-access
                         )
                     result = task.result()
                 finally:
-                    if not task.done():
+                    if not task.done() and not task.cancelling():
                         task.cancel()
                 context._guard()
                 if not isinstance(result, HookResult):
@@ -1359,6 +1376,11 @@ class PluginContext:  # pylint: disable=protected-access
 
     def register_memory(self, spec: MemorySpec) -> Registration:
         from ._memory import register
+
+        return register(self, spec)
+
+    def register_harness(self, spec: HarnessSpec) -> Registration:
+        from ._harnesses import register
 
         return register(self, spec)
 

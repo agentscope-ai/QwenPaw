@@ -1,0 +1,82 @@
+{
+  "release": "piccolo-v1",
+  "upstream_commit": "f4d8af608a6b39946406f9439edfb6e83ca6a923",
+  "patch_sha256": "e20000f7b4bcfd6fc497db93cfc9f5d3a8a88f961b4d30098152ebe21ba5ebca",
+  "base_url": "https://download.qwenpaw.agentscope.io/files/models/llama_cpp",
+  "targets": [
+    {
+      "id": "macos-arm64",
+      "runner": "macos-26",
+      "os": "macos",
+      "arch": "arm64",
+      "backend": "metal"
+    },
+    {
+      "id": "macos-x64",
+      "runner": "macos-15-intel",
+      "os": "macos",
+      "arch": "x64",
+      "backend": "metal"
+    },
+    {
+      "id": "ubuntu-x64",
+      "runner": "ubuntu-22.04",
+      "os": "linux",
+      "arch": "x64",
+      "backend": "cpu"
+    },
+    {
+      "id": "ubuntu-arm64",
+      "runner": "ubuntu-24.04-arm",
+      "os": "linux",
+      "arch": "arm64",
+      "backend": "cpu"
+    },
+    {
+      "id": "win-cpu-x64",
+      "runner": "windows-2022",
+      "os": "windows",
+      "arch": "x64",
+      "backend": "cpu"
+    },
+    {
+      "id": "win-cpu-arm64",
+      "runner": "windows-11-arm",
+      "os": "windows",
+      "arch": "arm64",
+      "backend": "cpu"
+    },
+    {
+      "id": "win-cuda-12.4-x64",
+      "runner": "windows-2022",
+      "os": "windows",
+      "arch": "x64",
+      "backend": "cuda",
+      "cuda": "12.4.1"
+    },
+    {
+      "id": "win-cuda-13.1-x64",
+      "runner": "windows-2022",
+      "os": "windows",
+      "arch": "x64",
+      "backend": "cuda",
+      "cuda": "13.1.1"
+    }
+  ],
+  "smoke_models": {
+    "flash": {
+      "repo": "agentscope-ai/QwenPaw-Flash-2B-Q4_K_M",
+      "revision": "18f17bf4a9f1be3897bc18758be512983206f89c",
+      "files": [
+        "QwenPaw-flash-2B-20260330-q4.gguf"
+      ]
+    },
+    "piccolo": {
+      "repo": "agentscope-ai/Piccolo-4B-Q4_K_M",
+      "revision": "f59bb3818035bf8d5ec812c7a7022d9b03985f12",
+      "files": [
+        "Piccolo-4B-Q4_K_M.gguf"
+      ]
+    }
+  }
+}

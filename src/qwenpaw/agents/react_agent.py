@@ -15,7 +15,7 @@ import asyncio
 import logging
 import re
 import uuid
-from functools import partial
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -37,7 +37,10 @@ from .context.types import DecisionCompactionResult
 from .injected_events import merge_injected_events
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
-from .utils.message_request_normalizer import _is_media_block
+from .utils.message_request_normalizer import (
+    _is_media_block,
+    mark_media_omitted_after_overflow,
+)
 from .utils.text_block_utils import (
     drop_empty_text_blocks,
     sanitize_empty_text_blocks,
@@ -50,7 +53,10 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..loop.gates import StopAction, StopHandlerResult
-from ..providers.error_utils import extract_status_code
+from ..providers.error_utils import (
+    extract_status_code,
+    is_request_body_too_large,
+)
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
 from ..providers.adapters.request_context import model_session
@@ -589,9 +595,9 @@ class QwenPawAgent(Agent):
 
         await self._close_decision_compactor()
 
-        # Scroll history: apply the retention window (if any) while the
-        # connection is still open, then release it (db + -wal + -shm fds —
-        # otherwise they accumulate across requests on a long-lived server).
+        # Apply retention while history is available, then retire the request's
+        # manager. Workspace-owned history stays open for subsequent requests;
+        # standalone managers close their own connection.
         cm = getattr(self, "_context_manager", None)
         if cm is not None:
             if hasattr(cm, "purge_old"):
@@ -922,7 +928,7 @@ class QwenPawAgent(Agent):
 
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:
-        """Return whether *exc* is a provider 400 for an oversized input.
+        """Return whether *exc* rejects the token context length.
 
         A bare 400 is deliberately insufficient: malformed tool schemas,
         unsupported parameters, and media errors must keep their existing
@@ -952,6 +958,11 @@ class QwenPawAgent(Agent):
             return True
 
         overflow_marker_groups = (
+            (
+                "the input (",
+                "tokens)",
+                "is longer than the model's context length",
+            ),
             ("tokens", "exceeds the available context size"),
             (
                 "input token count",
@@ -973,17 +984,35 @@ class QwenPawAgent(Agent):
         tools: list[dict],
         tool_choice: Any = None,
     ) -> Any:
-        """Call the model, recovering once from a provider input overflow.
+        """Call the model with at most two context recovery attempts.
 
-        When the provider rejects the request as too large, let the configured
-        context manager attempt recovery. Rebuild and retry only when that
-        recovery changed the model input. The retry calls AgentScope directly,
-        so a second overflow propagates instead of entering a recovery loop.
+        Body-size rejections omit media from request copies; token overflows
+        delegate to the context manager. Rebuild and retry only when recovery
+        changed the model input. Invocation and streaming share the budget.
         """
         self._index_tool_schemas(tools)
-        return await call_with_overflow_recovery(
-            super()._call_model,
-            partial(self._recover_model_overflow, tool_choice=tool_choice),
+        remaining = 2
+        call_model = super()._call_model
+
+        async def recover(exc: Exception) -> Any:
+            nonlocal remaining
+            if remaining == 0:
+                raise exc
+            remaining -= 1
+            return await self._recover_model_overflow(
+                exc,
+                tool_choice=tool_choice,
+                retry=call,
+            )
+
+        async def call(**kwargs: Any) -> Any:
+            return await call_with_overflow_recovery(
+                call_model,
+                recover,
+                **kwargs,
+            )
+
+        return await call(
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
@@ -993,19 +1022,34 @@ class QwenPawAgent(Agent):
         self,
         exc: Exception,
         tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
     ) -> Any:
-        """Compact rejected input and retry once through AgentScope."""
+        """Perform one recovery step within the caller's shared budget."""
+        body_overflow = is_request_body_too_large(exc)
+        if body_overflow and self._last_wire_request_had_media():
+            omitted = mark_media_omitted_after_overflow(self.state.context)
+            if omitted:
+                logger.warning(
+                    "Request body exceeded the limit; omitting %d "
+                    "historical media block(s) and retrying once.",
+                    omitted,
+                )
+                return await self._retry_with_refreshed_input(tool_choice)
+            # Context recovery can fold consumed tool results in the active
+            # turn. Do not silently remove media the user is asking about.
+            raise exc
+
         context_manager = getattr(self, "_context_manager", None)
         if not isinstance(
             context_manager,
             ContextManager,
-        ) or not self._is_context_overflow_error(exc):
+        ) or not (body_overflow or self._is_context_overflow_error(exc)):
             raise exc
 
         before = len(getattr(self.state, "context", []) or [])
         logger.warning(
-            "Model input exceeded the provider context limit; attempting "
-            "one context recovery.",
+            "Model input exceeded a size limit; attempting "
+            "a context recovery step.",
         )
         input_changed = await context_manager.recover_from_context_overflow(
             self,
@@ -1018,21 +1062,26 @@ class QwenPawAgent(Agent):
             raise exc
         after = len(getattr(self.state, "context", []) or [])
 
-        # The original `messages` list was prepared before compaction and
-        # can still reference evicted turns.  Always rebuild it from the
-        # updated agent state before retrying.
-        refreshed = await self._prepare_model_input()
-        refreshed_messages = refreshed["messages"]
-        refreshed_tools = refreshed.get("tools", [])
-        self._index_tool_schemas(refreshed_tools)
         logger.info(
             "Context-overflow recovery rebuilt model input "
             "(messages %d -> %d).",
             before,
             after,
         )
-        return await super()._call_model(
-            messages=refreshed_messages,
+        return await self._retry_with_refreshed_input(tool_choice, retry=retry)
+
+    async def _retry_with_refreshed_input(
+        self,
+        tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
+    ) -> Any:
+        """Rebuild input and use the caller's bounded retry when supplied."""
+        refreshed = await self._prepare_model_input()
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        call_model = retry or super()._call_model
+        return await call_model(
+            messages=refreshed["messages"],
             tools=refreshed_tools,
             tool_choice=tool_choice,
         )

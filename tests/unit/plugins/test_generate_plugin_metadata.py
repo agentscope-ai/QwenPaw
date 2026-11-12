@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import zipfile
 from pathlib import Path
@@ -24,10 +25,12 @@ sys.path.insert(
 from generate_plugin_metadata import (  # noqa: E402
     _iter_tree_relpaths,
     _normalize_pack_exclude,
-    _validate_declared_entries,
     _zip_plugin,
+    discover_and_pack,
     get_version,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_structured_qwenpaw_version_passthrough() -> None:
@@ -180,20 +183,6 @@ def test_normalize_pack_exclude_drops_traversal_and_empty() -> None:
     assert not _normalize_pack_exclude(manifest)
 
 
-def test_iter_tree_relpaths_prunes_pack_exclude(tmp_path: Path) -> None:
-    plugin_dir = _make_plugin_tree(tmp_path)
-    rels = _iter_tree_relpaths(plugin_dir, _demo_manifest())
-    assert "backend/main.py" in rels
-    assert "backend/api/router.py" in rels
-    assert "ui/dist/index.js" in rels
-    assert "plugin.json" in rels
-    assert "backend/tests/test_api.py" not in rels
-    assert "backend/pytest.ini" not in rels
-    assert "e2e/test_shell.py" not in rels
-    assert "ui/src/App.tsx" not in rels
-    assert "ui/package.json" not in rels
-
-
 def test_pack_exclude_never_drops_manifest_or_entries(
     tmp_path: Path,
 ) -> None:
@@ -209,16 +198,6 @@ def test_pack_exclude_never_drops_manifest_or_entries(
     assert "plugin.json" in rels
     assert "backend/main.py" in rels
     assert "ui/dist/index.js" in rels
-
-
-def test_iter_tree_relpaths_are_posix_on_every_platform(
-    tmp_path: Path,
-) -> None:
-    """Relpaths never carry a native separator (Windows regression guard)."""
-    plugin_dir = _make_plugin_tree(tmp_path)
-    rels = _iter_tree_relpaths(plugin_dir, _demo_manifest())
-    assert rels
-    assert not any("\\" in rel for rel in rels)
 
 
 def test_pack_exclude_exact_prefix_no_sibling_bleed(tmp_path: Path) -> None:
@@ -251,23 +230,6 @@ def test_zip_plugin_applies_pack_exclude(tmp_path: Path) -> None:
     assert not any("ui/src" in n for n in names)
 
 
-def test_validate_declared_entries_rejects_missing_frontend(
-    tmp_path: Path,
-) -> None:
-    plugin_dir = _make_plugin_tree(tmp_path)
-    manifest = _demo_manifest()
-    (plugin_dir / "ui/dist/index.js").unlink()
-
-    with pytest.raises(
-        FileNotFoundError,
-        match=(
-            r"cannot package demo-plugin: declared entry file\(s\) "
-            r"missing: ui/dist/index.js"
-        ),
-    ):
-        _validate_declared_entries(plugin_dir, manifest)
-
-
 def test_zip_plugin_missing_entry_leaves_no_artifact(tmp_path: Path) -> None:
     plugin_dir = _make_plugin_tree(tmp_path)
     manifest = _demo_manifest()
@@ -291,3 +253,102 @@ def test_zip_plugin_without_manifest_packs_everything(
         names = set(zf.namelist())
     assert "demo-plugin/backend/tests/test_api.py" in names
     assert "demo-plugin/ui/src/App.tsx" in names
+
+
+def _copy_harness_plugins(root: Path) -> Path:
+    plugins_root = root / "plugins"
+    for vendor in ("codex", "qoder"):
+        shutil.copytree(
+            REPO_ROOT / "plugins" / "harness" / vendor,
+            plugins_root / "harness" / vendor,
+            ignore=shutil.ignore_patterns(
+                "node_modules",
+                "dist",
+                "__pycache__",
+                ".pytest_cache",
+            ),
+        )
+        # Backend unit CI has no frontend build. Supply only the declared
+        # entry; compiled bundles are covered by the Harness packaging job.
+        frontend_entry = (
+            plugins_root / "harness" / vendor / "frontend/dist/index.js"
+        )
+        frontend_entry.parent.mkdir(parents=True)
+        frontend_entry.write_text("export {};\n", encoding="utf-8")
+    return plugins_root
+
+
+def test_real_harness_archives_contain_own_entries_and_frontends(
+    tmp_path: Path,
+) -> None:
+    plugins_root = _copy_harness_plugins(tmp_path)
+    dist = tmp_path / "dist"
+    index, failed = discover_and_pack(plugins_root, dist, "/files/plugins")
+
+    assert not failed
+    expected = {"codex", "qoder"}
+    assert set(index["platforms"]["harness"]["versions"]) == {
+        f"qwenpaw-harness-{vendor}-1.0.0" for vendor in expected
+    }
+    for vendor in expected:
+        plugin_id = f"qwenpaw-harness-{vendor}"
+        archive_path = dist / "harness" / plugin_id / f"{plugin_id}-1.0.0.zip"
+        with zipfile.ZipFile(archive_path) as archive:
+            names = set(archive.namelist())
+            requirements = archive.read(
+                f"{plugin_id}/requirements.txt",
+            ).decode()
+        assert f"{plugin_id}/plugin.json" in names
+        assert f"{plugin_id}/main.py" in names
+        assert f"{plugin_id}/io_helpers.py" in names
+        assert f"{plugin_id}/frontend/dist/index.js" in names
+        assert not any(
+            part in {"_shared", "node_modules", "__pycache__"}
+            for name in names
+            for part in Path(name).parts
+        )
+        assert not any(
+            name.startswith(f"{plugin_id}/frontend/src/") for name in names
+        )
+        assert not any(
+            name.startswith(f"{plugin_id}/tests/") for name in names
+        )
+        other = (expected - {vendor}).pop()
+        assert not any(other in name for name in names)
+        assert other not in requirements
+        assert index["files"][f"{plugin_id}-1.0.0"]["platform"] == "harness"
+
+
+def test_private_channel_zip_preserves_runtime_and_source_manifest(tmp_path):
+    """Local zipper supports private previews while honoring exclusions."""
+    plugin_dir = tmp_path / "channel-preview"
+    plugin_dir.mkdir()
+    manifest = {
+        "id": "channel-preview",
+        "version": "0.1.0",
+        "type": "channel",
+        "publish": False,
+        "entry": {"backend": "plugin.py"},
+        "pack_exclude": ["tests"],
+    }
+    manifest_bytes = json.dumps(manifest).encode()
+    (plugin_dir / "plugin.json").write_bytes(manifest_bytes)
+    (plugin_dir / "plugin.py").write_text("from .channel import Channel\n")
+    (plugin_dir / "channel.py").write_text("class Channel: pass\n")
+    (plugin_dir / "requirements.txt").write_text("example-sdk>=1.0\n")
+    (plugin_dir / "tests").mkdir()
+    (plugin_dir / "tests/test_channel.py").write_text("assert True\n")
+    archive = tmp_path / "preview.zip"
+
+    _zip_plugin(plugin_dir, archive, manifest)
+
+    with zipfile.ZipFile(archive) as zipped:
+        assert zipped.testzip() is None
+        assert set(zipped.namelist()) == {
+            "channel-preview/plugin.json",
+            "channel-preview/plugin.py",
+            "channel-preview/channel.py",
+            "channel-preview/requirements.txt",
+        }
+        assert zipped.read("channel-preview/plugin.json") == manifest_bytes
+    assert (plugin_dir / "plugin.json").read_bytes() == manifest_bytes

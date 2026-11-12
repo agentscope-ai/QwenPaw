@@ -3,12 +3,17 @@
 import { getApiToken, getApiUrl } from "../api/config";
 import { removePluginRuntime } from "./pluginRuntimeCleanup";
 import { routeRegistry } from "./registry/store";
+import { subscribeToPluginChanges } from "../utils/pluginChangeEvents";
+import { harnessRegistry, refreshHarnessCatalog } from "./harnesses";
 
 interface FrontendPluginInfo {
   id: string;
   name: string;
   plugin_type?: string;
   frontend_entry?: string;
+  enabled?: boolean;
+  status?: string;
+  harnesses?: string[];
 }
 
 export interface PluginLoadSummary {
@@ -17,6 +22,38 @@ export interface PluginLoadSummary {
 }
 
 const loadingPlugins = new Map<string, Promise<void>>();
+let revision = 0;
+let stopChanges: (() => void) | undefined;
+
+function watchChanges(): void {
+  if (stopChanges) return;
+  const reconcile = () => {
+    harnessRegistry.invalidateCatalog();
+    void refreshHarnessCatalog()
+      .then(async () => {
+        const pending = new Set<string>();
+        for (const row of harnessRegistry.getSnapshot()) {
+          if (!row.plugin_id) continue;
+          if (row.status !== "available") removePluginRuntime(row.plugin_id);
+          else if (!harnessRegistry.getSettings(row.id))
+            pending.add(row.plugin_id);
+        }
+        await Promise.allSettled([...pending].map(reloadFrontendPlugin));
+      })
+      .catch((error) =>
+        console.warn("[PluginLoader] catalog refresh failed:", error),
+      );
+  };
+  const stopPlugins = subscribeToPluginChanges(() => {
+    revision += 1;
+    reconcile();
+  });
+  window.addEventListener("qwenpaw:auth-changed", reconcile);
+  stopChanges = () => {
+    stopPlugins();
+    window.removeEventListener("qwenpaw:auth-changed", reconcile);
+  };
+}
 
 function authHeaders(): Record<string, string> {
   const token = getApiToken();
@@ -37,14 +74,52 @@ async function fetchFrontendPlugins(): Promise<FrontendPluginInfo[]> {
   return response.json();
 }
 
-async function executePluginScript(entryUrl: string): Promise<void> {
+function canExecute(plugin: FrontendPluginInfo): boolean {
+  if (
+    !plugin.frontend_entry ||
+    plugin.enabled === false ||
+    (plugin.status !== undefined && plugin.status !== "active")
+  )
+    return false;
+  const catalog = harnessRegistry.getSnapshot();
+  const declared =
+    plugin.harnesses ??
+    catalog.filter((row) => row.plugin_id === plugin.id).map((row) => row.id);
+  return declared.every((id) =>
+    catalog.some(
+      (row) =>
+        row.id === id &&
+        row.plugin_id === plugin.id &&
+        row.status === "available",
+    ),
+  );
+}
+
+async function executePluginScript(plugin: FrontendPluginInfo): Promise<void> {
+  const started = revision;
+  const harness =
+    Boolean(plugin.harnesses?.length) ||
+    harnessRegistry.getSnapshot().some((row) => row.plugin_id === plugin.id);
+  const entryUrl = resolveUrl(plugin.id, plugin.frontend_entry!);
   const response = await fetch(entryUrl, { headers: authHeaders() });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${entryUrl}`);
   }
 
+  const source = await response.text();
+  if (started !== revision) {
+    if (!harness) {
+      const current = (await fetchFrontendPlugins()).find(
+        (item) => item.id === plugin.id,
+      );
+      if (current && canExecute(current)) return executePluginScript(current);
+    }
+    throw new Error(`Plugin became unavailable before execution: ${plugin.id}`);
+  }
+  if (!canExecute(plugin))
+    throw new Error(`Plugin became unavailable before execution: ${plugin.id}`);
   const blobUrl = URL.createObjectURL(
-    new Blob([await response.text()], { type: "application/javascript" }),
+    new Blob([source], { type: "application/javascript" }),
   );
   try {
     await import(/* @vite-ignore */ blobUrl);
@@ -55,6 +130,7 @@ async function executePluginScript(entryUrl: string): Promise<void> {
 
 /** Load every installed frontend plugin during Console startup. */
 export async function loadAllPlugins(): Promise<PluginLoadSummary> {
+  watchChanges();
   let plugins: FrontendPluginInfo[];
   try {
     plugins = await fetchFrontendPlugins();
@@ -63,11 +139,11 @@ export async function loadAllPlugins(): Promise<PluginLoadSummary> {
     return { loaded: 0, failed: [] };
   }
 
-  const loadable = plugins.filter((plugin) => plugin.frontend_entry);
+  // SDK Harness entries require the authoritative active owner snapshot.
+  await refreshHarnessCatalog().catch(() => {});
+  const loadable = plugins.filter(canExecute);
   const results = await Promise.allSettled(
-    loadable.map((plugin) =>
-      executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry!)),
-    ),
+    loadable.map((plugin) => executePluginScript(plugin)),
   );
   const failed = results.flatMap((result, index) =>
     result.status === "rejected"
@@ -87,6 +163,9 @@ function loadFrontendPlugin(
   pluginId: string,
   options: LoadPluginOptions = {},
 ): Promise<void> {
+  watchChanges();
+  const pending = loadingPlugins.get(pluginId);
+  if (pending) return pending;
   const registered = () =>
     routeRegistry
       .snapshot()
@@ -105,6 +184,7 @@ function loadFrontendPlugin(
     const plugins = await fetchFrontendPlugins();
     const plugin = plugins.find((item) => item.id === pluginId);
     if (!plugin?.frontend_entry) {
+      removePluginRuntime(pluginId);
       if (options.expectedType === "app") {
         throw new Error(`PawApp frontend plugin not found: ${pluginId}`);
       }
@@ -115,7 +195,14 @@ function loadFrontendPlugin(
     }
     if (options.force) removePluginRuntime(pluginId);
     try {
-      await executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry));
+      await refreshHarnessCatalog().catch(() => {});
+      if (!canExecute(plugin)) {
+        removePluginRuntime(pluginId);
+        if (options.expectedType === "app")
+          throw new Error(`PawApp frontend plugin is unavailable: ${pluginId}`);
+        return;
+      }
+      await executePluginScript(plugin);
       if (options.expectedType === "app" && !registered()) {
         throw new Error(`PawApp ${pluginId} did not register its app route`);
       }
@@ -170,9 +257,11 @@ export function reloadPawApp(appId: string, entryPage?: string): Promise<void> {
 export function reloadFrontendPlugin(pluginId: string): Promise<boolean> {
   const pending = loadingPlugins.get(pluginId);
   if (pending) {
-    return pending.then(() =>
-      loadFrontendPlugin(pluginId, { force: true }).then(() => true),
-    );
+    return pending
+      .catch(() => {})
+      .then(() =>
+        loadFrontendPlugin(pluginId, { force: true }).then(() => true),
+      );
   }
   return loadFrontendPlugin(pluginId, { force: true }).then(() => true);
 }
@@ -180,4 +269,7 @@ export function reloadFrontendPlugin(pluginId: string): Promise<boolean> {
 /** Reset pending loads between unit tests. */
 export function resetPawAppLoaderForTests(): void {
   loadingPlugins.clear();
+  stopChanges?.();
+  stopChanges = undefined;
+  revision = 0;
 }

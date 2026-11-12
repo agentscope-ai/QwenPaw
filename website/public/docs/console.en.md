@@ -94,11 +94,28 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
-current agent.
+current conversation. This selection is saved with the conversation and leaves
+the agent default unchanged. Clear the conversation override in the selector to
+inherit the agent default again.
+
+Normal replies, manual `/compact`, `/history` context limits, and automatic
+chat-title generation follow this selection. Reasoning preferences are stored
+separately for each provider/model in the conversation. Image/video capability
+checks and on-demand probes follow the model executing the turn, including a
+configured fallback model when one is used.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send
 button (↑). QwenPaw replies in real time.
+
+**Quote a response:**
+Select text in an assistant reply (including code), then click **Quote to follow-up**.
+On touch screens, long-press to select text; keyboard users can press
+**Alt+Shift+Q** after selecting. **Escape** dismisses the action.
+The selected text is appended to your current draft as an editable Markdown
+blockquote (`>`), with line breaks and indentation preserved. Add your question
+and send normally; the quote is part of your user message. Drafts stay separate
+for each conversation and agent.
 
 **Voice input:**
 The composer supports **voice input** (browser and OS microphone permission
@@ -306,12 +323,26 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries. Click a
 date to view or edit that day's memory.
 
-**Download workspace:**
-Click **Download** to export the entire workspace as a `.zip` to your machine.
+**Browse memory tags:**
+With ReMe Light, select **Tags** beside Workspace, Profile, Daily and Knowledge
+Base to see tags and their file counts. Select a tag to browse matching files,
+or click a tag in a memory file's preview to open the same list. Results are
+paginated, and opening a result reuses the existing file editor.
+Tag browsing searches the existing memory index, which automatically indexes
+the configured daily and digest directories. A preview tag can find related
+indexed memories even when the current workspace file is outside those
+directories; that file will not appear unless it has been indexed. Other
+memory backends do not expose the Tags tab or clickable preview tags.
 
-**Upload/restore workspace:**
-Click **Upload** → choose a `.zip` (max 100 MB). Existing workspace files will be
-replaced. Useful for migration and backup restore.
+**Workspace backup and restore:**
+Use **Settings → Backup** to create, export, import, and restore backups.
+See [Backup & Restore](./backup).
+
+The legacy `GET /api/workspace/download` and `POST /api/workspace/upload`
+endpoints, including their `/api/agents/{agentId}/workspace/...` variants,
+have been removed. API clients must migrate to the `/api/backups` APIs.
+Legacy workspace ZIPs are not compatible with the backup format; extract
+individual files locally and upload them through Files if needed.
 
 ---
 
@@ -649,6 +680,20 @@ python -c "import whisper; print('openai-whisper installed')"
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
 | Token Usage           | Settings → Token Usage         | Usage by date/model                            |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
+
+---
+
+## Community account connection
+
+Under **Settings → Community & Messages**, enter your Platform account and password and select **Save and connect**. Replacement credentials are validated before changing the existing connection. Leaving the password blank reuses the saved password only for the same account. Disconnecting pauses automatic login; **Forget saved credentials** removes the stored account and password.
+
+Credentials are encrypted in `SECRET_DIR/community_credentials.json`. They are not exported to tool process environments or exposed in general environment settings. The credential file and encryption key reside in the private directory protected by File Guard; POSIX permissions are `0600` for the file and `0700` for the directory. File Guard does not provide OS-level isolation against arbitrary code running as the same user. Keep it enabled and use an appropriate sandbox for untrusted tools.
+
+Persist the private directory and its key when recreating Docker containers, and retain the working directory to preserve the existing connection state. Save and update community credentials through the settings page; deployment environment variables are not used for login.
+
+Password login relies on the deployment entry point and existing QwenPaw access controls. It does not add a separate local-login requirement, backend HTTPS check, or Hub origin header requirement. Users accessing an instance through an authenticated gateway such as AgentScope Platform can use the password form directly; Docker port mapping and proxy forwarding do not disable it. Self-hosted deployments should protect instance access at the entry point and use HTTPS to protect credentials in transit. Browser authorization still requires the computer running QwenPaw.
+
+Password submissions require `Content-Type: application/json`; plain-text and form submissions are rejected to prevent cross-site login requests that bypass CORS preflight. Keep `QWENPAW_CORS_ORIGINS` unset for a same-origin web console, or list only trusted frontend origins when cross-origin access is needed. Do not allow arbitrary origins or `*` in QwenPaw or the gateway's CORS policy. Gateway authentication alone does not prevent login CSRF when a browser automatically supplies its login cookies.
 
 ---
 

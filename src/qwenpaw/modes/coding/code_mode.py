@@ -95,7 +95,8 @@ def _describe_catalog(catalog: dict[str, dict]) -> str:
         )
     if "execute_shell_command" in catalog:
         examples.append(
-            f'r = await tools.execute_shell_command(command="pwd"); '
+            f"r = await tools.execute_shell_command("
+            f'command="pwd", title="Inspect the working directory"); '
             f'text(r["content"])',
         )
     summaries = []
@@ -398,7 +399,7 @@ class _Script:
             raise ValueError(f"Code media output exceeded 16 MiB")
         self.output.append(data)
 
-    async def invoke(self, name: str, *positional, **arguments) -> dict:
+    async def invoke(self, name: str, /, *positional, **arguments) -> dict:
         if positional:
             raise TypeError(
                 f"tools.{self.python_names[name]} requires keyword arguments; "

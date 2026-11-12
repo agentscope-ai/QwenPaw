@@ -839,9 +839,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs
                     else dict(self.generate_kwargs)
                 )
+                self._apply_thinking_config(model_id, result)
                 self._apply_agent_thinking_level(result, model_id)
                 return result
         result = dict(self.generate_kwargs)
+        self._apply_thinking_config(model_id, result)
         self._apply_agent_thinking_level(result, model_id)
         return result
 
@@ -999,9 +1001,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             level,
             _THINKING_BUDGET.get(),
         )
+        self._replace_thinking_kwargs(effective, override)
+
+    def _replace_thinking_kwargs(
+        self,
+        effective: dict,
+        override: dict,
+    ) -> None:
+        """Replace reasoning controls without mutating shared settings."""
         if not override:
             return
         for key in (
+            "enable_thinking",
             "thinking_enable",
             "thinking_budget",
             "reasoning_effort",
@@ -1023,6 +1034,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking",
             ):
                 extra_body.pop(key, None)
+            template = extra_body.get("chat_template_kwargs")
+            if isinstance(template, dict):
+                template = dict(template)
+                for key in ("enable_thinking", "reasoning_effort"):
+                    template.pop(key, None)
+                if template:
+                    extra_body["chat_template_kwargs"] = template
+                else:
+                    extra_body.pop("chat_template_kwargs", None)
         effective.update(self._deep_merge(effective, override))
 
     def _uses_compat_thinking_controls(self, model_id: str) -> bool:
@@ -1034,6 +1054,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         official OpenAI reasoning parameter set.
         """
         info = self.get_model_info(model_id)
+        declared = (
+            info.thinking_control if info is not None else None
+        ) or self.default_thinking_control
+        if declared is not None:
+            return declared.wire in {"compat_budget", "compat_effort"}
         return info is not None and (
             getattr(info, "thinking_enabled", None) is not None
             or getattr(info, "thinking_param_style", None) is not None
@@ -1117,6 +1142,44 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Update per-model configuration (e.g. generate_kwargs)."""
         for model in Provider.all_models(self) + self.discovered_models:
             if model.id == model_id:
+                # Validate every input that can fail before mutating
+                # the model, so a rejected update leaves no partial
+                # changes behind. The checks below mirror, in order,
+                # the validations in the application phase that follows.
+                if "model_type" in config:
+                    if config["model_type"] not in ("chat", "decision"):
+                        raise ValueError(
+                            "model_type must be chat or decision",
+                        )
+                for field in (
+                    f"supports_image",
+                    f"supports_video",
+                    f"supports_audio",
+                    f"supports_tool_calling",
+                ):
+                    if field not in config:
+                        continue
+                    value = config[field]
+                    if value is not None and type(value) is not bool:
+                        raise ValueError(f"{field} must be boolean or null")
+                if f"thinking_control" in config:
+                    raw_control = config[f"thinking_control"]
+                    if raw_control is not None:
+                        ThinkingControl.model_validate(raw_control)
+                if (
+                    "max_input_length" in config
+                    and config["max_input_length"] is not None
+                    and int(config["max_input_length"]) < 1000
+                ):
+                    raise ValueError(
+                        "max_input_length must be at least 1000",
+                    )
+                if (
+                    "thinking_budget" in config
+                    and config["thinking_budget"] is not None
+                    and int(config["thinking_budget"]) < 1
+                ):
+                    raise ValueError("thinking_budget must be at least 1")
                 changed_fields: list[str] = []
                 if "model_type" in config:
                     value = config["model_type"]
@@ -1200,6 +1263,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     and config["max_input_length"] is not None
                 ):
                     max_input_length = int(config["max_input_length"])
+                    if max_input_length < 1000:
+                        raise ValueError(
+                            "max_input_length must be at least 1000",
+                        )
                     if (
                         model.max_input_length != max_input_length
                         or not model.max_input_length_configured
@@ -1235,6 +1302,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         if config["thinking_budget"] is not None
                         else None
                     )
+                    if thinking_budget is not None and thinking_budget < 1:
+                        raise ValueError(
+                            "thinking_budget must be at least 1",
+                        )
                     if model.thinking_budget != thinking_budget:
                         model.thinking_budget = thinking_budget
                         changed_fields.append("thinking_budget")

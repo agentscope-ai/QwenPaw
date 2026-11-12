@@ -62,6 +62,36 @@ def test_valid_config_without_push_passes():
     _validate_mail_config(_valid_mail())
 
 
+def test_conflicting_account_name_domain_rejected():
+    """Reject a full address whose domain differs from credential.domain."""
+    mail = _valid_mail()
+    mail.credential.name = "user@qq.com"
+    mail.credential.domain = "163.com"
+    with pytest.raises(HTTPException) as exc_info:
+        _validate_mail_config(mail)
+    assert exc_info.value.status_code == 400
+    detail = str(exc_info.value.detail)
+    assert "qq.com" in detail
+    assert "163.com" in detail
+    assert "credential.domain" in detail
+
+
+@pytest.mark.parametrize(
+    ("name", "domain"),
+    [
+        ("user@qq.com", "qq.com"),
+        ("User@QQ.COM", "qq.com"),
+        ("tester", "163.com"),
+    ],
+)
+def test_consistent_account_name_domain_passes(name, domain):
+    """Matching full addresses and local-part names stay valid."""
+    mail = _valid_mail()
+    mail.credential.name = name
+    mail.credential.domain = domain
+    _validate_mail_config(mail)
+
+
 def test_valid_push_config_passes():
     push = AgentMailPushConfig(
         mode="rules_then_agent",
@@ -393,7 +423,9 @@ def test_update_agent_rejects_mail_when_existing_backend_third_party():
     assert "qwenpaw backend" in exc_info.value.detail
 
 
-def test_update_agent_rejects_mail_with_explicit_third_party_backend():
+def test_update_agent_rejects_mail_with_explicit_third_party_backend(
+    installed_router_harnesses,
+):
     body = AgentProfileConfig(
         id="a1",
         name="bot",
@@ -663,7 +695,10 @@ def test_update_personal_mail_to_none_revokes_driver_card(tmp_path):
     assert not card_path.exists()
 
 
-def test_update_qwenpaw_to_third_party_revokes_driver_card(tmp_path):
+def test_update_qwenpaw_to_third_party_revokes_driver_card(
+    tmp_path,
+    installed_router_harnesses,
+):
     updated = _run_mail_revocation_update(
         tmp_path,
         AgentProfileConfig(

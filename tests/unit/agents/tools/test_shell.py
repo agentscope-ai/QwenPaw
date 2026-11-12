@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from agentscope.tool import FunctionTool, Toolkit
 import pytest
 
 from qwenpaw.agents.tools.shell import (
@@ -48,6 +49,7 @@ from qwenpaw.agents.tools.shell import (
     _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
+    execute_shell_command,
     smart_decode,
 )
 from qwenpaw.sandbox import (
@@ -1247,6 +1249,21 @@ class TestExecuteShellCommand:
     """Tests for execute_shell_command with mocked subprocess."""
 
     @pytest.mark.asyncio
+    async def test_schema_keeps_title_optional_and_command_required(self):
+        toolkit = Toolkit(tools=[FunctionTool(execute_shell_command)])
+
+        schemas = await toolkit.get_tool_schemas()
+        parameters = schemas[0]["function"]["parameters"]
+        title = parameters["properties"]["title"]
+
+        assert list(parameters["properties"])[:2] == ["command", "title"]
+        assert parameters["required"] == ["command"]
+        assert title["default"] == ""
+        assert "Always provide" in title["description"]
+        assert "current conversation language" in title["description"]
+        assert "never claim success" in title["description"]
+
+    @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
     @patch("qwenpaw.agents.tools.shell.get_tool_base_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
@@ -1636,6 +1653,10 @@ async def test_sandbox_extend_kill_survives_then_cancel_stops(tmp_path):
                 "asyncio.create_subprocess_exec",
                 new=AsyncMock(return_value=proc),
             ),
+            patch(
+                "asyncio.create_subprocess_shell",
+                new=AsyncMock(return_value=proc),
+            ),
             patch.object(sandbox, "stop", new=stop_mock),
         ):
             result = await _execute_in_sandbox(
@@ -1651,7 +1672,7 @@ async def test_sandbox_extend_kill_survives_then_cancel_stops(tmp_path):
         )
 
     async def extend_then_cancel() -> None:
-        await started.wait()
+        await asyncio.wait_for(started.wait(), timeout=3)
         await asyncio.sleep(0.04)
         ok = await coordinator.extend_kill_deadline(
             "call-sandbox-ext",
@@ -1720,6 +1741,10 @@ async def test_none_sandbox_execute_cancel_calls_stop(tmp_path):
     with (
         patch(
             "asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ),
+        patch(
+            "asyncio.create_subprocess_shell",
             new=AsyncMock(return_value=proc),
         ),
         patch.object(sandbox, "stop", new=stop_mock),

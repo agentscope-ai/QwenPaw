@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from qwenpaw.schemas import (
+    AgentResponse,
     MessageType,
     Message,
     RunStatus,
@@ -30,9 +31,12 @@ from qwenpaw.schemas import (
 
 from ....config.config import ConsoleConfig as ConsoleChannelConfig
 from ...console_push_store import append as push_store_append
+from ...notification_store import publish as publish_notification
 from ....constant import DEFAULT_MEDIA_DIR
 from ....token_usage.model_wrapper import TokenRecordingModelWrapper
 from ....exceptions import ModelQuotaExceededException
+from ....plugins.activity import PluginBusyError
+from ....plugins.errors import SDKError
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -400,6 +404,7 @@ class ConsoleChannel(BaseChannel):
         self._clear_session_turn_usage(session_id)
         user_id = getattr(request, "user_id", "") or ""
         channel_name = getattr(request, "channel", "") or self.channel
+        notification_session_id = session_id
 
         # Refresh the chat's updated_at so the console session list surfaces
         # this new message as the latest activity (issue #6131). stream_one is
@@ -411,11 +416,13 @@ class ConsoleChannel(BaseChannel):
             try:
                 chat_mgr = getattr(self._workspace, "chat_manager", None)
                 if chat_mgr is not None:
-                    await chat_mgr.touch_chat_by_session(
+                    touched_chat = await chat_mgr.touch_chat_by_session(
                         session_id=session_id,
                         channel=channel_name,
                         user_id=user_id or None,
                     )
+                    if touched_chat is not None:
+                        notification_session_id = touched_chat.id
             except Exception:  # pylint: disable=broad-except
                 logger.debug(
                     "failed to touch chat updated_at for session=%s",
@@ -536,6 +543,20 @@ class ConsoleChannel(BaseChannel):
                     request.session_id or f"{self.channel}:{to_handle}",
                 )
 
+            if (
+                not err_msg
+                and last_response is not None
+                and last_response.status == RunStatus.Completed
+                and session_id
+            ):
+                publish_notification(
+                    category=f"conversation",
+                    agent_id=getattr(self._workspace, f"agent_id", f"default"),
+                    title=f"QwenPaw",
+                    body=f"",
+                    session_id=notification_session_id,
+                )
+
         except asyncio.CancelledError:
             self._clear_session_turn_usage(session_id)
             raise
@@ -557,6 +578,25 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+            if isinstance(e, (SDKError, PluginBusyError)):
+                response = AgentResponse(
+                    object="response",
+                    session_id=session_id,
+                    status=RunStatus.Failed,
+                    error={
+                        "code": (
+                            "plugin_busy"
+                            if isinstance(e, PluginBusyError)
+                            else (
+                                "backend_unavailable"
+                                if err_msg.startswith("backend_unavailable:")
+                                else "sdk_error"
+                            )
+                        ),
+                        "message": err_msg,
+                    },
+                )
+                yield f"data: {self._serialize_event_for_sse(response)}\n\n"
         finally:
             try:
                 await self._on_response_cycle_end(session_id)

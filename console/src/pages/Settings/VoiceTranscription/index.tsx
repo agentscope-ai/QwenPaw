@@ -10,6 +10,7 @@ import {
   AudioModeCard,
   ProviderTypeCard,
   ProviderSelectCard,
+  TranscriptionModelCard,
 } from "./components";
 import styles from "./index.module.less";
 
@@ -26,6 +27,8 @@ function VoiceTranscriptionPage() {
     setProviderType,
     selectedProviderId,
     setSelectedProviderId,
+    transcriptionModel,
+    setTranscriptionModel,
     localWhisperStatus,
     availableProviders,
     showProviderSection,
@@ -131,6 +134,16 @@ function VoiceTranscriptionPage() {
                   selectedProviderId={selectedProviderId}
                   onProviderChange={(value) => {
                     setSelectedProviderId(value);
+                    schedule();
+                  }}
+                />
+              )}
+
+              {isWhisperApi && (
+                <TranscriptionModelCard
+                  transcriptionModel={transcriptionModel}
+                  onTranscriptionModelChange={(value) => {
+                    setTranscriptionModel(value);
                     schedule();
                   }}
                 />

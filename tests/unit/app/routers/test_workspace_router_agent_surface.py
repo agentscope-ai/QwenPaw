@@ -7,8 +7,8 @@ machinery (``test_workspace_router.py``), the filesystem helpers
 (``test_workspace_router_file_ops.py``). This one drives the remaining
 routes that project *agent* state — markdown files, memory files,
 language, system-prompt files, audio mode, transcription provider, the
-running-config read, the workspace zip download/upload guards and the
-slash-command menu — plus the pure secret-redaction helper.
+running-config read and the slash-command menu — plus the pure
+secret-redaction helper.
 """
 # pylint: disable=protected-access,use-implicit-booleaness-not-comparison
 # pylint: disable=unused-argument
@@ -821,6 +821,49 @@ async def test_put_transcription_provider_accepts_empty_unset() -> None:
     assert config.agents.transcription_provider_id == ""
 
 
+async def test_put_transcription_model_trims_and_persists() -> None:
+    config = SimpleNamespace(
+        agents=SimpleNamespace(transcription_model="whisper-1"),
+    )
+
+    async def fake_run_sync_io(fn, *args, **kwargs):
+        return fn(*args)
+
+    with patch.object(ws, "run_sync_io", new=fake_run_sync_io):
+        with patch.object(
+            ws,
+            "mutate_config",
+            lambda mutator: mutator(config),
+        ):
+            result = await ws.put_transcription_model(
+                {"transcription_model": "  FunAudioLLM/SenseVoiceSmall  "},
+            )
+    assert result == {"transcription_model": "FunAudioLLM/SenseVoiceSmall"}
+    assert config.agents.transcription_model == "FunAudioLLM/SenseVoiceSmall"
+
+
+async def test_put_transcription_model_accepts_empty_reset() -> None:
+    """``""`` resets to the built-in default and is not rejected."""
+    config = SimpleNamespace(
+        agents=SimpleNamespace(transcription_model="whisper-large-v3"),
+    )
+
+    async def fake_run_sync_io(fn, *args, **kwargs):
+        return fn(*args)
+
+    with patch.object(ws, "run_sync_io", new=fake_run_sync_io):
+        with patch.object(
+            ws,
+            "mutate_config",
+            lambda mutator: mutator(config),
+        ):
+            result = await ws.put_transcription_model(
+                {"transcription_model": ""},
+            )
+    assert result == {"transcription_model": ""}
+    assert config.agents.transcription_model == ""
+
+
 async def test_get_audio_mode_reads_global_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -844,6 +887,21 @@ async def test_get_transcription_provider_type_reads_global_config(
     )
     assert await ws.get_transcription_provider_type() == {
         "transcription_provider_type": "whisper_api",
+    }
+
+
+async def test_get_transcription_model_reads_global_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ws,
+        "load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(transcription_model="whisper-large-v3"),
+        ),
+    )
+    assert await ws.get_transcription_model() == {
+        "transcription_model": "whisper-large-v3",
     }
 
 
@@ -954,150 +1012,6 @@ async def test_mask_memory_backend_drops_unregistered_backend_entry() -> None:
         running.memory_backend_configs["ghost-plugin"]["api_key"]
         == "TOPSECRET"
     )
-
-
-# --------------------------------------------------------------------- #
-# Workspace zip download / upload guards
-# --------------------------------------------------------------------- #
-
-
-async def test_download_workspace_streams_named_zip(tmp_path) -> None:
-    (tmp_path / "AGENTS.md").write_text("# hi\n", encoding="utf-8")
-    with patch.object(
-        ws,
-        "get_agent_for_request",
-        _agent_resolver(_agent(tmp_path)),
-    ):
-        response = await ws.download_workspace(SimpleNamespace())
-    assert response.media_type == "application/zip"
-    disposition = response.headers["Content-Disposition"]
-    assert disposition.startswith('attachment; filename="qwenpaw_workspace_')
-    assert "agent-x" in disposition
-    assert disposition.endswith('.zip"')
-
-
-async def test_download_workspace_missing_dir_is_404(tmp_path) -> None:
-    absent = tmp_path / "nope"
-    with patch.object(
-        ws,
-        "get_agent_for_request",
-        _agent_resolver(_agent(absent)),
-    ):
-        with pytest.raises(HTTPException) as raised:
-            await ws.download_workspace(SimpleNamespace())
-    assert raised.value.status_code == 404
-    assert str(absent) in raised.value.detail
-
-
-@pytest.mark.parametrize(
-    "content_type",
-    ["text/plain", "application/json", "image/png"],
-)
-async def test_upload_workspace_rejects_non_zip_content_type(
-    tmp_path,
-    content_type,
-) -> None:
-    """The guard runs before the workspace is resolved or the body read."""
-    resolver = _agent_resolver(_agent(tmp_path))
-    reads: list = []
-
-    async def read_body() -> bytes:
-        reads.append(1)
-        return b""
-
-    upload = SimpleNamespace(content_type=content_type, read=read_body)
-    with patch.object(ws, "get_agent_for_request", resolver):
-        with pytest.raises(HTTPException) as raised:
-            await ws.upload_workspace(SimpleNamespace(), upload)
-    assert raised.value.status_code == 400
-    assert content_type in raised.value.detail
-    resolver.assert_not_awaited()
-    assert reads == []
-
-
-@pytest.mark.parametrize(
-    "content_type",
-    [
-        "application/zip",
-        "application/x-zip-compressed",
-        "application/octet-stream",
-        None,
-    ],
-)
-async def test_upload_workspace_accepts_zip_content_types(
-    tmp_path,
-    content_type,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    extracted: list = []
-
-    def fake_extract(data: bytes, workspace_dir: Path) -> None:
-        extracted.append((data, workspace_dir))
-
-    async def read_body() -> bytes:
-        return b"ZIPBYTES"
-
-    upload = SimpleNamespace(content_type=content_type, read=read_body)
-    monkeypatch.setattr(ws, "_validate_and_extract_zip", fake_extract)
-    with patch.object(
-        ws,
-        "get_agent_for_request",
-        _agent_resolver(_agent(tmp_path)),
-    ):
-        result = await ws.upload_workspace(SimpleNamespace(), upload)
-    assert result == {"success": True}
-    assert extracted == [(b"ZIPBYTES", tmp_path)]
-
-
-async def test_upload_workspace_propagates_validation_http_error(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A 400 from the zip validator must not be rewrapped into a 500."""
-
-    def fake_extract(data: bytes, workspace_dir: Path) -> None:
-        raise HTTPException(
-            status_code=400,
-            detail="Zip contains unsafe path: ../escape",
-        )
-
-    async def read_body() -> bytes:
-        return b"ZIPBYTES"
-
-    upload = SimpleNamespace(content_type="application/zip", read=read_body)
-    monkeypatch.setattr(ws, "_validate_and_extract_zip", fake_extract)
-    with patch.object(
-        ws,
-        "get_agent_for_request",
-        _agent_resolver(_agent(tmp_path)),
-    ):
-        with pytest.raises(HTTPException) as raised:
-            await ws.upload_workspace(SimpleNamespace(), upload)
-    assert raised.value.status_code == 400
-    assert "unsafe path" in raised.value.detail
-
-
-async def test_upload_workspace_wraps_unexpected_failure_as_500(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_extract(data: bytes, workspace_dir: Path) -> None:
-        raise OSError("disk full")
-
-    async def read_body() -> bytes:
-        return b"ZIPBYTES"
-
-    upload = SimpleNamespace(content_type="application/zip", read=read_body)
-    monkeypatch.setattr(ws, "_validate_and_extract_zip", fake_extract)
-    with patch.object(
-        ws,
-        "get_agent_for_request",
-        _agent_resolver(_agent(tmp_path)),
-    ):
-        with pytest.raises(HTTPException) as raised:
-            await ws.upload_workspace(SimpleNamespace(), upload)
-    assert raised.value.status_code == 500
-    assert "Failed to merge workspace: disk full" == raised.value.detail
 
 
 # --------------------------------------------------------------------- #

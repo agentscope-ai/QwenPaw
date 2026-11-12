@@ -110,6 +110,7 @@ def _client(
     provisioner_available: bool = True,
     runtime_port: int = 0,
     runtime_provisioner: RuntimeProvisioner | None = None,
+    client_address: tuple[str, int] = ("testclient", 50000),
 ) -> TestClient:
     database = tmp_path / "control.db"
     registry = RuntimeRegistry(database)
@@ -151,6 +152,7 @@ def _client(
             proxy_transport=proxy_transport,
             hub_config=hub_config,
         ),
+        client=client_address,
     )
 
 
@@ -2220,3 +2222,118 @@ def test_hub_avatar_identity_is_scoped_to_authenticated_user(hub_client):
         ).json()["selected"]
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["direct_https", "trusted_proxy", "untrusted_proxy", "http"],
+)
+def test_community_password_through_authenticated_hub(
+    tmp_path,
+    monkeypatch,
+    entry,
+):
+    from unittest.mock import AsyncMock
+    from qwenpaw.app import auth as runtime_auth
+    from qwenpaw.app._app import app as production_app
+    from qwenpaw.app.routers.community_connection import (
+        router as community_router,
+    )
+
+    runtime = FastAPI(middleware=production_app.user_middleware)
+    runtime.include_router(community_router, prefix="/api")
+    service = SimpleNamespace(
+        connect_password=AsyncMock(return_value={"connected": True}),
+    )
+    runtime.state.community_connection_service = service
+    monkeypatch.setattr(runtime_auth, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(runtime_auth, "has_registered_users", lambda: True)
+    monkeypatch.setattr(
+        runtime_auth,
+        "_get_config_cached",
+        lambda: (
+            SimpleNamespace(
+                security=SimpleNamespace(allow_no_auth_hosts=["127.0.0.1"]),
+            ),
+            [],
+        ),
+    )
+
+    class Provisioner(_FakeProvisioner):
+        def start(self, record, credentials):
+            # Emulate the per-runtime token delivered by the real provisioner.
+            monkeypatch.setenv(
+                "QWENPAW_RUNTIME_INTERNAL_TOKEN",
+                credentials["QWENPAW_RUNTIME_INTERNAL_TOKEN"],
+            )
+            return super().start(record, credentials)
+
+    seen = []
+
+    async def upstream(request):
+        seen.append(request)
+        assert request.url.host == "127.0.0.1"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(
+                app=runtime,
+                client=("127.0.0.1", 12345),
+            ),
+        ) as client:
+            response = await client.post(
+                str(request.url),
+                headers=request.headers,
+                content=await request.aread(),
+            )
+
+        class BodyStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield response.content
+
+        return httpx.Response(
+            response.status_code,
+            stream=BodyStream(),
+            headers={"Content-Type": "application/json"},
+        )
+
+    trusted = ["127.0.0.1/32"] if entry == "trusted_proxy" else []
+    config = HubConfig(
+        control_plane=ControlPlaneConfig(
+            public_base_url="https://public.example/base",
+            security=AccessSecurityConfig(trusted_proxy_ips=trusted),
+        ),
+    )
+    transport = httpx.MockTransport(upstream)
+    with _client(
+        tmp_path,
+        transport,
+        hub_config=config,
+        runtime_provisioner=Provisioner(),
+        client_address=("127.0.0.1", 50000),
+    ) as client:
+        token = _register(client, "owner")
+        url = (
+            "https" if entry == "direct_https" else "http"
+        ) + "://public.example/api/community/connection/password"
+        headers = {
+            **_headers(token),
+            "Origin": "https://public.example",
+            "X-Forwarded-Host": "attacker.example",
+        }
+        if entry in {"trusted_proxy", "untrusted_proxy"}:
+            headers["X-Forwarded-Proto"] = "https"
+        response = client.post(
+            url,
+            headers=headers,
+            json={"account": "test@example.invalid", "password": "dummy"},
+        )
+        assert response.status_code == 200
+        service.connect_password.assert_awaited_once_with(
+            "test@example.invalid",
+            "dummy",
+        )
+        denied = client.post(
+            url,
+            json={"account": "test@example.invalid", "password": "dummy"},
+        )
+        assert denied.status_code == 401
+        assert service.connect_password.await_count == 1

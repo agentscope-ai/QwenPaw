@@ -45,6 +45,7 @@ import {
   useSessionListStore,
 } from "../../stores/sessionListStore";
 import { ApiError } from "../../api/request";
+import i18n, { i18nReady } from "../../i18n";
 import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
 import { useChatRouteResolution } from "./hooks/useChatRouteResolution";
@@ -850,7 +851,79 @@ describe("installed SDK activation after route ownership resolution", () => {
 });
 
 describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
+  it.each(["/clear", "/new"])(
+    "refreshes a running %s preload before the cache expires",
+    async (command) => {
+      const localId = "1700000000000-reset";
+      fixture.records[0].session_id = localId;
+      fixture.records.push(record(B));
+      sessionApi.preferredChatId = localId;
+      await sessionApi.getSessionList();
+      sessionApi.setLastUserMessage(
+        [A, localId],
+        command,
+        undefined,
+        "reset-command",
+      );
+      fixture.history.mockResolvedValue({ status: "running", messages: [] });
+      const preloaded = await sessionApi.preloadSession(localId);
+      expect(preloaded.realId).toBe(A);
+      expect(preloaded.session.generating).toBe(true);
+      expect(JSON.stringify(preloaded.session.messages)).toContain(command);
+
+      fixture.history.mockResolvedValue({ status: "idle", messages: [] });
+      const host = mountHost(fixture);
+      await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
+      expect(host.current().messages.getMessages()).toEqual([]);
+      for (const id of [A, localId]) {
+        expect(
+          localStorage.getItem(`qwenpaw_pending_user_msg_${id}`),
+        ).toBeNull();
+      }
+
+      await act(async () => host.current().navigate(`/chat/${B}`));
+      await waitFor(() => expect(host.adapter.isReady(B)).toBe(true));
+      await act(async () => host.current().navigate(`/chat/${A}`));
+      await waitFor(() => {
+        expect(host.current().sessions.currentSessionId).toBe(A);
+        expect(host.adapter.isReady(A)).toBe(true);
+      });
+      expect(host.current().messages.getMessages()).toEqual([]);
+      expect(fixture.transport).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["/clear", "/new"])(
+    "keeps cleared history empty after %s across navigation and remount",
+    async (command) => {
+      fixture.records.push(record(B));
+      sessionApi.setLastUserMessage(A, command, undefined, "reset-command");
+      const host = mountHost(fixture);
+      await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
+      expect(host.current().messages.getMessages()).toEqual([]);
+      expect(localStorage.getItem(`qwenpaw_pending_user_msg_${A}`)).toBeNull();
+
+      await act(async () => host.current().navigate(`/chat/${B}`));
+      await waitFor(() => expect(host.adapter.isReady(B)).toBe(true));
+      await act(async () => host.current().navigate(`/chat/${A}`));
+      await waitFor(() => {
+        expect(host.current().sessions.currentSessionId).toBe(A);
+        expect(host.adapter.isReady(A)).toBe(true);
+      });
+      expect(host.current().messages.getMessages()).toEqual([]);
+
+      cleanup();
+      host.unsubscribe();
+      sessionApi.resetForTests();
+      const reloaded = mountHost(fixture);
+      await waitFor(() => expect(reloaded.adapter.isReady(A)).toBe(true));
+      expect(reloaded.current().messages.getMessages()).toEqual([]);
+      expect(fixture.transport).not.toHaveBeenCalled();
+    },
+  );
+
   it("retries the real SDK loader and commits recovered history", async () => {
+    await i18nReady;
     const user = userEvent.setup();
     const consoleError = vi
       .spyOn(console, "error")
@@ -878,14 +951,18 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     expect(surface).not.toBeVisible();
     expect(host.current().sessions.currentSessionId).toBe(A);
 
-    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("common.retry") }),
+    );
     await waitFor(() => expect(fixture.history).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("alert")).toBeVisible();
     surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
     expect(surface).not.toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "common.retry" }));
+    await user.click(
+      screen.getByRole("button", { name: i18n.t("common.retry") }),
+    );
     await waitFor(() =>
       expect(
         JSON.stringify(host.current().messages.getSessionMessages(A)),

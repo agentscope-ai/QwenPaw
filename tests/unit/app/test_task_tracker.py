@@ -12,16 +12,17 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
 from qwenpaw.app.task_tracker import TaskTracker
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,17 +141,115 @@ async def test_attach_or_start_reports_completion_before_becoming_idle():
         completions.append((run_key, finished_at))
         assert await tracker.get_status(run_key) == "running"
 
+    event = {f"object": f"response", f"status": f"completed"}
+    terminal = f"data: {json.dumps(event)}\n\n"
     queue, _ = await tracker.attach_or_start(
         "run-with-callback",
         payload=None,
-        stream_fn=_make_stream([]),
+        stream_fn=_make_stream([terminal]),
         on_finished=on_finished,
     )
+    assert await asyncio.wait_for(queue.get(), timeout=1) == terminal
     assert await asyncio.wait_for(queue.get(), timeout=1) is None
 
     assert len(completions) == 1
     assert completions[0][0] == "run-with-callback"
     assert await tracker.get_status("run-with-callback") == "idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"event", f"expected"),
+    [
+        ({f"object": f"response", f"status": f"completed"}, 1),
+        ({f"object": f"message", f"status": f"completed"}, 0),
+        ({f"object": f"response", f"status": f"failed"}, 0),
+        ({f"object": f"response", f"status": f"canceled"}, 0),
+        ({f"object": f"response", f"status": f"in_progress"}, 0),
+        (
+            {
+                f"object": f"response",
+                f"status": f"completed",
+                f"error": {f"message": f"model failed"},
+            },
+            0,
+        ),
+    ],
+)
+async def test_completion_callback_requires_successful_response(
+    event,
+    expected,
+):
+    tracker = TaskTracker()
+    callback = AsyncMock()
+    queue, _ = await tracker.attach_or_start(
+        f"completion-test",
+        payload=None,
+        stream_fn=_make_stream([f"data: {json.dumps(event)}\n\n"]),
+        on_finished=callback,
+    )
+    async for _ in tracker.stream_from_queue(queue, f"completion-test"):
+        pass
+
+    assert callback.await_count == expected
+    assert await tracker.get_status(f"completion-test") == f"idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"cancel", [False, True])
+async def test_failed_or_canceled_producer_does_not_mark_completion(cancel):
+    tracker = TaskTracker()
+    callback = AsyncMock()
+
+    async def stream(_payload):
+        event = {f"object": f"response", f"status": f"completed"}
+        yield f"data: {json.dumps(event)}\n\n"
+        if cancel:
+            raise asyncio.CancelledError()
+        raise RuntimeError(f"stream failed")
+
+    queue, _ = await tracker.attach_or_start(
+        f"interrupted-test",
+        payload=None,
+        stream_fn=stream,
+        on_finished=callback,
+    )
+    async for _ in tracker.stream_from_queue(queue, f"interrupted-test"):
+        pass
+
+    callback.assert_not_awaited()
+    assert await tracker.get_status(f"interrupted-test") == f"idle"
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_waits_for_actual_background_completion():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+    callback = AsyncMock(side_effect=lambda *_: finished.set())
+
+    async def stream(_payload):
+        started.set()
+        await release.wait()
+        event = {f"object": f"response", f"status": f"completed"}
+        yield f"data: {json.dumps(event)}\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        f"detached-completion",
+        payload=None,
+        stream_fn=stream,
+        on_finished=callback,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await tracker.detach_subscriber(f"detached-completion", queue)
+    callback.assert_not_awaited()
+    assert await tracker.get_status(f"detached-completion") == f"running"
+
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1)
+    callback.assert_awaited_once()
+    assert await tracker.get_status(f"detached-completion") == f"idle"
 
 
 @pytest.mark.asyncio
@@ -335,6 +434,123 @@ async def test_stream_from_queue_yields_until_sentinel_and_detaches():
     assert collected == events
     # After streaming, run is cleaned up, so detach should be a no-op.
     assert await tracker.get_status("run-stream") == "idle"
+
+
+@pytest.mark.parametrize("owns_run", [False, True])
+async def test_cancel_stream_only_stops_owned_producer_after_cleanup(owns_run):
+    tracker = TaskTracker()
+    started, release, cleaning, finish, interrupted = (
+        asyncio.Event() for _ in range(5)
+    )
+    cancelled = []
+
+    async def producer(_payload):
+        started.set()
+        try:
+            await release.wait()
+            yield "done"
+        except asyncio.CancelledError:
+            cancelled.append(True)
+            raise
+        finally:
+            cleaning.set()
+            try:
+                await finish.wait()
+            except asyncio.CancelledError:
+                interrupted.set()
+                raise
+
+    queue, _ = await tracker.attach_or_start("owned", None, producer)
+    task = tracker._runs["owned"].task
+
+    async def consume():
+        options = {"cancel_run": True} if owns_run else {}
+        async for _ in tracker.stream_from_queue(queue, "owned", **options):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.wait_for(started.wait(), 1)
+    await asyncio.sleep(0)
+    consumer.cancel()
+    try:
+        if owns_run:
+            await asyncio.wait_for(cleaning.wait(), 1)
+            consumer.cancel()
+            done, _ = await asyncio.wait({consumer}, timeout=0.01)
+            assert not done and not interrupted.is_set()
+        else:
+            await consumer
+            assert not consumer.cancelled()
+            assert not task.done() and not task.cancelling()
+            assert not cleaning.is_set()
+            assert queue not in tracker._runs["owned"].queues
+        release.set()
+        finish.set()
+        if owns_run:
+            with pytest.raises(asyncio.CancelledError):
+                await consumer
+        await asyncio.gather(task, return_exceptions=True)
+        assert cancelled == ([True] if owns_run else [])
+        assert task.done()
+        assert not interrupted.is_set()
+        assert await tracker.get_status("owned") == "idle"
+    finally:
+        release.set()
+        finish.set()
+        await asyncio.gather(consumer, task, return_exceptions=True)
+
+
+async def test_owned_stream_cancellation_never_stops_successor_run(
+    monkeypatch,
+):
+    tracker = TaskTracker()
+    release_old, release_new, reading, release_read = (
+        asyncio.Event() for _ in range(4)
+    )
+
+    async def producer(release):
+        await release.wait()
+        yield "done"
+
+    queue, _ = await tracker.attach_or_start("same-key", release_old, producer)
+    old_task = tracker._runs["same-key"].task
+    get = queue.get
+
+    async def held_get():
+        reading.set()
+        await release_read.wait()
+        return await get()
+
+    monkeypatch.setattr(queue, "get", held_get)
+
+    async def consume():
+        async for _ in tracker.stream_from_queue(
+            queue,
+            "same-key",
+            cancel_run=True,
+        ):
+            pass
+
+    consumer = asyncio.create_task(consume())
+    await asyncio.wait_for(reading.wait(), 1)
+    release_old.set()
+    await old_task
+    _, is_new = await tracker.attach_or_start(
+        "same-key",
+        release_new,
+        producer,
+    )
+    assert is_new
+    successor = tracker._runs["same-key"].task
+    try:
+        consumer.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await consumer
+        assert not successor.done() and not successor.cancelling()
+    finally:
+        release_read.set()
+        release_new.set()
+        await asyncio.gather(consumer, successor, return_exceptions=True)
 
 
 # ---------------------------------------------------------------------------

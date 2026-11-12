@@ -8,11 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.scroll.sync import MIGRATION_KEY
+from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.repo import JsonChatRepository
 from qwenpaw.app.chats.session import SafeJSONSession
-from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
-from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from qwenpaw.runtime.backends.session import HarnessSessionBridge
 from qwenpaw.portability.import_conversations import (
     ConversationState,
     import_conversations,
@@ -25,6 +28,7 @@ def _workspace(tmp_path: Path) -> SimpleNamespace:
     root = tmp_path / "workspace"
     root.mkdir()
     return SimpleNamespace(
+        history_store=None,
         session=SafeJSONSession(str(root / "sessions")),
         chat_manager=ChatManager(repo=JsonChatRepository(root / "chats.json")),
     )
@@ -77,8 +81,17 @@ async def test_import_preserves_archive_state_without_overwriting_existing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     source: str,
+    request,
 ) -> None:
     workspace = _workspace(tmp_path)
+    workspace.workspace_dir = tmp_path / "workspace"
+    workspace.agent_id = "test"
+    workspace.config = AgentProfileConfig(id="test", name="Test")
+    workspace.history_store = HistoryStore(
+        workspace.workspace_dir / "history.db",
+    )
+    request.addfinalizer(workspace.history_store.close)
+    workspace.history_store.complete_migration("test", MIGRATION_KEY)
     sessions = [
         _session("active"),
         _session("archived").model_copy(update={"archived": True}),
@@ -120,6 +133,14 @@ async def test_import_preserves_archive_state_without_overwriting_existing(
     )
     assert await workspace.chat_manager.list_chats(archived=None) == existing
     assert created_states == [False, True]
+    assert workspace.history_store.migration_complete("test", MIGRATION_KEY)
+    for source_id in ("active", "archived"):
+        assert (
+            workspace.history_store.count(
+                _session_key(source, source_id),
+            )
+            == 1
+        )
 
 
 @pytest.mark.asyncio

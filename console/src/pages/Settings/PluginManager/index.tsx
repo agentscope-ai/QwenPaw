@@ -1,3 +1,4 @@
+import { useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import type { InstallPluginResult } from "@/api/modules/plugin";
 import { Badge, Button, Tabs } from "antd";
@@ -12,11 +13,17 @@ import { OfficialPluginList } from "./components/OfficialPluginList";
 import { MarketPluginList } from "./components/MarketPluginList";
 import styles from "./index.module.less";
 import { reloadFrontendPlugin } from "@/plugins/usePluginLoader";
+import { useAppMessage } from "@/hooks/useAppMessage";
+import { useAgentStore } from "@/stores/agentStore";
+import { resumePendingPluginInstalls } from "./dependencyUpgrade";
 
 export default function PluginManagerPage() {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get("view");
+  const targetPlugin = searchParams.get("plugin") ?? "";
   const activeTab =
     viewParam === "official" || viewParam === "market"
       ? viewParam
@@ -29,6 +36,10 @@ export default function PluginManagerPage() {
     refreshUpdates,
     uninstallingId,
     handleUninstall,
+    enablingId,
+    enableOne,
+    repairOne,
+    disableOne,
     updates,
     updatesLoading,
     updatingId,
@@ -37,13 +48,31 @@ export default function PluginManagerPage() {
     updateAll,
   } = usePluginManager();
 
-  const handleInstalled = async (result: InstallPluginResult) => {
-    try {
-      await reloadFrontendPlugin(result.id);
-    } finally {
-      await refresh();
-    }
-  };
+  const handleInstalled = useCallback(
+    async (result: InstallPluginResult) => {
+      try {
+        await reloadFrontendPlugin(result.id);
+      } finally {
+        await refresh();
+      }
+    },
+    [refresh],
+  );
+
+  useEffect(
+    () =>
+      resumePendingPluginInstalls(
+        t,
+        async (result) => {
+          await handleInstalled(result);
+          message.success(
+            `${t("pluginManager.installSuccess")}: ${result.name}`,
+          );
+        },
+        (error) => message.error(error.message),
+      ),
+    [handleInstalled, message, selectedAgent, t],
+  );
 
   const installModal = useInstallModal(handleInstalled);
 
@@ -60,11 +89,17 @@ export default function PluginManagerPage() {
       ),
       children: (
         <InstalledPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
           plugins={plugins}
           loading={loading}
           uninstallingId={uninstallingId}
           onRefresh={refreshUpdates}
           onUninstall={handleUninstall}
+          enablingId={enablingId}
+          onEnable={enableOne}
+          onRepair={repairOne}
+          onDisable={disableOne}
           updates={updates}
           updatesLoading={updatesLoading}
           updatingId={updatingId}
@@ -77,13 +112,21 @@ export default function PluginManagerPage() {
     {
       key: "official",
       label: t("pluginManager.officialTitle"),
-      children: <OfficialPluginList onInstalled={handleInstalled} />,
+      children: (
+        <OfficialPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
+          onInstalled={handleInstalled}
+        />
+      ),
     },
     {
       key: "market",
       label: t("pluginManager.marketTitle"),
       children: (
         <MarketPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
           onInstalled={handleInstalled}
           installedPlugins={plugins ?? []}
         />

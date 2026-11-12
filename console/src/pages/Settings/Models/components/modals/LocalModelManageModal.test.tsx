@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { screen, waitFor, fireEvent } from "@testing-library/react";
+import { screen, waitFor, fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 
@@ -320,6 +320,117 @@ describe("LocalModelManageModal", () => {
     setupDefaultMocks();
   });
 
+  it("disables model startup during an inference engine update", async () => {
+    vi.mocked(api.getLlamacppDownloadProgress).mockResolvedValue({
+      ...mockLlamacppProgress,
+      status: "downloading",
+    });
+    renderModal();
+    expect(await screen.findByText("models.localStartServer")).toBeDisabled();
+    expect(api.startLocalServer).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])(
+    "uses ModelScope repository IDs for downloaded=%s models",
+    async (downloaded) => {
+      const hf: LocalModelInfo = {
+        ...mockModels[0],
+        id: "agentscope-ai/Piccolo-4B-Q8_0",
+        name: "Piccolo-4B-Q8_0",
+        model_type: "decision",
+        downloaded,
+      };
+      const ms: LocalModelInfo = {
+        ...hf,
+        id: "AgentScope/Piccolo-4B-Q8_0",
+        source: "modelscope",
+      };
+      vi.mocked(api.listRecommendedLocalModels).mockResolvedValue([hf, ms]);
+      renderModal();
+      expect(
+        await screen.findByText(hf.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(ms.id, { exact: false }),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        screen.getByRole("radio", { name: "ModelScope" }).closest("label")!,
+      );
+      expect(
+        await screen.findByText(ms.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(hf.id, { exact: false }),
+      ).not.toBeInTheDocument();
+      const decisions = screen.getByRole("region", {
+        name: "models.localDecisionModelsTitle",
+      });
+      await userEvent.click(
+        within(decisions).getByText(
+          downloaded ? "models.localStartServer" : "common.download",
+        ),
+      );
+      if (downloaded) {
+        expect(api.startLocalServer).toHaveBeenCalledWith({ model_id: ms.id });
+      } else {
+        expect(api.startLocalModelDownload).toHaveBeenCalledWith(
+          ms.id,
+          "modelscope",
+        );
+      }
+      await userEvent.click(
+        screen.getByRole("radio", { name: "Hugging Face" }).closest("label")!,
+      );
+      expect(
+        await screen.findByText(hf.id, { exact: false }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(ms.id, { exact: false }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(["Q8_0", "BF16"])(
+    "keeps %s decision models in their native controls",
+    async (precision) => {
+      const decision = {
+        ...mockModels[0],
+        id: `agentscope-ai/Piccolo-4B-${precision}`,
+        name: `Piccolo-4B-${precision}`,
+        model_type: "decision" as const,
+        source: "huggingface" as const,
+      };
+      vi.mocked(api.listRecommendedLocalModels).mockResolvedValue([
+        ...mockModels,
+        decision,
+      ]);
+      renderModal();
+      const agents = await screen.findByRole("region", {
+        name: "models.localChatModelsTitle",
+      });
+      const decisions = await screen.findByRole("region", {
+        name: "models.localDecisionModelsTitle",
+      });
+      await waitFor(() => {
+        expect(
+          within(agents).getByText(mockModels[0].name),
+        ).toBeInTheDocument();
+        expect(within(decisions).getByText(decision.name)).toBeInTheDocument();
+      });
+      expect(within(agents).queryByText(decision.name)).not.toBeInTheDocument();
+      expect(within(decisions).queryByRole("link")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("models.localDecisionPurpose"),
+      ).not.toBeInTheDocument();
+      await userEvent.click(
+        within(decisions).getByText("models.localStartServer"),
+      );
+      expect(api.startLocalServer).toHaveBeenCalledWith({
+        model_id: decision.id,
+      });
+    },
+  );
+
   describe("组件渲染", () => {
     it("当 open=false 时不渲染内容", () => {
       renderModal({ open: false });
@@ -360,6 +471,24 @@ describe("LocalModelManageModal", () => {
   });
 
   describe("模型列表展示", () => {
+    it.each(["chat", "decision"] as const)(
+      "starts a downloaded %s model through the existing API",
+      async (modelType) => {
+        const model = { ...mockModels[0], model_type: modelType };
+        vi.mocked(api.listRecommendedLocalModels).mockResolvedValue([model]);
+        renderModal();
+        await userEvent.click(
+          await screen.findByText("models.localStartServer"),
+        );
+        await waitFor(() => {
+          expect(api.startLocalServer).toHaveBeenCalledWith({
+            model_id: model.id,
+          });
+        });
+        expect(api.startLocalModelDownload).not.toHaveBeenCalled();
+      },
+    );
+
     it("显示推荐的本地模型列表", async () => {
       renderModal();
 
@@ -376,8 +505,8 @@ describe("LocalModelManageModal", () => {
       // Wait for all initialization results to be reflected in the UI rather
       // than merely waiting for the recommendation request to start.
       expect(
-        await screen.findByText("models.localNoRecommendedModels"),
-      ).toBeInTheDocument();
+        await screen.findAllByText("models.localNoRecommendedModels"),
+      ).toHaveLength(2);
     });
 
     it("当没有已下载模型时显示提示", async () => {
@@ -724,7 +853,7 @@ describe("LocalModelManageModal", () => {
 
       // the no-model hint must be shown instead of crashing
       expect(
-        screen.getByText("models.localNoRecommendedModels"),
+        screen.getAllByText("models.localNoRecommendedModels")[0],
       ).toBeInTheDocument();
     });
 

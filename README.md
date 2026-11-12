@@ -60,6 +60,8 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 
 ## News
 
+- [2026-11-11] **v2.3.0** | Piccolo local decision models, QwenPaw Community integration, Advisor Mode for collaboration between larger and smaller models, Code Mode; plugin-system refactoring, the plugin SDK, and channels as plugins; image memory, tag browsing, and Console and desktop multi-window improvements. [v2.3.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+
 - [2026-10-15] **v2.2.2** | Console updates, new QwenPaw-Flash models covering 9B/27B/35B-A3B, PawPort for importing Codex/Qoder data, Creator 2.0.1, and Data 0.3.0. [v2.2.2 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 
 - [2026-09-10] **v2.2.1** | Creator 1.2 blueprint workbench, per-Agent model routing, and unified environment management. [v2.2.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
@@ -67,8 +69,6 @@ Your personal AI assistant — deploy locally or in the cloud, extend with Skill
 - [2026-09-03] **v2.2.0** | Self-hosted multi-user QwenPaw Hub, QwenPaw Mail, native QwenPaw Data, unified model routing, Creator 1.1, a unified marketplace, and major Console, Skills, channel, and reliability improvements. [v2.2.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, unified Files workspace, QwenPaw Creator, Codex/Qoder Agent integration, Browser-use, Computer-use, workspace checkpoints, and long-running conversation continuity. [v2.1.0 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
-
-- [2026-07-24] **v2.0.1** | PawApp mini-app platform, user-editable Agent Modes, Oh-My-Paw plugins, [ReMe](https://github.com/agentscope-ai/ReMe) memory enhancements, desktop UX improvements, and more. [v2.0.1 Release Notes →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 [All release notes →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -105,6 +105,8 @@ qwenpaw app
 ```
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
+
+Codex and Qoder backends are optional plugins installed separately in **Settings → Plugins**. The `full` extra excludes their SDKs; transitional `codex`/`qoder` extras only prepare dependencies. Existing users should follow the [prepared migration instructions](https://qwenpaw.agentscope.io/docs/plugins#optional-codex-and-qoder-backends) before restarting an upgraded host.
 
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
@@ -416,6 +418,10 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [CLI](https://qwenpaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
 | [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
+
+In Console chat, select assistant response text and click **Quote to follow-up** to append an editable quote to your draft. See [Console](https://qwenpaw.agentscope.io/docs/console).
+
+In the Console, `/clear` and a successful `/new` leave the chat empty when you reopen it or reload the page. See [Magic commands](https://qwenpaw.agentscope.io/docs/commands).
 
 Full documentation: [qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 

@@ -2,9 +2,7 @@
 """Abstract base class for memory managers."""
 
 import asyncio
-import json
 import logging
-import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping
 from copy import deepcopy
@@ -15,18 +13,13 @@ from threading import RLock
 from typing import Any
 from weakref import WeakValueDictionary
 
-from agentscope.message import AssistantMsg, Msg, TextBlock, ThinkingBlock
-from agentscope.message import ToolCallBlock, ToolCallState
-from agentscope.message import ToolResultBlock, ToolResultState
+from agentscope.message import AssistantMsg, HintBlock, Msg
+from agentscope.message import ToolResultState
 from agentscope.message import Usage
 from agentscope.middleware import MiddlewareBase
 from agentscope.tool import ToolChunk
 
-from ...constant import (
-    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
-    AUTO_MEMORY_SEARCH_TEXT,
-    AUTO_MEMORY_SEARCH_THINKING_PREFIX,
-)
+from ...constant import AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY
 from ...app.crons.contracts import ServiceCronJob
 
 logger = logging.getLogger(__name__)
@@ -185,51 +178,36 @@ class BaseMemoryManager(ABC):
         text: str,
         estimate_divisor: float = 4.0,
     ) -> Msg:
-        """Build the simulated assistant tool interaction for memory search."""
-        tool_call_id = uuid.uuid4().hex
-        tool_input = {
-            "query": query,
-            "max_results": max_results,
-        }
-        thinking_text = (
-            f"{AUTO_MEMORY_SEARCH_THINKING_PREFIX} I will use the "
-            f"memory_search with the user's query as the search keywords, "
-            f"request up to {max_results} result"
-            f"{'' if max_results == 1 else 's'}."
+        """Build the synthetic memory-recall payload for the LLM context.
+
+        The payload travels in a ``HintBlock``. Provider formatters turn a
+        hint into a separate ``role="user"`` message, so the request never
+        ends with an assistant turn, and the console / PawApp history
+        converter skips hint blocks entirely. The block id is recorded in
+        ``AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY`` so the middleware can pick the
+        message up again and the cleanup path can strip it.
+        """
+        safe_text = (text or "").strip() or "(no memory results)"
+        hidden_text = (
+            "<auto_memory_recall>\n"
+            f"query: {query}\n"
+            f"max_results: {max_results}\n"
+            f"result:\n{safe_text}\n"
+            "</auto_memory_recall>\n"
+            "(The above is a private memory recall payload. Do not "
+            "narrate, mention, or reference it in your reply. Treat it "
+            "as silent background context.)"
         )
-        text_block = TextBlock(text=AUTO_MEMORY_SEARCH_TEXT)
-        thinking_block = ThinkingBlock(thinking=thinking_text)
-        tool_call_block = ToolCallBlock(
-            id=tool_call_id,
-            name="memory_search",
-            input=json.dumps(tool_input, ensure_ascii=False),
-            state=ToolCallState.FINISHED,
-        )
-        tool_result_block = ToolResultBlock(
-            id=tool_call_id,
-            name="memory_search",
-            output=[TextBlock(text=text)],
-            state=ToolResultState.SUCCESS,
-        )
-        estimated_input_tokens = sum(
-            self._estimate_message_text_tokens(part, estimate_divisor)
-            for part in (
-                AUTO_MEMORY_SEARCH_TEXT,
-                thinking_text,
-                tool_call_block.name + tool_call_block.input,
-                tool_result_block.name + text,
-            )
+        hidden_block = HintBlock(hint=hidden_text, source="memory_search")
+        estimated_input_tokens = self._estimate_message_text_tokens(
+            hidden_text,
+            estimate_divisor,
         )
         # Keep a synthetic sender to avoid merging into the real agent reply.
         return AssistantMsg(
             name="memory_search",
             metadata={
-                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [
-                    text_block.id,
-                    thinking_block.id,
-                    tool_call_block.id,
-                    tool_result_block.id,
-                ],
+                AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY: [hidden_block.id],
                 "auto_memory_search_usage": {
                     "estimated": True,
                     "input_tokens": estimated_input_tokens,
@@ -237,12 +215,7 @@ class BaseMemoryManager(ABC):
                     "estimate_divisor": estimate_divisor,
                 },
             },
-            content=[
-                text_block,
-                thinking_block,
-                tool_call_block,
-                tool_result_block,
-            ],
+            content=[hidden_block],
             usage=Usage(
                 input_tokens=estimated_input_tokens,
                 output_tokens=0,

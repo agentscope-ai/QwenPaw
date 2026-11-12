@@ -10,7 +10,7 @@ import App from "@/App";
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <I18nextProvider i18n={i18n}>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <ScrollToTop />
         <SiteLanguageProvider>
           <App />

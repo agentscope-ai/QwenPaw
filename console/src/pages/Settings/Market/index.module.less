@@ -65,7 +65,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 32px;
   flex-shrink: 0;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
@@ -148,6 +148,41 @@
   width: 32px;
   padding: 0;
   flex-shrink: 0;
+}
+
+/* Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+   match the search input and provider select so the row shares one height. */
+@media (pointer: coarse) {
+  .filters {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    :global(:is(.qwenpaw-select, .ant-select))
+      :global(:is(.qwenpaw-select-selector, .ant-select-selector)) {
+      min-height: 44px;
+    }
+
+    /* antd pins the multiple-select wrap to the top (align-self: flex-start);
+       re-center it inside the 44px touch-height selector. */
+    :global(:is(.qwenpaw-select-multiple, .ant-select-multiple))
+      :global(:is(.qwenpaw-select-selection-wrap, .ant-select-selection-wrap)) {
+      align-self: center;
+    }
+
+    /* Keep the square icon button square under the 44px touch height. */
+    .refreshButton {
+      width: 44px;
+    }
+  }
+
+  .categoryChip {
+    min-height: 44px;
+  }
 }
 
 .searchHint {

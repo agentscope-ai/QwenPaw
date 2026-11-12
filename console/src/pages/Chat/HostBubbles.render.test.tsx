@@ -34,7 +34,8 @@ vi.mock("../../features/files-workspace/ResponseArtifactList", () => ({
 vi.mock("../../components/Chat/MediaDownload", () => ({
   DownloadableAudios: () => null,
 }));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 // Keep the real vendor Request/Card and SDK contexts. Only visual leaves are
@@ -227,7 +228,9 @@ describe("merged host bubbles behavior", () => {
         />,
       ),
     );
-    expect(screen.getByText("reasoning content")).toBeInTheDocument();
+    const reasoning = screen.getByText("reasoning content");
+    expect(reasoning).toBeInTheDocument();
+    expect(reasoning.parentElement?.className).toContain("reasoningStep");
     expect(screen.getByText("tool content")).toBeInTheDocument();
     expect(screen.queryByTestId("steps")).not.toBeInTheDocument();
     await act(async () => {

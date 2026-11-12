@@ -208,7 +208,7 @@ if (Test-Path $QwenpawVenv) {
     Write-Info "Creating Python $PythonVersion environment..."
 }
 
-uv venv $QwenpawVenv --python $PythonVersion --quiet --clear
+uv venv $QwenpawVenv --python $PythonVersion --quiet --clear --seed
 if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to create virtual environment" }
 
 $VenvPython = Join-Path $QwenpawVenv "Scripts\python.exe"
@@ -333,6 +333,21 @@ if ($FromSource) {
 
 # Verify the CLI entry point exists
 if (-not (Test-Path $VenvQwenpaw)) { Stop-WithError "Installation failed: qwenpaw CLI not found in venv" }
+$SelectedExtras = @($Extras -split ',' | ForEach-Object { $_.Trim().ToLowerInvariant() })
+if ($SelectedExtras -contains 'channels' -or $SelectedExtras -contains 'full') {
+    & $VenvQwenpaw plugins preset apply channels-full --offline
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Channel preset setup failed" }
+}
+$CliHelp = & $VenvQwenpaw --help
+if ($LASTEXITCODE -ne 0) { Stop-WithError "Command discovery failed" }
+if ($CliHelp -match '^\s+plugins(\s|$)') {
+    $PluginHelp = & $VenvQwenpaw plugins --help
+    if ($LASTEXITCODE -ne 0) { Stop-WithError "Plugin command discovery failed" }
+    if ($PluginHelp -match 'prepare-upgrade') {
+        & $VenvQwenpaw plugins prepare-upgrade
+        if ($LASTEXITCODE -ne 0) { Stop-WithError "Enabled channel preparation failed" }
+    }
+}
 
 Write-Info "QwenPaw installed successfully"
 

@@ -1077,8 +1077,37 @@ async def test_lifecycle_terminal_callback_cannot_start_new_model_work(
 
 async def test_interrupt_reload_retains_blocked_terminal_until_public_retry(
     tmp_path,
+    monkeypatch,
+    bounded_dependency_environment,
 ):
+    from qwenpaw.app.channels.base import BaseChannel
     from qwenpaw.plugins import PluginBusyError
+
+    owner_waiting = asyncio.Event()
+    owner_release = asyncio.Event()
+    retry_waiting = asyncio.Event()
+    consume = BaseChannel._consume_with_tracker
+    wait = asyncio.wait
+    retry = None
+    owner_task = None
+
+    async def hold_owner(channel, request, payload):
+        nonlocal owner_task
+        owner_task = asyncio.current_task()
+        try:
+            await consume(channel, request, payload)
+        finally:
+            # Keep the real queue request alive until explicitly released.
+            owner_waiting.set()
+            await owner_release.wait()
+
+    async def observe_wait(*args, **kwargs):
+        if asyncio.current_task() is retry and owner_task in args[0]:
+            retry_waiting.set()
+        return await wait(*args, **kwargs)
+
+    monkeypatch.setattr(BaseChannel, "_consume_with_tracker", hold_owner)
+    monkeypatch.setattr(asyncio, "wait", observe_wait)
 
     source = SOURCE.replace(
         '                if fault == "raise":',
@@ -1097,6 +1126,12 @@ async def test_interrupt_reload_retains_blocked_terminal_until_public_retry(
                     plugin.storage.write_json('terminal-finished.json',True)
                 if fault=='raise':""",
     )
+    source = source.replace(
+        "            async def stop(self, ctx):\n                return True",
+        "            async def stop(self, ctx):\n"
+        "                plugin.storage.write_json('transport-stopped.json', True)\n"
+        "                return True",
+    )
     async with PluginTestHost(tmp_path / "host") as host:
         ctx = await host.load(
             make_plugin(
@@ -1107,42 +1142,91 @@ async def test_interrupt_reload_retains_blocked_terminal_until_public_retry(
         )
         await host.configure_chat_model("routing-provider", "routing-model")
         await host.start_channel(CHANNEL, {})
-        await host.receive_channel(
-            CHANNEL,
-            incoming("hold-first", "terminal-wait"),
-        )
-        await wait_for(lambda: bool(ctx.storage.read_json("model.json", [])))
-        reload = asyncio.create_task(
-            host.reload("extension-contract", interrupt_tasks=True),
-        )
         try:
+            await host.receive_channel(
+                CHANNEL,
+                incoming("hold-first", "terminal-wait"),
+            )
             await wait_for(
-                lambda: ctx.storage.read_json("terminal-entered.json", False),
+                lambda: bool(ctx.storage.read_json("model.json", [])),
             )
-            with pytest.raises(PluginBusyError):
-                await reload
-            assert not ctx.storage.read_json("terminal-cancelled.json", False)
-            assert not ctx.storage.read_json("terminal-finished.json", False)
-            assert (
-                host.resource_snapshot("extension-contract")["active_calls"]
-                > 0
+            reload = asyncio.create_task(
+                host.reload("extension-contract", interrupt_tasks=True),
             )
+            try:
+                await wait_for(
+                    lambda: ctx.storage.read_json(
+                        "terminal-entered.json",
+                        False,
+                    ),
+                )
+                with pytest.raises(PluginBusyError):
+                    await reload
+                assert not ctx.storage.read_json(
+                    "terminal-cancelled.json",
+                    False,
+                )
+                assert not ctx.storage.read_json(
+                    "terminal-finished.json",
+                    False,
+                )
+                assert (
+                    host.resource_snapshot("extension-contract")[
+                        "active_calls"
+                    ]
+                    > 0
+                )
+            finally:
+                host.context("extension-contract").storage.write_json(
+                    "terminal-release.json",
+                    True,
+                )
+                await asyncio.wait_for(
+                    asyncio.gather(reload, return_exceptions=True),
+                    WAIT_TIMEOUT,
+                )
+            await asyncio.wait_for(owner_waiting.wait(), WAIT_TIMEOUT)
+            await wait_for(
+                lambda: ctx.storage.read_json("terminal-finished.json", False),
+            )
+            events = ctx.storage.read_json("events.json")
+            assert [(event["phase"], event["status"]) for event in events] == [
+                ("start", "running"),
+                ("end", "cancelled"),
+            ]
+            assert events[0]["run_id"] == events[1]["run_id"]
+            retry = asyncio.create_task(host.reload("extension-contract"))
+            try:
+                await wait_for(lambda: retry.done() or retry_waiting.is_set())
+                if retry.done():
+                    await retry  # Surface an unexpected Busy instead of a timeout.
+                assert (
+                    not retry.done()
+                ), "Reload must wait for the real request"
+                assert (
+                    host.resource_snapshot("extension-contract")[
+                        "active_calls"
+                    ]
+                    > 0
+                )
+                assert not ctx.storage.read_json(
+                    "transport-stopped.json",
+                    False,
+                )
+                assert not ctx.storage.read_json(
+                    "terminal-cancelled.json",
+                    False,
+                )
+            finally:
+                owner_release.set()
+                await asyncio.wait_for(
+                    asyncio.gather(retry, return_exceptions=True),
+                    WAIT_TIMEOUT,
+                )
+            assert (await retry).ok
+
         finally:
-            host.context("extension-contract").storage.write_json(
-                "terminal-release.json",
-                True,
-            )
-            await asyncio.gather(reload, return_exceptions=True)
-        await wait_for(
-            lambda: ctx.storage.read_json("terminal-finished.json", False),
-        )
-        events = ctx.storage.read_json("events.json")
-        assert [(event["phase"], event["status"]) for event in events] == [
-            ("start", "running"),
-            ("end", "cancelled"),
-        ]
-        assert events[0]["run_id"] == events[1]["run_id"]
-        assert (await host.reload("extension-contract")).ok
+            owner_release.set()
 
 
 @pytest.mark.parametrize("operation", ["stop", "reload", "unload"])

@@ -23,7 +23,7 @@ from qwenpaw.app.driver_config_service import DriverConfigService
 from qwenpaw.drivers.adapters.mcp_legacy_config import (
     legacy_mcp_client_to_driver,
 )
-from qwenpaw.harnesses.events import HarnessHistoryItem, HarnessHistoryKind
+from qwenpaw.plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
 from qwenpaw.portability.importer import ProviderImportService
 from qwenpaw.portability.import_jobs import (
     ImportProviderSnapshot,
@@ -159,6 +159,7 @@ def _workspace(tmp_path: Path):
     return SimpleNamespace(
         workspace_dir=root,
         agent_id="agent-1",
+        history_store=None,
         session=SafeJSONSession(str(root / "sessions")),
         chat_manager=ChatManager(
             repo=JsonChatRepository(root / "chats.json"),
@@ -229,6 +230,7 @@ async def _apply_with_results(workspace, inventory, **kwargs):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_failed_skill_details_isolated_and_retryable(
     tmp_path,
     monkeypatch,
@@ -491,6 +493,7 @@ async def test_import_failures_explain_each_asset_and_keep_relevant_analysis(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_recovered_plan_retries_only_unfinished_assets(
     tmp_path: Path,
     monkeypatch,
@@ -576,6 +579,7 @@ async def test_recovered_plan_retries_only_unfinished_assets(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_blocked_skill_does_not_prevent_other_imports_or_retries(
     tmp_path: Path,
     monkeypatch,
@@ -695,6 +699,7 @@ class _CronManager:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_imports_scheduled_tasks_disabled_and_idempotent(
     tmp_path: Path,
     monkeypatch,
@@ -734,6 +739,7 @@ async def test_provider_imports_scheduled_tasks_disabled_and_idempotent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_migrate_zone_materializes_assets(
     tmp_path: Path,
     monkeypatch,
@@ -849,6 +855,7 @@ async def test_migrate_zone_materializes_assets(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_import_is_additive_and_idempotent(
     tmp_path: Path,
     monkeypatch,
@@ -911,6 +918,7 @@ async def test_provider_import_is_additive_and_idempotent(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_dry_run_plan_can_be_revalidated_and_applied(
     tmp_path: Path,
     monkeypatch,
@@ -955,6 +963,7 @@ async def test_dry_run_plan_can_be_revalidated_and_applied(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_apply_plan_refuses_changed_source_files(
     tmp_path: Path,
     monkeypatch,
@@ -1000,6 +1009,7 @@ async def test_apply_plan_refuses_changed_source_files(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_concurrent_imports_are_serialized_and_do_not_duplicate(
     tmp_path: Path,
     monkeypatch,
@@ -1033,6 +1043,7 @@ async def test_concurrent_imports_are_serialized_and_do_not_duplicate(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_skill_symbolic_link_is_skipped(
     tmp_path: Path,
     monkeypatch,
@@ -1069,6 +1080,7 @@ async def test_provider_skill_symbolic_link_is_skipped(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_skill_uses_existing_scanner_and_stays_disabled(
     tmp_path: Path,
     monkeypatch,
@@ -1110,6 +1122,7 @@ async def test_provider_skill_uses_existing_scanner_and_stays_disabled(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_import_persists_disabled_mcp_with_encrypted_secret(
     tmp_path: Path,
     monkeypatch,
@@ -1149,6 +1162,7 @@ async def test_provider_import_persists_disabled_mcp_with_encrypted_secret(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_mcp_retry_reuses_its_prepared_credential(
     tmp_path: Path,
     monkeypatch,
@@ -1200,6 +1214,7 @@ async def test_mcp_retry_reuses_its_prepared_credential(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_import_encrypts_even_public_named_mcp_bindings(
     tmp_path: Path,
     monkeypatch,
@@ -1293,6 +1308,7 @@ async def test_provider_import_encrypts_even_public_named_mcp_bindings(
         ),
     ],
 )
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_import_rejects_inline_mcp_argument_secret(
     tmp_path: Path,
     monkeypatch,
@@ -1322,6 +1338,7 @@ async def test_provider_import_rejects_inline_mcp_argument_secret(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_memory_is_scoped_exact_and_idempotent(
     tmp_path: Path,
     monkeypatch,
@@ -1418,6 +1435,7 @@ def test_memory_snapshot_rejects_symbolic_link(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_skill_retry_never_deletes_the_existing_skill(
     tmp_path: Path,
     monkeypatch,
@@ -1462,6 +1480,7 @@ async def test_skill_retry_never_deletes_the_existing_skill(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_plugin_restores_marketplace_then_native_installs(
     tmp_path: Path,
     monkeypatch,
@@ -1528,6 +1547,7 @@ async def test_provider_plugin_restores_marketplace_then_native_installs(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_marketplace_conflict_does_not_prepare_its_plugin(
     tmp_path: Path,
     monkeypatch,
@@ -1575,6 +1595,7 @@ async def test_marketplace_conflict_does_not_prepare_its_plugin(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_provider_plugin_never_falls_back_to_installed_cache(
     tmp_path: Path,
     monkeypatch,
@@ -1610,6 +1631,7 @@ async def test_provider_plugin_never_falls_back_to_installed_cache(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_qoder_custom_skill_plugin_uses_native_adapter(
     tmp_path: Path,
     monkeypatch,
@@ -1717,6 +1739,7 @@ async def test_qoder_custom_skill_plugin_uses_native_adapter(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_codex_content_plugin_registers_skills_and_owned_mcp(
     tmp_path: Path,
     monkeypatch,
