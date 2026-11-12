@@ -208,9 +208,10 @@ export default function ConsolePollService({
     let showPrefix = true;
     blinkRef.current = setInterval(() => {
       const original = originalTitleRef.current;
-      document.title = showPrefix
-        ? `${TITLE_BLINK_PREFIX}${original}`
-        : original;
+      document.title =
+        showPrefix && !original.startsWith(TITLE_BLINK_PREFIX)
+          ? `${TITLE_BLINK_PREFIX}${original}`
+          : original;
       showPrefix = !showPrefix;
     }, 800);
     return () => {
