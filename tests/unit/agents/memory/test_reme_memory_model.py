@@ -53,7 +53,7 @@ def fixture_model_setup(monkeypatch, make_memory_model_manager):
             factory,
         )
         provider_manager = SimpleNamespace(
-            get_active_model=lambda: global_model,
+            active_model=global_model,
         )
         monkeypatch.setattr(
             reme_light_memory_manager,
@@ -69,11 +69,10 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(
     monkeypatch,
     make_memory_model_manager,
 ):
-    """Use the real Hub resolution chain without sending an HTTP request."""
+    """Inheriting the saved Hub provider does not fetch the catalog."""
     from qwenpaw.providers import hub_managed
     from qwenpaw.providers.provider_manager import ProviderManager
 
-    loop_thread = threading.get_ident()
     lookup_threads = []
     response = Mock()
     response.json.return_value = {"models": [{"id": "main"}]}
@@ -114,7 +113,7 @@ async def test_inherited_hub_catalog_lookup_runs_off_event_loop(
 
     await make_memory_model_manager()._update_qwenpaw_model()
 
-    assert lookup_threads and all(t != loop_thread for t in lookup_threads)
+    assert not lookup_threads
     assert factory.await_args_list[1].kwargs["model_slot_override"] == (
         ModelSlotConfig(provider_id="hub-managed", model="memory")
     )

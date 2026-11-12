@@ -750,7 +750,9 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         active_model = agent_config.active_model
         provider_id = active_model.provider_id if active_model else ""
         if not provider_id:
-            global_model = ProviderManager.get_instance().get_active_model()
+            # Inherit the saved provider, without validating the main model.
+            # In Hub mode that model may be stale while memory is healthy.
+            global_model = ProviderManager.get_instance().active_model
             provider_id = global_model.provider_id if global_model else ""
         if not provider_id:
             logger.warning(

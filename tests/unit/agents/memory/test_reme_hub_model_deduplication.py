@@ -9,6 +9,7 @@ import pytest
 from qwenpaw.agents.memory import reme_light_memory_manager as memory_module
 from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.providers import hub_managed
+from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.fallback_chat_model import (
     FallbackChatModel,
     get_model_identity,
@@ -79,3 +80,98 @@ async def test_real_hub_wrapper_deduplicates_memory_slot(
     with pytest.raises(RuntimeError, match="Simulated pre-output failure"):
         await actual([])
     fail_call.assert_awaited_once()
+
+
+@pytest.mark.parametrize("scope", ["agent", "global"])
+@pytest.mark.parametrize("operation", ["start", "image"])
+@pytest.mark.parametrize(
+    "memory_setting",
+    [
+        "memory:v1",
+        {"provider_id": "", "model": "memory:v1"},
+        {"provider_id": "hub-managed", "model": "memory:v1"},
+    ],
+    ids=["bare", "inherited-object", "explicit-object"],
+)
+async def test_healthy_hub_memory_survives_stale_main(
+    monkeypatch,
+    make_memory_model_manager,
+    tmp_path,
+    scope,
+    operation,
+    memory_setting,
+):
+    monkeypatch.setenv("QWENPAW_HUB_MODEL_TOKEN", "test-token")
+    monkeypatch.setenv("QWENPAW_HUB_MODEL_URL", "http://hub.test")
+    monkeypatch.setattr(
+        hub_managed,
+        "directory",
+        Mock(
+            return_value={
+                "models": [
+                    {
+                        "id": "memory:v1",
+                        "name": "Memory",
+                        "supports_image": True,
+                        "input_token_limit": 32768,
+                        "output_token_limit": 4096,
+                        "supports_agent_thinking": False,
+                    },
+                ],
+            },
+        ),
+    )
+    stale = ModelSlotConfig(provider_id="hub-managed", model="removed-main")
+    providers = ProviderManager.__new__(ProviderManager)
+    providers.default_models = {"chat": stale}
+    providers.root_path = tmp_path
+    monkeypatch.setattr(ProviderManager, "_instance", providers)
+    profile = AgentProfileConfig.model_validate(
+        {
+            "id": "hub-memory",
+            "name": "Hub Memory",
+            "active_model": stale if scope == "agent" else None,
+            "running": {
+                "reme_light_memory_config": {
+                    "memory_model": memory_setting,
+                    "auto_memory_include_images": True,
+                },
+            },
+        },
+    )
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=profile),
+    )
+    manager = make_memory_model_manager(profile.id)
+    if operation == "start":
+        await manager.start()
+        manager._reme.start.assert_awaited_once_with()
+    else:
+        monkeypatch.setattr(
+            manager,
+            "_load_memory_config",
+            lambda: profile.running.reme_light_memory_config,
+        )
+        kwargs = {
+            "messages": [
+                {
+                    "content": [
+                        {
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": "test",
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+        await manager._prepare_auto_memory_job(kwargs)
+        assert kwargs["include_images"] is True
+    manager._reme.update_component.assert_awaited_once()
+    actual = manager._reme.update_component.await_args.kwargs["model"]
+    assert get_model_identity(actual) == ("hub-managed", "memory:v1")
+    assert actual.formatter.resize_images_to_max_bytes is True
