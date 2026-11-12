@@ -2598,6 +2598,7 @@
   "projectDirectory": {
     "volumeRootWarningTitle": "Raiz do volume selecionada",
     "volumeRootWarningMessage": "{{path}} é a raiz de um volume. O sandbox não pode conceder acesso aqui — a entrada de permissão é herdável e a raiz não tem pasta pai, então se aplicaria à unidade inteira e pode torná-la inacessível. Esta sessão será executada sem o sandbox. Continuar mesmo assim?",
+    "workspaceUnknown": "O diretório de workspace padrão ainda não está disponível. Tente novamente em instantes.",
     "agentTitle": "Diretório de projeto do agente",
     "sessionTitle": "Diretório de projeto da sessão",
     "pathPlaceholder": "Digite um caminho absoluto",

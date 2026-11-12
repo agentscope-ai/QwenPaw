@@ -55,6 +55,14 @@ vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
     scope: { kind: string; agentId: string };
     multiAgentDefault?: boolean;
     inline?: boolean;
+    /**
+     * Exposed on the stub so tests can drive the real pre-save gate: the
+     * component consults this before it PUTs the list, and `onChanged` only
+     * follows a successful write.
+     */
+    beforeChange?: (
+      next?: Array<{ path: string }>,
+    ) => boolean | Promise<boolean>;
     onChanged?: () => void;
   }) => {
     mocks.sessionProjectDirectory(props);
@@ -90,8 +98,15 @@ vi.mock("antd", async () => {
     afterOpenChange?: (open: boolean) => void;
     title?: React.ReactNode;
   }) => {
+    // Fire once per open transition. `afterOpenChange` is an inline arrow in
+    // the modal, so depending on its identity re-runs the effect on every
+    // render and re-issues the open-time lookups.
+    const fired = React.useRef(false);
     React.useEffect(() => {
-      if (open && afterOpenChange) afterOpenChange(true);
+      if (open && !fired.current) {
+        fired.current = true;
+        afterOpenChange?.(true);
+      }
     }, [open, afterOpenChange]);
     if (!open) return null;
     return React.createElement(
@@ -128,6 +143,22 @@ vi.mock("lucide-react", () => {
 import ProjectSelectModal from "./index";
 
 // ---- Helpers ---------------------------------------------------------------
+
+/** The pre-save gate the modal handed to the stubbed directory editor. */
+function latestEditorGate(): (
+  next?: Array<{ path: string }>,
+) => boolean | Promise<boolean> {
+  const calls = mocks.sessionProjectDirectory.mock.calls;
+  const props = calls[calls.length - 1]?.[0] as
+    | {
+        beforeChange?: (
+          next?: Array<{ path: string }>,
+        ) => boolean | Promise<boolean>;
+      }
+    | undefined;
+  expect(typeof props?.beforeChange).toBe("function");
+  return props!.beforeChange!;
+}
 
 function renderModal(open = true) {
   const onConfirm = vi.fn();
@@ -454,24 +485,50 @@ describe("ProjectSelectModal", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it("asks before adopting a workspace fallback that is a volume root", async () => {
-    mocks.confirmVolumeRoot.mockImplementation(
-      () => new Promise<boolean>(() => undefined),
-    );
-    mocks.getDirs.mockResolvedValue({
-      source: "workspace_fallback",
-      workspace_dir: "C:\\",
-      project_dirs: [],
-    });
-
-    const { onConfirm } = renderModal();
+  it("gates the folder-list save itself, not the change it announces", async () => {
+    mocks.confirmVolumeRoot.mockResolvedValue(false);
+    renderModal();
     fireEvent.click(await screen.findByTestId("multi-folder-editor"));
 
+    const gate = latestEditorGate();
+    expect(typeof gate).toBe("function");
+    expect(await gate([{ path: "C:\\" }])).toBe(false);
+
+    // A directory that is not a volume root passes without a prompt.
+    mocks.confirmVolumeRoot.mockClear();
+    expect(await gate([{ path: "/home/user/projects" }])).toBe(true);
+    expect(mocks.confirmVolumeRoot).not.toHaveBeenCalled();
+  });
+
+  it("checks the workspace fallback through the same pre-save gate", async () => {
+    mocks.confirmVolumeRoot.mockResolvedValue(false);
+    mocks.get.mockResolvedValue({ workspace_dir: "C:\\" });
+    renderModal();
+    fireEvent.click(await screen.findByTestId("multi-folder-editor"));
+
+    const gate = latestEditorGate();
+    // Clearing the list carries no entries; the fallback is the workspace.
+    expect(await gate(undefined)).toBe(false);
+    expect(mocks.confirmVolumeRoot).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "C:\\" }),
+    );
+  });
+
+  it("refuses the default workspace while its directory is unknown", async () => {
+    mocks.get.mockRejectedValue(new Error("workspace lookup failed"));
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
     await waitFor(() => {
-      expect(mocks.confirmVolumeRoot).toHaveBeenCalledWith(
-        expect.objectContaining({ path: "C:\\" }),
-      );
+      expect(mocks.get).toHaveBeenCalled();
     });
+    fireEvent.click(screen.getByText("common.apply"));
+
+    // A null workspace is "unknown", not "no directory": reopen the lookup
+    // and, when it still fails, apply nothing rather than adopt it blind.
+    await waitFor(() => {
+      expect(mocks.get).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.set).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 

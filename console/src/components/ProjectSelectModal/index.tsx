@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { Modal, Tabs, Input, Button, Alert, List } from "antd";
+import { Modal, Tabs, Input, Button, Alert, List, App } from "antd";
 import {
   FolderOpen,
   FolderSymlink,
@@ -523,6 +523,7 @@ export default function ProjectSelectModal({
   onConfirm,
 }: ProjectSelectModalProps) {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const { setProjectDir } = useProjectDir();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [activeTab, setActiveTab] = useState("folders");
@@ -558,15 +559,41 @@ export default function ProjectSelectModal({
   };
 
   /**
+   * The agent's default workspace directory.
+   *
+   * Fetched when the modal opens, and re-fetched if that first request has
+   * not landed yet (it may still be pending, or have failed), because a null
+   * here is not "no directory": it is "not known yet", and the workspace tab
+   * must not adopt a directory it cannot inspect.
+   */
+  const resolveWorkspaceDir = async (): Promise<string | null> => {
+    if (workspaceDir) return workspaceDir;
+    try {
+      const info = await projectDirectoryApi.get();
+      if (info.workspace_dir) {
+        setWorkspaceDir(info.workspace_dir);
+        return info.workspace_dir;
+      }
+    } catch {
+      // Unknown default: the caller refuses rather than adopting it blind.
+    }
+    return null;
+  };
+
+  /**
    * Guards the directory a flow is about to adopt.
    *
-   * `null` selects the agent's default workspace, and both the folder-list
-   * flow and the workspace tab can land there, so it is checked against
-   * `workspaceDir` instead of being skipped.
+   * `null` selects the agent's default workspace, which both the folder-list
+   * flow and the workspace tab can land on, so it is resolved and checked
+   * instead of being skipped. Returning false keeps the flow from writing.
    */
   const guardProjectDir = async (path: string | null): Promise<boolean> => {
-    const target = path ?? workspaceDir;
-    return target === null || guardVolumeRoot(target);
+    const target = path ?? (await resolveWorkspaceDir());
+    if (target === null) {
+      message.error(t("projectDirectory.workspaceUnknown"));
+      return false;
+    }
+    return guardVolumeRoot(target);
   };
 
   const handleConfirm = async (path: string | null) => {
@@ -620,9 +647,9 @@ export default function ProjectSelectModal({
         defaults.source === "workspace_fallback"
           ? null
           : defaults.project_dirs[0]?.path ?? null;
-      // A cleared folder list falls back to the workspace, which may itself be
-      // a volume root, so the fallback goes through the same warning.
-      if (!(await guardVolumeRoot(primary ?? defaults.workspace_dir))) return;
+      // The directory has already been decided by the editor and gated by
+      // its `beforeChange` hook, which runs before the write. Here we only
+      // adopt what the server now holds.
       setProjectDir(primary);
       onConfirm(primary);
     } catch {
@@ -652,6 +679,9 @@ export default function ProjectSelectModal({
           scope={{ kind: "agent", agentId }}
           multiAgentDefault
           inline
+          beforeChange={(entries) =>
+            guardProjectDir(entries?.[0]?.path ?? null)
+          }
           onChanged={() => void handleDefaultDirsChanged()}
         />
       ),
