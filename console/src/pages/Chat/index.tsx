@@ -1294,7 +1294,7 @@ export default function ChatPage() {
     enabled: terminalEnabled,
     reason: terminalDisabledReason,
     confirmed: terminalCapabilityConfirmed,
-  } = useTerminalEnabled(selectedAgent);
+  } = useTerminalEnabled();
   const backendChatId = resolveBackendChatId(chatId);
   const decisionScope = `${selectedAgent}:${queueSessionId}:${
     backendChatId ?? ""
