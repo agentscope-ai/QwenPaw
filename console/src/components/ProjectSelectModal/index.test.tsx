@@ -454,6 +454,46 @@ describe("ProjectSelectModal", () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it("asks before adopting a workspace fallback that is a volume root", async () => {
+    mocks.confirmVolumeRoot.mockImplementation(
+      () => new Promise<boolean>(() => undefined),
+    );
+    mocks.getDirs.mockResolvedValue({
+      source: "workspace_fallback",
+      workspace_dir: "C:\\",
+      project_dirs: [],
+    });
+
+    const { onConfirm } = renderModal();
+    fireEvent.click(await screen.findByTestId("multi-folder-editor"));
+
+    await waitFor(() => {
+      expect(mocks.confirmVolumeRoot).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "C:\\" }),
+      );
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("asks before confirming a default workspace that is a volume root", async () => {
+    mocks.confirmVolumeRoot.mockImplementation(
+      () => new Promise<boolean>(() => undefined),
+    );
+    mocks.get.mockResolvedValue({ workspace_dir: "C:\\" });
+
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
+    await screen.findByText("C:\\");
+    fireEvent.click(screen.getByText("common.apply"));
+
+    await waitFor(() => {
+      expect(mocks.confirmVolumeRoot).toHaveBeenCalledWith(
+        expect.objectContaining({ path: "C:\\" }),
+      );
+    });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
   it("does not warn for an ordinary project directory", async () => {
     const { onConfirm } = renderModal();
     fireEvent.click(screen.getByText("codingMode.tabWorkspace"));

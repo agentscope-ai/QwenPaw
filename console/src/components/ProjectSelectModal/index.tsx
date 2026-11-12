@@ -543,21 +543,6 @@ export default function ProjectSelectModal({
       .catch(() => undefined);
   };
 
-  const handleConfirm = async (path: string | null) => {
-    if (path !== undefined) {
-      // For workspace default (path === null), explicitly reset on backend too
-      if (path === null) {
-        try {
-          await projectDirectoryApi.set(null);
-        } catch {
-          // ignore – best effort
-        }
-      }
-      setProjectDir(path);
-      onConfirm(path);
-    }
-  };
-
   /**
    * Warns before accepting a volume root as the project directory.
    *
@@ -570,6 +555,34 @@ export default function ProjectSelectModal({
       return true;
     }
     return confirmVolumeRootProjectDir({ path, t });
+  };
+
+  /**
+   * Guards the directory a flow is about to adopt.
+   *
+   * `null` selects the agent's default workspace, and both the folder-list
+   * flow and the workspace tab can land there, so it is checked against
+   * `workspaceDir` instead of being skipped.
+   */
+  const guardProjectDir = async (path: string | null): Promise<boolean> => {
+    const target = path ?? workspaceDir;
+    return target === null || guardVolumeRoot(target);
+  };
+
+  const handleConfirm = async (path: string | null) => {
+    if (!(await guardProjectDir(path))) return;
+    if (path !== undefined) {
+      // For workspace default (path === null), explicitly reset on backend too
+      if (path === null) {
+        try {
+          await projectDirectoryApi.set(null);
+        } catch {
+          // ignore – best effort
+        }
+      }
+      setProjectDir(path);
+      onConfirm(path);
+    }
   };
 
   const handlePathSelected = async (path: string) => {
@@ -607,6 +620,9 @@ export default function ProjectSelectModal({
         defaults.source === "workspace_fallback"
           ? null
           : defaults.project_dirs[0]?.path ?? null;
+      // A cleared folder list falls back to the workspace, which may itself be
+      // a volume root, so the fallback goes through the same warning.
+      if (!(await guardVolumeRoot(primary ?? defaults.workspace_dir))) return;
       setProjectDir(primary);
       onConfirm(primary);
     } catch {
