@@ -7,8 +7,9 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-# TODO: assign one SDK release version to the pending contract additions.
-SDK_VERSION = "1.0.0"
+# TODO: Confirm the SDK release version before publication; keep plugin
+# sdk.version requirements and API_EXPORTS.since aligned with this value.
+SDK_VERSION = "1.1.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",

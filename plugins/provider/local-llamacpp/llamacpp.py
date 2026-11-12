@@ -15,7 +15,13 @@ from typing import Any, Iterator, Optional
 
 import httpx
 
-from .io_helpers import finish, run_io, stop_server, process_options
+from .io_helpers import (
+    SERVER_GRACE_SECONDS,
+    finish,
+    run_io,
+    stop_server,
+    process_options,
+)
 
 from . import hardware as system_info
 
@@ -492,7 +498,13 @@ class LlamaCppBackend(BinaryDownloads):
         """Best-effort synchronous cleanup for shutdown and atexit paths."""
         with self._server_shutdown_context() as process:
             if process and process.poll() is None:
-                stop_server(process, graceful_timeout=5.0, kill_timeout=1.0)
+                # Interpreter exit has no SDK scope to retry cleanup. Keep its
+                # forced-reap fallback shorter than managed async shutdown.
+                stop_server(
+                    process,
+                    graceful_timeout=SERVER_GRACE_SECONDS,
+                    kill_timeout=1.0,
+                )
             self._cancel_server_log_task_nowait()
 
     # -----------------------------

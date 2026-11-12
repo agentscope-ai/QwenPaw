@@ -15,7 +15,11 @@ from pathlib import Path
 import multiprocessing as mp
 import runpy
 from multiprocessing.process import BaseProcess
-from .io_helpers import stop_download
+from .io_helpers import (
+    DOWNLOAD_MONITOR_WAIT_SECONDS,
+    DOWNLOAD_PROCESS_WAIT_SECONDS,
+    stop_download,
+)
 
 
 from .download_types import (
@@ -318,14 +322,10 @@ class ProcessDownloadController:
             task.cancelled.set()
             self._progress.request_cancel()
 
-        stop_download(
-            task.process,
-            graceful_timeout=2.0,
-            kill_timeout=2.0,
-        )
+        stop_download(task.process)
 
         if task.monitor_thread is not threading.current_thread():
-            task.monitor_thread.join(timeout=2.0)
+            task.monitor_thread.join(timeout=DOWNLOAD_MONITOR_WAIT_SECONDS)
             if task.monitor_thread.is_alive():
                 raise RuntimeError("Download monitor did not exit")
 
@@ -469,13 +469,9 @@ class ProcessDownloadController:
             resolved_spec = resolved_task.spec
 
         if resolved_task is not None:
-            resolved_task.process.join(timeout=2.0)
+            resolved_task.process.join(timeout=DOWNLOAD_PROCESS_WAIT_SECONDS)
             if resolved_task.process.is_alive():
-                stop_download(
-                    resolved_task.process,
-                    graceful_timeout=2.0,
-                    kill_timeout=2.0,
-                )
+                stop_download(resolved_task.process)
 
         if cleanup_spec and resolved_spec is not None:
             self._cleanup_task_spec(resolved_spec)

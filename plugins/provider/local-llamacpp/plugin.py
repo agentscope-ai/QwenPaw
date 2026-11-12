@@ -8,6 +8,8 @@ from .provider import LocalProvider
 from .app import create_app
 
 
+# TODO: Align plugin.json's minimum SDK version with the finalized release for
+# native providers, scoped storage paths and connection close budgets.
 class Plugin:
     def register(self, ctx: PluginContext):
         provider = LocalProvider(ctx)
