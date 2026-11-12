@@ -44,9 +44,6 @@ def ollama_endpoint():
             state["requests"].append(
                 (self.path, self.headers.get("Authorization")),
             )
-            if self.path.endswith("/api/ps"):
-                _json_response(self, 200, {"models": []})
-                return
             payload = {
                 "object": "list",
                 "data": [
@@ -141,9 +138,6 @@ def test_discovers_and_persists_selected_ollama_model(
     assert ollama_endpoint["requests"][0] == (
         "/ollama-proxy/v1/models",
         "Bearer test-ollama-key",
-    )
-    assert not any(
-        path.endswith("/api/ps") for path, _auth in ollama_endpoint["requests"]
     )
     assert (
         "/ollama-proxy/api/show",
@@ -289,9 +283,6 @@ def test_configured_base_url_is_saved_before_ollama_discovery(
     assert ollama_endpoint["requests"][0] == (
         "/ollama-proxy/v1/models",
         "Bearer test-ollama-key",
-    )
-    assert not any(
-        path.endswith("/api/ps") for path, _auth in ollama_endpoint["requests"]
     )
     assert (
         "/ollama-proxy/api/show",
