@@ -73,7 +73,15 @@ function serializeNode(node: Node, out: string[]): void {
 function serializeRichInput(root: Node): string {
   const out: string[] = [];
   root.childNodes.forEach((child) => serializeNode(child, out));
-  return out.join("");
+  let result = out.join("");
+  // A root-level trailing <br> is the caret placeholder that keeps the
+  // final empty line focusable: renderValue appends it for values ending
+  // in "\n" and Chromium keeps one after a native Enter. It is structure,
+  // never content, so exactly one of them does not serialize.
+  if (result.endsWith("\n") && root.lastChild?.nodeName === "BR") {
+    result = result.slice(0, -1);
+  }
+  return result;
 }
 
 /*
@@ -162,14 +170,36 @@ function renderValue(root: HTMLElement, value: string): void {
     }
     appendTextWithBreaks(root, part);
   });
+  // A lone trailing <br> renders no focusable empty last line (Chromium
+  // treats it as the caret placeholder); mirror the browser's own Enter
+  // output so restored drafts ending in "\n" keep a real second line.
+  if (root.lastChild?.nodeName === "BR") {
+    root.appendChild(document.createElement("br"));
+  }
+}
+
+/**
+ * Range at the end of the content, before any trailing caret-placeholder
+ * <br> — where the browser itself puts the caret when the last line is
+ * empty. Inserting after the placeholder would strand content behind it.
+ */
+function endCaretRange(root: HTMLElement): Range {
+  const range = document.createRange();
+  const last = root.lastChild;
+  if (last?.nodeName === "BR") {
+    range.setEndBefore(last);
+    range.collapse(false);
+    return range;
+  }
+  range.selectNodeContents(root);
+  range.collapse(false);
+  return range;
 }
 
 function placeCaretEnd(root: HTMLElement): void {
   const sel = window.getSelection();
   if (!sel) return;
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.collapse(false);
+  const range = endCaretRange(root);
   sel.removeAllRanges();
   sel.addRange(range);
 }
@@ -195,10 +225,7 @@ function caretRangeInside(root: HTMLElement, savedRange: Range | null): Range {
   if (savedRange && isRangeInside(root, savedRange)) {
     return savedRange.cloneRange();
   }
-  const range = document.createRange();
-  range.selectNodeContents(root);
-  range.collapse(false);
-  return range;
+  return endCaretRange(root);
 }
 
 function serializeRange(range: Range): string {

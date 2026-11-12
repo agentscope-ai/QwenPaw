@@ -101,6 +101,35 @@ describe("CommentRichInput emoji token gating", () => {
     expect(root.textContent).toBe("abc");
   });
 
+  it("restores a trailing-newline draft as a focusable empty last line", () => {
+    const onChange = vi.fn();
+    // The remount path: Discussion.tsx unmounts the main composer while an
+    // inline reply is open and restores the kept draft on close.
+    const { container } = render(
+      <CommentRichInput value={"abc\n"} onChange={onChange} />,
+    );
+    const root = container.querySelector("[contenteditable]");
+    // Break + caret placeholder, mirroring Chromium's own Enter output: a
+    // lone trailing <br> renders no empty line the caret can live on.
+    expect(root?.querySelectorAll("br")).toHaveLength(2);
+    expect(root?.textContent).toBe("abc");
+    fireEvent.input(root as Element);
+    expect(onChange).toHaveBeenLastCalledWith("abc\n");
+  });
+
+  it("ignores the root-level trailing caret placeholder when serializing", () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <CommentRichInput value="" onChange={onChange} />,
+    );
+    const root = container.querySelector("[contenteditable]") as Element;
+    // What Chromium leaves after a native Enter before anything is typed:
+    // the placeholder must not inflate the value to "a\n\n".
+    root.innerHTML = "a<br><br>";
+    fireEvent.input(root);
+    expect(onChange).toHaveBeenLastCalledWith("a\n");
+  });
+
   it("falls back to range insertion when execCommand is unavailable", () => {
     const onChange = vi.fn();
     const { container } = render(
