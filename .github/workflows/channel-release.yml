@@ -1,0 +1,94 @@
+name: Official Channel Plugins Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/channel/**/plugin.json"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Verify without reserving versions or publishing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugins-release
+  cancel-in-progress: false
+
+env:
+  OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install channel contract dependencies
+        run: |
+          python -m pip install --upgrade 'pip>=26.2.2' 'certifi>=2026.10.19'
+          python -m pip install -r scripts/pack/channel-contract-requirements.txt
+      - name: Pack official channels
+        run: |
+          python - <<'PY'
+          import runpy
+          import subprocess
+          import sys
+
+          rows = runpy.run_path("src/qwenpaw/plugins/official_channel_catalog.py")["OFFICIAL_CHANNELS"]
+          args = [sys.executable, "scripts/pack/generate_plugin_metadata.py",
+                  "--plugins-root", "plugins", "--dist", "dist/plugins",
+                  "--metadata-out", "dist/plugins/index.json", "--cdn-prefix", "/files/plugins"]
+          for row in rows:
+              args.extend(["--only", row["plugin_id"]])
+          subprocess.run(args, check=True)
+          PY
+      - name: Verify and publish immutable channel ZIPs
+        uses: ./.github/actions/check-plugin-release
+        with:
+          artifacts-root: dist/plugins
+          publish: "true"
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+      - name: Merge and publish catalog indexes
+        if: github.event_name != 'workflow_dispatch' || !inputs.dry_run
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, "scripts/pack")
+          from check_plugin_versions import OSSStore
+          from merge_plugin_index import merge_indexes
+          from patch_main_index import patch_index
+
+          store = OSSStore(os.environ["OSS_BUCKET"])
+          root = Path("dist/plugins")
+          plugins = merge_indexes(
+              json.loads((root / "index.json").read_text()),
+              json.loads((root / ".published-index.json").read_text()),
+          )
+          raw = store.read("metadata/index.json")
+          main = patch_index(json.loads(raw) if raw is not None else {"version": "1.0"})
+          for key, index in (("metadata/plugins/index.json", plugins), ("metadata/index.json", main)):
+              store.bucket.put_object(
+                  key, json.dumps(index, indent=2, ensure_ascii=False).encode("utf-8"),
+                  headers={"x-oss-object-acl": "public-read",
+                           "Cache-Control": "public, max-age=60, must-revalidate"},
+              )
+          PY

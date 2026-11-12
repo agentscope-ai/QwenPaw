@@ -11,5 +11,5 @@
   "qwenpaw_version": {
     "min": "2.2.2b4"
   },
-  "publish": false
+  "publish": true
 }

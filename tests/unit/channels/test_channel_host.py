@@ -260,10 +260,12 @@ async def test_channel_update_catalog_is_passive(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["bundled", "https"])
 async def test_channel_update_keeps_disabled_intent(
     host,
     monkeypatch,
     static_channel_guard,
+    transport,
 ):
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
@@ -291,8 +293,28 @@ async def test_channel_update_keeps_disabled_intent(
         "qwenpaw.plugins.official_channels.async_bundled_channel_source",
         bundled,
     )
+    source = "bundled:" + KEY
+    if transport == "https":
+        import zipfile
+
+        source = "https://download.qwenpaw.agentscope.io/feishu-2.0.0.zip"
+
+        async def download(url, destination):
+            assert url == source
+            with zipfile.ZipFile(destination, "w") as archive:
+                for path in candidate.rglob("*"):
+                    if path.is_file():
+                        archive.write(
+                            path,
+                            KEY + "/" + path.relative_to(candidate).as_posix(),
+                        )
+
+        monkeypatch.setattr(
+            "qwenpaw.app.routers.plugins._async_download",
+            download,
+        )
     record = await install_plugin_source(
-        "bundled:" + KEY,
+        source,
         force=True,
         app=SimpleNamespace(state=SimpleNamespace(plugin_loader=host.loader)),
     )

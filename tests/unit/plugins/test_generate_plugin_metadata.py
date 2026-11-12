@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import shutil
 import sys
 import zipfile
@@ -26,11 +27,54 @@ from generate_plugin_metadata import (  # noqa: E402
     _iter_tree_relpaths,
     _normalize_pack_exclude,
     _zip_plugin,
+    build_official_channel_bundle,
     discover_and_pack,
     get_version,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_official_channel_publication_matches_bundled_content(tmp_path):
+    inventory = runpy.run_path(
+        str(REPO_ROOT / "src/qwenpaw/plugins/official_channel_catalog.py"),
+    )["OFFICIAL_CHANNELS"]
+    owners = {row["plugin_id"] for row in inventory}
+    public = tmp_path / "public"
+    index, failed = discover_and_pack(
+        REPO_ROOT / "plugins",
+        public,
+        "/files/plugins",
+        only=list(owners),
+    )
+    assert not failed
+    entries = {entry["plugin_id"]: entry for entry in index["files"].values()}
+    assert set(entries) == owners
+    assert entries["azure-bot"]["url"].startswith(
+        "/files/plugins/channel/azure-bot/",
+    )
+
+    bundled = tmp_path / "bundled"
+    bundle_index = json.loads(
+        build_official_channel_bundle(
+            REPO_ROOT,
+            bundled,
+            host_version="2.3.0",
+        ).read_text(),
+    )
+    for row in bundle_index["plugins"]:
+        entry = entries[row["plugin_id"]]
+        assert entry["platform"] == "channel"
+        assert entry["version"] == row["version"]
+        with (
+            zipfile.ZipFile(
+                public / "channel" / row["plugin_id"] / entry["filename"],
+            ) as online,
+            zipfile.ZipFile(bundled / row["filename"]) as offline,
+        ):
+            assert {name: online.read(name) for name in online.namelist()} == {
+                name: offline.read(name) for name in offline.namelist()
+            }
 
 
 def test_structured_qwenpaw_version_passthrough() -> None:
