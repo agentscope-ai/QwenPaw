@@ -112,6 +112,14 @@ the actual workspace ID, with additional App/Channel identity where applicable. 
 names are not workspace identities. Media writes return a public `Attachment`; paths must
 remain within the plugin's data scope. Normal reload preserves persistent data.
 
+Keep mutable state out of the installation directory. Install and update swap that
+directory in rather than merging into it, so a file you write next to your own code —
+a generated rule script, a cache, something a user asked the plugin to keep for a rule —
+is gone after the next update, and a plugin that cleans its own tree at startup can
+remove it even earlier. `storage` is the only location that survives install, update and
+reload, so a rule script, generated configuration or cache belongs there, not beside the
+code that uses it.
+
 Register tasks, connections, threads, and processes with `context.resources`. Lifecycle
 protection covers managed resources, not arbitrary global threads or external services
 that the author never registered.
