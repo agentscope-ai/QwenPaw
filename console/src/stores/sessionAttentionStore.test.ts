@@ -74,4 +74,42 @@ describe("sessionAttentionStore", () => {
       ),
     ).toBe(false);
   });
+
+  it("ignores invalid completion timestamps without poisoning the baseline", () => {
+    const invalid = { ...session, lastFinishedAt: "not-a-date" };
+    const store = useSessionAttentionStore.getState();
+    store.initializeSessions("agent-a", [invalid]);
+    expect(
+      hasUnseenCompletion(
+        useSessionAttentionStore.getState().seenFinishedAt,
+        "agent-a",
+        invalid,
+      ),
+    ).toBe(false);
+    expect(
+      hasUnseenCompletion(
+        useSessionAttentionStore.getState().seenFinishedAt,
+        "agent-a",
+        session,
+      ),
+    ).toBe(true);
+    store.markSeen("agent-a", invalid);
+    expect(
+      useSessionAttentionStore.getState().seenFinishedAt["agent-a:chat-1"],
+    ).toBeNull();
+  });
+
+  it("does not move a read marker backwards after a stale refresh", () => {
+    const store = useSessionAttentionStore.getState();
+    const newer = { ...session, lastFinishedAt: "2026-08-25T09:00:00Z" };
+    store.markSeen("agent-a", newer);
+    store.markSeen("agent-a", session);
+    expect(
+      hasUnseenCompletion(
+        useSessionAttentionStore.getState().seenFinishedAt,
+        "agent-a",
+        newer,
+      ),
+    ).toBe(false);
+  });
 });
