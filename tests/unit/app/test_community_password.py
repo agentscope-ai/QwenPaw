@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,redefined-outer-name
-"""Password connection persistence, replacement and owner boundaries."""
+"""Password connection persistence and deployment access boundaries."""
 
 import asyncio
 import json
@@ -11,7 +11,7 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
-from starlette.requests import Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from qwenpaw.app import community_credentials as credentials
 from qwenpaw.app import community_store as store
@@ -19,10 +19,7 @@ from qwenpaw.app.community_connection import (
     CommunityConnectionError,
     CommunityConnectionService,
 )
-from qwenpaw.app.routers.community_connection import (
-    password_login_allowed,
-    router,
-)
+from qwenpaw.app.routers.community_connection import router
 from qwenpaw.envs import store as env_store
 from qwenpaw.security import secret_store
 
@@ -107,7 +104,7 @@ async def test_saved_once_encrypted_and_hidden_from_env_tools(service):
     )
     env_store.save_envs({})
     assert credentials.load()["password"] == "password-secret"
-    status = await service.status(local=False, password_allowed=True)
+    status = await service.status(local=False)
     assert status["saved_account"] == "alice@example.com"
     assert status["password_saved"]
     assert "password-secret" not in json.dumps(status)
@@ -236,50 +233,6 @@ async def test_disconnect_wins_over_pending_password_login(service):
         await pending
     assert await store.get_connection() is None
     assert not credentials.load()["password"]
-
-
-def owner_request(
-    *,
-    scheme="https",
-    authenticated=True,
-    origin=None,
-    headers=(),
-):
-    return Request(
-        {
-            "type": "http",
-            "method": "POST",
-            "path": "/community/connection/password",
-            "scheme": scheme,
-            "server": ("qwenpaw.example", 443 if scheme == "https" else 80),
-            "client": ("192.0.2.5", 1234),
-            "headers": [
-                (b"host", b"qwenpaw.example"),
-                *headers,
-                *([(b"origin", origin.encode())] if origin else []),
-            ],
-            "state": {"user": "owner"} if authenticated else {},
-        },
-    )
-
-
-def test_remote_login_requires_https_owner_and_same_origin(monkeypatch):
-    assert password_login_allowed(
-        owner_request(origin="https://qwenpaw.example"),
-    )
-    assert not password_login_allowed(owner_request(authenticated=False))
-    assert not password_login_allowed(owner_request(scheme="http"))
-    assert not password_login_allowed(
-        owner_request(origin="https://evil.example"),
-    )
-    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary-secret")
-    assert not password_login_allowed(owner_request())
-    assert not password_login_allowed(
-        owner_request(
-            authenticated=False,
-            headers=[(b"x-qwenpaw-runtime-token", b"boundary-secret")],
-        ),
-    )
 
 
 @pytest.mark.asyncio
@@ -482,122 +435,263 @@ def test_credential_symlink_is_rejected(tmp_path):
     assert target.read_text() == "untouched"
 
 
-@pytest.mark.asyncio
-async def test_standalone_proxy_uses_production_middleware(
-    service,
-    monkeypatch,
-):
+@pytest.fixture
+def deployment_app(service, monkeypatch):
     from types import SimpleNamespace
     from qwenpaw.app import auth
     from qwenpaw.app._app import app as production_app
 
-    monkeypatch.setattr(auth, "is_auth_enabled", lambda: True)
+    monkeypatch.setattr(auth, "is_auth_enabled", lambda: False)
     monkeypatch.setattr(auth, "has_registered_users", lambda: True)
-    monkeypatch.setattr(
-        auth,
-        "verify_token",
-        lambda token: "owner" if token == "valid" else None,
-    )
-    networks = auth._parse_networks(["127.0.0.1/32"])
     monkeypatch.setattr(
         auth,
         "_get_config_cached",
         lambda: (
             SimpleNamespace(security=SimpleNamespace(allow_no_auth_hosts=[])),
-            networks,
+            [],
         ),
     )
     app = FastAPI(middleware=production_app.user_middleware)
     app.include_router(router, prefix="/api")
     app.state.community_connection_service = service
+    return app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("base_url", "headers"),
+    [
+        ("http://localhost:8088", {}),
+        ("http://192.0.2.10:8088", {}),
+        ("https://instance.example", {}),
+        (
+            "http://internal-runtime:8088",
+            {
+                "Origin": "https://instance.example",
+                "X-Forwarded-Proto": "https",
+            },
+        ),
+    ],
+)
+async def test_password_flow_uses_deployment_access(
+    deployment_app,
+    base_url,
+    headers,
+):
+    # Model Docker bridge traffic and a Platform HTTPS gateway forwarding HTTP
+    # to a runtime with local auth disabled and no trusted-proxy configuration.
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 12345)),
-        base_url="http://public.example",
+        transport=httpx.ASGITransport(
+            app=deployment_app,
+            client=("172.17.0.1", 12345),
+        ),
+        base_url=base_url,
+        headers=headers,
     ) as client:
-        headers = {
-            "Authorization": "Bearer valid",
-            "Origin": "https://public.example",
-            "X-Forwarded-Proto": "https",
-        }
-        body = {"account": "alice@example.com", "password": "valid-secret"}
+        status = await client.get("/api/community/connection")
+        assert status.status_code == 200
+        assert status.json()["password_login_supported"] is True
+        assert status.json()["local_login_supported"] is False
+        assert status.json()["connection_available"] is True
+        assert status.json()["unavailable_reason"] is None
+        assert status.json()["status"] == "disconnected"
+        response = await client.post(
+            "/api/community/connection/password",
+            json={"account": "alice@example.com", "password": "valid-secret"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"connected": True}
+        status = await client.get("/api/community/connection")
+        assert status.json()["saved_account"] == "alice@example.com"
+        assert status.json()["password_saved"] is True
+        assert "valid-secret" not in status.text
+        rejected = await client.post(
+            "/api/community/connection/password",
+            json={"account": "bob@example.com", "password": "wrong"},
+        )
+        assert rejected.status_code == 409
+        assert credentials.load()["account"] == "alice@example.com"
+        cleared = await client.delete("/api/community/connection/password")
+        assert cleared.status_code == 200
+        assert not credentials.load()["password"]
+
+
+@pytest.fixture(params=[False, True], ids=["no-cors", "trusted-cors"])
+def browser_app(deployment_app, request):
+    if request.param:
+        # Match the app's explicit-origin CORS configuration, including the
+        # desktop frontend. Untrusted origins must not pass JSON preflight.
+        deployment_app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["https://trusted.example", "tauri://localhost"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    return deployment_app
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        None,
+        "text/plain",
+        "text/plain; charset=UTF-8",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data; boundary=example",
+        "application/json-invalid",
+    ],
+)
+async def test_password_rejects_non_json_without_changing_connection(
+    browser_app,
+    service,
+    requests,
+    content_type,
+):
+    await service.connect_password("owner@example.com", "owner-secret")
+    before = await store.get_connection()
+    saved = credentials.load()
+    requests.clear()
+    headers = {"Origin": "https://untrusted.example"}
+    if content_type:
+        headers["Content-Type"] = content_type
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=browser_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
         response = await client.post(
             "/api/community/connection/password",
             headers=headers,
-            json=body,
+            content=json.dumps(
+                {"account": "attacker@example.com", "password": "valid"},
+            ),
         )
-        assert response.status_code == 200
-        networks.clear()
-        denied = await client.post(
+    assert response.status_code == 415
+    assert response.json()["detail"] == "json_content_type_required"
+    assert requests == []
+    assert credentials.load() == saved
+    assert await store.get_connection() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["https://untrusted.example", "null"])
+@pytest.mark.parametrize("method", ["POST", "DELETE"])
+async def test_password_untrusted_preflight_is_not_authorized(
+    browser_app,
+    service,
+    requests,
+    origin,
+    method,
+):
+    await service.connect_password("owner@example.com", "owner-secret")
+    saved = credentials.load()
+    before = await store.get_connection()
+    requests.clear()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=browser_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        response = await client.options(
             "/api/community/connection/password",
-            headers=headers,
-            json=body,
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": "content-type",
+            },
         )
-        assert denied.status_code == 403
+    assert response.status_code >= 400
+    assert "access-control-allow-origin" not in response.headers
+    assert requests == []
+    assert credentials.load() == saved
+    assert await store.get_connection() == before
 
 
-def test_hub_origin_requires_boundary_and_rejects_pawapp_scope(monkeypatch):
-    from qwenpaw.utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER
-    from qwenpaw.plugins.browser_access import PAWAPP_SCOPE_HEADER
-
-    extra = [
-        (HUB_PUBLIC_ORIGIN_HEADER.lower().encode(), b"https://public.example"),
-    ]
-    assert not password_login_allowed(
-        owner_request(scheme="http", headers=extra),
-    )
-    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary")
-    assert not password_login_allowed(
-        owner_request(scheme="http", headers=extra),
-    )
-    extra.append((b"x-qwenpaw-runtime-token", b"boundary"))
-    assert password_login_allowed(
-        owner_request(
-            scheme="http",
-            authenticated=False,
-            origin="https://public.example",
-            headers=extra,
-        ),
-    )
-    assert not password_login_allowed(
-        owner_request(
-            scheme="http",
-            origin="https://evil.example",
-            headers=extra,
-        ),
-    )
-    extra.append((PAWAPP_SCOPE_HEADER.lower().encode(), b"some-app"))
-    assert not password_login_allowed(
-        owner_request(
-            scheme="http",
-            origin="https://public.example",
-            headers=extra,
-        ),
-    )
-
-
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "value",
-    [
-        "http://public.example",
-        "https://user@public.example",
-        "https://public.example/path",
-        "https://public.example?x=1",
-        "https://public.example#x",
-        "https://public.example\r\n",
-        "https://[broken",
-    ],
+    "origin",
+    ["https://trusted.example", "tauri://localhost"],
 )
-def test_invalid_hub_origin_is_rejected(monkeypatch, value):
-    from qwenpaw.utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER
-
-    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary")
-    assert not password_login_allowed(
-        owner_request(
-            scheme="http",
-            origin="https://public.example",
-            headers=[
-                (b"x-qwenpaw-runtime-token", b"boundary"),
-                (HUB_PUBLIC_ORIGIN_HEADER.lower().encode(), value.encode()),
-            ],
-        ),
+async def test_password_trusted_json_preflight_and_login(
+    deployment_app,
+    origin,
+):
+    deployment_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[origin],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=deployment_app),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        preflight = await client.options(
+            "/api/community/connection/password",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        assert preflight.status_code == 200
+        assert preflight.headers["access-control-allow-origin"] == origin
+        response = await client.post(
+            "/api/community/connection/password",
+            headers={
+                "Origin": origin,
+                "Content-Type": "Application/JSON; charset=utf-8",
+            },
+            json={"account": "owner@example.com", "password": "valid"},
+        )
+    assert response.status_code == 200
+    assert credentials.load()["account"] == "owner@example.com"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["local_auth", "runtime_token"])
+async def test_existing_app_access_controls_still_apply(
+    deployment_app,
+    monkeypatch,
+    boundary,
+):
+    from qwenpaw.app import auth
+
+    if boundary == "local_auth":
+        monkeypatch.setattr(auth, "is_auth_enabled", lambda: True)
+        monkeypatch.setattr(
+            auth,
+            "verify_token",
+            lambda token: "owner" if token == "valid" else None,
+        )
+        headers = {"Authorization": "Bearer valid"}
+    else:
+        monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "test-boundary")
+        headers = {"X-QwenPaw-Runtime-Token": "test-boundary"}
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(
+            app=deployment_app,
+            client=("172.17.0.1", 12345),
+        ),
+        base_url="http://internal-runtime:8088",
+    ) as client:
+        for method, path, body in [
+            ("GET", "/api/community/connection", None),
+            (
+                "POST",
+                "/api/community/connection/password",
+                {"account": "alice@example.com", "password": "valid-secret"},
+            ),
+            ("DELETE", "/api/community/connection/password", None),
+        ]:
+            denied = await client.request(method, path, json=body)
+            assert denied.status_code == 401
+            allowed = await client.request(
+                method,
+                path,
+                headers=headers,
+                json=body,
+            )
+            assert allowed.status_code == 200
