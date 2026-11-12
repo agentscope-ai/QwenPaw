@@ -199,8 +199,8 @@ class APIExport:
     stability: str = "stable"
 
 
-# TODO: Maintainers must review and approve every new API since version below
-# together with SDK_VERSION before release; 1.1.0 is the proposed version.
+# TODO: Maintainers must approve the CLI and extension API since values together
+# with the SDK release version and template sdk.version declarations.
 _API_SINCE = {
     ("qwenpaw.plugins.cli", "CliSpec"): "1.1.0",
     ("qwenpaw.plugins.cli", "CliContext"): "1.1.0",

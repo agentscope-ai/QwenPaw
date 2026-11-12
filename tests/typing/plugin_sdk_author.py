@@ -8,7 +8,6 @@ from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.harnesses import HarnessBackend, HarnessCallContext
 
 from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
-from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.cli import CliContext
 from qwenpaw.plugins.events import ChatEvent
 from qwenpaw.plugins.providers import ModelChunk

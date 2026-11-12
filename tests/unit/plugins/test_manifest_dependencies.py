@@ -721,7 +721,7 @@ def test_channel_install_resolves_only_declared_host_capability_groups(
 
 @pytest.mark.parametrize(
     "declaration",
-    ["pkg[extra]", "pkg\nother", "--index-url=x"],
+    ["pkg @ https://example.com/pkg.whl", "pkg\nother", "--index-url=x"],
 )
 def test_optional_dependency_syntax_is_checked_without_loading_code(
     declaration,
@@ -748,6 +748,27 @@ def test_optional_dependency_syntax_is_checked_without_loading_code(
                 ],
             },
         )
+
+
+def test_optional_dependency_extras_use_supported_manifest_syntax():
+    from qwenpaw.plugins.architecture import PluginManifest
+    from qwenpaw.plugins.dependency_requirements import (
+        resolve_optional_dependencies,
+    )
+
+    manifest = PluginManifest.model_validate(
+        {
+            "id": "example",
+            "version": "1",
+            "entry": {"backend": "main.py"},
+            "sdk": {"version": "1.1.0", "capabilities": ["dependencies"]},
+            "optional_dependencies": {"transport": ["pkg[extra]>=1"]},
+        },
+    )
+    assert resolve_optional_dependencies(
+        manifest.optional_dependencies,
+        ("transport",),
+    ) == ("pkg[extra]>=1",)
 
 
 @pytest.mark.parametrize(

@@ -156,17 +156,22 @@ def static_channel_guard(host, monkeypatch):
     assert not attempts and not host.ledger.exists()
 
 
-@pytest.mark.parametrize("installed_version", [None, "0.9", "1.0"])
+@pytest.mark.parametrize(
+    "installed_version,host_only",
+    [(None, False), ("0.9", False), ("1.0", False), ("1.0", True)],
+)
 async def test_named_channel_dependencies_keep_public_registration_light(
     host,
     monkeypatch,
+    caplog,
     installed_version,
+    host_only,
 ):
     """Static discovery imports nothing; registration leaves the driver cold."""
     import zipfile
     from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
     from qwenpaw.plugins.architecture import PluginManifest
-    from qwenpaw.plugins.dependency_gate import SharedDependencyError
+    from qwenpaw.plugins.execution.process import ProcessError
 
     monkeypatch.setattr(
         "qwenpaw.plugins.python_backend._host_paths",
@@ -200,8 +205,16 @@ async def test_named_channel_dependencies_keep_public_registration_light(
             host.root / "wheels",
             version=installed_version,
         )
+        site = host.root / "host-only-site" if host_only else host.site
         with zipfile.ZipFile(next(wheel_dir.glob("*.whl"))) as wheel:
-            wheel.extractall(host.site)
+            wheel.extractall(site)
+        if host_only:
+            from importlib.metadata import version
+            from importlib.util import find_spec
+
+            monkeypatch.syspath_prepend(str(site))
+            assert version("sample-shared-sdk") == installed_version
+            assert find_spec("sample_shared_sdk") is not None
     shutil.copytree(source, host.installed)
     catalog = get_configurable_channel_catalog()
     assert KEY in catalog
@@ -220,20 +233,27 @@ async def test_named_channel_dependencies_keep_public_registration_light(
     assert rows(entry_marker, "registered")
     assert not rows(entry_marker, "sending-imported")
     assert not marker.exists()
-    if installed_version == "1.0":
+    if installed_version is not None and not host_only:
         await host.loader.lifecycle.preflight_backend(
             record.backend_binding,
             allow_install=False,
             probe=True,
         )
         assert marker.exists()
+        if installed_version == "0.9":
+            assert any(
+                "sample-shared-sdk" in record.message
+                and "attempting load" in record.message
+                for record in caplog.records
+            )
     else:
-        with pytest.raises(SharedDependencyError):
+        with pytest.raises(ProcessError) as rejected:
             await host.loader.lifecycle.preflight_backend(
                 record.backend_binding,
                 allow_install=False,
                 probe=True,
             )
+        assert rejected.value.reason_code == "DEPENDENCY_UNSATISFIED"
         assert not marker.exists()
         assert KEY in get_configurable_channel_catalog()
     assert not rows(entry_marker, "sending-imported")

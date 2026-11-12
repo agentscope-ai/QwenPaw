@@ -1,8 +1,9 @@
 # Hello SDK
 
-TODO: Maintainers must review and approve the `sdk.version: 1.1.0` declaration
-in `plugin.json` before release. Align it with the approved `SDK_VERSION` and
-API `since` metadata; this version is provisional.
+The `sdk.version: 1.1.0` declaration follows the SDK version already on main.
+TODO: Maintainers must approve the release version for the CLI and extension
+APIs. Keep this template's `sdk.version` and API `since` values aligned with
+that decision.
 
 This template imports only public SDK types. `hello_sdk` validates a name,
 returns a tool result and stores a counter separately for each workspace.

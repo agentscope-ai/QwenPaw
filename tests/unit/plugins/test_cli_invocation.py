@@ -19,7 +19,7 @@ from qwenpaw.plugins.source_usage import source_writer
     [
         (False, "lifecycle-fixture==1.0", True),
         (False, "qwenpaw-missing-cli-sdk==1.0", False),
-        (False, "lifecycle-fixture>=2.0", False),
+        (False, "lifecycle-fixture>=2.0", True),
         (False, 'qwenpaw-missing-cli-sdk; python_version < "1"', True),
         (True, "lifecycle-fixture==1.0", True),
         (True, "qwenpaw-missing-cli-sdk==1.0", False),
@@ -30,6 +30,7 @@ def test_capability_dependencies_are_admitted_before_implementation(
     monkeypatch,
     fresh_registry,
     bounded_dependency_environment,
+    caplog,
     requirement,
     available,
     channel,
@@ -176,6 +177,14 @@ def check(call):
         if not available:
             assert "DEPENDENCY_UNSATISFIED" in result.output
             assert "Traceback" not in result.output
+    if available:
+        assert result.output == "sent\n"
+    if requirement == "lifecycle-fixture>=2.0":
+        assert any(
+            requirement in record.message
+            and "installed 1.0; attempting load" in record.message
+            for record in caplog.records
+        )
 
     @click.command()
     def check():

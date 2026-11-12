@@ -1813,10 +1813,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         )
         api.set_registry(self.registry)
         api.bind_instance(instance, loader=self)
-        if manifest_dict.get("sdk") is not None and not isinstance(
+        sdk_definition = manifest_dict.get(
+            "sdk",
+        ) is not None and not isinstance(
             definition,
             StaticChannelDefinition,
-        ):
+        )
+        if sdk_definition:
             from .sdk import PluginContext
 
             api = PluginContext(api)
@@ -1831,6 +1834,14 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             what="register()",
             plugin_id=plugin_id,
         )
+        if sdk_definition and (
+            "harnesses" in (manifest_dict.get("meta") or {})
+            or self.registry.backend_registry_initialized
+        ):
+            self.registry.backend_registry.validate_manifest(
+                api.resources.owner,
+                manifest_dict,
+            )
 
     async def _invoke_plugin_register(
         self,
@@ -1862,14 +1873,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 manifest_dict,
                 dependency_token=dependency_token,
             )
-            if manifest_dict.get("sdk") is not None and (
-                "harnesses" in (manifest_dict.get("meta") or {})
-                or self.registry.backend_registry_initialized
-            ):
-                self.registry.backend_registry.validate_manifest(
-                    api.resources.owner,
-                    manifest_dict,
-                )
         except BaseException as exc:
             instance.mark_failed(str(exc) or type(exc).__name__)
             await self._dispose_then_undo_txn_disk(plugin_id, instance)
@@ -5322,14 +5325,6 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 manifest_dict,
                 dependency_token=dependency_token,
             )
-            if manifest_dict.get("sdk") is not None and (
-                "harnesses" in (manifest_dict.get("meta") or {})
-                or self.registry.backend_registry_initialized
-            ):
-                self.registry.backend_registry.validate_manifest(
-                    api.resources.owner,
-                    manifest_dict,
-                )
         except BaseException as exc:
             cleanup_report = await self._dispose_then_undo_txn_disk(
                 plugin_id,

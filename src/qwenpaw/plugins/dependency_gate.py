@@ -115,12 +115,12 @@ def manifest_requirements(manifest: dict) -> list[str]:
             requirement = Requirement(declaration)
             if requirement.url:
                 raise ValueError("Direct URLs are unsupported")
-            result.append(str(requirement))
         except ValueError as exc:
             raise ValueError(
                 "plugin.json dependencies contains unsupported requirement "
                 f"syntax: {declaration!r}",
             ) from exc
+        result.append(str(requirement))
     return result
 
 
