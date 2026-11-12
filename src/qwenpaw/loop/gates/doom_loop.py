@@ -39,6 +39,7 @@ class _DoomState:
     consecutive_hits: int = 0
     prompt: str = ""
     last_recorded_msg_id: str | None = None
+    last_recorded_block_count: int = 0
     history_dirty: bool = False
 
 
@@ -111,6 +112,7 @@ class DoomLoopGate(LoopGate):
             state.consecutive_hits = 0
             state.prompt = ""
             state.last_recorded_msg_id = None
+            state.last_recorded_block_count = 0
             state.history_dirty = False
 
     async def check(
@@ -185,7 +187,7 @@ class DoomLoopGate(LoopGate):
         ctx: Any,
         state: _DoomState,
     ) -> None:
-        """Record each new message's tool calls in order."""
+        """Record tool calls newly appended to the latest message."""
         if not isinstance(ctx, dict):
             return
         if ctx.get("has_tool_calls") is False:
@@ -202,29 +204,46 @@ class DoomLoopGate(LoopGate):
         if not context:
             return
         last_msg = context[-1]
-        if last_msg.id == state.last_recorded_msg_id:
-            return
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
             return
+
+        # A reply keeps appending blocks to one assistant message whose id
+        # stays ``reply_id``, so the message id cannot tell which tool calls
+        # were already recorded. Consume the tail of the message instead,
+        # so every iteration contributes its own calls.
+        tool_blocks = [
+            block
+            for block in content
+            if (
+                block.get("type")
+                if isinstance(block, dict)
+                else getattr(block, "type", None)
+            )
+            in ("tool_call", "tool_use")
+        ]
+        if last_msg.id == state.last_recorded_msg_id:
+            start = state.last_recorded_block_count
+            if len(tool_blocks) <= start:
+                return
+        else:
+            start = 0
         state.last_recorded_msg_id = last_msg.id
-        for block in content:
-            btype = getattr(block, "type", None)
-            if isinstance(block, dict):
-                btype = block.get("type")
-            if btype in ("tool_call", "tool_use"):
-                name = (
-                    block.get("name", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "name", "")
-                )
-                raw_input = (
-                    block.get("input", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "input", "")
-                )
-                args_hash = self._hash_args(raw_input)
-                self.record(name, args_hash)
+        state.last_recorded_block_count = len(tool_blocks)
+
+        for block in tool_blocks[start:]:
+            name = (
+                block.get("name", "")
+                if isinstance(block, dict)
+                else getattr(block, "name", "")
+            )
+            raw_input = (
+                block.get("input", "")
+                if isinstance(block, dict)
+                else getattr(block, "input", "")
+            )
+            args_hash = self._hash_args(raw_input)
+            self.record(name, args_hash)
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:
