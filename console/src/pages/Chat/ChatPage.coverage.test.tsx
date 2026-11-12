@@ -844,7 +844,7 @@ describe("ChatPage coverage", () => {
     });
     const latestPoll = setIntervalSpy.mock.calls
       .filter(([, delay]) => delay === 5000)
-      .at(-1)?.[0] as (() => void) | undefined;
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
     act(() => latestPoll?.());
     await waitFor(() => {
       expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
@@ -956,7 +956,7 @@ describe("ChatPage coverage", () => {
 
     const latestPoll = setIntervalSpy.mock.calls
       .filter(([, delay]) => delay === 5000)
-      .at(-1)?.[0] as (() => void) | undefined;
+      .slice(-1)[0]?.[0] as (() => void) | undefined;
     act(() => latestPoll?.());
     await waitFor(() => {
       expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
