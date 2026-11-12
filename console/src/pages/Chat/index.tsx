@@ -2067,6 +2067,11 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const activeRunSyncRef = useRef({
+    key: "",
+    sawRunning: false,
+    resumeAttempted: false,
+  });
 
   useEffect(() => {
     if (
@@ -2080,11 +2085,18 @@ export default function ChatPage() {
 
     const controller = new AbortController();
     let inFlight = false;
-    let sawRunning = false;
-    let resumeAttempted = false;
-    const refreshMessages = async (
-      { requireIdle }: { requireIdle?: boolean } = {},
-    ) => {
+    const syncKey = `${selectedAgent}:${queueSessionId}`;
+    if (activeRunSyncRef.current.key !== syncKey) {
+      activeRunSyncRef.current = {
+        key: syncKey,
+        sawRunning: false,
+        resumeAttempted: false,
+      };
+    }
+    const syncState = activeRunSyncRef.current;
+    const refreshMessages = async ({
+      requireIdle,
+    }: { requireIdle?: boolean } = {}) => {
       const session = await sessionApi.refreshSession(
         queueSessionId,
         controller.signal,
@@ -2116,37 +2128,39 @@ export default function ChatPage() {
         if (controller.signal.aborted) return;
 
         if (runStatus.status === "running") {
-          const firstRunningObservation = !sawRunning;
+          const firstRunningObservation = !syncState.sawRunning;
           const execution = chatRef.current?.execution;
           const activeRun = await execution?.getActiveRun(queueSessionId);
           if (controller.signal.aborted) return;
           if (activeRun && activeRun.getState() !== "disconnected") {
-            resumeAttempted = false;
+            syncState.resumeAttempted = false;
             return;
           }
-          if (resumeAttempted) return;
+          if (syncState.resumeAttempted) return;
           if (!execution) return;
           if (firstRunningObservation || !activeRun) {
             if (!(await refreshMessages())) return;
           }
-          sawRunning = true;
-          resumeAttempted = true;
+          syncState.sawRunning = true;
+          syncState.resumeAttempted = true;
           try {
             await execution.resume({
               sessionId: queueSessionId,
               source: "direct",
             });
           } catch (error) {
-            resumeAttempted = false;
+            if (!controller.signal.aborted) {
+              syncState.resumeAttempted = false;
+            }
             throw error;
           }
           return;
         }
 
-        if (!sawRunning) return;
+        if (!syncState.sawRunning) return;
         if (await refreshMessages({ requireIdle: true })) {
-          sawRunning = false;
-          resumeAttempted = false;
+          syncState.sawRunning = false;
+          syncState.resumeAttempted = false;
         }
       } catch (error) {
         if (!controller.signal.aborted) {
