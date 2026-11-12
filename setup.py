@@ -5,9 +5,23 @@ from pathlib import Path
 import runpy
 import shutil
 
-from setuptools import setup
+from setuptools import find_namespace_packages, setup
 from setuptools.command.build_py import build_py
 from setuptools.command.sdist import sdist
+
+
+packages = find_namespace_packages(
+    "src",
+    exclude=["qwenpaw.harnesses", "qwenpaw.harnesses.*"],
+)
+for package, directory in (
+    ("qwenpawmail_mcp", "packages/qwenpawmail-mcp/src/qwenpawmail_mcp"),
+    ("qwenpaw.plugins.bundled.hub", "plugins/hub"),
+):
+    packages.append(package)
+    packages.extend(
+        f"{package}.{name}" for name in find_namespace_packages(directory)
+    )
 
 
 def bundle(destination, version):
@@ -91,4 +105,7 @@ class SDist(sdist):
             )
 
 
-setup(cmdclass={"build_py": BuildPy, "sdist": SDist})
+setup(
+    packages=packages,
+    cmdclass={"build_py": BuildPy, "sdist": SDist},
+)

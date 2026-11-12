@@ -248,6 +248,7 @@ async def test_large_progress_is_coalesced_without_losing_asset_states(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_restored_running_job_marks_unfinished_assets_retryable(
     tmp_path: Path,
 ) -> None:
@@ -332,6 +333,7 @@ async def test_cancel_marks_only_attempted_unfinished_assets_failed(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_scan_is_concurrent_and_persisted(tmp_path: Path) -> None:
     services = _FakeServices()
     workspace = _workspace(tmp_path)
@@ -368,6 +370,7 @@ async def test_scan_is_concurrent_and_persisted(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_apply_projects_progress_and_replays_terminal_event(
     tmp_path: Path,
 ) -> None:
@@ -406,6 +409,7 @@ async def test_apply_projects_progress_and_replays_terminal_event(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_only_one_active_import_runs_per_agent(tmp_path: Path) -> None:
     services = _FakeServices()
     services.block_apply.clear()
@@ -559,6 +563,7 @@ async def test_shutdown_of_uncooperative_job_is_bounded(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_shutdown_cancels_active_jobs_and_rejects_new_ones(
     tmp_path: Path,
 ) -> None:
@@ -585,6 +590,7 @@ async def test_shutdown_cancels_active_jobs_and_rejects_new_ones(
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("matching_harness_plugins")
 async def test_retry_creates_a_new_job_for_selected_failed_tools(
     tmp_path: Path,
 ) -> None:
