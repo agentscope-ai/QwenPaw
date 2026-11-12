@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, AsyncGenerator, Callable, Dict
 
+from ..constant import QWENPAW_STOP_REASON_KEY
 from .message_convert import _media_type_to_block_type
 
 logger = logging.getLogger(__name__)
@@ -129,6 +130,7 @@ class Envelope:
         self._error_code: str = "error"
         self._finalized = False
         self._cancelled = False
+        self._stop_reason: str | None = None
 
     # ------------------------------------------------------------------
     # Sequence number helper
@@ -141,6 +143,16 @@ class Envelope:
     def _tag_seq(self, obj: Any) -> Any:
         obj.sequence_number = self._next_seq()
         return obj
+
+    def set_stop_reason(self, reason: str | None) -> None:
+        """Record why the agent stopped so finalize can attach it.
+
+        A loop gate ends a turn with a normal-looking assistant message,
+        so the reason has to travel with the message that finalize
+        emits; callers outside the loop (cron) cannot see the agent.
+        """
+        if reason:
+            self._stop_reason = reason
 
     # ------------------------------------------------------------------
     # Response lifecycle
@@ -891,6 +903,7 @@ class Envelope:
                     if self._cancelled
                     else RunStatus.Completed
                 )
+                self._attach_stop_reason()
                 self._response.output.append(self._completed_message)
                 yield self._tag_seq(self._completed_message)
 
@@ -909,6 +922,14 @@ class Envelope:
         )
         yield self._tag_seq(self._response)
         self._finalized = True
+
+    def _attach_stop_reason(self) -> None:
+        """Copy a recorded gate stop reason onto the finalized message."""
+        if not self._stop_reason:
+            return
+        metadata = dict(self._completed_message.metadata or {})
+        metadata[QWENPAW_STOP_REASON_KEY] = self._stop_reason
+        self._completed_message.metadata = metadata
 
     # ------------------------------------------------------------------
     # Partial content extraction (used by cancel-save)
