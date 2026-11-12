@@ -2,6 +2,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { portabilityImportApi } from "../../api/modules/import";
+import { ApiError } from "../../api/request";
+import i18n from "../../i18n";
 import { useImportJob } from "./useImportJob";
 
 let selectedAgent = "agent-a";
@@ -109,13 +111,43 @@ describe("useImportJob", () => {
     expect(result.current.job?.job_id).toBe("import-agent-a");
   });
 
+  it("shows a localized Harness requirement from the API's 409 error format", async () => {
+    const detail = {
+      code: "harness_plugin_required",
+      source: "codex",
+      plugin_id: "qwenpaw-harness-codex",
+      state: "missing",
+    };
+    const raw = JSON.stringify({ detail });
+    vi.mocked(portabilityImportApi.create).mockRejectedValueOnce(
+      new ApiError(409, `${raw} - ${raw}`),
+    );
+    const { result } = renderHook(() => useImportJob());
+    await act(async () => {
+      await expect(result.current.scan(["codex"])).rejects.toThrow();
+    });
+    expect(result.current.requirement).toEqual(detail);
+    expect(result.current.error).toBe(
+      i18n.t("portabilityImport.harnessRequired", {
+        plugin: detail.plugin_id,
+        state: i18n.t("portabilityImport.pluginStates.missing"),
+      }),
+    );
+  });
+
   it("ignores an older source detection response for the same agent", async () => {
     const oldDetection =
       deferred<Awaited<ReturnType<typeof portabilityImportApi.sources>>>();
     vi.mocked(portabilityImportApi.sources)
       .mockReturnValueOnce(oldDetection.promise)
       .mockResolvedValueOnce([
-        { source: "qoder", name: "Qoder", detected: true },
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
       ]);
     const { result } = renderHook(() => useImportJob());
 
@@ -125,17 +157,35 @@ describe("useImportJob", () => {
       await result.current.detect();
     });
     expect(result.current.sources).toEqual([
-      { source: "qoder", name: "Qoder", detected: true },
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
     ]);
 
     await act(async () => {
       oldDetection.resolve([
-        { source: "codex", name: "Codex", detected: true },
+        {
+          source: "codex",
+          name: "Codex",
+          detected: true,
+          plugin_id: "qwenpaw-harness-codex",
+          plugin_state: "available",
+        },
       ]);
       await oldRequest;
     });
     expect(result.current.sources).toEqual([
-      { source: "qoder", name: "Qoder", detected: true },
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
     ]);
   });
 
@@ -145,7 +195,13 @@ describe("useImportJob", () => {
     vi.mocked(portabilityImportApi.sources)
       .mockReturnValueOnce(oldDetection.promise)
       .mockResolvedValueOnce([
-        { source: "qoder", name: "Qoder", detected: true },
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
       ]);
     const { result } = renderHook(() => useImportJob());
 
@@ -160,7 +216,13 @@ describe("useImportJob", () => {
     });
 
     expect(result.current.sources).toEqual([
-      { source: "qoder", name: "Qoder", detected: true },
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
     ]);
     expect(result.current.error).toBe("");
     expect(result.current.loading).toBe(false);
@@ -178,7 +240,13 @@ describe("useImportJob", () => {
         return agentBAttempts === 1
           ? Promise.reject(new Error("Agent B unavailable"))
           : Promise.resolve([
-              { source: "qoder", name: "Agent B Qoder", detected: true },
+              {
+                source: "qoder",
+                name: "Agent B Qoder",
+                detected: true,
+                plugin_id: "qwenpaw-harness-qoder",
+                plugin_state: "available",
+              },
             ]);
       });
       const { result, rerender } = renderHook(() => useImportJob());
@@ -207,14 +275,26 @@ describe("useImportJob", () => {
         await result.current.detect();
       });
       expect(result.current.sources).toEqual([
-        { source: "qoder", name: "Agent B Qoder", detected: true },
+        {
+          source: "qoder",
+          name: "Agent B Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
       ]);
       expect(result.current.detectError).toBe("");
 
       await act(async () => {
         if (lateOutcome === "success") {
           agentA.resolve([
-            { source: "codex", name: "Late Agent A", detected: true },
+            {
+              source: "codex",
+              name: "Late Agent A",
+              detected: true,
+              plugin_id: "qwenpaw-harness-codex",
+              plugin_state: "available",
+            },
           ]);
           await agentARequest;
         } else {
@@ -223,7 +303,13 @@ describe("useImportJob", () => {
         }
       });
       expect(result.current.sources).toEqual([
-        { source: "qoder", name: "Agent B Qoder", detected: true },
+        {
+          source: "qoder",
+          name: "Agent B Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
       ]);
       expect(result.current.detectError).toBe("");
       expect(portabilityImportApi.create).not.toHaveBeenCalled();

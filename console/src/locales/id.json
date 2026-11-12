@@ -50,17 +50,6 @@
     "decrease": "Kurangi",
     "increase": "Tambah"
   },
-  "harnesses": {
-    "connected": "Terhubung",
-    "disconnected": "Terputus",
-    "notConnected": "Belum terhubung",
-    "comingSoon": "Segera hadir",
-    "connect": "Hubungkan dengan ChatGPT",
-    "disconnect": "Putuskan koneksi",
-    "apiKeyAuthenticated": "Diautentikasi dengan API key",
-    "chatGptAuthenticated": "Terhubung dengan ChatGPT",
-    "cliAuthenticated": "{{type}} CLI telah diautentikasi"
-  },
   "desktop": {
     "update": {
       "title": "Perbarui QwenPaw?",
@@ -1394,29 +1383,12 @@
       "thirdPartyDescription": "Menggunakan runtime agen eksternal yang telah diotorisasi, bukan model QwenPaw.",
       "providerTitle": "Pilih agen pihak ketiga",
       "providerDescription": "Autentikasi digunakan bersama di perangkat ini; proyek dan percakapan tetap terisolasi untuk setiap agen.",
-      "codexHint": "ChatGPT OAuth · Ruang kerja agen",
-      "qoderHint": "Akun Qoder atau PAT · Ruang kerja agen",
-      "account": "Akun Codex",
-      "qoderAccount": "Akun Qoder",
-      "binary": "File executable Codex",
-      "binaryHelp": "Kosongkan untuk memprioritaskan Codex CLI bawaan Python SDK dan mendeteksi instalasi mandiri. Jika diisi, masukkan path lengkap ke codex di macOS/Linux atau codex.exe di Windows. Biner bawaan aplikasi ChatGPT atau ekstensi editor tidak didukung. QwenPaw juga membaca CODEX_BINARY dan PATH backend.",
-      "binaryPlaceholder": "Deteksi otomatis atau tempel path executable Codex",
-      "qoderBinary": "File executable Qoder",
-      "qoderBinaryHelp": "Kosongkan untuk memakai qodercli yang disertakan dalam SDK Python atau mendeteksi instalasi yang ada. Jika diisi, masukkan path lengkap ke qodercli di macOS/Linux atau qodercli.exe di Windows. QwenPaw juga membaca QODERCLI_PATH dan PATH backend.",
-      "qoderBinaryPlaceholder": "Deteksi otomatis atau tempel path qodercli",
       "detect": "Deteksi",
-      "detectedBinary": "Codex terdeteksi",
-      "qoderDetectedBinary": "Qoder terdeteksi",
-      "apiKeyLoginHint": "Anda juga dapat melakukan autentikasi di terminal dengan: codex login --with-api-key",
-      "qoderAuthHint": "Hubungkan akan membuka login Qoder di browser. Anda juga dapat menjalankan qodercli login atau mengatur QODER_PERSONAL_ACCESS_TOKEN sebelum memulai backend.",
-      "qoderConnect": "Hubungkan ke Qoder",
       "model": "Model agen",
       "modelDefault": "Gunakan default agen",
       "defaultBadge": "Default",
       "reasoningEffort": "Tingkat penalaran",
       "reasoningDefault": "Gunakan default model",
-      "codexNotFound": "Runtime Codex tidak ditemukan. Instal qwenpaw[codex] atau sediakan Codex CLI mandiri.",
-      "qoderNotFound": "Runtime Qoder tidak ditemukan. Instal qwenpaw[qoder] atau sediakan qodercli.",
       "chatSettingsHint": "Pilih model, tingkat penalaran, dan izin eksekusi dari bilah alat Chat.",
       "capabilityTitle": "Kemampuan QwenPaw",
       "inheritedSkills": "Keahlian",
@@ -1429,35 +1401,11 @@
       "chatModelHint": "Pengaturan per agen · diterapkan pada giliran berikutnya",
       "appliesNextTurn": "Diterapkan pada giliran berikutnya",
       "approvalMode": "Izin eksekusi",
-      "approvalPresets": {
-        "ask": {
-          "name": "Tanyakan sebelum perubahan",
-          "description": "Izinkan perubahan ruang kerja dan tanyakan sebelum tindakan dengan hak akses lebih tinggi."
-        },
-        "read-only": {
-          "name": "Hanya baca",
-          "description": "Periksa file tanpa mengubahnya."
-        },
-        "workspace": {
-          "name": "Akses ruang kerja",
-          "description": "Izinkan perubahan ruang kerja tanpa konfirmasi."
-        },
-        "accept-edits": {
-          "name": "Terima edit",
-          "description": "Izinkan pengeditan file sambil mempertahankan perlindungan lain."
-        },
-        "plan": {
-          "name": "Hanya rencana",
-          "description": "Analisis dan rencanakan tanpa mengubah file."
-        },
-        "auto": {
-          "name": "Otomatis",
-          "description": "Biarkan Qoder menentukan tindakan aman yang dapat dijalankan."
-        },
-        "full-access": {
-          "name": "Akses penuh",
-          "description": "Izinkan eksekusi lokal tanpa batasan dan tanpa konfirmasi."
-        }
+      "installPlugin": "Pasang plugin backend",
+      "states": {
+        "missing": "Belum dipasang",
+        "disabled": "Dinonaktifkan",
+        "failed": "Aktivasi gagal"
       }
     },
     "create": "Buat Agen",
@@ -2569,7 +2517,6 @@
     "dispatchTargetSessionId": "ID sesi tujuan",
     "dispatchMode": "Mode pengiriman",
     "runtimeShareSession": "Bagikan sesi",
-    "runtimeMaxConcurrency": "Eksekusi bersamaan maksimum",
     "runtimeTimeoutSeconds": "Batas waktu (detik)",
     "runtimeMisfireGraceSeconds": "Toleransi keterlambatan (detik)",
     "runtimeToolSafety": "Persetujuan alat",
@@ -2594,7 +2541,6 @@
     "dispatchTargetSessionIdTooltip": "ID sesi penerima respons pada kanal tujuan.",
     "dispatchModeTooltip": "Pilih stream untuk respons langsung atau final untuk hasil lengkap saja.",
     "shareSessionTooltip": "Jika aktif, sesi dibagikan dengan pengguna tujuan. Jika nonaktif, setiap eksekusi memakai konteks dan ID terpisah, cocok untuk tugas tanpa memori. Default: aktif.",
-    "maxConcurrencyTooltip": "Jumlah maksimum eksekusi tugas ini secara bersamaan. Default: 1.",
     "timeoutSecondsTooltip": "Waktu eksekusi maksimum dalam detik. Tugas dihentikan jika melewati batas.",
     "misfireGraceSecondsTooltip": "Toleransi untuk eksekusi terlambat. Tugas tidak dijalankan jika terlambat melebihi batas ini.",
     "toolSafetyTooltip": "Jika aktif, panggilan alat berisiko memerlukan persetujuan pengguna dan dapat menahan tugas otomatis. Jika nonaktif, persetujuan tidak diminta, tetapi aturan File Guard tetap berlaku. Default: nonaktif.",
@@ -3012,7 +2958,16 @@
     "marketSortLabel": "Sort plugins",
     "marketSortDownloads": "Most downloaded",
     "marketSortUpdated": "Recently updated",
-    "marketSortFavorites": "Most favorited"
+    "marketSortFavorites": "Most favorited",
+    "disableSuccess": "Plugin disabled",
+    "disableFailed": "Could not finish disabling the plugin; check its diagnostics",
+    "busy": {
+      "disable": {
+        "warning": "Disabling this plugin will interrupt its active tasks. Continue?",
+        "confirm": "Interrupt and disable",
+        "cancel": "Keep enabled"
+      }
+    }
   },
   "debug": {
     "title": "Debug",
@@ -3673,6 +3628,8 @@
     "delegateExternalAgent": "Delegasikan {{runner}}",
     "delegateExternalAgentDefault": "Delegasikan ke agen eksternal",
     "shell": "Jalankan {{command}}",
+    "shellCompleted": "Telah menjalankan {{command}}",
+    "shellCompletedDefault": "Perintah telah dijalankan",
     "shellDefault": "Jalankan perintah",
     "formatTable": {
       "file": "File",
