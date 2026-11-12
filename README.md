@@ -106,6 +106,8 @@ qwenpaw app
 
 Then open the Console in your browser at **http://127.0.0.1:8088/** to configure your model. To chat in DingTalk, Lark, WeChat, etc., see the [Channel setup](https://qwenpaw.agentscope.io/docs/channels) documentation.
 
+Codex and Qoder backends are optional plugins installed separately in **Settings → Plugins**. The `full` extra excludes their SDKs; transitional `codex`/`qoder` extras only prepare dependencies. Existing users should follow the [prepared migration instructions](https://qwenpaw.agentscope.io/docs/plugins#optional-codex-and-qoder-backends) before restarting an upgraded host.
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---
@@ -416,6 +418,8 @@ See [Security](https://qwenpaw.agentscope.io/docs/security) for details.
 | [CLI](https://qwenpaw.agentscope.io/docs/cli)                            | Init, cron jobs, skills, clean                   |
 | [Agent Team Practice](https://qwenpaw.agentscope.io/docs/practice-agent-team) | Multi-agent team deployment guide           |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                           | Common questions and troubleshooting             |
+
+In Console chat, select assistant response text and click **Quote to follow-up** to append an editable quote to your draft. See [Console](https://qwenpaw.agentscope.io/docs/console).
 
 In the Console, `/clear` and a successful `/new` leave the chat empty when you reopen it or reload the page. See [Magic commands](https://qwenpaw.agentscope.io/docs/commands).
 

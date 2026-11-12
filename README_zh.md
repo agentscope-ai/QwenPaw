@@ -106,6 +106,8 @@ qwenpaw app
 
 然后在浏览器中打开控制台 **http://127.0.0.1:8088/** 配置模型。若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
 
+Codex 和 Qoder 后端需在 **设置 → 插件** 中单独安装。`full` 不包含两家 SDK；过渡期 `codex`/`qoder` extra 只准备依赖。已有用户应在升级后重启宿主前，按[离线准备与迁移说明](https://qwenpaw.agentscope.io/docs/plugins#可选-codex-与-qoder-后端)完成迁移。
+
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
 ---
@@ -416,6 +418,8 @@ QwenPaw 内置五层核心安全防护：
 | [CLI](https://qwenpaw.agentscope.io/docs/cli)                        | 初始化、定时任务、Skills、清理                   |
 | [Agent 团队实践](https://qwenpaw.agentscope.io/docs/practice-agent-team) | 多智能体团队部署指南                         |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | 常见问题与故障排查                               |
+
+在控制台聊天中，选中助手回复并点击 **引用并追问**，即可在草稿中追加可编辑的引用内容。详见[控制台](https://qwenpaw.agentscope.io/docs/console)。
 
 在控制台中，执行 `/clear` 或成功执行 `/new` 后，重新打开聊天或刷新页面仍会显示空会话。详见[魔法命令](https://qwenpaw.agentscope.io/docs/commands)。
 
