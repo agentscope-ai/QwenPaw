@@ -1193,11 +1193,17 @@ class CronManager(ManagerBase):
                     )
                     st.last_error = f"delivery failed: {delivery_error}"
                 else:
-                    st.last_status = "success"
-                    st.last_error = None
+                    stop_reason = execution_result.get("stop_reason")
+                    if stop_reason:
+                        st.last_status = "error"
+                        st.last_error = f"stopped by loop gate: {stop_reason}"
+                    else:
+                        st.last_status = "success"
+                        st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s",
                     job.id,
+                    st.last_status,
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"
@@ -1300,8 +1306,14 @@ class CronManager(ManagerBase):
                                 "failed to append cron fallback event",
                             )
                     elif job.save_result_to_inbox:
+                        gate_stop = execution_result.get("stop_reason")
                         if job.task_type == "text":
                             body = (job.text or "").strip()
+                        elif gate_stop:
+                            body = (
+                                "Agent cron task stopped by a loop gate: "
+                                f"{gate_stop}"
+                            )
                         else:
                             body = "Agent cron task finished successfully."
                         try:
@@ -1310,8 +1322,8 @@ class CronManager(ManagerBase):
                                 source_type="cron",
                                 source_id=job.id,
                                 event_type="cron_result",
-                                status="success",
-                                severity="info",
+                                status="error" if gate_stop else "success",
+                                severity="warning" if gate_stop else "info",
                                 title=f"Cron result: {job.name}",
                                 body=body,
                                 payload={
