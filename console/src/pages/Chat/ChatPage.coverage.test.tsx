@@ -805,21 +805,33 @@ describe("ChatPage coverage", () => {
     setIntervalSpy.mockRestore();
   });
 
-  it("preserves the resume guard when polling is recreated", async () => {
+  it("preserves a restored run guard across later polling", async () => {
     const setIntervalSpy = vi.spyOn(window, "setInterval");
     mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
     const { rerender } = renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      });
+    });
 
     const firstPoll = setIntervalSpy.mock.calls.find(
       ([, delay]) => delay === 5000,
     )?.[0] as (() => void) | undefined;
     act(() => firstPoll?.());
     await waitFor(() => {
-      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
     });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
 
     mockRequiresQwenPawModel.mockReturnValue(false);
     rerender(<ChatPage />);
@@ -837,8 +849,20 @@ describe("ChatPage coverage", () => {
     await waitFor(() => {
       expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
     });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
 
-    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    mockGetChatStatus.mockResolvedValueOnce({ status: "idle" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(3);
+    });
+
+    mockRuntimeGetActiveRun.mockResolvedValue(null);
+    mockGetChatStatus.mockResolvedValueOnce({ status: "running" });
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
     setIntervalSpy.mockRestore();
   });
 

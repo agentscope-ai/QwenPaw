@@ -4552,15 +4552,28 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity(
-            data.chatSessionId || data.session_id,
-          );
+          const reconnectSessionId = data.chatSessionId || data.session_id;
+          const reconnectIdentity =
+            sessionApi.getSessionIdentity(reconnectSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             reconnectIdentity,
             {},
             selectedAgent,
           );
+          const syncKey = `${snapshot.agentId}:${reconnectSessionId}`;
+          if (queueSessionIdRef.current === reconnectSessionId) {
+            if (activeRunSyncRef.current.key !== syncKey) {
+              activeRunSyncRef.current = {
+                key: syncKey,
+                sawRunning: true,
+                resumeAttempted: true,
+              };
+            } else {
+              activeRunSyncRef.current.sawRunning = true;
+              activeRunSyncRef.current.resumeAttempted = true;
+            }
+          }
           // Attaching to a live turn only invalidates this session's stop.
           clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
