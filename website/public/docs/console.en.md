@@ -84,6 +84,15 @@ asset requests reach the SPA fallback and return HTML instead of JavaScript.
 
 ---
 
+## Browser tab title
+
+Open **Settings → General → Appearance & language** and edit **Browser tab title**
+to distinguish multiple Console instances. Changes apply immediately and are saved
+in the current browser for this Console address (protocol, host, and port). Tabs
+using the same address share the setting; different addresses have separate titles.
+Leave the field blank to restore the current page's default title. Notification
+title blinking continues to work with your chosen title.
+
 ## Chat
 
 > Sidebar: **Chat → Chat**
