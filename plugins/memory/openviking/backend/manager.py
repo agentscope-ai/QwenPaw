@@ -350,11 +350,10 @@ class OpenVikingMemoryManager(BaseMemoryManager):
             else:
                 self._remember_persisted_message_ids(new_ids)
 
-        if every_turn:
-            if pending:
-                await client.commit(remote_session_id)
-                self._remember_persisted_message_ids(sorted(pending))
-                self._pending_commit_msg_ids.pop(remote_session_id, None)
+        if every_turn and pending:
+            await client.commit(remote_session_id)
+            self._remember_persisted_message_ids(sorted(pending))
+            self._pending_commit_msg_ids.pop(remote_session_id, None)
         return (
             "OpenViking persistence processing completed for "
             f"agent '{self.agent_id}'."
