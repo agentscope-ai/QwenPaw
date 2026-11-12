@@ -821,7 +821,7 @@ Then choose which provider + model to activate:
 
 ## Tool Environment Variables
 
-Some tools and MCP services need extra API keys (e.g. `TAVILY_API_KEY` for web search). You can
+Some tools and MCP services need extra API keys (e.g. `TAVILY_API_KEY` for the Tavily MCP client). You can
 manage them in three ways:
 
 - **`qwenpaw init`** — prompts "Configure environment variables?" during setup

@@ -34,7 +34,6 @@ from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..utils.daily_telemetry import start_daily_telemetry
-from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -90,16 +89,6 @@ mimetypes.add_type("image/svg+xml", ".svg")
 # Load persisted env vars into os.environ at module import time
 # so they are available before the lifespan starts.
 load_envs_into_environ()
-
-
-async def _sync_scroll_history_on_startup() -> None:
-    """Run the composed legacy-history migration outside the event loop."""
-    try:
-        from ..agents.context.scroll.sync import sync_all_scroll_agents
-
-        await run_sync_io(sync_all_scroll_agents)
-    except Exception:  # noqa: BLE001 - session sync must never block startup
-        logger.warning("session-sync: import/launch failed", exc_info=True)
 
 
 async def _shutdown_plugins(app: FastAPI) -> None:
@@ -317,17 +306,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             "Recovered %d interrupted PawPort import transaction(s)",
             len(recovered_transactions),
         )
-
-    # Migrate old conversations from sessions/*.json into each scroll agent's
-    # history.db, so chats from before scroll existed stay recallable. This is
-    # a one-off backfill, not core startup work: if it fails, we log and keep
-    # booting — that agent just won't have its old chats imported (scroll still
-    # records new turns normally). The import sits inside the try for the same
-    # reason — even a failed import must not block init.
-    #
-    # Note: being pure backfill, this could later run asynchronously (off the
-    # boot path) to speed up startup.
-    await _sync_scroll_history_on_startup()
 
     # Provider initialization scans and may migrate persisted configuration.
     provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
@@ -604,6 +582,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader.registry.set_workspace_manager(workspace_registry)
             plugin_loader.registry.set_plugin_http_app(app)
+            app.state.plugin_registry = plugin_loader.registry
 
             config = load_config(get_config_path())
             plugin_configs = (
@@ -756,6 +735,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 app.state.market_startup_failed = True
                 app.state.market_ready.set()
 
+    from .community_connection import CommunityConnectionService
+
+    community_service = CommunityConnectionService()
+    app.state.community_connection_service = community_service
+    community_task = asyncio.create_task(community_service.poll_loop())
     _bg_task = asyncio.create_task(_background_startup())
     daily_telemetry = start_daily_telemetry()
 
@@ -763,6 +747,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         yield
     finally:
         await daily_telemetry.close()
+        community_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await community_task
+        await community_service.close()
+
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

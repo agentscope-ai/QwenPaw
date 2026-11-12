@@ -409,7 +409,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         chat_id: str,
         finished_at: datetime,
     ) -> Optional[ChatSpec]:
-        """Persist the newest task completion marker for one chat."""
+        """Persist the newest successful task completion for one chat."""
         async with self._lock:
             existing = await self._repo.get_chat(chat_id)
             if existing is None:
@@ -448,29 +448,6 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 meta["runtime_context"] = runtime_context
             else:
                 meta.pop("runtime_context", None)
-            updated = existing.model_copy(update={"meta": meta})
-            updated.updated_at = datetime.now(timezone.utc)
-            await self._repo.upsert_chat(updated)
-            return updated
-
-    async def set_session_decision(
-        self,
-        chat_id: str,
-        enabled: bool,
-        *,
-        only_if_unset: bool = False,
-    ):
-        """Save a session preference; decision execution is not wired yet."""
-        async with self._lock:
-            existing = await self._repo.get_chat(chat_id)
-            if existing is None:
-                return None
-            meta = dict(existing.meta or {})
-            runtime = dict(meta.get("runtime_context") or {})
-            if only_if_unset and "decision_enabled" in runtime:
-                return existing
-            runtime["decision_enabled"] = enabled
-            meta["runtime_context"] = runtime
             updated = existing.model_copy(update={"meta": meta})
             updated.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(updated)

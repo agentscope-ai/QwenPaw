@@ -376,6 +376,7 @@ class TestRunHubInstallTask:
             "enabled": True,
             "source_url": "https://hub.example/demo",
             "installed_from": "github",
+            "installation_origin": None,
         }
         assert task.task_id not in skills_module._hub_install_runtime_tasks
 
@@ -405,6 +406,7 @@ class TestRunHubInstallTask:
             "enabled": False,
             "source_url": "https://hub.example/demo",
             "installed_from": "github",
+            "installation_origin": None,
         }
         assert task.task_id not in skills_module._hub_install_runtime_tasks
 
@@ -1266,6 +1268,7 @@ class TestImportPoolFromHub:
             "enabled": False,
             "source_url": "https://hub.example/demo",
             "installed_from": "github",
+            "installation_origin": None,
         }
         kwargs = import_mock.await_args.kwargs
         assert kwargs["bundle_url"] == "https://hub.example/x.zip"

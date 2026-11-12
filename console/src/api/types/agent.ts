@@ -146,6 +146,7 @@ export interface IterationGateConfig {
 
 export interface RubricGateConfig {
   enabled: boolean;
+  use_decision_model?: boolean;
   prompt: string;
   max_interventions: number;
   in_loop_modes: boolean;

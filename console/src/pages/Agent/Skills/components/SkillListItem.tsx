@@ -2,6 +2,7 @@ import { Button, Checkbox, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { SkillSpec } from "../../../../api/types";
 import { isSkillBuiltin, normalizeSkillChannels } from "@/utils/skill";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import InlineHelp from "@/components/InlineHelp";
 import { motion, useReducedMotion } from "motion/react";
 import styles from "../index.module.less";
@@ -70,6 +71,11 @@ export function SkillListItem({
       <div className={styles.listItemLeft}>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
+            <CommunityFeedback
+              origin={skill.installation_origin}
+              resourceName={skill.name}
+              variant="inline"
+            />
             <button
               type="button"
               className={styles.skillNameButton}

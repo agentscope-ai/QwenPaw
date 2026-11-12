@@ -1,4 +1,8 @@
-matrix-nio>=0.25.0
+matrix-nio>=0.26.0,<0.27.0
+vodozemac>=0.9.0.post2
+atomicwrites~=1.4
+cachetools>=5.3
+peewee~=3.14
 httpx>=0.27.0
 markdown-it-py>=3.0.0
 linkify-it-py>=2.0.0

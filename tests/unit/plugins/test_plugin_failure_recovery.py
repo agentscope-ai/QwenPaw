@@ -13,6 +13,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.app.channels.manager import ChannelManager
+from qwenpaw.app.routers.plugins import (
+    UpdatePluginConfigRequest,
+    uninstall_plugin,
+    update_plugin_config,
+)
 from qwenpaw.app.workspace.workspace_plugins import WorkspacePlugins
 from qwenpaw.plugins.api import PluginApi
 from qwenpaw.plugins.architecture import PluginManifest, PluginRecord
@@ -705,10 +710,6 @@ async def test_memory_config_rejected_before_any_teardown(
     assert inst.has_runtime_ledger()
     assert loader.get_loaded_plugin("memory-plugin").status == "active"
     from fastapi import HTTPException
-    from qwenpaw.app.routers.plugins import (
-        UpdatePluginConfigRequest,
-        update_plugin_config,
-    )
 
     request = SimpleNamespace(
         app=SimpleNamespace(state=SimpleNamespace(plugin_loader=loader)),
@@ -907,7 +908,7 @@ async def test_workspace_stop_releases_its_plugin_bindings(registry):
     old.plugins = WorkspacePlugins()
     old._started = True
     old._start_attempted = True
-    old._harness_runtime = None
+    old._backend_runtime = None
     old._service_manager = SimpleNamespace(stop_all=AsyncMock(), services={})
     new = workspace()
     registry.projector = WorkspaceProjector(lambda: [old])
@@ -950,8 +951,8 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
     old._started = old._start_attempted = True
     old._task_tracker = TaskTracker()
     old._service_manager = SimpleNamespace(stop_all=AsyncMock(), services={})
-    harness = SimpleNamespace(stop=AsyncMock())
-    old._harness_runtime = harness
+    backend = SimpleNamespace(close=AsyncMock())
+    old._backend_runtime = backend
     registry.projector = WorkspaceProjector(lambda: [])
     registry.projector.track_workspace(old)
     token, revokes = object(), []
@@ -978,20 +979,20 @@ async def test_workspace_stop_continues_after_failed_plugin_revoke(
         final=final,
         preserve_reused=preserve_reused,
     )
-    harness.stop.assert_awaited_once()
+    backend.close.assert_awaited_once()
     assert old._started and old._start_attempted
-    assert old._harness_runtime is None
+    assert old._backend_runtime is None
     assert old in registry.projector.workspaces()
 
     await old.stop(final=final, preserve_reused=preserve_reused)
     assert not old._started and not old._start_attempted
-    harness.stop.assert_awaited_once()
+    backend.close.assert_awaited_once()
     assert old not in registry.projector.workspaces()
     assert revokes == [token, token]
 
 
 @pytest.mark.asyncio
-async def test_workspace_stop_retains_failed_harness_for_retry(registry):
+async def test_workspace_stop_retains_failed_backend_for_retry(registry):
     from qwenpaw.app.workspace.workspace import Workspace
 
     old = Workspace.__new__(Workspace)
@@ -1001,23 +1002,23 @@ async def test_workspace_stop_retains_failed_harness_for_retry(registry):
         stop_all=AsyncMock(side_effect=[RuntimeError("service busy"), None]),
         services={},
     )
-    harness = SimpleNamespace(
-        stop=AsyncMock(side_effect=[RuntimeError("harness busy"), None]),
+    backend = SimpleNamespace(
+        close=AsyncMock(side_effect=[RuntimeError("backend busy"), None]),
     )
-    old._harness_runtime = harness
+    old._backend_runtime = backend
     registry.projector = WorkspaceProjector(lambda: [])
     registry.projector.track_workspace(old)
     with pytest.raises(RuntimeError) as raised:
         await old.stop(final=False)
     assert "service busy" in str(raised.value)
-    assert "harness busy" in str(raised.value)
-    assert old._harness_runtime is harness
+    assert "backend busy" in str(raised.value)
+    assert old._backend_runtime is backend
     assert old._started and old._start_attempted
     assert old in registry.projector.workspaces()
     await old.stop(final=False)
-    assert old._harness_runtime is None
+    assert old._backend_runtime is None
     assert not old._started and not old._start_attempted
-    assert harness.stop.await_count == 2
+    assert backend.close.await_count == 2
     assert old not in registry.projector.workspaces()
 
 
@@ -1027,7 +1028,6 @@ async def test_unresolved_restart_cleanup_returns_http_conflict(
     registry,
 ):
     from fastapi import HTTPException
-    from qwenpaw.app.routers.plugins import uninstall_plugin
 
     root = tmp_path / "plugins" / "disk-plugin"
     root.mkdir(parents=True)
@@ -1442,11 +1442,13 @@ async def assert_direct_entries_blocked(loader, manifest, target, trace):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_stage", ["delete", "restore"])
+@pytest.mark.parametrize("retry", ["startup", "install"])
 async def test_prepared_update_failure_blocks_activation_and_allows_retry(
     tmp_path,
     registry,
     monkeypatch,
     failure_stage,
+    retry,
 ):
     from qwenpaw.plugins import updates
 
@@ -1490,6 +1492,19 @@ async def test_prepared_update_failure_blocks_activation_and_allows_retry(
     assert backup.is_dir()
 
     blocked = False
+    if retry == "install":
+        incoming = tmp_path / "incoming"
+        incoming_trace = tmp_path / "incoming-trace"
+        write_plugin(incoming, plugin_id, incoming_trace, "2.0.0")
+        record = await loader.load_plugin_from_path(incoming, force=True)
+        assert record.status == "active"
+        assert record.manifest.version == "2.0.0"
+        assert "2.0.0:startup" in incoming_trace.read_text()
+        assert not trace.exists()
+        assert plugin_id not in loader._recovery_blocked
+        assert not marker_path(plugin_id).exists()
+        assert not backup.exists()
+        return
     await loader.load_all_plugins(activate=True)
     assert loader.get_loaded_plugin(plugin_id).status == "active"
     assert trace.read_text(encoding="utf-8").splitlines() == [
@@ -1499,6 +1514,98 @@ async def test_prepared_update_failure_blocks_activation_and_allows_retry(
     ]
     assert not backup.exists()
     assert not marker_path(plugin_id).exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["update", "provision", "loaded_provision"])
+async def test_uninstall_retires_recovered_state_before_reinstall(
+    tmp_path,
+    registry,
+    monkeypatch,
+    state,
+):
+    from qwenpaw.plugins import provision
+
+    plugin_id = "uninstall_recovery"
+    plugins = tmp_path / "plugins"
+    target, backup = plugins / plugin_id, tmp_path / "backup"
+    trace = tmp_path / "trace"
+    write_plugin(target, plugin_id, trace, "2.0.0")
+    write_plugin(backup, plugin_id, trace, "1.0.0")
+    loader = PluginLoader([plugins])
+    loader.registry = registry
+    if state == "update":
+        write_updating_marker(
+            plugin_id,
+            backup_path=backup,
+            target_path=target,
+        )
+        loader._recovery_blocked[plugin_id] = "previous recovery failed"
+        loader._recovery_errors[plugin_id] = "previous recovery failed"
+    else:
+        dest = tmp_path / "provision"
+        dest.mkdir()
+        save_inventory(
+            plugin_id,
+            {
+                "plugin_id": plugin_id,
+                "locations": {
+                    str(dest): {
+                        "owned": True,
+                        "version": "2.0.0",
+                        "files": {},
+                        "migrating": {
+                            "status": "committed",
+                            "backup_path": str(backup),
+                        },
+                    },
+                },
+                "tools": {},
+                "provisions": [],
+            },
+        )
+        remove = provision._remove_path
+        blocked = True
+
+        def cleanup(path):
+            if blocked and Path(path) == backup:
+                raise PermissionError("committed backup locked")
+            return remove(path)
+
+        monkeypatch.setattr(provision, "_remove_path", cleanup)
+        if state == "loaded_provision":
+            await loader.load_all_plugins(activate=True)
+            assert loader.get_loaded_plugin(plugin_id).status == "active"
+        else:
+            await loader._recover_startup_transactions()
+        assert plugin_id in loader._recovery_errors
+        assert plugin_id not in loader._recovery_blocked
+        assert not marker_path(plugin_id).exists()
+        failed = await loader.lifecycle.unload(
+            plugin_id,
+            UnloadMode.UNINSTALL,
+            delete_files=True,
+        )
+        assert not failed.clean and backup.exists()
+        assert load_inventory(plugin_id)["locations"][str(dest)]["migrating"]
+        blocked = False
+
+    report = await loader.lifecycle.unload(
+        plugin_id,
+        UnloadMode.UNINSTALL,
+        delete_files=True,
+    )
+    assert report.clean and report.quiescent
+    assert not marker_path(plugin_id).exists()
+    assert not target.exists() and not backup.exists()
+    assert plugin_id not in loader._recovery_blocked
+    assert plugin_id not in loader._recovery_errors
+    if state != "loaded_provision":
+        assert not trace.exists()
+    incoming = tmp_path / "incoming"
+    write_plugin(incoming, plugin_id, trace, "3.0.0")
+    record = await loader.load_plugin_from_path(incoming)
+    assert record.status == "active" and record.manifest.version == "3.0.0"
 
 
 @pytest.mark.asyncio

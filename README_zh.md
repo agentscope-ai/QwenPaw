@@ -60,6 +60,8 @@
 
 ## 新闻
 
+- [2026-11-11] **v2.3.0** | 新增 Piccolo 本地决策模型、QwenPaw 社区接入、支持大小模型协同的 Advisor Mode，Code Mode；重构插件系统，提供插件 SDK 并将频道插件化；支持图片记忆与标签浏览，改进控制台与桌面多窗口体验。 [v2.3.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.3.0)
+
 - [2026-10-15] **v2.2.2** | 控制台更新、新的 QwenPaw-Flash 模型覆盖 9B/27B/35B-A3B、新增可迁移 Codex/Qoder 数据的 PawPort，以及 Creator 2.0.1 和 Data 0.3.0。 [v2.2.2 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.2)
 
 - [2026-09-10] **v2.2.1** | Creator 1.2 蓝图工作台、按智能体配置的模型路由和统一环境管理。[v2.2.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
@@ -67,8 +69,6 @@
 - [2026-09-03] **v2.2.0** | 新增可自托管的多用户 QwenPaw Hub、QwenPaw Mail、原生 QwenPaw Data、统一模型路由和 Creator 1.1，并全面改进应用市场、控制台、Skills、频道与运行可靠性。[v2.2.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、统一文件工作区、QwenPaw Creator、Codex/Qoder 智能体接入、Browser-use、Computer-use、工作区检查点和长对话任务续接等。[v2.1.0 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
-
-- [2026-07-24] **v2.0.1** | PawApp 小程序平台、用户可编辑 Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) 记忆增强、桌面端用户体验增强等。[v2.0.1 发布说明 →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
 
 [全部发布说明 →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -105,6 +105,8 @@ qwenpaw app
 ```
 
 然后在浏览器中打开控制台 **http://127.0.0.1:8088/** 配置模型。若要在钉钉、飞书、微信等 app 内对话，请参考 [频道配置](https://qwenpaw.agentscope.io/docs/channels) 文档。
+
+Codex 和 Qoder 后端需在 **设置 → 插件** 中单独安装。`full` 不包含两家 SDK；过渡期 `codex`/`qoder` extra 只准备依赖。已有用户应在升级后重启宿主前，按[离线准备与迁移说明](https://qwenpaw.agentscope.io/docs/plugins#可选-codex-与-qoder-后端)完成迁移。
 
 ![Console](https://img.alicdn.com/imgextra/i2/O1CN01EP1ra01iOAcBvF0TC_!!6000000004402-2-tps-3822-2070.png)
 
@@ -416,6 +418,10 @@ QwenPaw 内置五层核心安全防护：
 | [CLI](https://qwenpaw.agentscope.io/docs/cli)                        | 初始化、定时任务、Skills、清理                   |
 | [Agent 团队实践](https://qwenpaw.agentscope.io/docs/practice-agent-team) | 多智能体团队部署指南                         |
 | [FAQ](https://qwenpaw.agentscope.io/docs/faq)                        | 常见问题与故障排查                               |
+
+在控制台聊天中，选中助手回复并点击 **引用并追问**，即可在草稿中追加可编辑的引用内容。详见[控制台](https://qwenpaw.agentscope.io/docs/console)。
+
+在控制台中，执行 `/clear` 或成功执行 `/new` 后，重新打开聊天或刷新页面仍会显示空会话。详见[魔法命令](https://qwenpaw.agentscope.io/docs/commands)。
 
 完整文档：[qwenpaw.agentscope.io/docs](https://qwenpaw.agentscope.io/docs)
 

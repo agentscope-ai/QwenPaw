@@ -8,10 +8,15 @@ improve testability and code organization.
 
 import asyncio
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from ...utils.io_utils import run_sync_io
+from ...utils.io_utils import run_async_to_completion, run_sync_io
+from ...agents.context.scroll.sync import (
+    invalidate_agent_migration,
+    migrate_agent_history,
+)
 
 if TYPE_CHECKING:
     from ...agents.context.scroll.history import HistoryStore
@@ -20,11 +25,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _history_path(ws: "Workspace") -> Path | None:
+def history_service_path(ws: "Workspace") -> Path | None:
+    """Resolve the sink only for runtimes that write Scroll history."""
     from ...config.history_path import resolve_history_db_path
 
     lcc = ws.config.running.light_context_config
-    if lcc.strategy != "scroll":
+    if not ws.config.uses_scroll_history:
         return None
     return resolve_history_db_path(
         ws.workspace_dir,
@@ -36,8 +42,38 @@ def create_history_service(ws: "Workspace") -> "HistoryStore | None":
     """Open one workspace-owned connection, offloaded by ServiceManager."""
     from ...agents.context import create_scroll_history
 
-    path = _history_path(ws)
-    return create_scroll_history(path) if path is not None else None
+    path = history_service_path(ws)
+    if path is None:
+        invalidate_agent_migration(ws.workspace_dir)
+        return None
+    return create_scroll_history(path)
+
+
+async def prepare_history_service(ws, history, _publish) -> None:
+    """Migrate before channels start, then maintain history independently."""
+    if history is None:
+        return
+    scroll_config = ws.config.running.light_context_config.scroll_config
+    stop = threading.Event()
+    task = asyncio.create_task(
+        run_sync_io(
+            migrate_agent_history,
+            history,
+            ws.workspace_dir,
+            ws.agent_id,
+            scroll_config.history_retention_days,
+            stop,
+        ),
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        stop.set()
+        try:
+            await run_async_to_completion(task)
+        except (asyncio.CancelledError, Exception):
+            pass
+        raise
 
 
 def history_service_reuse_compatible(
@@ -45,7 +81,7 @@ def history_service_reuse_compatible(
     history: "HistoryStore",
 ) -> bool:
     """Keep the old store only for the same enabled, unchanged database."""
-    path = _history_path(ws)
+    path = history_service_path(ws)
     return path is not None and history.matches_path(path)
 
 

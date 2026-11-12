@@ -12,6 +12,7 @@ Layout produced under ``--dist``::
         tool/<plugin_id>/<id>-<version>.zip
         memory/<plugin_id>/<id>-<version>.zip
         apps/<plugin_id>/<id>-<version>.zip
+        harness/<plugin_id>/<id>-<version>.zip
         channel/<plugin_id>/<id>-<version>.zip
         index.json
 
@@ -64,7 +65,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub")
+KIND_DIRS = ("bundle", "tool", "memory", "apps", "channel", "hub", "harness")
 
 EXCLUDE_PATTERNS = (
     "__pycache__",
@@ -348,6 +349,15 @@ def _validate_declared_entries(
     manifest: dict[str, Any],
 ) -> None:
     """Fail closed when a manifest entry point is absent from the tree."""
+    harness_root = Path(__file__).resolve().parents[2] / "plugins" / "harness"
+    if plugin_dir.resolve() in {
+        harness_root / "codex",
+        harness_root / "qoder",
+    }:
+        helpers = runpy.run_path(
+            str(Path(__file__).with_name("sync_harness_helpers.py")),
+        )
+        helpers["check_helper"](plugin_dir)
     _validate_channel_candidate(plugin_dir, manifest)
     entry = manifest.get("entry")
     if not isinstance(entry, dict):
