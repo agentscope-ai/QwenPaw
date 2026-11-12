@@ -108,6 +108,15 @@ configured fallback model when one is used.
 Type in the input box at the bottom, then press **Enter** or click the send
 button (↑). QwenPaw replies in real time.
 
+**Quote a response:**
+Select text in an assistant reply (including code), then click **Quote to follow-up**.
+On touch screens, long-press to select text; keyboard users can press
+**Alt+Shift+Q** after selecting. **Escape** dismisses the action.
+The selected text is appended to your current draft as an editable Markdown
+blockquote (`>`), with line breaks and indentation preserved. Add your question
+and send normally; the quote is part of your user message. Drafts stay separate
+for each conversation and agent.
+
 **Voice input:**
 The composer supports **voice input** (browser and OS microphone permission
 required). Behavior matches **Voice transcription** settings (e.g. transcribe
