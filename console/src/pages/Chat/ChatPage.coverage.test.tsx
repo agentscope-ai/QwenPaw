@@ -805,6 +805,43 @@ describe("ChatPage coverage", () => {
     setIntervalSpy.mockRestore();
   });
 
+  it("preserves the resume guard when polling is recreated", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    const { rerender } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const firstPoll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => firstPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+
+    mockRequiresQwenPawModel.mockReturnValue(false);
+    rerender(<ChatPage />);
+    mockRequiresQwenPawModel.mockReturnValue(true);
+    rerender(<ChatPage />);
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .at(-1)?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    setIntervalSpy.mockRestore();
+  });
+
   it("does not reconcile messages after a local run finishes", async () => {
     const setIntervalSpy = vi.spyOn(window, "setInterval");
     mockGetChatStatus.mockResolvedValue({ status: "running" });
