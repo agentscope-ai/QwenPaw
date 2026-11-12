@@ -29,8 +29,13 @@ from qwenpaw.schemas import ContentType, Event, FileContent, TextContent
 async def test_console_file_survives_agent_ingestion_and_disk_history(
     tmp_path,
     with_text,
+    monkeypatch,
 ):
     """Use real AgentScope input rewriting, without invoking a model."""
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config_async",
+        AsyncMock(return_value=SimpleNamespace(backend="qwenpaw")),
+    )
     session = SafeJSONSession(save_dir=str(tmp_path / "sessions"))
     received = []
 
@@ -104,7 +109,7 @@ async def test_console_file_survives_agent_ingestion_and_disk_history(
         mgr=SimpleNamespace(get_chat=AsyncMock(return_value=chat)),
         session=SafeJSONSession(save_dir=str(tmp_path / "sessions")),
         workspace=SimpleNamespace(
-            config=SimpleNamespace(backend="qwenpaw"),
+            agent_id="test-agent",
             task_tracker=SimpleNamespace(
                 get_status=AsyncMock(return_value="idle"),
             ),

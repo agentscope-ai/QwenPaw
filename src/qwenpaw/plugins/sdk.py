@@ -29,6 +29,7 @@ from .events import EventSubscription
 from .apps import PawApp
 
 if TYPE_CHECKING:
+    from .harnesses import HarnessSpec
     from .logging import PluginLogger
 
 
@@ -1384,6 +1385,11 @@ class PluginContext:  # pylint: disable=protected-access
 
     def register_memory(self, spec: MemorySpec) -> Registration:
         from ._memory import register
+
+        return register(self, spec)
+
+    def register_harness(self, spec: HarnessSpec) -> Registration:
+        from ._harnesses import register
 
         return register(self, spec)
 

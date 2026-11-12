@@ -37,6 +37,7 @@ export function useVoiceTranscription() {
   const [providerType, setProviderType] = useState("disabled");
   const [providers, setProviders] = useState<TranscriptionProvider[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [transcriptionModel, setTranscriptionModel] = useState("whisper-1");
   const [localWhisperStatus, setLocalWhisperStatus] =
     useState<LocalWhisperStatus | null>(null);
 
@@ -53,12 +54,14 @@ export function useVoiceTranscription() {
       setLoading(true);
       setSaving(false);
       try {
-        const [modeRes, provTypeRes, provRes, lwStatus] = await Promise.all([
-          api.getAudioMode(),
-          api.getTranscriptionProviderType(),
-          api.getTranscriptionProviders(),
-          api.getLocalWhisperStatus(),
-        ]);
+        const [modeRes, provTypeRes, provRes, modelRes, lwStatus] =
+          await Promise.all([
+            api.getAudioMode(),
+            api.getTranscriptionProviderType(),
+            api.getTranscriptionProviders(),
+            api.getTranscriptionModel(),
+            api.getLocalWhisperStatus(),
+          ]);
         if (!isCurrentRequest()) return;
         loadedAgentRef.current = requestedAgent;
         setLoadedAgent(requestedAgent);
@@ -66,6 +69,7 @@ export function useVoiceTranscription() {
         setProviderType(provTypeRes.transcription_provider_type ?? "disabled");
         setProviders(provRes.providers ?? []);
         setSelectedProviderId(provRes.configured_provider_id ?? "");
+        setTranscriptionModel(modelRes.transcription_model ?? "whisper-1");
         setLocalWhisperStatus(lwStatus);
         setError(null);
       } catch (err) {
@@ -205,6 +209,7 @@ export function useVoiceTranscription() {
         ];
         if (providerType === "whisper_api") {
           promises.push(api.updateTranscriptionProvider(selectedProviderId));
+          promises.push(api.updateTranscriptionModel(transcriptionModel));
         }
         await Promise.all(promises);
         if (isCurrentOwner() && !automatic) {
@@ -226,6 +231,7 @@ export function useVoiceTranscription() {
       message,
       providerType,
       selectedProviderId,
+      transcriptionModel,
       t,
     ],
   );
@@ -248,6 +254,8 @@ export function useVoiceTranscription() {
     setProviderType,
     selectedProviderId,
     setSelectedProviderId,
+    transcriptionModel,
+    setTranscriptionModel,
     localWhisperStatus,
     installLocalWhisper,
     enableLocalWhisper,

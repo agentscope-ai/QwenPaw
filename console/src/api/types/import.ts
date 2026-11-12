@@ -12,6 +12,8 @@ export interface ImportSourceProbe {
   source: ImportSource;
   name: string;
   detected: boolean;
+  plugin_id: string;
+  plugin_state: "available" | "missing" | "disabled" | "failed";
 }
 
 export interface ImportSelection {
@@ -66,4 +68,11 @@ export interface ImportJobSnapshot {
 export interface ImportJobEvent {
   seq: number;
   snapshot: ImportJobSnapshot;
+}
+
+export interface HarnessPluginRequirement {
+  code: "harness_plugin_required";
+  source: ImportSource;
+  plugin_id: string;
+  state: "missing" | "disabled" | "failed";
 }

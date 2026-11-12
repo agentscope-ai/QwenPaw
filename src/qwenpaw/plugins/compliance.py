@@ -90,6 +90,36 @@ PUBLIC_API = MappingProxyType(
             "MemoryContext",
             "MemoryTask",
         ),
+        "qwenpaw.plugins.harnesses": (
+            "HarnessSpec",
+            "HarnessContext",
+            "HarnessCallContext",
+            "HarnessApprovalSummary",
+            "HarnessApprovalDecision",
+            "HarnessRunRequest",
+            "HarnessEvent",
+            "HarnessEventKind",
+            "HarnessHistoryItem",
+            "HarnessHistoryKind",
+            "HarnessAttachment",
+            "HarnessAttachmentKind",
+            "HarnessCapabilities",
+            "HarnessCommand",
+            "HarnessApprovalPreset",
+            "HarnessModel",
+            "HarnessStatus",
+            "HarnessLogin",
+            "HarnessDiscoveredSkill",
+            "HarnessDiscoveredMCPServer",
+            "HarnessRuntimeCapabilities",
+            "HarnessSkillDefinition",
+            "HarnessMCPServerDefinition",
+            "HarnessBackend",
+            "HarnessArchiveBackend",
+            "HarnessOperationNotSupportedError",
+            "MCPTransport",
+            "MCPToolPolicy",
+        ),
         "qwenpaw.plugins.events": (
             "JSONValue",
             "StreamContent",
@@ -174,7 +204,10 @@ API_EXPORTS = tuple(
         module,
         symbol,
         since=(
-            "1.1.0" if module == "qwenpaw.plugins.transcription" else "1.0.0"
+            "1.1.0"
+            if module
+            in {"qwenpaw.plugins.transcription", "qwenpaw.plugins.harnesses"}
+            else "1.0.0"
         ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
@@ -199,7 +232,7 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.0.0"
+    sdk_version: str = "1.1.0"
     rules_version: str = "1.0.0"
     checked_at: str = ""
     plugin_id: str = ""

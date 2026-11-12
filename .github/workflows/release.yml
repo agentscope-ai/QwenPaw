@@ -450,6 +450,9 @@ jobs:
             npm --prefix "$frontend_dir" run build
           done
 
+      - name: Build Harness plugin frontends with public SDK
+        run: bash scripts/pack/build_harness_frontends.sh
+
       - name: Install channel contract preflight dependencies
         run: python -m pip install -r scripts/pack/channel-contract-requirements.txt
 
@@ -703,7 +706,7 @@ jobs:
         if: ${{ !inputs.dry_run }}
         run: |
           shopt -s nullglob
-          for kind in bundle tool memory apps; do
+          for kind in bundle tool memory apps channel hub harness; do
             while IFS= read -r -d '' f; do
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"
