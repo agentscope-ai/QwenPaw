@@ -82,7 +82,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("community account settings", () => {
-  it("connects remotely with a password and clears the password input", async () => {
+  it("shows password login without local browser authorization and clears the password input", async () => {
     mocks.status.mockResolvedValue({
       ...disconnected,
       password_login_supported: true,
@@ -91,6 +91,10 @@ describe("community account settings", () => {
     mocks.connectPassword.mockResolvedValue({ connected: true });
     render(<CommunitySettings />);
     const account = await screen.findByLabelText("community.loginAccount");
+    expect(screen.queryByText("community.unsupported_remote")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "community.connect" }),
+    ).toBeNull();
     const password = screen.getByLabelText("community.loginPassword");
     const submit = screen.getByRole("button", {
       name: "community.saveAndConnect",

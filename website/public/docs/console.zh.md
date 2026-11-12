@@ -615,7 +615,9 @@ python -c "import whisper; print('openai-whisper installed')"
 
 Docker 重建时应持久化私密配置目录及其密钥，同时保留工作目录以继续使用已有连接状态。社区账号密码仅通过页面保存和更新，不从部署环境变量读取。
 
-远程登录要求已认证的管理账号和 HTTPS 入口。独立部署通过反向代理终止 TLS 时，在 `security.trusted_proxies` 中配置代理 IP/CIDR，代理须保留公开 Host 并设置 `X-Forwarded-Proto: https`。Hub 部署在 Hub 配置中设置 `control_plane.public_base_url`；通过代理终止 TLS 时，还须配置 `control_plane.security.trusted_proxy_ips`。Hub 会校验入口协议并向个人 runtime 传递可信的公开来源，客户端自报的内部来源头会被移除。
+账号密码连接复用部署入口及 QwenPaw 已有的访问控制，不再额外要求 QwenPaw 本地登录、后端识别为 HTTPS 或专用 Hub 来源头。通过 AgentScope Platform 等已鉴权入口访问实例时，可直接使用账号密码表单；Docker 端口映射和代理转发也不会单独禁用该表单。自建部署应在入口保护实例访问权限，并使用 HTTPS 保护传输中的账号密码。浏览器授权仍需在运行 QwenPaw 的本机完成。
+
+密码提交必须使用 `Content-Type: application/json`；接口拒绝纯文本和表单提交，防止跨站登录请求绕过 CORS 预检。同源网页控制台无需设置 `QWENPAW_CORS_ORIGINS`；需要跨域访问时，只列出可信前端的来源。QwenPaw 和入口网关的 CORS 配置都不应允许任意来源或 `*`。浏览器会自动携带登录 Cookie 时，仅有网关登录鉴权不足以防止登录 CSRF。
 
 ---
 
