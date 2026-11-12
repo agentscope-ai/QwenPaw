@@ -183,11 +183,13 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
       {meta.icon}
       {!compact && (
         <>
-          {t(
-            `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
-            effectiveLevel,
-          )}
-          <ChevronDown size={12} />
+          <span data-composer-collapse-content>
+            {t(
+              `agentConfig.toolExecutionLevel.${effectiveLevel.toLowerCase()}`,
+              effectiveLevel,
+            )}
+          </span>
+          <ChevronDown data-composer-collapse-content size={12} />
         </>
       )}
     </button>

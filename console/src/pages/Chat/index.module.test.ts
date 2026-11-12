@@ -87,7 +87,7 @@ describe("Chat attachment preview styles", () => {
 });
 
 describe("Chat composer responsive layout styles", () => {
-  it("wraps controls only when their content no longer fits", () => {
+  it("keeps controls single-line until the responsive solver wraps them", () => {
     const rootStart = stylesSource.indexOf(".chatPageRoot {");
     const rootRule = stylesSource.slice(
       rootStart,
@@ -99,12 +99,10 @@ describe("Chat composer responsive layout styles", () => {
       /\[class\$="-sender-content-bottom"\][\s\S]*?flex-wrap:\s*wrap/,
     );
     expect(rootRule).toMatch(
-      /\[class\$="-sender-prefix"\][\s\S]*?flex:\s*1 1 max-content/,
+      /\[class\$="-sender-actions-list"\][\s\S]*?flex:\s*1 0 max-content/,
     );
-    expect(rootRule).toMatch(
-      /\[class\$="-sender-actions-list"\][\s\S]*?flex:\s*0 0 auto/,
-    );
-    expect(stylesSource).not.toContain("flex: 1 1 100%");
+    expect(rootRule).toContain("container-type: inline-size");
+    expect(stylesSource).toContain(".composerResponsiveItem");
   });
 });
 
@@ -160,7 +158,7 @@ describe("Chat mobile layout styles", () => {
     expect(chatSource).not.toContain("SESSION_HISTORY_DRAWER_STORAGE_KEY");
   });
 
-  it("keeps the mobile composer toolbar in two stable rows", () => {
+  it("allows the mobile composer toolbar to fit in one row", () => {
     const composerStart = stylesSource.indexOf(
       "/* Mobile composer: keep the input row dominant",
     );
@@ -170,15 +168,16 @@ describe("Chat mobile layout styles", () => {
     );
 
     expect(composerStart).toBeGreaterThanOrEqual(0);
-    expect(composerRule).toContain("grid-template-columns: minmax(0, 1fr);");
+    expect(composerRule).not.toContain(
+      "grid-template-columns: minmax(0, 1fr);",
+    );
     expect(composerRule).toContain("min-height: 44px");
-    expect(composerRule).toContain("min-width: 44px !important");
     expect(composerRule).toContain("flex-wrap: nowrap");
     expect(composerRule).toContain("overflow-x: auto");
     expect(composerRule).toContain("overflow: visible");
   });
 
-  it("sizes only the bridged submit action to a 44px mobile target", () => {
+  it("keeps the submit action at its default size on mobile", () => {
     const composerStart = stylesSource.indexOf(
       "/* Mobile composer: keep the input row dominant",
     );
@@ -187,48 +186,18 @@ describe("Chat mobile layout styles", () => {
       stylesSource.indexOf("@media (max-width: 480px)", composerStart),
     );
 
-    expect(composerRule).toContain('[data-qwenpaw-composer-submit="true"]');
-    expect(composerRule).toMatch(
-      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?width:\s*44px\s*!important/,
-    );
-    expect(composerRule).toMatch(
-      /\[data-qwenpaw-composer-submit="true"\][\s\S]*?height:\s*44px\s*!important/,
-    );
+    expect(composerRule).not.toContain('[data-qwenpaw-composer-submit="true"]');
     expect(composerRule).not.toContain('[class$="-sender-actions-btn"]');
   });
 
-  it("removes low-priority composer chrome on narrow phones", () => {
+  it("keeps the context control visible on narrow phones", () => {
     const narrowStart = stylesSource.indexOf("@media (max-width: 480px)");
     const narrowRule = stylesSource.slice(
       narrowStart,
-      stylesSource.indexOf(
-        "/* Mobile composer controls share one quiet visual treatment",
-        narrowStart,
-      ),
+      stylesSource.indexOf(".suggestionLabel", narrowStart),
     );
 
     expect(narrowStart).toBeGreaterThanOrEqual(0);
-    expect(narrowRule).toContain(".senderContextAffix");
-    expect(narrowRule).toMatch(/display:\s*none/);
-  });
-
-  it("uses one quiet icon control treatment across the mobile toolbar", () => {
-    const toolbarStart = stylesSource.indexOf(
-      "/* Mobile composer controls share one quiet visual treatment",
-    );
-    const toolbarRule = stylesSource.slice(toolbarStart);
-
-    expect(toolbarStart).toBeGreaterThanOrEqual(0);
-    expect(toolbarRule).toContain(".mobileComposerControl");
-    expect(toolbarRule).toContain("width: 44px !important");
-    expect(toolbarRule).toContain("height: 44px !important");
-    expect(toolbarRule).toContain("width: 18px");
-    expect(toolbarRule).toContain("border: 0 !important");
-    expect(toolbarRule).toContain("background: transparent !important");
-    expect(toolbarRule).toContain("touch-action: manipulation");
-    expect(toolbarRule).toContain('&[aria-expanded="true"]');
-    expect(toolbarRule).toContain("&:focus-visible");
-    expect(toolbarRule).toContain('&[data-state="running"]');
-    expect(toolbarRule).toContain("var(--app-success)");
+    expect(narrowRule).not.toContain(".senderContextAffix");
   });
 });
