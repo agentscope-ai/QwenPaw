@@ -46,6 +46,7 @@ raise SystemExit(pytest.main([
         if not key.startswith(("PYTHON", "QWENPAW_"))
     }
     env.update(
+        QWENPAW_DEPENDENCY_STATE_DIR=str(tmp_path / "dependency-state"),
         QWENPAW_WORKING_DIR=str(tmp_path / "working"),
         QWENPAW_SECRET_DIR=str(tmp_path / "secrets"),
     )

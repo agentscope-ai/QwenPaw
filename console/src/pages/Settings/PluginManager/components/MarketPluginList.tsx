@@ -102,15 +102,17 @@ function pickLocalizedDescription(
 interface MarketPluginListProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
   installedPlugins?: PluginInfo[];
+  initialSearch?: string;
 }
 
 export function MarketPluginList({
   onInstalled,
   installedPlugins = [],
+  initialSearch = "",
 }: MarketPluginListProps) {
   const { t, i18n } = useTranslation();
-  const [searchInput, setSearchInput] = useState("");
-  const [activeSearch, setActiveSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [activeSearch, setActiveSearch] = useState(initialSearch);
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const isMobile = useIsMobile();
 
@@ -136,7 +138,7 @@ export function MarketPluginList({
     handleLoadMore,
     handleRetryLoadMore,
     handleInstall,
-  } = useMarketPlugins({ onInstalled });
+  } = useMarketPlugins({ onInstalled, initialSearch });
 
   const lang = i18n.language.split("-")[0].toLowerCase();
   const getInstalledVersion = (entry: MarketPluginEntry) => {

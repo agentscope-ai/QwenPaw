@@ -36,6 +36,7 @@ from .hooks import HookPhase, HookResult
 from .markets import SearchPage
 from .providers import ModelInfo, ModelToolChoice, ModelChunk
 from .memory import MemoryTask
+from .harnesses import HarnessRunRequest, HarnessStatus
 from .channels import ChannelMessage, ChannelHealth
 from .results import (
     InstallResult,
@@ -1200,6 +1201,64 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if service
             else ()
         )
+
+    def list_harnesses(self) -> tuple[dict[str, Any], ...]:
+        """List external backend metadata without constructing any backend."""
+        from ._harness_http import backend_catalog
+
+        return tuple(backend_catalog(self._loader.registry)[1:])
+
+    async def harness_status(
+        self,
+        backend_id: str,
+        *,
+        workspace_id: str,
+    ) -> HarnessStatus:
+        workspace = await self._workspace(workspace_id)
+        return await workspace.backend_runtime.call(backend_id, "status")
+
+    async def run_harness(
+        self,
+        backend_id: str,
+        request: HarnessRunRequest,
+        *,
+        workspace_id: str,
+        session_id: str,
+        user_id: str = "test",
+        channel: str = "console",
+    ) -> AsyncGenerator[ChatEvent, None]:
+        """Run public values through the production backend stream bridge."""
+        from ..schemas import AgentRequest
+        from ._events import chat_event
+
+        workspace = await self._workspace(workspace_id)
+        contents = [{"type": "text", "text": request.prompt}]
+        for attachment in request.attachments:
+            if attachment.kind == "image":
+                contents.append(
+                    {"type": "image", "image_url": str(attachment.path)},
+                )
+            else:
+                contents.append(
+                    {
+                        "type": "file",
+                        "file_url": str(attachment.path),
+                        "filename": attachment.name,
+                    },
+                )
+        trusted = AgentRequest(
+            input=[{"role": "user", "content": contents}],
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=workspace_id,
+        )
+        stream = workspace.backend_runtime.stream(backend_id, trusted)
+        try:
+            async for item in stream:
+                yield chat_event(item)
+        finally:
+            await stream.aclose()
 
     async def stream_chat(
         self,
