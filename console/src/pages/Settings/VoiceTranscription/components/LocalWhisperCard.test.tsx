@@ -45,6 +45,29 @@ function show(status: Partial<LocalWhisperStatus> = {}) {
 }
 
 describe("Local Whisper plugin and dependency status", () => {
+  it("offers dependency review even when the old plugin remains installed", () => {
+    const { onInstall } = show({
+      available: false,
+      state: "needs_confirmation",
+      dependency_upgrade: {
+        id: "whisper-upgrade",
+        plugin_id: "local-whisper",
+        status: "needs_confirmation",
+        changes: [],
+        affected_instances: [],
+        requires_restart: false,
+        message: "Confirm dependency changes",
+      },
+    });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "voiceTranscription.localWhisperReview",
+      }),
+    );
+    expect(onInstall).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "common.retry" })).toBeNull();
+  });
+
   it("offers installation even when dependencies remain after uninstall", () => {
     const { onInstall } = show({
       available: false,

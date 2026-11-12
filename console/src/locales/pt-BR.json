@@ -445,6 +445,8 @@
     "providerTypeLocalWhisper": "Local Whisper",
     "providerTypeLocalWhisperDesc": "Run transcription locally using the openai-whisper Python library. Requires both ffmpeg and openai-whisper to be installed.",
     "localWhisperInstall": "Instalar plugin",
+    "localWhisperReview": "Revisar alterações de dependências",
+    "localWhisperState_needs_confirmation": "Local Whisper · Aguardando confirmação de dependências",
     "providerLabel": "Whisper API Provedor",
     "providerDescription": "Select which provider to use for audio transcription via the Whisper API. Only providers with a Whisper-compatible endpoint are shown.",
     "providerPlaceholder": "Selecionar a provider...",

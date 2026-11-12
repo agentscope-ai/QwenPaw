@@ -4396,6 +4396,8 @@
     "providerTypeLocalWhisper": "Локальный Whisper",
     "providerTypeLocalWhisperDesc": "Запускать транскрипцию локально с помощью библиотеки openai-whisper. Требуются ffmpeg и openai-whisper.",
     "localWhisperInstall": "Установить плагин",
+    "localWhisperReview": "Проверить изменения зависимостей",
+    "localWhisperState_needs_confirmation": "Local Whisper · Ожидание подтверждения изменений зависимостей",
     "providerLabel": "Провайдер Whisper API",
     "providerDescription": "Выберите провайдера для транскрипции аудио через Whisper API. Отображаются только провайдеры с совместимым эндпоинтом.",
     "providerPlaceholder": "Выберите провайдера...",

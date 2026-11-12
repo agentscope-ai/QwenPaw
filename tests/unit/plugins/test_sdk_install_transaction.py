@@ -133,33 +133,28 @@ async def test_sdk_transaction_commit_boundary_retains_correct_code_and_data(
         assert await text_result(host) == expected + ":persist:3"
 
 
-@pytest.mark.parametrize(
-    ("dependency", "module"),
-    [("httpx", "httpx"), ("uvicorn", "uvicorn"), ("pydantic", "pydantic")],
-)
-async def test_sdk_dependency_restart_rejected_before_module_execution(
+async def test_unresolvable_sdk_update_preserves_active_plugin(
     tmp_path,
     monkeypatch,
-    dependency,
-    module,
 ):
-    import importlib
+    import httpx
     import subprocess
 
-    from qwenpaw.plugins import SDKRestartRequiredError
+    from qwenpaw.plugins import SDKError
     from qwenpaw.plugins.testing import PluginTestHost
 
-    loaded = importlib.import_module(module)
-    assert loaded.__version__ != "0.0.1"
-    # A missing guard must not make the test fetch/install packages online.
+    loaded_version = httpx.__version__
+    assert loaded_version != "0.0.1"
+    # Exercise the common resolver without downloading packages.
     monkeypatch.setenv("UV_OFFLINE", "1")
     monkeypatch.setenv("PIP_NO_INDEX", "1")
-    installer_calls = []
+    resolver_calls = []
     spawn = subprocess.Popen
 
     def prohibit_installer(args, *values, **kwargs):
+        if "wheel" in args:
+            resolver_calls.append(tuple(args))
         if "install" in args and ("pip" in args or "uv" in str(args[0])):
-            installer_calls.append(tuple(args))
             raise AssertionError("Dependency guard reached external installer")
         return spawn(args, *values, **kwargs)
 
@@ -171,13 +166,17 @@ async def test_sdk_dependency_restart_rejected_before_module_execution(
         f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
         + entry.read_text(),
     )
-    (two / "requirements.txt").write_text(f"{dependency}==0.0.1\n")
+    (two / "requirements.txt").write_text("httpx==0.0.1\n")
     root = tmp_path / "host"
     async with PluginTestHost(root) as host:
         await host.install(one, config={"label": "retained"})
-        with pytest.raises(SDKRestartRequiredError):
+        with pytest.raises(
+            SDKError,
+            match="Plugin requirements cannot be resolved",
+        ):
             await host.install(two, replace=True)
-        assert not installer_calls
+        assert resolver_calls
+        assert httpx.__version__ == loaded_version
         assert not marker.exists()
         assert await text_result(host) == "1.0.0:retained:1"
         assert (

@@ -1,5 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ConfigProvider, Modal } from "antd";
 
 const api = vi.hoisted(() => ({
   getAudioMode: vi.fn(),
@@ -25,7 +32,8 @@ vi.mock("../../../stores/agentStore", () => ({
   }),
 }));
 
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ t: app.t }),
 }));
 
@@ -48,6 +56,7 @@ function deferred<T>() {
 
 describe("VoiceTranscriptionPage initial load", () => {
   beforeEach(() => {
+    ConfigProvider.config({ theme: { token: { motion: false } } });
     vi.clearAllMocks();
     app.selectedAgent = "agent-a";
     api.updateAudioMode.mockResolvedValue(undefined);
@@ -58,9 +67,87 @@ describe("VoiceTranscriptionPage initial load", () => {
     });
     api.updateTranscriptionModel.mockResolvedValue(undefined);
   });
-  afterEach(() => {
+  afterEach(async () => {
+    Modal.destroyAll();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    ConfigProvider.config({ theme: { token: { motion: true } } });
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
+
+  it.each([true, false])(
+    "uses the shared confirmation dialog (approve=%s)",
+    async (approve) => {
+      const operation = {
+        id: "whisper-upgrade",
+        plugin_id: "local-whisper",
+        status: "needs_confirmation",
+        changes: [{ name: "torch", current_version: "1", target_version: "2" }],
+        affected_instances: [],
+        requires_restart: false,
+        message: "Confirm dependency changes",
+      };
+      api.getAudioMode.mockResolvedValue({ audio_mode: "auto" });
+      api.getTranscriptionProviderType.mockResolvedValue({
+        transcription_provider_type: "local_whisper",
+      });
+      api.getTranscriptionProviders.mockResolvedValue({
+        providers: [],
+        configured_provider_id: "",
+      });
+      api.getLocalWhisperStatus.mockResolvedValue({
+        available: false,
+        plugin_installed: false,
+        plugin_enabled: false,
+        plugin_status: "missing",
+        state: "needs_confirmation",
+        ffmpeg_installed: true,
+        whisper_installed: false,
+        dependency_upgrade: operation,
+      });
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          ...operation,
+          status: approve ? "succeeded" : "cancelled",
+          result: { id: "local-whisper" },
+        }),
+      });
+      vi.stubGlobal("fetch", fetch);
+      render(
+        <MemoryRouter>
+          <VoiceTranscriptionPage />
+        </MemoryRouter>,
+      );
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "voiceTranscription.localWhisperReview",
+        }),
+      );
+      expect(await screen.findByText("torch: 1 → 2")).toBeInTheDocument();
+      expect(fetch).not.toHaveBeenCalled();
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: approve
+            ? "pluginManager.dependencyUpgrade.confirm"
+            : "common.cancel",
+        }),
+      );
+      await waitFor(() =>
+        expect(fetch).toHaveBeenCalledExactlyOnceWith(
+          expect.stringContaining(
+            `/plugins/dependency-upgrades/whisper-upgrade${
+              approve ? "/apply" : ""
+            }`,
+          ),
+          expect.objectContaining({ method: approve ? "POST" : "DELETE" }),
+        ),
+      );
+      await waitFor(() =>
+        expect(api.getLocalWhisperStatus.mock.calls.length).toBeGreaterThan(1),
+      );
+    },
+  );
 
   it("blocks edits until retry restores the persisted settings", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});

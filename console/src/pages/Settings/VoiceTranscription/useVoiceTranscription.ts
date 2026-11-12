@@ -7,6 +7,7 @@ import {
 } from "../../../utils/pluginChangeEvents";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
+import { reviewDependencyUpgrade } from "../PluginManager/dependencyUpgrade";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -143,7 +144,11 @@ export function useVoiceTranscription() {
   }, [audioMode, providerType, loading, error, selectedAgent, t]);
 
   const installLocalWhisper = useCallback(async () => {
-    if (installingRef.current || localWhisperStatus?.state === "installing")
+    const operation = localWhisperStatus?.dependency_upgrade;
+    if (
+      installingRef.current ||
+      (localWhisperStatus?.state === "installing" && !operation)
+    )
       return;
     installingRef.current = true;
     const generation = requestGenerationRef.current;
@@ -151,7 +156,10 @@ export function useVoiceTranscription() {
       (status) => status && { ...status, state: "installing", error: "" },
     );
     try {
-      const status = await api.installLocalWhisper();
+      if (operation) await reviewDependencyUpgrade(operation, t);
+      const status = operation
+        ? await api.getLocalWhisperStatus()
+        : await api.installLocalWhisper();
       notifyPluginChange();
       if (generation === requestGenerationRef.current)
         setLocalWhisperStatus(status);
@@ -169,7 +177,7 @@ export function useVoiceTranscription() {
     } finally {
       installingRef.current = false;
     }
-  }, [localWhisperStatus?.state]);
+  }, [localWhisperStatus?.state, localWhisperStatus?.dependency_upgrade, t]);
 
   const enableLocalWhisper = useCallback(async () => {
     const generation = requestGenerationRef.current;

@@ -5263,6 +5263,8 @@
     "providerTypeLocalWhisper": "本地 Whisper",
     "providerTypeLocalWhisperDesc": "使用本地安装的 openai-whisper Python 库进行转写。需要同时安装 ffmpeg 和 openai-whisper。",
     "localWhisperInstall": "安装插件",
+    "localWhisperReview": "查看依赖变更",
+    "localWhisperState_needs_confirmation": "本地 Whisper · 等待确认依赖变更",
     "providerLabel": "Whisper API 提供商",
     "providerDescription": "选择用于 Whisper API 音频转写的提供商。仅显示支持 Whisper 端点的提供商。",
     "providerPlaceholder": "选择提供商...",

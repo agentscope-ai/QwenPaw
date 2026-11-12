@@ -10,11 +10,13 @@ from email.parser import BytesParser
 import hashlib
 import io
 import logging
+import mmap
 import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
 import stat
+import tempfile
 import threading
 from typing import Mapping
 import zipfile
@@ -31,7 +33,11 @@ from .execution.dependencies import (
 
 
 logger = logging.getLogger(__name__)
-_MAX_WHEEL_UNPACKED_BYTES = 1024 * 1024 * 1024
+# Native Torch/CUDA wheels exceed the budgets used by pure Python plugins.
+_MAX_WHEEL_BYTES = 2 * 1024 * 1024 * 1024
+_MAX_WHEEL_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024
+_IN_MEMORY_BYTES = 1024 * 1024
+_MAX_METADATA_BYTES = 16 * 1024 * 1024
 
 
 def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
@@ -55,7 +61,7 @@ class WheelAddition:
     sha256: str
 
 
-class WheelFiles(dict[str, bytes]):
+class WheelFiles(dict[str, bytes | mmap.mmap]):
     """Validated target-relative files and their executable script paths."""
 
     def __init__(self):
@@ -63,71 +69,55 @@ class WheelFiles(dict[str, bytes]):
         self.executable_paths: set[str] = set()
 
 
+def _copy_bounded(source, target, limit):
+    """Snapshot untrusted input with bounded reads and an actual byte limit."""
+    size = 0
+    digest = hashlib.sha256()
+    while chunk := source.read(_IN_MEMORY_BYTES):
+        size += len(chunk)
+        if size > limit:
+            raise _reject("archive size limit exceeded")
+        digest.update(chunk)
+        target.write(chunk)
+    target.flush()
+    target.seek(0)
+    return digest.hexdigest()
+
+
+def _member_content(archive, info):
+    """Keep large payloads in private, read-only file mappings until publish."""
+    parts = PurePosixPath(info.filename).parts
+    structured = parts[0].endswith(".dist-info") or (
+        len(parts) > 1 and parts[0].endswith(".data") and parts[1] == "scripts"
+    )
+    if structured and info.file_size > _MAX_METADATA_BYTES:
+        raise _reject("metadata or script size limit exceeded")
+    if structured or info.file_size <= _IN_MEMORY_BYTES:
+        return archive.read(info)
+    with archive.open(info) as source, tempfile.TemporaryFile() as staged:
+        _copy_bounded(source, staged, info.file_size)
+        return mmap.mmap(staged.fileno(), 0, access=mmap.ACCESS_READ)
+
+
 # lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
-# Retain expanded byte limits while allowing ordinary large SDK wheels.
-def _members(addition: WheelAddition) -> dict[str, bytes]:
+def _members(addition: WheelAddition) -> WheelFiles:
     path = Path(addition.path)
     if (
         path.is_symlink()
         or not path.is_file()
-        or path.stat().st_size > 256 * 1024 * 1024
+        or path.stat().st_size > _MAX_WHEEL_BYTES
     ):
         raise _reject("wheel file invalid")
-    # Validate and publish these immutable bytes; never reopen the path.
-    content = path.read_bytes()
-    if hashlib.sha256(content).hexdigest() != addition.sha256:
-        raise _reject("wheel hash mismatch")
     result = WheelFiles()
     normalized = set()
-    with zipfile.ZipFile(io.BytesIO(content)) as archive:
-        expanded = sum(info.file_size for info in archive.infolist())
-        if (
-            len(archive.infolist()) > 50000
-            or expanded > _MAX_WHEEL_UNPACKED_BYTES
-        ):
-            logger.info(
-                "Wheel archive exceeds resource budget: artifact=%s "
-                "actual_bytes=%s limit_bytes=%s entries=%s",
-                ascii(path.name)[1:-1][:160],
-                expanded,
-                _MAX_WHEEL_UNPACKED_BYTES,
-                len(archive.infolist()),
-            )
-            raise _reject(
-                "archive size limit exceeded",
-                detail=(
-                    f"wheel archive size {expanded} bytes (limit "
-                    f"{_MAX_WHEEL_UNPACKED_BYTES}); entries "
-                    f"{len(archive.infolist())} (limit 50000)"
-                ),
-            )
-        for info in archive.infolist():
-            name = info.filename
-            relative = PurePosixPath(name)
-            # Reject every unsafe archive path form before reading members.
-            # pylint: disable=too-many-boolean-expressions
-            if (
-                not name
-                or "\\" in name
-                or ":" in name
-                or relative.is_absolute()
-                or any(
-                    part in {"", ".", ".."}
-                    for part in name.rstrip("/").split("/")
-                )
-                or stat.S_ISLNK(info.external_attr >> 16)
-            ):
-                raise _reject("unsafe archive path")
-            if info.is_dir():
-                continue
-            key = os.path.normcase(name).casefold()
-            # Entry-point declarations remain metadata; no launchers are made.
-            if key in normalized or name.endswith(".pth"):
-                raise _reject("duplicate archive path or pth payload")
-            normalized.add(key)
-            result[name] = archive.read(info)
-            if info.external_attr >> 16 & 0o111:
-                result.executable_paths.add(name)
+    # Parse a private snapshot; never reopen the caller's path after hashing.
+    with tempfile.TemporaryFile() as content:
+        with path.open("rb") as source:
+            digest = _copy_bounded(source, content, _MAX_WHEEL_BYTES)
+        if digest != addition.sha256:
+            raise _reject("wheel hash mismatch")
+        with zipfile.ZipFile(content) as archive:
+            _read_members(archive, path, result, normalized)
     if any(
         str(parent) in result
         for name in result
@@ -138,7 +128,57 @@ def _members(addition: WheelAddition) -> dict[str, bytes]:
     return result
 
 
-def _validate_record(files: Mapping[str, bytes], record: str) -> None:
+def _read_members(archive, path, result, normalized):
+    expanded = sum(info.file_size for info in archive.infolist())
+    if len(archive.infolist()) > 50000 or expanded > _MAX_WHEEL_UNPACKED_BYTES:
+        logger.info(
+            "Wheel archive exceeds resource budget: artifact=%s "
+            "actual_bytes=%s limit_bytes=%s entries=%s",
+            ascii(path.name)[1:-1][:160],
+            expanded,
+            _MAX_WHEEL_UNPACKED_BYTES,
+            len(archive.infolist()),
+        )
+        raise _reject(
+            "archive size limit exceeded",
+            detail=(
+                f"wheel archive size {expanded} bytes (limit "
+                f"{_MAX_WHEEL_UNPACKED_BYTES}); entries "
+                f"{len(archive.infolist())} (limit 50000)"
+            ),
+        )
+    for info in archive.infolist():
+        name = info.filename
+        relative = PurePosixPath(name)
+        # Reject every unsafe archive path form before reading members.
+        # pylint: disable=too-many-boolean-expressions
+        if (
+            not name
+            or "\\" in name
+            or ":" in name
+            or relative.is_absolute()
+            or any(
+                part in {"", ".", ".."} for part in name.rstrip("/").split("/")
+            )
+            or stat.S_ISLNK(info.external_attr >> 16)
+        ):
+            raise _reject("unsafe archive path")
+        if info.is_dir():
+            continue
+        key = os.path.normcase(name).casefold()
+        # Entry-point declarations remain metadata; no launchers are made.
+        if key in normalized or name.endswith(".pth"):
+            raise _reject("duplicate archive path or pth payload")
+        normalized.add(key)
+        result[name] = _member_content(archive, info)
+        if info.external_attr >> 16 & 0o111:
+            result.executable_paths.add(name)
+
+
+def _validate_record(
+    files: Mapping[str, bytes | mmap.mmap],
+    record: str,
+) -> None:
     rows = list(csv.reader(io.StringIO(files[record].decode("utf-8"))))
     seen = set()
     for row in rows:
@@ -464,7 +504,7 @@ def validate_additions(
     additions: tuple[WheelAddition, ...],
     snapshot: DependencySnapshot,
     target: Path,
-) -> tuple[dict[str, bytes], DependencySnapshot]:
+) -> tuple[WheelFiles, DependencySnapshot]:
     """Return verified bytes and proposed metadata for closure checks."""
     files = WheelFiles()
     distributions = dict(snapshot.distributions)
@@ -501,8 +541,10 @@ def validate_additions(
             info_name, _, info_version = info.removesuffix(
                 ".dist-info",
             ).rpartition("-")
-            metadata = BytesParser().parsebytes(members[f"{info}/METADATA"])
-            wheel = BytesParser().parsebytes(members[f"{info}/WHEEL"])
+            metadata = BytesParser().parsebytes(
+                bytes(members[f"{info}/METADATA"]),
+            )
+            wheel = BytesParser().parsebytes(bytes(members[f"{info}/WHEEL"]))
             if not valid_metadata_headers(
                 metadata,
                 ("Name", "Version"),

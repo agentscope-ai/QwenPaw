@@ -252,7 +252,8 @@ def test_wheel_preserves_package_executable_modes(tmp_path):
 
 
 @pytest.mark.parametrize("over_budget", [False, True])
-def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
+@pytest.mark.parametrize("budget", ["packed", "unpacked"])
+def test_wheel_size_budget(tmp_path, monkeypatch, over_budget, budget):
     import hashlib
     import zipfile
     from qwenpaw.plugins import wheel_additions
@@ -263,8 +264,11 @@ def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
         expanded = sum(info.file_size for info in archive.infolist())
     monkeypatch.setattr(
         wheel_additions,
-        "_MAX_WHEEL_UNPACKED_BYTES",
-        expanded - int(over_budget),
+        "_MAX_WHEEL_BYTES"
+        if budget == "packed"
+        else "_MAX_WHEEL_UNPACKED_BYTES",
+        (wheel.stat().st_size if budget == "packed" else expanded)
+        - int(over_budget),
     )
     addition = wheel_additions.WheelAddition(
         wheel,
@@ -279,6 +283,57 @@ def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
     else:
         assert wheel_additions._members(addition)
     assert not (tmp_path / "site").exists()
+
+
+def test_large_wheel_payload_stays_private_and_file_backed(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+    import mmap
+    import sys
+    from pathlib import Path
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+
+    payload = b"binary data\x00" * 8192
+    binary = "b01_probe/library.so"
+    wheel = write_wheel(tmp_path, "b01-probe", payload={binary: payload})
+    addition = wheels.WheelAddition(
+        wheel,
+        hashlib.sha256(wheel.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    # Neither the archive nor its large payload may use a whole-file read.
+    original = Path.read_bytes
+
+    def read(path):
+        assert path != wheel
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    files, _ = wheels.validate_additions((addition,), snapshot, target)
+    content = files[binary]
+    try:
+        assert isinstance(content, mmap.mmap)
+        with pytest.raises(TypeError):
+            content[0] = 0
+        wheel.write_bytes(b"changed after validation")
+        dependency_gate._write_additions(target, files)
+        assert (target / binary).read_bytes() == payload
+    finally:
+        content.close()
 
 
 @pytest.mark.parametrize(

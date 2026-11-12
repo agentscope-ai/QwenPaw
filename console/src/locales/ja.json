@@ -4379,6 +4379,8 @@
     "providerTypeLocalWhisper": "ローカル Whisper",
     "providerTypeLocalWhisperDesc": "ローカルにインストールされた openai-whisper Python ライブラリで文字起こしを実行します。ffmpeg と openai-whisper の両方のインストールが必要です。",
     "localWhisperInstall": "プラグインをインストール",
+    "localWhisperReview": "依存関係の変更を確認",
+    "localWhisperState_needs_confirmation": "Local Whisper · 依存関係の変更の確認待ち",
     "providerLabel": "Whisper API プロバイダー",
     "providerDescription": "Whisper API による音声文字起こしに使用するプロバイダーを選択します。Whisper 対応エンドポイントを持つプロバイダーのみ表示されます。",
     "providerPlaceholder": "プロバイダーを選択...",

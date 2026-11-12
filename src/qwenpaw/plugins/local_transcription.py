@@ -17,6 +17,11 @@ from ..utils.io_utils import (
     run_sync_io,
     write_json_atomic_async,
 )
+from .dependency_upgrade import (
+    DependencyUpgradeRequired,
+    dependency_upgrades,
+    install_with_upgrade,
+)
 from .settings import is_plugin_enabled
 
 logger = logging.getLogger(__name__)
@@ -83,7 +88,16 @@ def get_status() -> dict:
     else:
         state = "ready" if available else "inactive"
     if _service is not None:
-        if _service.task is not None and not _service.task.done():
+        operation = _service.pending_upgrade()
+        if operation:
+            status["dependency_upgrade"] = operation
+            state = (
+                "needs_confirmation"
+                if operation["status"] == "needs_confirmation"
+                else "installing"
+            )
+            available = False
+        elif _service.task is not None and not _service.task.done():
             state, available = "installing", False
         elif _service.error and not available:
             error = error or _service.error
@@ -110,12 +124,32 @@ class LocalTranscriptionService:
         self.state_path = Path(state_path)
         self.task = None
         self.error = ""
+        self.operation_id = None
+
+    def pending_upgrade(self):
+        """Expose the common manager's operation; it owns approval and apply."""
+        if not self.operation_id:
+            return None
+        try:
+            operation = dependency_upgrades(self.loader).status(
+                self.operation_id,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.error = str(exc)
+            return None
+        if operation["status"] == "failed":
+            self.error = (operation.get("error") or {}).get("message", "")
+        if operation["status"] in {"succeeded", "cancelled", "failed"}:
+            self.operation_id = None
+            return None
+        return operation
 
     async def start(self):
         global _service
         _service = self
         try:
-            await read_json_async(self.state_path)
+            state = await read_json_async(self.state_path)
+            self.operation_id = state.get("dependency_operation_id")
         except FileNotFoundError:
             pass
         except (OSError, ValueError) as exc:
@@ -160,6 +194,8 @@ class LocalTranscriptionService:
 
     async def _install(self):
         try:
+            if await run_sync_io(self.pending_upgrade):
+                return
             # One framework transaction covers the existence check and install
             # or repair, so a queued uninstall always runs after activation.
             async with self.loader.plugin_lifecycle(PLUGIN_ID):
@@ -168,7 +204,8 @@ class LocalTranscriptionService:
                     PLUGIN_ID,
                 )
                 if installed is None:
-                    record = await self.loader.load_plugin_from_path(
+                    record = await install_with_upgrade(
+                        self.loader,
                         SOURCE,
                     )
                 else:
@@ -178,6 +215,15 @@ class LocalTranscriptionService:
                         "; ".join(record.diagnostics or [])
                         or "Plugin activation failed",
                     )
+                self.error = ""
+        except DependencyUpgradeRequired as exc:
+            self.operation_id = exc.operation["id"]
+            try:
+                state = await read_json_async(self.state_path)
+                state["dependency_operation_id"] = self.operation_id
+                await write_json_atomic_async(self.state_path, state)
+            except (OSError, ValueError) as error:
+                self.error = str(error)
         except Exception as exc:
             self.error = str(exc)
             logger.warning("Local Whisper installation failed: %s", exc)

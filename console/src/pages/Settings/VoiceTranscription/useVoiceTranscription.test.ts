@@ -12,10 +12,15 @@ const h = vi.hoisted(() => ({
   getLocalWhisperStatus: vi.fn(),
   installLocalWhisper: vi.fn(),
   enableLocalWhisper: vi.fn(),
+  reviewDependencyUpgrade: vi.fn(),
   updateAudioMode: vi.fn(),
   updateTranscriptionProviderType: vi.fn(),
   updateTranscriptionProvider: vi.fn(),
   updateTranscriptionModel: vi.fn(),
+}));
+
+vi.mock("../PluginManager/dependencyUpgrade", () => ({
+  reviewDependencyUpgrade: h.reviewDependencyUpgrade,
 }));
 
 vi.mock("../../../stores/agentStore", () => ({

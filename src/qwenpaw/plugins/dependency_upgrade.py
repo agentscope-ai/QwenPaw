@@ -25,6 +25,7 @@ from .dependency_gate import (
     parse_requirements_file,
 )
 from .execution.dependencies import DependencySnapshot, _dependency_closure
+from .dependency_transaction import _hash
 from .wheel_additions import WheelAddition, validate_additions
 
 
@@ -186,16 +187,13 @@ class PreparedResolution:
                 "DEPENDENCY_PLAN_STALE: resolution already consumed.",
             )
         for item in self.wheels:
-            if (
-                hashlib.sha256(item.path.read_bytes()).hexdigest()
-                != item.sha256
-            ):
+            if _hash(item.path) != item.sha256:
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: prepared wheel changed.",
                 )
             target = destination / item.path.name
             shutil.copy2(item.path, target)
-            if hashlib.sha256(target.read_bytes()).hexdigest() != item.sha256:
+            if _hash(target) != item.sha256:
                 raise RuntimeError(
                     "DEPENDENCY_PLAN_STALE: copied wheel changed.",
                 )
@@ -1492,7 +1490,7 @@ class DependencyUpgradeManager:
             wheels.append(
                 WheelAddition(
                     path,
-                    hashlib.sha256(path.read_bytes()).hexdigest(),
+                    _hash(path),
                 ),
             )
         if not changed:

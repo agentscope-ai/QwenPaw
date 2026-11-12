@@ -112,7 +112,8 @@ def atomic_json(path, value):
 
 
 def _hash(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def environment_fingerprint(snapshot):

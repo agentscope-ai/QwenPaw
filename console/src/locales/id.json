@@ -3574,6 +3574,8 @@
     "providerTypeLocalWhisper": "Whisper Lokal",
     "providerTypeLocalWhisperDesc": "Jalankan transkripsi secara lokal menggunakan pustaka Python openai-whisper. Memerlukan ffmpeg dan openai-whisper yang terinstal.",
     "localWhisperInstall": "Instal plugin",
+    "localWhisperReview": "Tinjau perubahan dependensi",
+    "localWhisperState_needs_confirmation": "Local Whisper · Menunggu konfirmasi dependensi",
     "providerLabel": "Penyedia Whisper API",
     "providerDescription": "Pilih penyedia mana yang akan digunakan untuk transkripsi audio melalui Whisper API. Hanya penyedia dengan endpoint yang kompatibel dengan Whisper yang ditampilkan.",
     "providerPlaceholder": "Pilih penyedia...",

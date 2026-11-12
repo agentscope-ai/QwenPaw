@@ -1,6 +1,7 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { DependencyUpgradeOperation } from "./plugin";
 import type {
   AgentRequest,
   AgentsRunningConfig,
@@ -34,11 +35,13 @@ export interface LocalWhisperStatus {
     | "missing"
     | "disabled"
     | "installing"
+    | "needs_confirmation"
     | "ready"
     | "inactive"
     | "missing_dependencies"
     | "failed";
   error?: string;
+  dependency_upgrade?: DependencyUpgradeOperation;
 }
 
 export type TranscriptionErrorCode =

@@ -307,3 +307,60 @@ async def test_existing_framework_install_never_repairs_on_boot(setup):
     assert service.task is None
     gate.assert_not_called()
     assert local.get_status()["available"] is True
+
+
+@pytest.mark.parametrize("repair", [False, True])
+async def test_dependency_confirmation_survives_restart(
+    setup,
+    monkeypatch,
+    repair,
+):
+    from qwenpaw.plugins import dependency_upgrade as upgrades
+
+    host, service, gate = setup
+    await service.start()
+    if repair:
+        await install(service)
+    operation = {
+        "id": "pending-whisper-upgrade",
+        "plugin_id": local.PLUGIN_ID,
+        "status": "needs_confirmation",
+        "message": "Confirm dependency changes",
+        "changes": [
+            {"name": "torch", "current_version": "1", "target_version": "2"},
+        ],
+    }
+    manager = upgrades.dependency_upgrades(host._loader)
+
+    def lookup(operation_id):
+        assert operation_id == operation["id"]
+        return dict(operation)
+
+    monkeypatch.setattr(manager, "status", lookup)
+    stage = AsyncMock(return_value=operation)
+    monkeypatch.setattr(manager, "stage", stage)
+    gate.side_effect = RuntimeError("DEPENDENCY_RESTART_REQUIRED")
+    await install(service)
+    status = local.get_status()
+    assert status["state"] == "needs_confirmation"
+    assert status["dependency_upgrade"] == operation
+    stage.assert_awaited_once()
+    calls = gate.call_count
+    await service.close()
+    restarted = local.LocalTranscriptionService(
+        host._loader,
+        service.state_path,
+    )
+    try:
+        await restarted.start()
+        assert local.get_status()["dependency_upgrade"] == operation
+        await install(restarted)
+        assert gate.call_count == calls
+        operation["status"] = "cancelled"
+        assert local.get_status().get("dependency_upgrade") is None
+        gate.side_effect = None
+        await install(restarted)
+        assert gate.call_count > calls
+        assert local.get_status()["available"] is True
+    finally:
+        await restarted.close()

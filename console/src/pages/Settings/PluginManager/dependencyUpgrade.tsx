@@ -287,21 +287,28 @@ export async function runPluginInstall<T>(
       !failure.operation?.id
     )
       throw error;
-    const task = trackUpgrade(
-      failure.operation.id,
-      failure.operation,
-      getPendingUpgradeStorageKey(),
-      t,
-      true,
-    );
-    return task.promise.then(
-      (result) => (task.foreground ? result : null),
-      (error: unknown) => {
-        if (task.foreground) throw error;
-        return null;
-      },
-    );
+    return reviewDependencyUpgrade(failure.operation, t);
   }
+}
+
+export function reviewDependencyUpgrade(
+  operation: DependencyUpgradeOperation,
+  t: TFunction,
+): Promise<InstallPluginResult | null> {
+  const task = trackUpgrade(
+    operation.id,
+    operation,
+    getPendingUpgradeStorageKey(),
+    t,
+    true,
+  );
+  return task.promise.then(
+    (result) => (task.foreground ? result : null),
+    (error: unknown) => {
+      if (task.foreground) throw error;
+      return null;
+    },
+  );
 }
 
 export function resumePendingPluginInstalls(

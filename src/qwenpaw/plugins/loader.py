@@ -1406,7 +1406,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         async with self._dependency_install_scope(
             source_path or requirements_file.parent,
         ):
-            import hashlib
+            from .dependency_transaction import _hash
             from packaging.utils import parse_wheel_filename
             from ..config.utils import get_config_path
             from .dependency_gate import (
@@ -1745,9 +1745,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                             lambda: tuple(
                                 WheelAddition(
                                     path,
-                                    hashlib.sha256(
-                                        path.read_bytes(),
-                                    ).hexdigest(),
+                                    _hash(path),
                                 )
                                 for path in staging.glob("*.whl")
                             ),
@@ -1779,7 +1777,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     wheels = tuple(
                         WheelAddition(
                             path,
-                            hashlib.sha256(path.read_bytes()).hexdigest(),
+                            _hash(path),
                         )
                         for path in staging.glob("*.whl")
                         if str(parse_wheel_filename(path.name)[0])

@@ -14,13 +14,14 @@ export function LocalWhisperCard({
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const preparing = status.state === "installing";
+  const review = Boolean(status.dependency_upgrade);
+  const preparing = status.state === "installing" && !review;
   const repair =
     status.plugin_installed &&
     (!status.whisper_installed ||
       status.state === "failed" ||
       status.state === "inactive");
-  const canInstall = !status.plugin_installed || repair || preparing;
+  const canInstall = !status.plugin_installed || repair || preparing || review;
   const installedText = (installed: boolean) =>
     t(
       `voiceTranscription.localWhisperDependency_${
@@ -74,7 +75,9 @@ export function LocalWhisperCard({
         {canInstall && (
           <Button type="primary" loading={preparing} onClick={onInstall}>
             {t(
-              repair || status.error
+              review
+                ? "voiceTranscription.localWhisperReview"
+                : repair || status.error
                 ? "common.retry"
                 : "voiceTranscription.localWhisperInstall",
             )}
