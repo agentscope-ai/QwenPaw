@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import Any, Callable
 
 from agentscope.model import OpenAIChatModel
 import pytest
 
-from qwenpaw.providers.ollama_provider import (
-    OllamaProvider,
+from qwenpaw.providers.ollama_discovery import (
     _parse_positive_context_int,
+    classify_ollama_show_payload,
     parse_ollama_model_training_context,
     parse_ollama_num_ctx,
     resolve_ollama_context_window,
 )
+from qwenpaw.providers.ollama_provider import OllamaProvider
 from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.provider_discovery import (
+    apply_discovery_metadata,
+    merge_discovered_model,
+)
 from qwenpaw.providers.thinking import ThinkingControl
 from qwenpaw.utils.io_utils import run_sync_io
 
@@ -198,13 +203,19 @@ def test_parse_ollama_num_ctx_from_parameters() -> None:
     assert parse_ollama_num_ctx(["num_ctx 8192"]) is None
     assert parse_ollama_num_ctx(8192) is None
     assert parse_ollama_num_ctx(None) is None
+    # Unicode "digits" and overlong ASCII strings must not raise.
+    assert parse_ollama_num_ctx("num_ctx ²") is None
+    assert parse_ollama_num_ctx("num_ctx " + "1" * 19) is None
+    assert parse_ollama_num_ctx("num_ctx " + "1" * 4300) is None
 
 
 def test_parse_positive_context_int_is_strict() -> None:
     assert _parse_positive_context_int(65536) == 65536
     assert _parse_positive_context_int(512) == 512
-    assert _parse_positive_context_int("8192") == 8192
-    assert _parse_positive_context_int(" 4096 ") == 4096
+    # model_info values are JSON numbers; strings are not accepted.
+    assert _parse_positive_context_int("8192") is None
+    assert _parse_positive_context_int(" 4096 ") is None
+    assert _parse_positive_context_int("²") is None
     # Bools are ints; do not coerce True to 1.
     assert _parse_positive_context_int(True) is None
     assert _parse_positive_context_int(False) is None
@@ -236,6 +247,16 @@ def test_parse_ollama_model_training_context() -> None:
         )
         == 32768
     )
+    # Architecture names are stripped; string lengths are not JSON numbers.
+    assert (
+        parse_ollama_model_training_context(
+            {
+                "general.architecture": "  qwen3  ",
+                "qwen3.context_length": 32768,
+            },
+        )
+        == 32768
+    )
     assert (
         parse_ollama_model_training_context(
             {
@@ -243,7 +264,7 @@ def test_parse_ollama_model_training_context() -> None:
                 "qwen3.context_length": "32768",
             },
         )
-        == 32768
+        is None
     )
     missing_architecture = (
         {"qwen3.context_length": 32768},
@@ -255,7 +276,7 @@ def test_parse_ollama_model_training_context() -> None:
     )
     for model_info in missing_architecture:
         assert parse_ollama_model_training_context(model_info) is None
-    for raw in (0, True, False, 32768.0, 12.5, "nope", "8192.0", -1):
+    for raw in (0, True, False, 32768.0, 12.5, "nope", "8192.0", -1, "32768"):
         assert (
             parse_ollama_model_training_context(
                 {
@@ -267,6 +288,24 @@ def test_parse_ollama_model_training_context() -> None:
         )
 
 
+def test_classify_ollama_show_payload() -> None:
+    assert classify_ollama_show_payload(None) == ("failed", None)
+    assert classify_ollama_show_payload("not-a-dict") == ("failed", None)
+    assert classify_ollama_show_payload(
+        {"parameters": {"num_ctx": 8192}},
+    ) == ("malformed", None)
+    assert classify_ollama_show_payload(
+        {"parameters": None},
+    ) == ("malformed", None)
+    assert classify_ollama_show_payload({}) == ("unknown", None)
+    assert classify_ollama_show_payload(
+        {"parameters": "temperature 0.7\n"},
+    ) == ("unknown", None)
+    assert classify_ollama_show_payload(
+        {"parameters": "num_ctx 8192\n"},
+    ) == ("resolved", 8192)
+
+
 def test_resolve_ollama_context_uses_modelfile_num_ctx() -> None:
     show = {
         "parameters": "num_ctx 131072\n",
@@ -276,11 +315,11 @@ def test_resolve_ollama_context_uses_modelfile_num_ctx() -> None:
         },
     }
     # A higher training cap does not raise the Modelfile window.
-    assert resolve_ollama_context_window(show_payload=show) == 131072
+    assert resolve_ollama_context_window(show) == 131072
     # Training context alone is not a window.
     assert (
         resolve_ollama_context_window(
-            show_payload={
+            {
                 "model_info": {
                     "general.architecture": "qwen3",
                     "qwen3.context_length": 65536,
@@ -289,16 +328,7 @@ def test_resolve_ollama_context_uses_modelfile_num_ctx() -> None:
         )
         is None
     )
-    assert resolve_ollama_context_window(show_payload={}) is None
-    # Failed probe is not an empty successful show.
-    assert resolve_ollama_context_window(show_payload=None) is None
-    # Malformed parameters are not an omitted num_ctx.
-    assert (
-        resolve_ollama_context_window(
-            show_payload={"parameters": {"num_ctx": 8192}},
-        )
-        is None
-    )
+    assert resolve_ollama_context_window({}) is None
 
 
 def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
@@ -311,37 +341,32 @@ def test_resolve_show_without_num_ctx_leaves_context_unset() -> None:
         "remote_model": "gpt-oss:120b",
         "model_info": {"gptoss.context_length": 131072},
     }
-    assert resolve_ollama_context_window(show_payload=remote) is None
+    assert resolve_ollama_context_window(remote) is None
     assert (
         resolve_ollama_context_window(
-            show_payload={"remote_host": "https://ollama.com"},
+            {"remote_host": "https://ollama.com"},
         )
         is None
     )
-    assert (
-        resolve_ollama_context_window(
-            show_payload={"remote_model": "gemma4"},
-        )
-        is None
-    )
+    assert resolve_ollama_context_window({"remote_model": "gemma4"}) is None
     # Blank remote markers are not a window.
     assert (
         resolve_ollama_context_window(
-            show_payload={"remote_host": "  ", "remote_model": ""},
+            {"remote_host": "  ", "remote_model": ""},
         )
         is None
     )
     # A local show that omitted num_ctx stays unset too.
     assert (
         resolve_ollama_context_window(
-            show_payload={"parameters": "temperature 0.7\n"},
+            {"parameters": "temperature 0.7\n"},
         )
         is None
     )
     # Explicit num_ctx still wins.
     assert (
         resolve_ollama_context_window(
-            show_payload={
+            {
                 "remote_host": "https://ollama.com",
                 "parameters": "num_ctx 16384\n",
             },
@@ -364,11 +389,11 @@ def test_resolve_caps_num_ctx_by_training_context() -> None:
             "qwen3.context_length": 32768,
         },
     }
-    assert resolve_ollama_context_window(show_payload=show) == 32768
+    assert resolve_ollama_context_window(show) == 32768
     # Sibling keys do not replace the architecture cap.
     assert (
         resolve_ollama_context_window(
-            show_payload={
+            {
                 "parameters": "num_ctx 65536\n",
                 "model_info": {
                     "general.architecture": "qwen3",
@@ -427,12 +452,12 @@ def test_resolve_caps_num_ctx_by_training_context() -> None:
         },
     ]
     for payload in no_cap_payloads:
-        assert resolve_ollama_context_window(show_payload=payload) == 65536
+        assert resolve_ollama_context_window(payload) == 65536
 
     # Training max alone is not a window.
     assert (
         resolve_ollama_context_window(
-            show_payload={
+            {
                 "model_info": {
                     "general.architecture": "qwen3",
                     "qwen3.context_length": 32768,
@@ -485,56 +510,88 @@ class _FakeResponse:
         return self._payload
 
 
-@pytest.mark.asyncio
-async def test_fetch_models_attaches_show_num_ctx(monkeypatch) -> None:
-    """Attach Modelfile ``num_ctx`` from ``/api/show``.
-
-    Discovery does not call ``/api/ps``.
-    """
-    provider = _make_provider()
-    requested: list[str] = []
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        del self, timeout
-        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+def _show_client(
+    *,
+    payload: dict[str, Any] | None = None,
+    payloads: dict[str, dict[str, Any]] | None = None,
+    status_code: int = 200,
+    post_error: BaseException | None = None,
+    on_post: Callable | None = None,
+    on_init: Callable | None = None,
+    requested: list[str] | None = None,
+) -> type:
+    """Build a shared ``/api/show`` stand-in for ``fetch_models`` tests."""
 
     class FakeClient:
         def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
+            del args
+            if on_init is not None:
+                on_init(kwargs)
 
         async def aclose(self) -> None:
             return None
 
         async def get(self, url: str):
-            requested.append(url)
             raise AssertionError(f"unexpected GET {url}")
 
         async def post(self, url: str, json: dict):
-            requested.append(url)
+            if requested is not None:
+                requested.append(url)
+            if on_post is not None:
+                return await on_post(url, json)
             assert url.endswith("/api/show")
-            assert json == {"model": "qwen3:8b"}
-            return _FakeResponse(200, {"parameters": "num_ctx 4096\n"})
+            if post_error is not None:
+                raise post_error
+            if payloads is not None:
+                body = payloads[json["model"]]
+            elif payload is not None:
+                body = payload
+            else:
+                body = {"error": "denied"}
+            return _FakeResponse(status_code, body)
+
+    return FakeClient
+
+
+def _patch_list_and_native(monkeypatch, client_cls, models=None):
+    """Replace ``/v1/models`` and the native httpx client."""
+
+    async def fake_super_fetch(self, timeout: float = 5):
+        del self, timeout
+        return models or [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
         fake_super_fetch,
     )
     monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+        "qwenpaw.providers.ollama_discovery.httpx.AsyncClient",
+        client_cls,
+    )
+
+
+def _listed(*model_ids: str) -> list[ModelInfo]:
+    return [ModelInfo(id=model_id, name=model_id) for model_id in model_ids]
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_attaches_show_num_ctx(monkeypatch) -> None:
+    """Attach Modelfile ``num_ctx`` from ``/api/show``."""
+    provider = _make_provider()
+    requested: list[str] = []
+
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(
+            payload={"parameters": "num_ctx 4096\n"},
+            requested=requested,
+        ),
     )
 
     models = await provider.fetch_models()
     assert len(models) == 1
     assert models[0].max_input_length_auto_detected == 4096
     assert requested == [f"{provider.base_url}/api/show"]
-    assert not any(url.endswith("/api/ps") for url in requested)
 
 
 @pytest.mark.asyncio
@@ -549,36 +606,26 @@ async def test_fetch_models_ignores_chat_num_ctx_and_uses_clamped_show(
     """
     provider = _make_provider()
     provider.generate_kwargs = {"options": {"num_ctx": 131072}}
-    calls = {"get": 0, "show": 0}
+    calls = {"show": 0}
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            calls["get"] += 1
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            calls["show"] += 1
-            return _FakeResponse(
-                200,
-                {
-                    "parameters": "num_ctx 65536\n",
-                    "model_info": {
-                        "general.architecture": "qwen3",
-                        "qwen3.context_length": 32768,
-                    },
+    async def on_post(url: str, json: dict):
+        del json
+        assert url.endswith("/api/show")
+        calls["show"] += 1
+        return _FakeResponse(
+            200,
+            {
+                "parameters": "num_ctx 65536\n",
+                "model_info": {
+                    "general.architecture": "qwen3",
+                    "qwen3.context_length": 32768,
                 },
-            )
+            },
+        )
 
-    _patch_list_and_native(monkeypatch, FakeClient)
+    _patch_list_and_native(monkeypatch, _show_client(on_post=on_post))
     models = await provider.fetch_models()
-    assert calls == {"get": 0, "show": 1}
+    assert calls == {"show": 1}
     assert models[0].max_input_length_auto_detected == 32768
 
 
@@ -600,77 +647,40 @@ async def test_fetch_models_model_chat_num_ctx_does_not_skip_probes(
             generate_kwargs={"options": {"num_ctx": 16384}},
         ),
     ]
-    calls = {"get": 0, "show": 0}
+    calls = {"show": 0}
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            calls["get"] += 1
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            calls["show"] += 1
-            return _FakeResponse(
-                200,
-                {
-                    "model_info": {
-                        "general.architecture": "qwen3",
-                        "qwen3.context_length": 32768,
-                    },
+    async def on_post(url: str, json: dict):
+        del json
+        assert url.endswith("/api/show")
+        calls["show"] += 1
+        return _FakeResponse(
+            200,
+            {
+                "model_info": {
+                    "general.architecture": "qwen3",
+                    "qwen3.context_length": 32768,
                 },
-            )
+            },
+        )
 
-    _patch_list_and_native(monkeypatch, FakeClient)
+    _patch_list_and_native(monkeypatch, _show_client(on_post=on_post))
     models = await provider.fetch_models()
-    assert calls == {"get": 0, "show": 1}
+    assert calls == {"show": 1}
     assert models[0].max_input_length_auto_detected is None
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_uses_show_when_not_loaded(monkeypatch) -> None:
+async def test_fetch_models_uses_modelfile_num_ctx(monkeypatch) -> None:
+    """Persist an explicit Modelfile ``num_ctx`` when no training cap applies."""
     provider = _make_provider()
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(
-                200,
-                {
-                    "parameters": "num_ctx 8192\n",
-                    "model_info": {"qwen3.context_length": 131072},
-                },
-            )
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(
+            payload={
+                "parameters": "num_ctx 8192\n",
+                "model_info": {"qwen3.context_length": 131072},
+            },
+        ),
     )
 
     models = await provider.fetch_models()
@@ -692,17 +702,14 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
     missing_id = "missing-cap:latest"
     invalid_id = "invalid-cap:latest"
     info_only_id = "info-only:latest"
-    listed = [
-        ModelInfo(id=model_id, name=model_id)
-        for model_id in (
-            clamped_id,
-            other_id,
-            zero_id,
-            missing_id,
-            invalid_id,
-            info_only_id,
-        )
-    ]
+    listed = _listed(
+        clamped_id,
+        other_id,
+        zero_id,
+        missing_id,
+        invalid_id,
+        info_only_id,
+    )
     shows: dict[str, dict[str, Any]] = {
         clamped_id: {
             "parameters": "num_ctx 65536\n",
@@ -743,21 +750,11 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
         },
     }
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, shows[json["model"]])
-
-    _patch_list_and_native(monkeypatch, FakeClient, listed)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(payloads=shows),
+        listed,
+    )
     models = await provider.fetch_models()
     by_id = {model.id: model for model in models}
     assert by_id[clamped_id].max_input_length_auto_detected == 32768
@@ -771,104 +768,51 @@ async def test_fetch_models_caps_num_ctx_by_training_context(
 @pytest.mark.asyncio
 async def test_fetch_models_ignores_gguf_context_length(monkeypatch) -> None:
     provider = _make_provider()
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(
-                200,
-                {"model_info": {"qwen3.context_length": 131072}},
-            )
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(
+            payload={"model_info": {"qwen3.context_length": 131072}},
+        ),
     )
 
     models = await provider.fetch_models()
     # model_info alone is not a window.
     assert models[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" in models[0].model_fields_set
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_unknown_server_override_does_not_invent_4096(
+async def test_fetch_models_local_show_without_num_ctx_leaves_context_unset(
     monkeypatch,
 ) -> None:
-    """A local model without num_ctx must not invent 4096.
+    """A local model without num_ctx must not invent a fallback window.
 
     Inventing 4096 is unsafe when OLLAMA_CONTEXT_LENGTH may be below 4096.
     """
     provider = _make_provider()
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        return [ModelInfo(id="fresh:latest", name="fresh:latest")]
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(payload={"parameters": "temperature 0.7\n"}),
+        _listed("fresh:latest"),
     )
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" in models[0].model_fields_set
 
 
 @pytest.mark.asyncio
-async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
+async def test_fetch_models_cloud_show_without_num_ctx_leaves_context_unset(
     monkeypatch,
 ) -> None:
     """Shows without num_ctx stay unset for cloud and local models."""
     provider = _make_provider()
-    listed = [
-        ModelInfo(id="gpt-oss:120b", name="gpt-oss:120b"),
-        ModelInfo(id="kimi-k3:cloud", name="kimi-k3:cloud"),
-        ModelInfo(id="gemma4:cloud", name="gemma4:cloud"),
-        ModelInfo(id="qwen3:8b", name="qwen3:8b"),
-    ]
-
+    listed = _listed(
+        "gpt-oss:120b",
+        "kimi-k3:cloud",
+        "gemma4:cloud",
+        "qwen3:8b",
+    )
     payloads: dict[str, dict[str, Any]] = {
         "gpt-oss:120b": {
             "remote_host": "https://ollama.com",
@@ -884,27 +828,11 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
         "qwen3:8b": {"parameters": "temperature 0.7\n"},
     }
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, payloads[json["model"]])
-
-    _patch_list_and_native(monkeypatch, FakeClient, listed)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(payloads=payloads),
+        listed,
+    )
 
     models = await provider.fetch_models()
     by_id = {model.id: model for model in models}
@@ -921,36 +849,10 @@ async def test_fetch_models_cloud_show_without_num_ctx_skips_4096(
 @pytest.mark.asyncio
 async def test_fetch_models_accepts_small_num_ctx(monkeypatch) -> None:
     provider = _make_provider()
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        return [ModelInfo(id="tiny:latest", name="tiny:latest")]
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(200, {"parameters": "num_ctx 512\n"})
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(payload={"parameters": "num_ctx 512\n"}),
+        _listed("tiny:latest"),
     )
 
     models = await provider.fetch_models()
@@ -971,87 +873,25 @@ async def test_fetch_models_native_probes_send_configured_headers(
     )
     captured: dict = {}
 
-    async def fake_super_fetch(self, timeout: float = 5):
-        return [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
+    def on_init(kwargs: dict) -> None:
+        captured["headers"] = kwargs.get("headers")
+        captured["timeout"] = kwargs.get("timeout")
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            captured["headers"] = kwargs.get("headers")
-            captured["timeout"] = kwargs.get("timeout")
+    async def on_post(url: str, json: dict):
+        captured["post_url"] = url
+        captured["post_json"] = json
+        return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
 
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            captured.setdefault("get_urls", []).append(url)
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            captured["post_url"] = url
-            captured["post_json"] = json
-            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(on_init=on_init, on_post=on_post),
     )
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected == 8192
-    assert captured.get("get_urls", []) == []
     assert captured["post_url"].endswith("/api/show")
     assert captured["headers"]["X-Proxy-Token"] == "abc"
     assert captured["headers"]["Authorization"] == "Bearer sk-remote-secret"
-
-
-def _patch_list_and_native(monkeypatch, client_cls, models=None):
-    """Replace ``/v1/models`` and the native httpx client."""
-
-    async def fake_super_fetch(self, timeout: float = 5):
-        del self, timeout
-        return models or [ModelInfo(id="qwen3:8b", name="qwen3:8b")]
-
-    monkeypatch.setattr(
-        "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
-        fake_super_fetch,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        client_cls,
-    )
-
-
-class _ShowStatusClient:
-    """``/api/show`` returns a non-200 status."""
-
-    def __init__(self, status_code: int) -> None:
-        self._status_code = status_code
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        return False
-
-    async def aclose(self) -> None:
-        return None
-
-    async def get(self, url: str):
-        return _FakeResponse(200, {"models": []})
-
-    async def post(self, url: str, json: dict):
-        assert url.endswith("/api/show")
-        return _FakeResponse(self._status_code, {"error": "denied"})
 
 
 @pytest.mark.asyncio
@@ -1060,17 +900,16 @@ async def test_fetch_models_show_auth_failure_leaves_context_unset(
     monkeypatch,
     status_code: int,
 ) -> None:
-    """401/403 on /api/show must not invent the 4096 estimate."""
+    """401/403 on /api/show must leave the previous window in place."""
     provider = _make_provider()
-
-    class FakeClient(_ShowStatusClient):
-        def __init__(self, *args, **kwargs) -> None:
-            super().__init__(status_code)
-
-    _patch_list_and_native(monkeypatch, FakeClient)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(status_code=status_code),
+    )
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" not in models[0].model_fields_set
 
 
 @pytest.mark.asyncio
@@ -1079,30 +918,14 @@ async def test_fetch_models_show_timeout_leaves_context_unset(
 ) -> None:
     """A timed-out /api/show leaves the 128k default in place."""
     provider = _make_provider()
-
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            raise TimeoutError("timed out")
-
-    _patch_list_and_native(monkeypatch, FakeClient)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(post_error=TimeoutError("timed out")),
+    )
 
     models = await provider.fetch_models()
     assert models[0].max_input_length_auto_detected is None
+    assert "max_input_length_auto_detected" not in models[0].model_fields_set
 
 
 @pytest.mark.asyncio
@@ -1120,45 +943,41 @@ async def test_fetch_models_deadline_keeps_completed_probes(
     loaded_id = "loaded:latest"
     fast_id = "fast:latest"
     slow_ids = [f"slow-{index}:latest" for index in range(6)]
-    listed = [
-        ModelInfo(id=model_id, name=model_id)
-        for model_id in (loaded_id, fast_id, *slow_ids)
-    ]
+    listed = _listed(loaded_id, fast_id, *slow_ids)
     started_slow = 0
     finished_slow = 0
     show_ids: list[str] = []
     captured: dict = {}
     probe_timeout = 0.5
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args
-            captured["timeout"] = kwargs.get("timeout")
+    def on_init(kwargs: dict) -> None:
+        captured["timeout"] = kwargs.get("timeout")
 
-        async def aclose(self) -> None:
-            return None
+    async def on_post(url: str, json: dict):
+        nonlocal started_slow, finished_slow
+        assert url.endswith("/api/show")
+        model_id = json["model"]
+        show_ids.append(model_id)
+        if model_id == loaded_id:
+            return _FakeResponse(
+                200,
+                {"parameters": "num_ctx 8192\n"},
+            )
+        if model_id == fast_id:
+            return _FakeResponse(
+                200,
+                {"parameters": "num_ctx 16384\n"},
+            )
+        started_slow += 1
+        await asyncio.sleep(5)
+        finished_slow += 1
+        return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
 
-        async def post(self, url: str, json: dict):
-            nonlocal started_slow, finished_slow
-            assert url.endswith("/api/show")
-            model_id = json["model"]
-            show_ids.append(model_id)
-            if model_id == loaded_id:
-                return _FakeResponse(
-                    200,
-                    {"parameters": "num_ctx 8192\n"},
-                )
-            if model_id == fast_id:
-                return _FakeResponse(
-                    200,
-                    {"parameters": "num_ctx 16384\n"},
-                )
-            started_slow += 1
-            await asyncio.sleep(5)
-            finished_slow += 1
-            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
-
-    _patch_list_and_native(monkeypatch, FakeClient, listed)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(on_init=on_init, on_post=on_post),
+        listed,
+    )
 
     started_at = time.monotonic()
     models = await provider.fetch_models(timeout=probe_timeout)
@@ -1176,6 +995,10 @@ async def test_fetch_models_deadline_keeps_completed_probes(
     assert by_id[fast_id].max_input_length_auto_detected == 16384
     for model_id in slow_ids:
         assert by_id[model_id].max_input_length_auto_detected is None
+        assert (
+            "max_input_length_auto_detected"
+            not in by_id[model_id].model_fields_set
+        )
 
 
 @pytest.mark.asyncio
@@ -1184,30 +1007,17 @@ async def test_fetch_models_malformed_parameters_does_not_abort_batch(
 ) -> None:
     """A non-string ``parameters`` value leaves only that model unset."""
     provider = _make_provider()
-    listed = [
-        ModelInfo(id="bad:latest", name="bad:latest"),
-        ModelInfo(id="good:latest", name="good:latest"),
-    ]
+    listed = _listed("bad:latest", "good:latest")
     payloads: dict[str, dict[str, Any]] = {
         "bad:latest": {"parameters": {"num_ctx": 8192}},
         "good:latest": {"parameters": "num_ctx 8192\n"},
     }
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(200, payloads[json["model"]])
-
-    _patch_list_and_native(monkeypatch, FakeClient, listed)
+    _patch_list_and_native(
+        monkeypatch,
+        _show_client(payloads=payloads),
+        listed,
+    )
 
     models = await provider.fetch_models()
     by_id = {model.id: model for model in models}
@@ -1241,9 +1051,6 @@ async def test_fetch_models_constructs_async_client_off_loop(
         async def aclose(self) -> None:
             calls["aclose"] += 1
 
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
         async def post(self, url: str, json: dict):
             del url, json
             return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
@@ -1255,7 +1062,7 @@ async def test_fetch_models_constructs_async_client_off_loop(
 
     _patch_list_and_native(monkeypatch, FakeClient)
     monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.run_sync_io",
+        "qwenpaw.providers.ollama_discovery.run_sync_io",
         spy_run_sync_io,
     )
 
@@ -1280,39 +1087,20 @@ async def test_check_model_connection_does_not_probe_show(
         del self
         calls["list"] += 1
         assert timeout == 3
-        return [
-            ModelInfo(id="qwen3:8b", name="qwen3:8b"),
-            ModelInfo(id="other:latest", name="other:latest"),
-        ]
+        return _listed("qwen3:8b", "other:latest")
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs) -> None:
-            calls["native"] += 1
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            calls["native"] += 1
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            calls["native"] += 1
-            return _FakeResponse(200, {"parameters": "num_ctx 8192\n"})
+    def boom(*args, **kwargs):
+        del args, kwargs
+        calls["native"] += 1
+        raise AssertionError("connection check must not construct a client")
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_provider.OpenAIProvider.fetch_models",
         fake_super_fetch,
     )
     monkeypatch.setattr(
-        "qwenpaw.providers.ollama_provider.httpx.AsyncClient",
-        FakeClient,
+        "qwenpaw.providers.ollama_discovery.httpx.AsyncClient",
+        boom,
     )
 
     found = await provider.check_model_connection("qwen3:8b", timeout=3)
@@ -1329,6 +1117,21 @@ async def test_check_model_connection_does_not_probe_show(
     assert calls["native"] == 0
 
 
+def _seed_discovered_window(
+    provider: OllamaProvider,
+    model_id: str,
+    window: int,
+) -> None:
+    first = ModelInfo(
+        id=model_id,
+        name=model_id,
+        max_input_length_auto_detected=window,
+    )
+    provider.discovered_models = [
+        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_successful_unknown_context_clears_stale_auto_detected(
     monkeypatch,
@@ -1338,41 +1141,17 @@ async def test_successful_unknown_context_clears_stale_auto_detected(
     Failed probes omit the field so merge keeps the old window; a successful
     probe that no longer reports context must not retain a stale 65536.
     """
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
     provider = _make_provider()
     model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=65536,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
+    _seed_discovered_window(provider, model_id, 65536)
     assert (
         provider.discovered_models[0].max_input_length_auto_detected == 65536
     )
 
-    class UnknownContextClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            # Successful show, Modelfile no longer sets num_ctx.
-            return _FakeResponse(200, {"parameters": "temperature 0.7\n"})
-
     _patch_list_and_native(
         monkeypatch,
-        UnknownContextClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
+        _show_client(payload={"parameters": "temperature 0.7\n"}),
+        models=_listed(model_id),
     )
     fetched = await provider.fetch_models()
     assert fetched[0].max_input_length_auto_detected is None
@@ -1391,36 +1170,14 @@ async def test_failed_show_probe_retains_previous_auto_detected(
     monkeypatch,
 ) -> None:
     """A failed /api/show must not clear a previously discovered window."""
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
     provider = _make_provider()
     model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=65536,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class FailedShowClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(403, {"error": "denied"})
+    _seed_discovered_window(provider, model_id, 65536)
 
     _patch_list_and_native(
         monkeypatch,
-        FailedShowClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
+        _show_client(status_code=403),
+        models=_listed(model_id),
     )
     fetched = await provider.fetch_models()
     assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
@@ -1438,36 +1195,14 @@ async def test_malformed_parameters_retains_previous_auto_detected(
     monkeypatch,
 ) -> None:
     """Non-string parameters must not clear a previously detected window."""
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
     provider = _make_provider()
     model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=8192,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class MalformedParametersClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(200, {"parameters": {"num_ctx": 8192}})
+    _seed_discovered_window(provider, model_id, 8192)
 
     _patch_list_and_native(
         monkeypatch,
-        MalformedParametersClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
+        _show_client(payload={"parameters": {"num_ctx": 8192}}),
+        models=_listed(model_id),
     )
     fetched = await provider.fetch_models()
     assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
@@ -1485,36 +1220,14 @@ async def test_null_parameters_retains_previous_auto_detected(
     monkeypatch,
 ) -> None:
     """Explicit parameters: null must keep a previously detected window."""
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
     provider = _make_provider()
     model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=8192,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class NullParametersClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
-
-        async def post(self, url: str, json: dict):
-            return _FakeResponse(200, {"parameters": None})
+    _seed_discovered_window(provider, model_id, 8192)
 
     _patch_list_and_native(
         monkeypatch,
-        NullParametersClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
+        _show_client(payload={"parameters": None}),
+        models=_listed(model_id),
     )
     fetched = await provider.fetch_models()
     assert "max_input_length_auto_detected" not in fetched[0].model_fields_set
@@ -1532,40 +1245,16 @@ async def test_omitted_parameters_clears_stale_auto_detected(
     monkeypatch,
 ) -> None:
     """A successful show that omits parameters must clear a stale window."""
-    from qwenpaw.providers.provider_discovery import merge_discovered_model
-
     provider = _make_provider()
     model_id = "qwen3:8b"
-    first = ModelInfo(
-        id=model_id,
-        name=model_id,
-        max_input_length_auto_detected=8192,
-    )
-    provider.discovered_models = [
-        merge_discovered_model(provider, first, "2026-11-06T00:00:00Z"),
-    ]
-
-    class OmittedParametersClient:
-        def __init__(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        async def aclose(self) -> None:
-            return None
-
-        async def get(self, url: str):
-            raise AssertionError(f"unexpected GET {url}")
-
-        async def post(self, url: str, json: dict):
-            assert url.endswith("/api/show")
-            return _FakeResponse(
-                200,
-                {"model_info": {"general.architecture": "qwen3"}},
-            )
+    _seed_discovered_window(provider, model_id, 8192)
 
     _patch_list_and_native(
         monkeypatch,
-        OmittedParametersClient,
-        models=[ModelInfo(id=model_id, name=model_id)],
+        _show_client(
+            payload={"model_info": {"general.architecture": "qwen3"}},
+        ),
+        models=_listed(model_id),
     )
     fetched = await provider.fetch_models()
     assert fetched[0].max_input_length_auto_detected is None
@@ -1577,6 +1266,61 @@ async def test_omitted_parameters_clears_stale_auto_detected(
         "2026-11-06T01:00:00Z",
     )
     assert merged.max_input_length_auto_detected is None
+
+
+def test_apply_discovery_metadata_clears_stale_auto_detected() -> None:
+    """Successful unknown context must clear configured auto-detected values."""
+    provider = _make_provider()
+    configured = ModelInfo(
+        id="qwen3:8b",
+        name="qwen3:8b",
+        max_input_length_auto_detected=65536,
+    )
+    provider.models = [configured]
+    fetched = ModelInfo(
+        id="qwen3:8b",
+        name="qwen3:8b",
+        max_input_length_auto_detected=None,
+    )
+    assert "max_input_length_auto_detected" in fetched.model_fields_set
+
+    apply_discovery_metadata(provider, [fetched], "2026-11-12T00:00:00Z")
+    assert configured.max_input_length_auto_detected is None
+
+
+def test_apply_discovery_metadata_clear_respects_config_overrides() -> None:
+    provider = _make_provider()
+    configured = ModelInfo(
+        id="qwen3:8b",
+        name="qwen3:8b",
+        max_input_length_auto_detected=65536,
+        config_overrides=["max_input_length_auto_detected"],
+    )
+    provider.models = [configured]
+    fetched = ModelInfo(
+        id="qwen3:8b",
+        name="qwen3:8b",
+        max_input_length_auto_detected=None,
+    )
+
+    apply_discovery_metadata(provider, [fetched], "2026-11-12T00:00:00Z")
+    assert configured.max_input_length_auto_detected == 65536
+
+
+def test_apply_discovery_metadata_omitted_field_keeps_previous() -> None:
+    """Failed probes omit the field; apply must not treat that as a clear."""
+    provider = _make_provider()
+    configured = ModelInfo(
+        id="qwen3:8b",
+        name="qwen3:8b",
+        max_input_length_auto_detected=65536,
+    )
+    provider.models = [configured]
+    fetched = ModelInfo(id="qwen3:8b", name="qwen3:8b")
+    assert "max_input_length_auto_detected" not in fetched.model_fields_set
+
+    apply_discovery_metadata(provider, [fetched], "2026-11-12T00:00:00Z")
+    assert configured.max_input_length_auto_detected == 65536
 
 
 @pytest.mark.asyncio
@@ -1603,9 +1347,6 @@ async def test_fetch_models_repeated_cancel_drains_probes_before_aclose(
             if state["unwound"] < state["started"]:
                 state["aclose_before_unwind"] += 1
             state["aclose"] += 1
-
-        async def get(self, url: str):
-            return _FakeResponse(200, {"models": []})
 
         async def post(self, url: str, json: dict):
             assert url.endswith("/api/show")

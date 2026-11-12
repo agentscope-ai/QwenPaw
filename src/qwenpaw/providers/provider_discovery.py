@@ -27,6 +27,12 @@ DiscoveryErrorKind = Literal[
 # Explicit None in model_fields_set means "successful probe, clear stale
 # value" for these discovery fields. Failed probes omit the field so merge
 # keeps the previous value.
+#
+# Fetched models must not go through a model_dump()/model_validate()
+# round trip before merge. That would put every default None into
+# model_fields_set, so a failed probe would be treated as an explicit
+# clear. The current fetch-then-merge pipeline is safe because probed
+# models keep omitted fields unset.
 DISCOVERY_CLEARABLE_NONE_FIELDS = frozenset(
     {
         "max_input_length_auto_detected",
