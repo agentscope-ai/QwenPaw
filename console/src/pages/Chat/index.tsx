@@ -4581,17 +4581,25 @@ export default function ChatPage() {
             .getState()
             .beginTurn(snapshot.agentId, snapshot.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: snapshot.sessionId,
-              user_id: snapshot.userId,
-              channel: snapshot.channel,
-            }),
-            signal: data.signal,
-          });
+          let response: Response;
+          try {
+            response = await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: snapshot.sessionId,
+                user_id: snapshot.userId,
+                channel: snapshot.channel,
+              }),
+              signal: data.signal,
+            });
+          } catch (error) {
+            if (activeRunSyncRef.current.key === syncKey) {
+              activeRunSyncRef.current.resumeAttempted = false;
+            }
+            throw error;
+          }
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.

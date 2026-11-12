@@ -866,6 +866,105 @@ describe("ChatPage coverage", () => {
     setIntervalSpy.mockRestore();
   });
 
+  it("retries polling after an SDK reconnect request fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("reconnect failed"));
+    await expect(
+      capturedOptions.api.reconnect({
+        chatSessionId: "test-session",
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow("reconnect failed");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+    });
+    setIntervalSpy.mockRestore();
+  });
+
+  it("keeps the new session guard after an old reconnect fails", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const sourceChatId = "33322222-2222-4222-8222-222222222226";
+    const targetChatId = "33322222-2222-4222-8222-222222222227";
+    let rejectSourceReconnect: ((reason: Error) => void) | undefined;
+
+    function ChatHarness() {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate(`/chat/${targetChatId}`)}>
+            Switch session
+          </button>
+          <ChatPage />
+        </>
+      );
+    }
+
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    renderWithProviders(<ChatHarness />, {
+      initialEntries: [`/chat/${sourceChatId}`],
+    });
+    await screen.findByTestId("chat-ui");
+
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectSourceReconnect = reject;
+        }),
+    );
+    const sourceReconnect = capturedOptions.api.reconnect({
+      chatSessionId: sourceChatId,
+      signal: new AbortController().signal,
+    });
+    const sourceFailure = expect(sourceReconnect).rejects.toThrow(
+      "source reconnect failed",
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
+    });
+    await waitFor(() => {
+      expect(
+        setIntervalSpy.mock.calls.filter(([, delay]) => delay === 5000),
+      ).toHaveLength(2);
+    });
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(""));
+    await act(async () => {
+      await capturedOptions.api.reconnect({
+        chatSessionId: targetChatId,
+        signal: new AbortController().signal,
+      });
+    });
+    rejectSourceReconnect?.(new Error("source reconnect failed"));
+    await sourceFailure;
+
+    const latestPoll = setIntervalSpy.mock.calls
+      .filter(([, delay]) => delay === 5000)
+      .at(-1)?.[0] as (() => void) | undefined;
+    act(() => latestPoll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
   it("does not reconcile messages after a local run finishes", async () => {
     const setIntervalSpy = vi.spyOn(window, "setInterval");
     mockGetChatStatus.mockResolvedValue({ status: "running" });
