@@ -68,3 +68,17 @@
     }
   }
 }
+
+// Native selection keeps prose/code layout while omitting their UI controls.
+.quoteResponse {
+  button,
+  [role="button"],
+  input,
+  textarea,
+  [contenteditable],
+  header,
+  iframe {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
