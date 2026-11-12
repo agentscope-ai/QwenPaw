@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """Unit tests for console background chat-task timeout handling."""
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -377,6 +379,8 @@ async def test_chat_task_is_tracked_and_reconnectable(
         yield message_sse
         buffered.set()
         await release.wait()
+        terminal = {f"object": f"response", f"status": f"completed"}
+        yield f"data: {json.dumps(terminal)}\n\n"
 
     console_workspace.console_channel.stream_one = _controlled_stream
 

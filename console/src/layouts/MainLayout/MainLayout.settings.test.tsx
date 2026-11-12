@@ -7,7 +7,7 @@ import {
   useParams,
   type Location,
 } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { installHostExternals } from "@/plugins/hostExternals";
 import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
@@ -15,6 +15,9 @@ import { menuRegistry, routeRegistry } from "@/plugins/registry/store";
 import { flattenMenu } from "@/layouts/registry/adapter";
 import SettingsCenter from "@/pages/SettingsCenter";
 import { renderWithProviders } from "@/test/common_setup";
+import { useSessionListStore } from "@/stores/sessionListStore";
+import { useSessionAttentionStore } from "@/stores/sessionAttentionStore";
+import sessionApi from "@/pages/Chat/sessionApi";
 import MainLayout from ".";
 
 vi.mock("../Sidebar", () => ({
@@ -162,6 +165,11 @@ function registerSharedPlugin(withMeta = true) {
 }
 
 beforeEach(() => {
+  useSessionListStore.setState({ sessions: [] });
+  useSessionAttentionStore.setState({ seenFinishedAt: {} });
+  vi.spyOn(sessionApi, "getSessionList").mockImplementation(
+    async () => useSessionListStore.getState().sessions,
+  );
   vi.spyOn(Grid, "useBreakpoint").mockReturnValue({ md: true });
   menuRegistry.__resetForTests();
   routeRegistry.__resetForTests();
@@ -178,7 +186,11 @@ beforeEach(() => {
       path: "/models",
       component: () => <div>Model settings</div>,
     },
-    { id: "core.chat", path: "/chat", component: () => <div>Chat page</div> },
+    {
+      id: "core.chat",
+      path: "/chat/*",
+      component: () => <div>Chat page</div>,
+    },
   ]);
   menuRegistry.addBuiltin([
     {
@@ -194,6 +206,88 @@ beforeEach(() => {
       isGroup: true,
     },
   ]);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+describe("browser document titles", () => {
+  it("refreshes background completions without mounting a sidebar session list", async () => {
+    vi.useFakeTimers();
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const initial = {
+      id: "chat-a",
+      name: "Project plan",
+      messages: [],
+      lastFinishedAt: null,
+    };
+    useSessionListStore.setState({ sessions: [initial] });
+    const list = vi.mocked(sessionApi.getSessionList);
+    list.mockResolvedValue([initial]);
+    renderLayout("/chat/chat-a");
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    expect(document.title).toBe("Project plan · QwenPaw");
+
+    hidden.mockReturnValue(true);
+    visibility.mockReturnValue("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    const completed = {
+      ...initial,
+      lastFinishedAt: "2026-11-09T10:00:00Z",
+    };
+    list.mockResolvedValue([completed]);
+    await act(() => vi.advanceTimersByTimeAsync(30000));
+    expect(document.title).toBe("• Project plan · QwenPaw");
+    expect(list).toHaveBeenCalledTimes(2);
+
+    hidden.mockReturnValue(false);
+    visibility.mockReturnValue("visible");
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(document.title).toBe("Project plan · QwenPaw");
+    expect(list).toHaveBeenCalledTimes(3);
+  });
+
+  it("follows the current chat name and restores route titles after navigation", async () => {
+    useSessionListStore.setState({
+      sessions: [{ id: "chat a", name: "Project plan", messages: [] }],
+    });
+    renderLayout("/chat/chat%20a");
+    expect(document.title).toBe("Project plan · QwenPaw");
+    await act(async () => {});
+
+    act(() => {
+      useSessionListStore.setState({
+        sessions: [{ id: "chat a", name: "Release notes", messages: [] }],
+      });
+    });
+    expect(document.title).toBe("Release notes · QwenPaw");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Open settings" }),
+    );
+    expect(document.title).toBe("Settings · QwenPaw");
+
+    await userEvent.click(screen.getByRole("button", { name: "History back" }));
+    expect(document.title).toBe("Release notes · QwenPaw");
+  });
+
+  it.each(["/chat", "/chat/new", "/chat/missing"])(
+    "uses the default chat title at %s",
+    (path) => {
+      useSessionListStore.setState({
+        sessions: [{ id: "chat-a", name: "Previous chat", messages: [] }],
+      });
+      renderLayout(path);
+      expect(document.title).toBe("Chat · QwenPaw");
+    },
+  );
 });
 
 describe("plugin settings navigation", () => {
