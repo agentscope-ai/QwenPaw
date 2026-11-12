@@ -31,6 +31,7 @@ from qwenpaw.app.chats.utils import (
     clean_display_text,
 )
 from qwenpaw.loop.gates import StopAction, StopHandlerResult
+from qwenpaw.loop.gates.completion import CompletionRubricGate
 from qwenpaw.providers.dashscope_provider import _DashScopeChatModelCompat
 from qwenpaw.providers.fallback_chat_model import FallbackChatModel
 from qwenpaw.providers.openai_chat_model_compat import OpenAIChatModelCompat
@@ -407,6 +408,73 @@ def _reloaded_history_completion(agent):
     messages = agentscope_msg_to_message(restored.state.context[-1])
     metadata = messages[-1].metadata[f"metadata"]
     return metadata.get(f"qwenpaw_model_completion")
+
+
+@pytest.mark.parametrize(f"provider", [f"openai", f"dashscope"])
+@pytest.mark.parametrize(f"stream", [False, True])
+@pytest.mark.parametrize(
+    (f"candidate_reason", f"evaluation_reason"),
+    [
+        (f"length", f"stop"),
+        (f"stop", f"length"),
+        (None, f"length"),
+        (f"length", None),
+    ],
+)
+async def test_rubric_preserves_selected_candidate_completion(
+    provider,
+    stream,
+    candidate_reason,
+    evaluation_reason,
+):
+    """Use the selected answer's reason for SSE and restored history."""
+    replies = [
+        (f"Candidate answer", None, candidate_reason),
+        (f"COMPLETED", None, evaluation_reason),
+    ]
+    async with model_response(provider, stream, replies) as (model, requests):
+        agent = make_agent(model)
+        gate = CompletionRubricGate(prompt=f"Check the answer.")
+        candidates = []
+        candidate_metadata = []
+
+        async def stop_handler(message):
+            candidates.append(message)
+            candidate_metadata.append(dict(message.metadata))
+            return await gate.check(
+                {f"final_msg": message, f"has_tool_calls": message is None},
+            )
+
+        agent._run_stop_handlers = stop_handler
+        envelope = Envelope()
+        _ = [
+            event
+            async for event in AgentExecutor(agent, envelope).run([question()])
+        ]
+        final = [event async for event in envelope.finalize()][-1]
+        completion = (
+            {
+                f"finish_reason": candidate_reason,
+                f"truncated": candidate_reason == f"length",
+            }
+            if candidate_reason is not None
+            else None
+        )
+        assert len(requests) == 2
+        assert candidates[0].get_text_content() == f"Candidate answer"
+        assert (
+            candidate_metadata[0].get(f"qwenpaw_model_completion")
+            == completion
+        )
+        assert (
+            candidates[0].metadata.get(f"qwenpaw_model_completion")
+            == completion
+        )
+        assert final.status.value == f"completed"
+        assert (final.metadata or {}).get(
+            f"qwenpaw_model_completion",
+        ) == completion
+        assert _reloaded_history_completion(agent) == completion
 
 
 @pytest.mark.parametrize(f"provider", [f"openai", f"dashscope"])

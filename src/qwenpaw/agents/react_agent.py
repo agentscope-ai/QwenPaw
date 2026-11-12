@@ -23,6 +23,7 @@ from typing import Any, Literal, Optional, TYPE_CHECKING
 from agentscope.agent import Agent, InjectionConfig, ReActConfig
 from agentscope.event import (
     ModelCallEndEvent,
+    ReplyEndEvent,
     TextBlockDeltaEvent,
     TextBlockEndEvent,
     TextBlockStartEvent,
@@ -1449,6 +1450,7 @@ class QwenPawAgent(Agent):
         stored_msg = self._get_last_msg()
         if stored_msg is not None and stored_msg.id == self.state.reply_id:
             self._attach_model_completion(stored_msg)
+        self._attach_model_completion(final_msg)
 
         # ── Stop Hook: run every iteration ──
         stop_result = await self._run_stop_handlers(final_msg)
@@ -1492,7 +1494,12 @@ class QwenPawAgent(Agent):
             return  # outer loop continues
 
         outgoing_msg = stop_result.final_message or final_msg
-        self._attach_model_completion(outgoing_msg)
+        completion = (outgoing_msg.metadata or {}).get(COMPLETION_METADATA_KEY)
+        self._model_completion = (
+            dict(completion) if isinstance(completion, dict) else None
+        )
+        if stored_msg is not None and stored_msg.id == self.state.reply_id:
+            self._attach_model_completion(stored_msg)
         if not has_answer_content(outgoing_msg.content):
             raise RuntimeError(
                 f"The model returned an empty answer. "
@@ -1711,6 +1718,10 @@ class QwenPawAgent(Agent):
                         return
                     finally:
                         await self._flush_context_save()
+                if isinstance(evt, ReplyEndEvent):
+                    self._attach_model_completion(evt)
+                    # None explicitly clears the last model call's marker.
+                    evt.metadata.setdefault(COMPLETION_METADATA_KEY, None)
                 yield evt
         finally:
             try:
