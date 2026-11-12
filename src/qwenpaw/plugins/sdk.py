@@ -461,13 +461,14 @@ class PluginContext:  # pylint: disable=protected-access
         deadline=None,
     ):
         import jsonschema
+        from ..utils.json_schema import schema_validator
 
         self._guard()
         spec, handle, _ = self._tools[name]
         if handle.closed:
             raise StaleContextError(f"Tool {name!r} has been released")
         try:
-            jsonschema.validate(arguments, spec.input_schema)
+            schema_validator(spec.input_schema).validate(arguments)
         except jsonschema.ValidationError as exc:
             raise ToolInputError(exc.message) from exc
         async with self._invocation(

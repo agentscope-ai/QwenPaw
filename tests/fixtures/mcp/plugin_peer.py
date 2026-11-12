@@ -100,6 +100,22 @@ def echo(text: str) -> str:
     return text
 
 
+# Both directions reuse local definitions through the real server and client.
+echo_tool = mcp._tool_manager.get_tool("echo")
+echo_tool.parameters = {
+    "$defs": {"text": {"type": "string"}},
+    "type": "object",
+    "properties": {"text": {"$ref": "#/$defs/text"}},
+    "required": ["text"],
+}
+echo_tool.fn_metadata.output_schema = {
+    "$defs": {"text": {"type": "string"}},
+    "type": "object",
+    "properties": {"result": {"$ref": "#/$defs/text"}},
+    "required": ["result"],
+}
+
+
 @mcp.tool()
 def process_info() -> dict:
     """Return controlled process identity for ownership and cwd assertions."""

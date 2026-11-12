@@ -773,11 +773,11 @@ class SDKDriverHandler(DriverHandler):
                 )
                 if capability is None or not capability.enabled:
                     raise SDKError("Driver capability is missing or disabled")
-                from jsonschema.validators import validator_for
+                from ..utils.json_schema import schema_validator
 
-                validator_for(capability.input_schema)(
-                    capability.input_schema,
-                ).validate(invocation.payload)
+                schema_validator(capability.input_schema).validate(
+                    invocation.payload,
+                )
                 await self.check()
                 if revision != self.metadata_revision:
                     raise StaleContextError(

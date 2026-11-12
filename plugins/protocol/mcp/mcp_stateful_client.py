@@ -24,13 +24,13 @@ from contextlib import AsyncExitStack
 from typing import Any, Literal
 
 import httpx
-from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
 from .mcp_streamable_http import timeout_seconds
+from .session import ClientSession
 
 logger = logging.getLogger(__name__)
 

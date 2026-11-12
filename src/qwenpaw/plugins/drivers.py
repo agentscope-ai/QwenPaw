@@ -58,14 +58,14 @@ def _thaw(value):
 
 def _schema(value):
     from jsonschema import SchemaError
-    from jsonschema.validators import validator_for
+    from ..utils.json_schema import check_schema_references
 
     if not isinstance(value, Mapping) and type(value) is not bool:
         raise TypeError("Driver schema must be a JSON Schema object or bool")
     snapshot = _freeze(value)
     try:
         plain = _thaw(snapshot)
-        validator_for(plain).check_schema(plain)
+        check_schema_references(plain)
     except SchemaError as exc:
         raise ValueError("Invalid Driver JSON Schema") from exc
     return snapshot

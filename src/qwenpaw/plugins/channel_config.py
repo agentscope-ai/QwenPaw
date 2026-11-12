@@ -9,6 +9,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
 from ..config.config import BaseChannelConfig
+from ..utils.json_schema import schema_validator
 from ..config.channel_normalizers import (
     field_normalizer,
     normalize_channel_fields,
@@ -96,7 +97,12 @@ def validate_channel_config(schema: Mapping, values: Mapping) -> dict:
         "properties"
     ].items():
         properties.setdefault(key, field)
-    errors = list(Draft202012Validator(schema).iter_errors(normalized_values))
+    errors = list(
+        schema_validator(
+            schema,
+            validator_class=Draft202012Validator,
+        ).iter_errors(normalized_values),
+    )
     if errors:
         error = errors[0]
         path = ".".join(map(str, error.absolute_path)) or "config"

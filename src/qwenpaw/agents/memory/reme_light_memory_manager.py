@@ -21,6 +21,7 @@ from agentscope.message import Msg, TextBlock, ToolResultState
 from agentscope.tool import ToolChunk
 from jsonschema.exceptions import SchemaError, best_match
 from jsonschema.validators import validator_for
+from ...utils.json_schema import schema_validator
 
 from .action_provider import (
     MemoryActionProvider,
@@ -158,7 +159,11 @@ def _validate_reme_action_kwargs(
             f"{exc.message}",
         ) from exc
 
-    error = best_match(validator_type(schema).iter_errors(kwargs))
+    error = best_match(
+        schema_validator(schema, validator_class=validator_type).iter_errors(
+            kwargs,
+        ),
+    )
     if error is None:
         return
     location = "".join(f"[{part!r}]" for part in error.absolute_path)

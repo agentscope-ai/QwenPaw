@@ -71,7 +71,9 @@ class Plugin:
                 if self.source.config.get("wait_discover"):
                     await wait("release-discover")
                 return (
-                    DriverCapabilitySpec("echo", "Echo", {"type":"object"}),
+                    DriverCapabilitySpec("echo", "Echo",
+                        self.source.config.get("input_schema", {"type":"object"}),
+                        output_schema=self.source.config.get("output_schema")),
                     DriverCapabilitySpec("blocked", "Disabled", True,
                                          enabled=False),
                     DriverCapabilitySpec("impossible", "False schema", False),
@@ -272,7 +274,10 @@ async def seed_credentials(host_root, workspace="test"):
     return store, path
 
 
-async def test_discovery_call_identity_and_public_result_round_trip(tmp_path):
+async def test_discovery_call_identity_and_public_result_round_trip(
+    tmp_path,
+    monkeypatch,
+):
     async with PluginTestHost(tmp_path / "host") as host:
         context = await host.load(
             driver_plugin(tmp_path),
@@ -320,6 +325,36 @@ async def test_discovery_call_identity_and_public_result_round_trip(tmp_path):
         await host.close_driver("same")
         assert len(events(context, "closed")) == 1
         assert len(events(context, "resource-close")) == 1
+
+        retrievals = []
+
+        def reject_retrieval(*args, **_kwargs):
+            retrievals.append(args)
+            raise AssertionError(
+                "Schema validation must not retrieve resources",
+            )
+
+        monkeypatch.setattr("urllib.request.urlopen", reject_retrieval)
+        local = {
+            "$defs": {"number": {"type": "integer"}},
+            "type": "object",
+            "properties": {"value": {"$ref": "#/$defs/number"}},
+        }
+        await host.open_driver(card(config={"input_schema": local}))
+        await host.call_driver("same", "echo", {"value": 42})
+        before = len(events(context, "invoke"))
+        with pytest.raises(SDKError):
+            await host.call_driver("same", "echo", {"value": "wrong"})
+        for field in ("input_schema", "output_schema"):
+            await host.open_driver(
+                card(
+                    config={field: {"$ref": "https://schema.invalid/missing"}},
+                ),
+            )
+            with pytest.raises(SDKError, match="reference"):
+                await host.call_driver("same", "echo", {})
+        assert len(events(context, "invoke")) == before
+        assert not retrievals
 
 
 async def test_denied_policy_never_enters_plugin_invoke(tmp_path):

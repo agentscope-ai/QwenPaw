@@ -117,6 +117,20 @@ def test_driver_defaults_and_public_schema_values():
         ).input_schema
         is True
     )
+    local = {
+        "$id": "https://schema.invalid/tool",
+        "$defs": {"text": {"type": "string"}},
+        "type": "object",
+        "properties": {"value": {"$ref": "#/$defs/text"}},
+    }
+    assert DriverCapabilitySpec("local", "Local", local).input_schema
+    for field in ("input_schema", "output_schema"):
+        with pytest.raises(ValueError, match="reference"):
+            DriverCapabilitySpec(
+                name="external",
+                description="Unavailable schema",
+                **{"input_schema": True, field: {"$ref": "other.json"}},
+            )
 
 
 def assert_frozen_tree(snapshot):
