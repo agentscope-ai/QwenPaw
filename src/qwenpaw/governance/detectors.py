@@ -144,7 +144,7 @@ def _normalize_path(raw_path: str) -> str:
     # ${HOME}; otherwise a sensitive absolute path is incorrectly resolved as
     # a harmless workspace-relative string.
     expanded = os.path.expandvars(raw)
-    p = Path(expanded).expanduser()
+    p = Path(os.path.expanduser(expanded))
     if not p.is_absolute():
         try:
             p = Path.cwd() / p
