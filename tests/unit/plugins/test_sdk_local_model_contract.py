@@ -98,10 +98,10 @@ class Backend:
         return True
 
 
-async def load_backend(host, tmp_path):
+async def load_backend(host, tmp_path, *, data_dir=None):
     ctx = await host.load(
         bundled_local_source(),
-        config={"data_dir": str(tmp_path / "local_models")},
+        config={"data_dir": str(data_dir or tmp_path / "local_models")},
     )
     binding = (
         PluginRegistry()
@@ -128,6 +128,27 @@ async def call_model(model, call):
     model._call_native = call
     model.client.with_options = SimpleNamespace
     return await binding.call(model)
+
+
+async def test_data_root_normalizes_symlinks(tmp_path):
+    target = tmp_path / "models"
+    target.mkdir()
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Directory symlinks are unavailable")
+    async with PluginTestHost(tmp_path / "host") as host:
+        _binding, runtime = await load_backend(
+            host,
+            tmp_path,
+            data_dir=alias,
+        )
+        manager = await runtime.manager()
+        assert manager.data_dir == target.resolve()
+        assert await runtime.context.storage.aread_json("data-root.json") == {
+            "data_dir": str(target.resolve()),
+        }
 
 
 async def test_registration_is_lazy_and_server_reused(tmp_path):

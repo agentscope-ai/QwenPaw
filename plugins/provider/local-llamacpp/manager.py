@@ -54,14 +54,50 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
     async def close(self) -> None:
         import atexit
 
+        # Download cleanup only owns its worker, monitor and staging files.
+        # Runtime installation already stops the server before downloading.
+        # These stops can therefore run independently: a failed downloader
+        # must not prevent the other worker or the inference server stopping.
+        operations = []
         model_manager = getattr(self, "_model_manager", None)
         if model_manager is not None:
-            await run_io(model_manager._download_controller.close)
+            operations.append(
+                (
+                    "model download",
+                    run_io(model_manager._download_controller.close),
+                ),
+            )
         backend = getattr(self, "_llamacpp_backend", None)
         if backend is not None:
-            await run_io(backend._download_controller.close)
-            await backend.shutdown_server()
-            atexit.unregister(backend._shutdown_server_at_exit)
+            operations.append(
+                (
+                    "runtime download",
+                    run_io(backend._download_controller.close),
+                ),
+            )
+
+            async def stop_backend():
+                await backend.shutdown_server()
+                # Retain the exit fallback if native shutdown did not succeed.
+                atexit.unregister(backend._shutdown_server_at_exit)
+
+            operations.append(("inference server", stop_backend()))
+        results = await asyncio.gather(
+            *(operation for _, operation in operations),
+            return_exceptions=True,
+        )
+        # Finish the other stops, but preserve cancellation as control flow;
+        # wrapping it as a cleanup error would change the caller's contract.
+        for result in results:
+            if isinstance(result, asyncio.CancelledError):
+                raise result
+        errors = [
+            f"{name}: {result}"
+            for (name, _), result in zip(operations, results)
+            if isinstance(result, BaseException)
+        ]
+        if errors:
+            raise RuntimeError("; ".join(errors))
 
     def _load_config(self) -> _StoredConfig:
         """Load persisted local runtime settings from disk."""

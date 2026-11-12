@@ -6,6 +6,24 @@ import os
 import signal
 import subprocess
 
+# Keep the actual waits and the provider's enclosing deadline on one policy.
+# Downloads stop their process before joining the monitor; server shutdown
+# has a separate graceful-exit and forced-exit phase.
+DOWNLOAD_PROCESS_WAIT_SECONDS = 2.0
+DOWNLOAD_MONITOR_WAIT_SECONDS = 2.0
+SERVER_GRACE_SECONDS = 5.0
+SERVER_KILL_SECONDS = 3.0
+DOWNLOAD_CLOSE_SECONDS = (
+    2 * DOWNLOAD_PROCESS_WAIT_SECONDS + DOWNLOAD_MONITOR_WAIT_SECONDS
+)
+SERVER_CLOSE_SECONDS = SERVER_GRACE_SECONDS + SERVER_KILL_SECONDS
+# Independent stops run concurrently. Reserve another 2s for executor handoff,
+# log-task cancellation and final bookkeeping; slow I/O still hits this guard
+# and leaves ownership intact for a retry rather than claiming quiescence.
+PROVIDER_CLOSE_SECONDS = (
+    max(DOWNLOAD_CLOSE_SECONDS, SERVER_CLOSE_SECONDS) + 2.0
+)
+
 
 async def finish(operation):
     """Wait for completion before propagating caller cancellation."""
@@ -40,7 +58,11 @@ def process_options():
     return {"start_new_session": True}
 
 
-def stop_server(process, *, graceful_timeout=5.0, kill_timeout=3.0):
+def stop_server(
+    process,
+    graceful_timeout=SERVER_GRACE_SECONDS,
+    kill_timeout=SERVER_KILL_SECONDS,
+):
     """Reap the server, retaining ownership if bounded shutdown fails."""
     for sig, timeout in (
         (signal.SIGTERM, graceful_timeout),
@@ -65,7 +87,11 @@ def stop_server(process, *, graceful_timeout=5.0, kill_timeout=3.0):
     raise RuntimeError("llama.cpp did not exit")
 
 
-def stop_download(process, *, graceful_timeout=2.0, kill_timeout=2.0):
+def stop_download(
+    process,
+    graceful_timeout=DOWNLOAD_PROCESS_WAIT_SECONDS,
+    kill_timeout=DOWNLOAD_PROCESS_WAIT_SECONDS,
+):
     """Terminate and reap a multiprocessing download worker."""
     if process.is_alive():
         process.terminate()

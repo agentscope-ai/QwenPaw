@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qwenpaw.plugins import PluginBusyError, SDKError
 from qwenpaw.plugins.providers import ModelInfo
-from .io_helpers import run_io
+from .io_helpers import PROVIDER_CLOSE_SECONDS, run_io
 
 
 class LocalProvider:
@@ -24,7 +24,13 @@ class LocalProvider:
         self.closed = False
 
     def activate(self, context):
-        context.resources.connection(self, "local-model-provider")
+        # The manager stops independent children concurrently. Its enclosing
+        # deadline follows their shared stop policy, not the SDK client default.
+        context.resources.connection(
+            self,
+            "local-model-provider",
+            PROVIDER_CLOSE_SECONDS,
+        )
 
     def _guard(self):
         if self.closed or self._failed:
@@ -42,6 +48,9 @@ class LocalProvider:
                 saved.get("data_dir", self.context.storage.path("runtime")),
             ),
         )
+        # Workers resolve staging paths too. Use the same root spelling here
+        # so promoting a download through a symlink can compute relative paths.
+        data_dir = data_dir.expanduser().resolve()
         if saved.get("data_dir") != str(data_dir):
             await self.context.storage.awrite_json(
                 "data-root.json",

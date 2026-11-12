@@ -7,6 +7,7 @@ import json
 import threading
 from pathlib import Path
 from typing import cast
+from types import SimpleNamespace
 import asyncio
 
 import pytest
@@ -19,6 +20,132 @@ from llamacpp.manager import (
 from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_manager import ModelManager
 from llamacpp.model_types import LocalModelInfo as ModelInfo
+import llamacpp.manager as manager_module
+from llamacpp.io_helpers import (
+    DOWNLOAD_CLOSE_SECONDS,
+    SERVER_CLOSE_SECONDS,
+    PROVIDER_CLOSE_SECONDS,
+)
+
+
+@pytest.mark.parametrize("failed", ["model", "runtime", "server"])
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+async def test_close_attempts_all_children_and_can_retry(
+    monkeypatch,
+    failed,
+    error_type,
+):
+    calls = []
+    failing = {failed}
+    unregistered = []
+
+    def stop(name):
+        calls.append(name)
+        if name in failing:
+            raise error_type(name + " still running")
+
+    async def stop_server():
+        stop("server")
+
+    backend = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=lambda: stop("runtime")),
+        shutdown_server=stop_server,
+        _shutdown_server_at_exit=object(),
+    )
+    manager = LocalModelManager()
+    manager._model_manager = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=lambda: stop("model")),
+    )
+    manager._llamacpp_backend = backend
+    monkeypatch.setattr("atexit.unregister", unregistered.append)
+    with pytest.raises(error_type) as caught:
+        await manager.close()
+    if error_type is RuntimeError:
+        assert failed + " still running" in str(caught.value)
+    assert set(calls) == {"model", "runtime", "server"}
+    assert bool(unregistered) == (failed != "server")
+    failing.clear()
+    await manager.close()
+    assert all(
+        calls.count(name) == 2 for name in {"model", "runtime", "server"}
+    )
+
+
+async def test_close_starts_independent_children_before_waiting(monkeypatch):
+    entered = set()
+    release = asyncio.Event()
+
+    async def stop(name):
+        entered.add(name)
+        if len(entered) == 3:
+            release.set()
+        await asyncio.wait_for(release.wait(), timeout=1)
+
+    async def run_async(operation):
+        await operation()
+
+    monkeypatch.setattr(manager_module, "run_io", run_async)
+    monkeypatch.setattr("atexit.unregister", lambda _: None)
+    manager = LocalModelManager()
+    manager._model_manager = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=lambda: stop("model")),
+    )
+    manager._llamacpp_backend = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=lambda: stop("runtime")),
+        shutdown_server=lambda: stop("server"),
+        _shutdown_server_at_exit=object(),
+    )
+    await manager.close()
+    assert PROVIDER_CLOSE_SECONDS > max(
+        DOWNLOAD_CLOSE_SECONDS,
+        SERVER_CLOSE_SECONDS,
+    )
+    assert (
+        PROVIDER_CLOSE_SECONDS
+        < DOWNLOAD_CLOSE_SECONDS * 2 + SERVER_CLOSE_SECONDS
+    )
+
+
+async def test_close_cancellation_waits_for_owned_blocking_io(monkeypatch):
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    server_stopped = asyncio.Event()
+
+    def stop_download():
+        entered.set()
+        if not release.wait(timeout=5):
+            raise RuntimeError("test download cleanup was not released")
+        finished.set()
+
+    async def stop_server():
+        server_stopped.set()
+
+    monkeypatch.setattr("atexit.unregister", lambda _: None)
+    manager = LocalModelManager()
+    manager._model_manager = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=stop_download),
+    )
+    manager._llamacpp_backend = SimpleNamespace(
+        _download_controller=SimpleNamespace(close=lambda: None),
+        shutdown_server=stop_server,
+        _shutdown_server_at_exit=object(),
+    )
+    closing = asyncio.create_task(manager.close())
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        await asyncio.wait_for(server_stopped.wait(), timeout=5)
+        closing.cancel()
+        await asyncio.sleep(0)
+        assert not closing.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+        assert finished.is_set()
+        await manager.close()
+    finally:
+        release.set()
+        await asyncio.gather(closing, return_exceptions=True)
 
 
 def make_manager(*, model_manager, llamacpp_backend, data_dir):
