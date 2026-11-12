@@ -5,7 +5,6 @@ import {
   useRef,
   type ClipboardEvent,
   type DragEvent,
-  type KeyboardEvent,
 } from "react";
 import { customEmojiSrc, isAnimatedEmoji } from "./customEmoji";
 import styles from "./index.module.less";
@@ -54,10 +53,18 @@ function serializeNode(node: Node, out: string[]): void {
     node.nodeType === 1 &&
     ((node as Element).tagName === "DIV" || (node as Element).tagName === "P")
   ) {
-    if (out.length > 0 && !out[out.length - 1].endsWith("\n")) {
-      out.push("\n");
+    const block = node as Element;
+    // Each block is one line; an empty block still separates its neighbors.
+    if (out.length > 0) out.push("\n");
+    // An empty block line carries a placeholder <br>; count the line once.
+    if (block.childNodes.length === 1 && block.firstChild?.nodeName === "BR") {
+      return;
     }
-    node.childNodes.forEach((child) => serializeNode(child, out));
+    block.childNodes.forEach((child, index, siblings) => {
+      // A trailing <br> in a block is a caret placeholder, not a line break.
+      if (child.nodeName === "BR" && index === siblings.length - 1) return;
+      serializeNode(child, out);
+    });
     return;
   }
   node.childNodes.forEach((child) => serializeNode(child, out));
@@ -126,7 +133,18 @@ function truncateSerializedValue(value: string, maxLength: number): string {
   return result + sliceText(value.slice(cursor), maxLength - result.length);
 }
 
-/** Text → DOM: placeholders become emoji images, the rest text nodes. */
+/**
+ * Text → DOM: placeholders become emoji images and newlines become <br>,
+ * so line ends keep a rendered caret anchor (a trailing "\n" text node
+ * loses the caret to gravity in Chromium); the rest stays text nodes.
+ */
+function appendTextWithBreaks(root: HTMLElement, text: string): void {
+  text.split("\n").forEach((line, index) => {
+    if (index > 0) root.appendChild(document.createElement("br"));
+    if (line) root.appendChild(document.createTextNode(line));
+  });
+}
+
 function renderValue(root: HTMLElement, value: string): void {
   root.textContent = "";
   if (!value) return;
@@ -139,10 +157,10 @@ function renderValue(root: HTMLElement, value: string): void {
         root.appendChild(img);
         return;
       }
-      root.appendChild(document.createTextNode(`[emoji:${part}]`));
+      appendTextWithBreaks(root, `[emoji:${part}]`);
       return;
     }
-    root.appendChild(document.createTextNode(part));
+    appendTextWithBreaks(root, part);
   });
 }
 
@@ -193,6 +211,8 @@ function serializeRange(range: Range): string {
  * Rich comment input (contenteditable), ported from platform-front: custom
  * emojis show as inline images while typing, yet the controlled value stays
  * the [emoji:<url>] shortcode protocol used for submission and rendering.
+ * Enter and paste ride the browser editing pipeline (native undo stack and
+ * stable caret anchors); serialization maps <br>/block soup back to "\n".
  */
 const CommentRichInput = forwardRef<
   CommentRichInputHandle,
@@ -298,9 +318,37 @@ const CommentRichInput = forwardRef<
     emit();
   };
 
+  /** Plain-text insertion routed through the browser editing transaction. */
+  const insertPlainText = (text: string) => {
+    const root = rootRef.current;
+    if (!root || disabled || !text) return;
+    root.focus();
+    // Restore the saved caret when the live selection drifted elsewhere.
+    const sel = window.getSelection();
+    const current = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+    if (!current || !isRangeInside(root, current)) {
+      const saved = savedRangeRef.current;
+      if (saved && isRangeInside(root, saved)) {
+        sel?.removeAllRanges();
+        sel?.addRange(saved.cloneRange());
+      }
+    }
+    // execCommand replaces the selection inside the native undo stack; a
+    // successful command fires input, which runs emit() for us. jsdom and
+    // hardened environments lack it, so fall back to the manual range.
+    let handled = false;
+    try {
+      handled = document.execCommand("insertText", false, text);
+    } catch {
+      handled = false;
+    }
+    if (handled) return;
+    insertNode(document.createTextNode(text), text.length);
+  };
+
   useImperativeHandle(ref, () => ({
     insertText: (text: string) => {
-      if (text) insertNode(document.createTextNode(text), text.length);
+      insertPlainText(text);
     },
     insertEmoji: (url: string) => {
       const img = buildEmojiImg(url);
@@ -316,19 +364,6 @@ const CommentRichInput = forwardRef<
     },
   }));
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Enter inserts a plain newline text node instead of browser <div>/<br>
-    // soup; never intercept while an IME composition is active.
-    if (
-      event.key === "Enter" &&
-      !event.nativeEvent.isComposing &&
-      !composingRef.current
-    ) {
-      event.preventDefault();
-      insertNode(document.createTextNode("\n"), 1);
-    }
-  };
-
   const handleCompositionStart = () => {
     composingRef.current = true;
     rememberSelection();
@@ -341,12 +376,10 @@ const CommentRichInput = forwardRef<
   };
 
   const handlePaste = (event: ClipboardEvent<HTMLDivElement>) => {
+    // Plain text only; the editing transaction keeps paste undoable.
     event.preventDefault();
     const text = event.clipboardData.getData("text/plain");
-    if (text) {
-      const normalized = text.replace(/\r\n?/g, "\n");
-      insertNode(document.createTextNode(normalized), normalized.length);
-    }
+    if (text) insertPlainText(text.replace(/\r\n?/g, "\n"));
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -366,7 +399,6 @@ const CommentRichInput = forwardRef<
       aria-disabled={disabled}
       data-placeholder={placeholder}
       onInput={emit}
-      onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
