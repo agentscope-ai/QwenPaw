@@ -1852,8 +1852,8 @@
   },
   "channels": {
     "update": {
-      "action": "更新至 {{version}}",
-      "shared": "此插件由所有使用该频道的智能体共享，更新会保留已有配置。"
+      "action": "更新",
+      "available": "发现新版本：{{version}}"
     },
     "runtime": {
       "missing_code": "插件未安装"

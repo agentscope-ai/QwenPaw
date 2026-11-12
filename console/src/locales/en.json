@@ -2017,8 +2017,8 @@
   },
   "channels": {
     "update": {
-      "action": "Update to {{version}}",
-      "shared": "Updates the shared plugin for every agent using this channel. Settings are preserved."
+      "action": "Update",
+      "available": "New version available: {{version}}"
     },
     "runtime": {
       "missing_code": "Plugin not installed"

@@ -1341,8 +1341,8 @@
   },
   "channels": {
     "update": {
-      "action": "{{version}} に更新",
-      "shared": "このチャンネルを使用するすべてのエージェントの共有プラグインを更新します。設定は保持されます。"
+      "action": "更新",
+      "available": "新しいバージョン：{{version}}"
     },
     "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
     "runtime": {

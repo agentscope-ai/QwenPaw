@@ -1752,8 +1752,8 @@
   },
   "channels": {
     "update": {
-      "action": "Perbarui ke {{version}}",
-      "shared": "Memperbarui plugin bersama untuk semua agen yang menggunakan kanal ini. Pengaturan dipertahankan."
+      "action": "Perbarui",
+      "available": "Versi baru tersedia: {{version}}"
     },
     "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
     "runtime": {

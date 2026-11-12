@@ -2185,8 +2185,9 @@ export function ChannelDrawer({
         <Alert
           type="info"
           showIcon
-          message={`${channelSchema.update.installed_version} → ${channelSchema.update.version}`}
-          description={t("channels.update.shared")}
+          message={t("channels.update.available", {
+            version: channelSchema.update.version,
+          })}
           action={
             <Button
               loading={updating}
@@ -2209,9 +2210,7 @@ export function ChannelDrawer({
                 }
               }}
             >
-              {t("channels.update.action", {
-                version: channelSchema.update.version,
-              })}
+              {t("channels.update.action")}
             </Button>
           }
         />

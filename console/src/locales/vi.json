@@ -3264,8 +3264,8 @@
   },
   "channels": {
     "update": {
-      "action": "Cập nhật lên {{version}}",
-      "shared": "Cập nhật plugin dùng chung cho mọi tác nhân sử dụng kênh này. Giữ nguyên cài đặt."
+      "action": "Cập nhật",
+      "available": "Có phiên bản mới: {{version}}"
     },
     "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
     "runtime": {

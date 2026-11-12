@@ -1580,8 +1580,8 @@
   },
   "channels": {
     "update": {
-      "action": "Atualizar para {{version}}",
-      "shared": "Atualiza o plugin compartilhado por todos os agentes deste canal. As configurações são preservadas."
+      "action": "Atualizar",
+      "available": "Nova versão disponível: {{version}}"
     },
     "qrcodeInstallRequired": "Instale o plugin para escanear um código QR",
     "runtime": {
