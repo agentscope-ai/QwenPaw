@@ -2,7 +2,10 @@ import React, {
   createContext,
   useContext,
   useDeferredValue,
+  useEffect,
+  useMemo,
   useRef,
+  useState,
 } from "react";
 import { Markdown } from "@agentscope-ai/chat";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
@@ -122,6 +125,15 @@ function AssistantCodeBlock(
 // Keep the adapter type stable; portals also survive Markdown ancestor replacement.
 const assistantCodeComponents = { code: AssistantCodeBlock };
 
+/**
+ * Streaming markdown is expensive: the SDK pushes a delta per token and the
+ * vendor parser re-parses the whole message each time. Rendering at ~8 fps
+ * keeps the transcript readable while cutting parse work by an order of
+ * magnitude. Tests render synchronously (MODE=test) so their assertions keep
+ * observing every delta.
+ */
+const STREAM_RENDER_INTERVAL_MS = import.meta.env.MODE === "test" ? 0 : 120;
+
 export function AssistantMarkdown({
   content,
   cursor,
@@ -133,7 +145,51 @@ export function AssistantMarkdown({
   isStreaming?: boolean;
   messageId: string;
 }) {
-  const deferredContent = useDeferredValue(content);
+  const [displayContent, setDisplayContent] = useState(content);
+  const lastFlushRef = useRef(0);
+  const pendingContentRef = useRef(content);
+  const flushTimerRef = useRef<number | null>(null);
+
+  // Throttle (not debounce): keep flushing the latest delta every interval
+  // while tokens keep arriving, so the transcript still streams.
+  useEffect(() => {
+    pendingContentRef.current = content;
+    if (!isStreaming) {
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      setDisplayContent(content);
+      return;
+    }
+    if (STREAM_RENDER_INTERVAL_MS === 0) {
+      setDisplayContent(content);
+      return;
+    }
+    if (flushTimerRef.current !== null) return;
+    const now = Date.now();
+    const wait = Math.max(
+      0,
+      STREAM_RENDER_INTERVAL_MS - (now - lastFlushRef.current),
+    );
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      lastFlushRef.current = Date.now();
+      setDisplayContent(pendingContentRef.current);
+    }, wait);
+  }, [content, isStreaming]);
+
+  useEffect(
+    () => () => {
+      if (flushTimerRef.current !== null) {
+        window.clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+    },
+    [],
+  );
+
+  const deferredContent = useDeferredValue(displayContent);
   const baseFontSize = useEffectiveFontSize();
   const entries = useChatListSnapshot()["response.codeBlocks"];
   const agent = useHostSelectedAgent();
@@ -148,15 +204,21 @@ export function AssistantMarkdown({
     scope.current.sessionId = session.id;
   }
   const extended = entries.length > 0;
-  if (!extended) {
-    return (
+  // Reuse the same element while the throttled content is unchanged: React
+  // then skips re-rendering (and re-parsing) the vendor Markdown per token.
+  const plainMarkdown = useMemo(
+    () => (
       <Markdown
         baseFontSize={baseFontSize}
         components={renderableCodeComponents}
         content={deferredContent}
         cursor={cursor}
       />
-    );
+    ),
+    [baseFontSize, deferredContent, cursor],
+  );
+  if (!extended) {
+    return plainMarkdown;
   }
   return (
     <CodeBlockContext.Provider
@@ -164,7 +226,7 @@ export function AssistantMarkdown({
         entries,
         // Do not finalize an unfinished block against the previous deferred
         // source when the last delta and completion arrive together.
-        streaming: isStreaming || deferredContent !== content,
+        streaming: isStreaming || deferredContent !== displayContent,
         messageId,
         ...scope.current,
       }}

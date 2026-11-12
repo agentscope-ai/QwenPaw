@@ -29,6 +29,7 @@
       transparent 80%
     );
     animation: orbit 4s linear infinite paused;
+    will-change: transform;
   }
 }
 .ambient {
@@ -40,7 +41,9 @@
   filter: blur(12px);
   opacity: 0.12;
   animation: breathe 2s ease-in-out infinite alternate paused;
+  will-change: opacity;
 }
+
 [data-animate="true"] {
   .edge > span,
   .ambient {

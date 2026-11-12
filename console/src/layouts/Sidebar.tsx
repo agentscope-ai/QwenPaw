@@ -701,6 +701,7 @@ export default function Sidebar({
           </span>
           <motion.span
             className={skin.navLabel}
+            style={{ willChange: "opacity" }}
             animate={{ opacity: toolsMode === 2 ? 1 : 0 }}
             transition={{ duration: reducedMotion ? 0 : 0.18 }}
           >
@@ -932,7 +933,7 @@ export default function Sidebar({
                         ? { duration: 0 }
                         : { type: "spring", stiffness: 420, damping: 40 }
                     }
-                    style={{ overflow: "hidden" }}
+                    style={{ overflow: "hidden", willChange: "transform" }}
                   >
                     <motion.div
                       layout
@@ -954,6 +955,7 @@ export default function Sidebar({
                         <motion.div
                           key={entry.key}
                           layout="position"
+                          style={{ willChange: "transform" }}
                           initial={reducedMotion ? false : { y: 7, opacity: 0 }}
                           animate={{ y: 0, opacity: 1 }}
                           transition={{
