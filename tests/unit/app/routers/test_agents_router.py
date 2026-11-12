@@ -289,7 +289,7 @@ async def test_get_agent_loads_config_off_event_loop(monkeypatch):
     assert calls[0][1] == ("bot",)
 
 
-def test_update_backend_settings_from_chat(client):
+def test_update_backend_settings_from_chat(client, installed_router_harnesses):
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -320,7 +320,10 @@ def test_update_backend_settings_from_chat(client):
     assert len(calls) == 1
 
 
-def test_backend_settings_patch_preserves_absent_fields(client):
+def test_backend_settings_patch_preserves_absent_fields(
+    client,
+    installed_router_harnesses,
+):
     """A field missing from the PATCH body must not be cleared."""
     cfg = AgentProfileConfig(
         id="bot",
@@ -346,7 +349,10 @@ def test_backend_settings_patch_preserves_absent_fields(client):
     }
 
 
-def test_backend_settings_patch_explicit_null_clears_field(client):
+def test_backend_settings_patch_explicit_null_clears_field(
+    client,
+    installed_router_harnesses,
+):
     cfg = AgentProfileConfig(
         id="bot",
         name="Bot",
@@ -566,7 +572,7 @@ def test_get_agent_returns_404_for_app_base_exception(client):
 
 @pytest.mark.parametrize(
     ("backend", "expected_status"),
-    [("missing", 400), ("claude", 409)],
+    [("missing", 409), ("claude", 409)],
 )
 def test_create_agent_rejects_unavailable_backend(
     client,
@@ -579,6 +585,11 @@ def test_create_agent_rejects_unavailable_backend(
     )
 
     assert response.status_code == expected_status
+    assert response.json()["detail"] == {
+        "code": "backend_unavailable",
+        "backend_id": backend,
+        "status": "missing",
+    }
 
 
 # ---------------------------------------------------------------------------

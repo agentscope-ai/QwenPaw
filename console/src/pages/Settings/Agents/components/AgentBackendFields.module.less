@@ -196,7 +196,7 @@
 
 .providerGrid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 8px;
 }
 
@@ -569,4 +569,19 @@
   .detectLabel {
     display: none;
   }
+}
+
+.typeCard:focus-visible,
+.providerCard:focus-visible,
+.providerCardSelected:focus-visible {
+  outline: 2px solid var(--abf-accent);
+  outline-offset: 3px;
+}
+
+.providerCopy strong {
+  overflow-wrap: anywhere;
+}
+
+.providerCardDisabled {
+  cursor: not-allowed;
 }

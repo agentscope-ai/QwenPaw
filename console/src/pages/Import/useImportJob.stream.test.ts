@@ -459,7 +459,13 @@ describe("useImportJob source detection", () => {
 
   it("lists import sources while idle and reports probe failures", async () => {
     vi.mocked(portabilityImportApi.sources).mockResolvedValueOnce([
-      { source: "codex", name: "Codex", detected: true },
+      {
+        source: "codex",
+        name: "Codex",
+        detected: true,
+        plugin_id: "qwenpaw-harness-codex",
+        plugin_state: "available",
+      },
     ]);
 
     const { result, unmount } = renderHook(() => useImportJob());
@@ -467,7 +473,15 @@ describe("useImportJob source detection", () => {
 
     const found = await act(() => result.current.detect());
 
-    expect(found).toEqual([{ source: "codex", name: "Codex", detected: true }]);
+    expect(found).toEqual([
+      {
+        source: "codex",
+        name: "Codex",
+        detected: true,
+        plugin_id: "qwenpaw-harness-codex",
+        plugin_state: "available",
+      },
+    ]);
     expect(result.current.sources).toHaveLength(1);
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBe("");

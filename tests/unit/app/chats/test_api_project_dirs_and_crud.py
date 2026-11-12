@@ -647,18 +647,27 @@ def _state_with_context(text: str) -> dict:
     return {"agent": {"state": AgentState(context=[msg]).model_dump()}}
 
 
-def _chat_workspace(*, backend: str = "qwenpaw", status: str = "idle"):
-    """Workspace carrying the three collaborators ``get_chat`` touches."""
+@pytest.fixture(name="chat_config_loader")
+def _chat_config_loader_fixture(monkeypatch):
+    mock = AsyncMock(
+        return_value=SimpleNamespace(backend="qwenpaw", backend_settings={}),
+    )
+    monkeypatch.setattr("qwenpaw.config.config.load_agent_config_async", mock)
+    return mock
+
+
+def _chat_workspace(*, agent_id: str = "agent-x", status: str = "idle"):
+    """Workspace carrying the collaborators ``get_chat`` touches."""
     return SimpleNamespace(
-        config=SimpleNamespace(backend=backend, backend_settings={}),
+        agent_id=agent_id,
         task_tracker=SimpleNamespace(
             get_status=AsyncMock(return_value=status),
         ),
-        harness_runtime=SimpleNamespace(hydrate_session=AsyncMock()),
+        backend_runtime=SimpleNamespace(hydrate_session=AsyncMock()),
     )
 
 
-async def test_get_chat_missing_spec_is_404() -> None:
+async def test_get_chat_missing_spec_is_404(chat_config_loader) -> None:
     mgr = _mgr(get_chat=AsyncMock(return_value=None))
     with pytest.raises(HTTPException) as raised:
         await chats_api.get_chat(
@@ -668,11 +677,12 @@ async def test_get_chat_missing_spec_is_404() -> None:
             session=SimpleNamespace(),
             workspace=_chat_workspace(),
         )
+    chat_config_loader.assert_not_awaited()
     assert raised.value.status_code == 404
     assert raised.value.detail == "Chat not found: gone"
 
 
-async def test_get_chat_projects_context_messages() -> None:
+async def test_get_chat_projects_context_messages(chat_config_loader) -> None:
     session = SimpleNamespace(
         get_session_state_dict=AsyncMock(
             return_value=_state_with_context("hello"),
@@ -694,10 +704,13 @@ async def test_get_chat_projects_context_messages() -> None:
     assert history.status == "running"
     assert len(history.messages) == 1
     assert history.messages[0].role.value == "user"
-    workspace.harness_runtime.hydrate_session.assert_not_awaited()
+    chat_config_loader.assert_awaited_once_with(workspace.agent_id)
+    workspace.backend_runtime.hydrate_session.assert_not_awaited()
 
 
-async def test_get_chat_without_state_returns_empty_history() -> None:
+async def test_get_chat_without_state_returns_empty_history(
+    chat_config_loader,
+) -> None:
     session = SimpleNamespace(
         get_session_state_dict=AsyncMock(return_value={}),
     )
@@ -708,11 +721,14 @@ async def test_get_chat_without_state_returns_empty_history() -> None:
         session=session,
         workspace=_chat_workspace(status="idle"),
     )
+    chat_config_loader.assert_awaited_once_with("agent-x")
     assert history.messages == []
     assert history.status == "idle"
 
 
-async def test_get_chat_hydrates_third_party_backend_sessions() -> None:
+async def test_get_chat_hydrates_third_party_backend_sessions(
+    chat_config_loader,
+) -> None:
     """A non-qwenpaw backend without context is re-hydrated, then re-read."""
     empty = {"agent": {"state": {}}}
     session = SimpleNamespace(
@@ -720,7 +736,11 @@ async def test_get_chat_hydrates_third_party_backend_sessions() -> None:
             side_effect=[empty, _state_with_context("late")],
         ),
     )
-    workspace = _chat_workspace(backend="claude_code")
+    chat_config_loader.return_value = SimpleNamespace(
+        backend="claude_code",
+        backend_settings={"binary_path": "/test/bin/harness"},
+    )
+    workspace = _chat_workspace()
     history = await chats_api.get_chat(
         chat_id="c1",
         include_app_owned=True,
@@ -728,24 +748,31 @@ async def test_get_chat_hydrates_third_party_backend_sessions() -> None:
         session=session,
         workspace=workspace,
     )
-    workspace.harness_runtime.hydrate_session.assert_awaited_once_with(
-        backend="claude_code",
+    chat_config_loader.assert_awaited_once_with(workspace.agent_id)
+    workspace.backend_runtime.hydrate_session.assert_awaited_once_with(
+        "claude_code",
         session_id="console:u",
         user_id="u",
         channel="console",
-        settings={},
+        settings={"binary_path": "/test/bin/harness"},
     )
     assert session.get_session_state_dict.await_count == 2
     assert len(history.messages) == 1
 
 
-async def test_get_chat_swallows_failed_third_party_recovery() -> None:
+async def test_get_chat_swallows_failed_third_party_recovery(
+    chat_config_loader,
+) -> None:
     """Recovery is best-effort: the route still answers with what it has."""
     session = SimpleNamespace(
         get_session_state_dict=AsyncMock(return_value={}),
     )
-    workspace = _chat_workspace(backend="claude_code")
-    workspace.harness_runtime.hydrate_session = AsyncMock(
+    chat_config_loader.return_value = SimpleNamespace(
+        backend="claude_code",
+        backend_settings={},
+    )
+    workspace = _chat_workspace()
+    workspace.backend_runtime.hydrate_session = AsyncMock(
         side_effect=RuntimeError("upstream down"),
     )
     history = await chats_api.get_chat(
@@ -755,15 +782,30 @@ async def test_get_chat_swallows_failed_third_party_recovery() -> None:
         session=session,
         workspace=workspace,
     )
+    chat_config_loader.assert_awaited_once_with(workspace.agent_id)
+    workspace.backend_runtime.hydrate_session.assert_awaited_once_with(
+        "claude_code",
+        session_id="console:u",
+        user_id="u",
+        channel="console",
+        settings={},
+    )
+    session.get_session_state_dict.assert_awaited_once_with(
+        "console:u",
+        "u",
+        "console",
+    )
     assert history.messages == []
 
 
-async def test_get_chat_skips_hydration_for_native_backend() -> None:
+async def test_get_chat_skips_hydration_for_native_backend(
+    chat_config_loader,
+) -> None:
     """``backend == 'qwenpaw'`` never reaches the recovery path."""
     session = SimpleNamespace(
         get_session_state_dict=AsyncMock(return_value={}),
     )
-    workspace = _chat_workspace(backend="qwenpaw")
+    workspace = _chat_workspace()
     await chats_api.get_chat(
         chat_id="c1",
         include_app_owned=True,
@@ -771,11 +813,14 @@ async def test_get_chat_skips_hydration_for_native_backend() -> None:
         session=session,
         workspace=workspace,
     )
-    workspace.harness_runtime.hydrate_session.assert_not_awaited()
+    chat_config_loader.assert_awaited_once_with("agent-x")
+    workspace.backend_runtime.hydrate_session.assert_not_awaited()
     assert session.get_session_state_dict.await_count == 1
 
 
-async def test_get_chat_falls_back_to_legacy_memory() -> None:
+async def test_get_chat_falls_back_to_legacy_memory(
+    chat_config_loader,
+) -> None:
     """Unparseable 2.x state falls back to the 1.x ``agent.memory`` shape."""
     msg = Msg(
         name="user",
@@ -801,10 +846,13 @@ async def test_get_chat_falls_back_to_legacy_memory() -> None:
         session=session,
         workspace=_chat_workspace(),
     )
+    chat_config_loader.assert_awaited_once_with("agent-x")
     assert len(history.messages) == 1
 
 
-async def test_get_chat_ignores_empty_legacy_memory() -> None:
+async def test_get_chat_ignores_empty_legacy_memory(
+    chat_config_loader,
+) -> None:
     """An empty 1.x memory block yields no messages and no crash."""
     session = SimpleNamespace(
         get_session_state_dict=AsyncMock(
@@ -818,4 +866,5 @@ async def test_get_chat_ignores_empty_legacy_memory() -> None:
         session=session,
         workspace=_chat_workspace(),
     )
+    chat_config_loader.assert_awaited_once_with("agent-x")
     assert history.messages == []
