@@ -263,7 +263,10 @@ async def test_monitoring_permission_loss_keeps_command_running(
         "qwenpaw.agents.tools.shell.get_current_shell_command_executable",
         return_value="cmd.exe" if sys.platform == "win32" else "/bin/sh",
     ):
-        result = await execute_shell_command(command, cwd=tmp_path)
+        result = await execute_shell_command(
+            command,
+            cwd=tmp_path,
+        )
     assert result.state == ToolResultState.SUCCESS
     assert [block.text for block in result.content] == ["continued"]
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]

@@ -5695,6 +5695,8 @@
     "delegateExternalAgent": "Delegate {{runner}}",
     "delegateExternalAgentDefault": "Delegate external agent",
     "shell": "Run {{command}}",
+    "shellCompleted": "Executed {{command}}",
+    "shellCompletedDefault": "Executed command",
     "shellDefault": "Run command",
     "runToolBatch": "Run workflow {{workflow}}",
     "runToolBatchRunning": "Running saved workflow",

@@ -228,7 +228,9 @@ describe("merged host bubbles behavior", () => {
         />,
       ),
     );
-    expect(screen.getByText("reasoning content")).toBeInTheDocument();
+    const reasoning = screen.getByText("reasoning content");
+    expect(reasoning).toBeInTheDocument();
+    expect(reasoning.parentElement?.className).toContain("reasoningStep");
     expect(screen.getByText("tool content")).toBeInTheDocument();
     expect(screen.queryByTestId("steps")).not.toBeInTheDocument();
     await act(async () => {
