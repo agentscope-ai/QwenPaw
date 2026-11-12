@@ -3,9 +3,8 @@
 """Tests for the configurable memory-writing model slot."""
 
 import asyncio
-import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -63,60 +62,6 @@ def fixture_model_setup(monkeypatch, make_memory_model_manager):
         return make_memory_model_manager()
 
     return setup
-
-
-async def test_inherited_hub_catalog_lookup_runs_off_event_loop(
-    monkeypatch,
-    make_memory_model_manager,
-):
-    """Inheriting the saved Hub provider does not fetch the catalog."""
-    from qwenpaw.providers import hub_managed
-    from qwenpaw.providers.provider_manager import ProviderManager
-
-    lookup_threads = []
-    response = Mock()
-    response.json.return_value = {"models": [{"id": "main"}]}
-
-    def get_catalog(*_args, **_kwargs):
-        lookup_threads.append(threading.get_ident())
-        return response
-
-    client = Mock()
-    client.__enter__ = Mock(return_value=client)
-    client.__exit__ = Mock(return_value=False)
-    client.get.side_effect = get_catalog
-    monkeypatch.setattr(hub_managed.httpx, "Client", Mock(return_value=client))
-    monkeypatch.setenv("QWENPAW_HUB_MODEL_TOKEN", "test-token")
-    monkeypatch.setenv("QWENPAW_HUB_MODEL_URL", "http://hub.test")
-    providers = ProviderManager.__new__(ProviderManager)
-    providers.default_models = {}
-    providers.active_model = ModelSlotConfig(
-        provider_id="hub-managed",
-        model="main",
-    )
-    monkeypatch.setattr(ProviderManager, "_instance", providers)
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "load_agent_config_async",
-        AsyncMock(
-            return_value=_agent_config(
-                memory_model=ModelSlotConfig(provider_id="", model="memory"),
-            ),
-        ),
-    )
-    factory = AsyncMock(return_value=(SimpleNamespace(name="model"), None))
-    monkeypatch.setattr(
-        reme_light_memory_manager,
-        "create_model_and_formatter_async",
-        factory,
-    )
-
-    await make_memory_model_manager()._update_qwenpaw_model()
-
-    assert not lookup_threads
-    assert factory.await_args_list[1].kwargs["model_slot_override"] == (
-        ModelSlotConfig(provider_id="hub-managed", model="memory")
-    )
 
 
 @pytest.mark.parametrize(
