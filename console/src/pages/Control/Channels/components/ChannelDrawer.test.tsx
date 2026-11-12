@@ -507,6 +507,46 @@ describe("ChannelDrawer builtin channel rendering", () => {
     expect(screen.queryByText("channels.streamingEnabled")).toBeNull();
   });
 
+  it.each([undefined, true])(
+    "shows and saves the XiaoYi streaming switch with saved value %s",
+    async (saved) => {
+      const onSubmitSnapshot = vi.fn().mockResolvedValue(true);
+      renderDrawer({
+        activeKey: "xiaoyi",
+        initialValues: {
+          ak: "test-ak",
+          sk: "test-sk",
+          agent_id: "test-agent",
+          ...(saved === undefined ? {} : { streaming_enabled: saved }),
+        },
+        onSubmitSnapshot,
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "collapsed Message presentation",
+        }),
+      );
+      const streamingSwitch = screen.getByRole("switch", {
+        name: "channels.streamingEnabled",
+      });
+      expect(streamingSwitch).toHaveAttribute(
+        "aria-checked",
+        String(saved ?? false),
+      );
+      fireEvent.click(streamingSwitch);
+      await waitFor(
+        () =>
+          expect(onSubmitSnapshot).toHaveBeenCalledWith(
+            expect.objectContaining({
+              channel: "xiaoyi",
+              body: expect.objectContaining({ streaming_enabled: !saved }),
+            }),
+          ),
+        { timeout: 2000 },
+      );
+    },
+  );
+
   it("shows auto-collapse thinking only for Feishu with streaming on", () => {
     const { unmount } = renderDrawer({
       activeKey: "feishu",

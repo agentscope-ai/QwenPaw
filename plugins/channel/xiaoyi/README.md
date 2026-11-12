@@ -4,12 +4,12 @@ Private Huawei XiaoYi A2A transport for the standard QwenPaw shared runner.
 The entry point is `qwenpaw_channel_xiaoyi.driver.XiaoYiDriver`; runtime
 dependencies are declared only in `requirements.txt` (`aiohttp>=3.9.0`).
 
-The descriptor retains all 22 `XiaoYiConfig` fields and defaults. Configure
-`enabled`, `ak`, `sk`, and `agent_id`. An empty `ws_url` connects concurrently
-to the official domain and IP backup; a custom URL uses a single connection.
-The legacy IP connection continues to use `ssl=False`. Either connection is
-sufficient for a healthy platform state. `task_timeout_ms` is retained as
-configuration; the legacy implementation did not enforce a task timer.
+Configure `enabled`, `ak`, `sk`, and `agent_id`. An empty `ws_url` connects
+concurrently to the official domain and IP backup. A custom URL uses a single
+connection. The IP backup uses the existing `ssl=False` setting. Each connection
+checks for a Pong and retries independently. Either healthy connection keeps the
+channel available. Disconnect logs identify the connection, WebSocket close code
+and available close reason. `task_timeout_ms` remains a configuration field.
 
 Agent execution, authorization, queue admission, display settings and durable
 response lifecycle remain in the host. The plugin owns authentication,
@@ -20,12 +20,22 @@ admission retries retain the same event ID. Messages without a native ID do not
 claim cross-push deduplication. Session maps remain in memory and do not promise
 proactive routing after a restart.
 
-Completed messages become text/reasoning artifacts split at 4000 characters,
-preferring newlines. Native stream closure writes a completed status first and
-an empty final artifact second. Each write has an independent durable receipt;
-unknown writes are retained and never automatically replayed. A disconnected
-source can fall back to the other connection before a write; an uncertain write
-does not trigger another write on the other connection.
+The host's response preparation hook starts a best-effort `working` status before
+the Agent runs. It refreshes every 30 seconds until the response finishes.
+Completed messages become text and reasoning artifacts split at 4000 characters.
+Enable **Streaming output** under **Channels → XiaoYi → Message presentation**
+in the console, or set `channels.xiaoyi.streaming_enabled` to `true` in the
+agent configuration. The default is `false`. When streaming is enabled, tool
+calls, tool results, and answer previews replace the current reply body as they
+arrive, and the final answer replaces the last visible body. Completed thinking
+segments replace each other when the host enables thinking display. With
+streaming disabled, completed segments append in their display areas.
+
+Each streamed artifact closes before the response sends a terminal status and
+an empty final artifact. The finish status reflects the outcome reported by the
+host. Delivery records retain uncertain writes. A disconnected source can fall
+back to the other connection before any write. An uncertain write stays on its
+original receipt.
 
 `clearContext` acknowledges `cleared` before removing the task mapping.
 `tasks/cancel` only acknowledges `canceled`, preserving the old mapping and
@@ -34,11 +44,12 @@ Stop closes this instance's entry points, awaits reconnect/receive/heartbeat and
 in-flight HTTP/send tasks, and closes both WS sessions and the media session.
 Failed cleanup retains the remaining resource references and fails stop.
 
-Media storage keeps the legacy precedence: an explicitly supplied execution
-`media_dir`, then `workspace_dir/media`, then `DEFAULT_MEDIA_DIR/xiaoyi`.
-These execution context values do not add a 23rd configuration schema field.
-Local outbound media must belong to the configured media/workspace roots.
-Downloads retain safe filenames, MIME-derived extensions and failure text.
+Media storage uses the supplied execution `media_dir`, then
+`workspace_dir/media`, then `DEFAULT_MEDIA_DIR/xiaoyi`. Downloads run outside
+the WebSocket reader, with bounded concurrency and a FIFO per session. The host
+receives each message with its downloaded files and existing failure hints.
+Each downloaded attachment has its own directory. Local outbound media must
+belong to the configured media or workspace roots.
 
 The plugin declares `send.semantic_parts.v1`: completed-event text and media
 arrive with host-owned presentation roles via `content_source=event`. The
