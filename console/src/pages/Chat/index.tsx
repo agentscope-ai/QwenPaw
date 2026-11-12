@@ -2081,13 +2081,17 @@ export default function ChatPage() {
     const controller = new AbortController();
     let inFlight = false;
     let sawRunning = false;
-    const refreshMessages = async () => {
+    let resumeAttempted = false;
+    const refreshMessages = async (
+      { requireIdle }: { requireIdle?: boolean } = {},
+    ) => {
       const session = await sessionApi.refreshSession(
         queueSessionId,
         controller.signal,
       );
       if (
         !session ||
+        (requireIdle && (session.generating || chatLoadingRef.current)) ||
         controller.signal.aborted ||
         queueSessionIdRef.current !== queueSessionId ||
         !isChatActiveRef.current
@@ -2113,23 +2117,36 @@ export default function ChatPage() {
 
         if (runStatus.status === "running") {
           const firstRunningObservation = !sawRunning;
-          sawRunning = true;
           const execution = chatRef.current?.execution;
           const activeRun = await execution?.getActiveRun(queueSessionId);
-          if (activeRun && activeRun.getState() !== "disconnected") return;
+          if (controller.signal.aborted) return;
+          if (activeRun && activeRun.getState() !== "disconnected") {
+            resumeAttempted = false;
+            return;
+          }
+          if (resumeAttempted) return;
+          if (!execution) return;
           if (firstRunningObservation || !activeRun) {
             if (!(await refreshMessages())) return;
           }
-          await execution?.resume({
-            sessionId: queueSessionId,
-            source: "direct",
-          });
+          sawRunning = true;
+          resumeAttempted = true;
+          try {
+            await execution.resume({
+              sessionId: queueSessionId,
+              source: "direct",
+            });
+          } catch (error) {
+            resumeAttempted = false;
+            throw error;
+          }
           return;
         }
 
         if (!sawRunning) return;
-        if (await refreshMessages()) {
+        if (await refreshMessages({ requireIdle: true })) {
           sawRunning = false;
+          resumeAttempted = false;
         }
       } catch (error) {
         if (!controller.signal.aborted) {

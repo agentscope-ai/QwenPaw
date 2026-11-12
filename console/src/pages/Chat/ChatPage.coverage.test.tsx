@@ -754,7 +754,7 @@ describe("ChatPage coverage", () => {
     await waitFor(() => {
       expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(2);
     });
-    expect(mockRuntimeResume).toHaveBeenCalledTimes(2);
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
     expect(sessionApi.refreshSession).toHaveBeenCalledTimes(1);
 
     mockRuntimeGetActiveRun.mockResolvedValue({
@@ -764,15 +764,111 @@ describe("ChatPage coverage", () => {
     await waitFor(() => {
       expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(3);
     });
+    expect(mockRuntimeResume).toHaveBeenCalledTimes(1);
+
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "disconnected",
+    });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(4);
+    });
     expect(mockRuntimeResume).toHaveBeenCalledTimes(2);
 
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: true,
+    });
     act(() => poll?.());
 
     await waitFor(() => {
       expect(sessionApi.refreshSession).toHaveBeenCalledTimes(2);
     });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(1);
+
+    vi.mocked(sessionApi.refreshSession).mockResolvedValueOnce({
+      id: "test-session",
+      name: "External run",
+      messages: [{ id: "external-user", role: "user", cards: [] }],
+      generating: false,
+    });
+    act(() => poll?.());
+
+    await waitFor(() => {
+      expect(sessionApi.refreshSession).toHaveBeenCalledTimes(3);
+    });
+    expect(mockSetSessionMessages).toHaveBeenCalledTimes(2);
     expect(mockRuntimeMount).toHaveBeenCalledTimes(1);
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not reconcile messages after a local run finishes", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockResolvedValue({
+      getState: () => "running",
+    });
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    mockGetChatStatus.mockResolvedValue({ status: "idle" });
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockGetChatStatus).toHaveBeenCalledTimes(2);
+    });
+
+    expect(sessionApi.refreshSession).not.toHaveBeenCalled();
+    expect(mockSetSessionMessages).not.toHaveBeenCalled();
+    setIntervalSpy.mockRestore();
+  });
+
+  it("does not resume after the active run check is aborted", async () => {
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    let resolveActiveRun:
+      | ((value: { getState: () => string }) => void)
+      | undefined;
+    mockGetChatStatus.mockResolvedValue({ status: "running" });
+    mockRuntimeGetActiveRun.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveActiveRun = resolve;
+        }),
+    );
+    const { unmount } = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const poll = setIntervalSpy.mock.calls.find(
+      ([, delay]) => delay === 5000,
+    )?.[0] as (() => void) | undefined;
+    expect(poll).toBeTypeOf("function");
+    act(() => poll?.());
+    await waitFor(() => {
+      expect(mockRuntimeGetActiveRun).toHaveBeenCalledTimes(1);
+    });
+
+    unmount();
+    await act(async () => {
+      resolveActiveRun?.({ getState: () => "disconnected" });
+      await Promise.resolve();
+    });
+
+    expect(mockRuntimeResume).not.toHaveBeenCalled();
     setIntervalSpy.mockRestore();
   });
 
