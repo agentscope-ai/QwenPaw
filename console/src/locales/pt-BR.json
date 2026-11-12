@@ -1579,6 +1579,10 @@
     "selectAtLeastOneDay": "Selecione pelo menos um dia."
   },
   "channels": {
+    "update": {
+      "action": "Atualizar para {{version}}",
+      "shared": "Atualiza o plugin compartilhado por todos os agentes deste canal. As configurações são preservadas."
+    },
     "qrcodeInstallRequired": "Instale o plugin para escanear um código QR",
     "runtime": {
       "missing_code": "Plugin não instalado"

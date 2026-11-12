@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+
+from packaging.version import Version
 
 from ...plugins.official_channel_catalog import official_channel_owners
 
@@ -19,6 +22,7 @@ RESPONSE_FIELDS = frozenset(
         "global_enabled",
         "runtime_state",
         "repair",
+        "update",
         "diagnostic",
         "config_schema",
         "config_fields",
@@ -131,10 +135,19 @@ def _catalog_files():
     """Read filesystem inputs without touching live plugin registrations."""
     from ...config.utils import get_plugins_dir, load_config
     from ...plugins.official_channel_catalog import OFFICIAL_CHANNELS
-    from ...plugins.official_channels import bundled_channel_description
+    from ...plugins.official_channels import (
+        bundled_channel_description,
+        bundled_channel_versions,
+    )
 
     descriptions = {}
     installed = {}
+    updates = {}
+    try:
+        versions = bundled_channel_versions()
+        version_error = None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        versions, version_error = {}, str(exc)
     plugins_dir = get_plugins_dir()
     for official in OFFICIAL_CHANNELS:
         plugin_id = official["plugin_id"]
@@ -142,10 +155,34 @@ def _catalog_files():
             descriptions[plugin_id] = bundled_channel_description(plugin_id)
         except (OSError, ValueError, KeyError) as exc:
             descriptions[plugin_id] = str(exc)
-        installed[plugin_id] = (
-            plugins_dir / plugin_id / "plugin.json"
-        ).is_file()
-    return descriptions, installed, load_config().plugins
+        manifest_path = plugins_dir / plugin_id / "plugin.json"
+        installed[plugin_id] = manifest_path.is_file()
+        if not installed[plugin_id]:
+            continue
+        try:
+            if version_error is not None:
+                raise ValueError(version_error)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(manifest, dict)
+                or manifest.get("id") != plugin_id
+                or manifest.get("type") != "channel"
+            ):
+                raise ValueError("Installed channel identity mismatch")
+            current, target = manifest["version"], versions[plugin_id]
+            if Version(target) > Version(current):
+                updates[plugin_id] = {
+                    "update": {
+                        "installed_version": current,
+                        "version": target,
+                        "source": "bundled:" + plugin_id,
+                    },
+                }
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            updates[plugin_id] = {
+                "diagnostic": f"Channel update check unavailable: {exc}",
+            }
+    return descriptions, installed, load_config().plugins, updates
 
 
 def get_configurable_channel_catalog(saved_keys=()):
@@ -162,7 +199,13 @@ async def get_configurable_channel_catalog_async(saved_keys=()):
     return _assemble_channel_catalog(saved_keys, *files)
 
 
-def _assemble_channel_catalog(saved_keys, descriptions, installed, settings):
+def _assemble_channel_catalog(
+    saved_keys,
+    descriptions,
+    installed,
+    settings,
+    updates,
+):
     """Assemble one catalog from filesystem and live registry snapshots."""
     from ...config.config import ChannelConfig
     from ...plugins.registry import PluginRegistry
@@ -289,4 +332,13 @@ def _assemble_channel_catalog(saved_keys, descriptions, installed, settings):
             "plugin_id": plugin_id,
             "source": "bundled:" + plugin_id,
         }
+        metadata = updates.get(plugin_id, {})
+        if "diagnostic" in metadata and row.get("diagnostic"):
+            metadata = {
+                **metadata,
+                "diagnostic": row["diagnostic"]
+                + "; "
+                + metadata["diagnostic"],
+            }
+        row.update(metadata)
     return result

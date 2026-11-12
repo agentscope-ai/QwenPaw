@@ -1340,6 +1340,10 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "update": {
+      "action": "{{version}} に更新",
+      "shared": "このチャンネルを使用するすべてのエージェントの共有プラグインを更新します。設定は保持されます。"
+    },
     "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
     "runtime": {
       "missing_code": "プラグインがインストールされていません"

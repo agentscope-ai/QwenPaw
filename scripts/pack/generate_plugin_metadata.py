@@ -21,8 +21,9 @@ Each plugin is stored under its own directory on the CDN
 
 Each plugin source tree is full-rebuild zipped: this means deletions in the
 repo propagate through to OSS on the next run (no stale entries left behind).
-Rebuilding the same version overwrites the zip at a stable URL; bump the
-plugin version in ``plugin.json`` when you need a distinct release artifact.
+Local rebuilds may replace a ZIP. Publication checks reject different
+delivered content under the same plugin version; bump ``plugin.json``
+when changing published files.
 
 A plugin can opt out of publishing by setting ``"publish": false`` in its
 ``plugin.json``.
@@ -220,6 +221,22 @@ def _sha256_of_file(path: Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def content_digest(files) -> str:
+    """Identify delivered paths and bytes, independent of ZIP metadata."""
+    entries = sorted(
+        (name, hashlib.sha256(content).hexdigest()) for name, content in files
+    )
+    payload = json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def plugin_content_digest(plugin_dir: Path, manifest: dict) -> str:
+    return content_digest(
+        (relative, (plugin_dir / relative).read_bytes())
+        for relative in _iter_tree_relpaths(plugin_dir, manifest)
+    )
 
 
 def _iter_tree_relpaths(

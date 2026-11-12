@@ -1851,6 +1851,10 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "update": {
+      "action": "更新至 {{version}}",
+      "shared": "此插件由所有使用该频道的智能体共享，更新会保留已有配置。"
+    },
     "runtime": {
       "missing_code": "插件未安装"
     },

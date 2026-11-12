@@ -139,6 +139,7 @@ vi.mock("./QrcodeAuthBlock", () => ({
 }));
 
 import { ChannelDrawer } from "./ChannelDrawer";
+import { channelApi } from "../../../../api/modules/channel";
 import styles from "../index.module.less";
 
 // ---- Harness ---------------------------------------------------------------
@@ -154,6 +155,7 @@ interface DrawerProps {
   onClose?: () => void;
   onSubmit?: (values: Record<string, unknown>) => void;
   onSubmitSnapshot?: (job: ChannelSaveJob) => Promise<void | boolean>;
+  onRuntimeChange?: () => void | Promise<void>;
 }
 
 function renderDrawer(
@@ -176,6 +178,7 @@ function renderDrawer(
         onClose={props.onClose ?? (() => {})}
         onSubmit={props.onSubmit ?? (() => {})}
         onSubmitSnapshot={props.onSubmitSnapshot}
+        onRuntimeChange={props.onRuntimeChange}
       />
     );
   }
@@ -197,6 +200,47 @@ afterEach(() => {
 });
 
 // ---- Builtin channel field branches ---------------------------------------
+
+it.each(["success", "failure", "cancel", "absent"])(
+  "handles channel updates (%s) without changing enabled intent",
+  async (outcome) => {
+    const update = {
+      installed_version: "0.1.0.dev0",
+      version: "0.1.0",
+      source: "bundled:matrix",
+    };
+    const refresh = vi.fn();
+    const submit = vi.fn();
+    const install = vi.spyOn(channelApi, "updateChannelPlugin");
+    if (outcome === "failure")
+      install.mockRejectedValue(new Error("update failed"));
+    else
+      install.mockResolvedValue(
+        (outcome === "cancel" ? null : { id: "matrix" }) as never,
+      );
+    const { form } = renderDrawer({
+      activeKey: "matrix",
+      initialValues: { enabled: false },
+      channelSchema: outcome === "absent" ? undefined : { update },
+      onRuntimeChange: refresh,
+      onSubmit: submit,
+    });
+    const button = screen.queryByRole("button", {
+      name: "channels.update.action",
+    });
+    if (outcome === "absent") {
+      expect(button).not.toBeInTheDocument();
+      return;
+    }
+    fireEvent.click(button!);
+    await waitFor(() => expect(install).toHaveBeenCalledWith(update));
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(form.getFieldValue("enabled")).toBe(false);
+    expect(submit).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(outcome === "success" ? 1 : 0);
+    if (outcome === "failure") expect(mockMessage.error).toHaveBeenCalled();
+  },
+);
 
 describe("ChannelDrawer builtin channel rendering", () => {
   it.each([

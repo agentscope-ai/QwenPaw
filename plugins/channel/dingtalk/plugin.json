@@ -1,7 +1,7 @@
 {
   "id": "dingtalk",
   "name": "DingTalk",
-  "version": "0.1.0.dev0",
+  "version": "0.1.0",
   "type": "channel",
   "description": "DingTalk messaging channel; standalone integration preview.",
   "author": "QwenPaw Team",

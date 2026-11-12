@@ -31,6 +31,7 @@ __all__ = [
     "provision_bundled_channels",
     "bundled_channel_source",
     "bundled_channel_description",
+    "bundled_channel_versions",
     "prepare_channel_upgrade",
 ]
 
@@ -95,6 +96,14 @@ def _bundled_index(root):
             ):
                 raise ValueError("Official archive digest invalid")
     return index
+
+
+def bundled_channel_versions() -> dict[str, str]:
+    """Read release versions without extracting or preparing any plugin."""
+    return {
+        row["plugin_id"]: row["version"]
+        for row in _bundled_index(_resource_root())["plugins"]
+    }
 
 
 def _bundled_archive(root, row):

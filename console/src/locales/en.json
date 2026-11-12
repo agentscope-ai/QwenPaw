@@ -2016,6 +2016,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "update": {
+      "action": "Update to {{version}}",
+      "shared": "Updates the shared plugin for every agent using this channel. Settings are preserved."
+    },
     "runtime": {
       "missing_code": "Plugin not installed"
     },
