@@ -111,7 +111,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 30px;
+  min-height: 32px;
   flex-shrink: 0;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
@@ -216,6 +216,51 @@
   padding: 0;
 }
 
+// Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+// match inputs, selects and chips so every toolbar row shares one height.
+@media (pointer: coarse) {
+  .toolbar,
+  .marketFilterBar {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    // antd pins the single-select root to 32px while the selector stretches,
+    // which offsets the box against sibling controls and leaves the label /
+    // arrow off-center; stretch root + selector + line-height together.
+    :global(:is(.qwenpaw-select-single, .ant-select-single)) {
+      height: 44px;
+
+      :global(:is(.qwenpaw-select-selector, .ant-select-selector)) {
+        height: 100%;
+      }
+
+      :global(:is(.qwenpaw-select-selection-item, .ant-select-selection-item)),
+      :global(
+          :is(
+              .qwenpaw-select-selection-placeholder,
+              .ant-select-selection-placeholder
+            )
+        ) {
+        line-height: 42px;
+      }
+    }
+  }
+
+  .marketFilter {
+    min-height: 44px;
+  }
+
+  // Keep the square icon button square under the 44px touch height.
+  .refreshBtn {
+    width: 44px;
+  }
+}
+
 // ── Grid & cards ────────────────────────────────────────────────────────────
 
 .grid {
@@ -282,6 +327,24 @@
 
   &:focus-visible {
     outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+.cardTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cardIconButton {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
     outline-offset: 2px;
   }
 }

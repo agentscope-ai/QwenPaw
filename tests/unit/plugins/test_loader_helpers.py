@@ -58,6 +58,77 @@ class TestPluginRuntimeDirs:
             str(site)
         )
 
+    @pytest.mark.parametrize("change", ["host-wheel", "record"])
+    def test_bundle_update_preserves_site_and_changes_recovery_identity(
+        self,
+        tmp_path,
+        monkeypatch,
+        change,
+    ):
+        import json
+        from qwenpaw.config import utils as config_utils
+        from qwenpaw.plugins import channel_bootstrap as bootstrap
+        from qwenpaw.plugins.dependency_context import host_bundle_identity
+
+        resources = tmp_path / "resources"
+        support = resources / "site"
+        worker = support / "qwenpaw/channel_protocol/shared_worker.py"
+        worker.parent.mkdir(parents=True)
+        worker.touch()
+        info = support / "bundled_sdk-1.0.dist-info"
+        info.mkdir()
+        (info / "METADATA").write_text("Name: bundled-sdk\nVersion: 1.0\n")
+        record = info / "RECORD"
+        record.write_text("bundled_sdk.py,sha256=old,1\n")
+        manifest = resources / "runtime.json"
+        data = {
+            "python_runtime_release": "test-runtime",
+            "host_wheel_sha256": "0" * 64,
+            "official_index_sha256": "1" * 64,
+        }
+        manifest.write_text(json.dumps(data))
+        runtime = (
+            resources / "python",
+            support,
+            (support,),
+            {"version": [3, 11], "system": "Linux", "machine": "x86_64"},
+            "light",
+        )
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        monkeypatch.setattr(bootstrap, "runtime_manifest", lambda: runtime)
+        monkeypatch.setattr(
+            bootstrap,
+            "_runtime_resource_context",
+            lambda: (resources, manifest, None),
+        )
+        working = tmp_path / "working"
+        monkeypatch.setattr(
+            config_utils,
+            "get_config_path",
+            lambda: working / "config.json",
+        )
+        target = working / "plugin_runtime/py3.11-linux-x86_64/site"
+        first = bootstrap.resolve_default_channel_runtime(provision=False)
+        assert first.dependency_install_target == target
+        assert not (working / "plugin_runtime").exists()
+        target.mkdir(parents=True)
+        retained = target / "retained_sdk.py"
+        retained.write_bytes(b"VALUE = 'installed'\n")
+        before = host_bundle_identity()
+        assert before.startswith("bundle-") and len(before) == 71
+
+        if change == "host-wheel":
+            data["host_wheel_sha256"] = "2" * 64
+            manifest.write_text(json.dumps(data))
+        else:
+            record.write_text("bundled_sdk.py,sha256=updated-payload,2\n")
+
+        updated = bootstrap.resolve_default_channel_runtime(provision=False)
+        assert updated.dependency_install_target == target
+        assert updated.dependency_paths == first.dependency_paths
+        assert retained.read_bytes() == b"VALUE = 'installed'\n"
+        assert host_bundle_identity() != before
+
 
 class TestResolvedPluginManifestPath:
     def test_missing_dir_raises(self, tmp_path):

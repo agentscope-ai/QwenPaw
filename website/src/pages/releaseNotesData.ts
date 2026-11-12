@@ -1,6 +1,7 @@
 export type ReleaseNoteMeta = { version: string; date?: string };
 
 export const RELEASE_NOTES_DATA: ReleaseNoteMeta[] = [
+  { version: "v2.3.0" },
   { version: "v2.2.2" },
   { version: "v2.2.1" },
   { version: "v2.2.0" },

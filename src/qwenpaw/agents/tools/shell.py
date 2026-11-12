@@ -1424,6 +1424,8 @@ async def _execute_posix_host(
 @_with_shell_guard
 async def execute_shell_command(
     command: str,
+    *,
+    title: str = "",
     timeout: float = 60.0,
     cwd: Optional[Path] = None,
     sandbox_config: Optional[Any] = None,
@@ -1438,6 +1440,9 @@ async def execute_shell_command(
     determine which shell is active, and generate commands using the
     appropriate syntax (e.g. bash vs PowerShell vs cmd.exe).
 
+    The title is display-only. It does not affect command execution, security
+    checks, or the returned result.
+
     IMPORTANT: Do not use nohup or other commands to start long-running
     background processes. If unavoidable, explicitly redirect stdin,
     stdout, and stderr.
@@ -1445,6 +1450,14 @@ async def execute_shell_command(
     Args:
         command (`str`):
             The shell command to execute.
+        title (`str`, defaults to `""`):
+            Always provide a concise, single-line description of the command's
+            intent. Use the current conversation language and active voice.
+            Prefer 5-10 words for languages that use spaces, or an equivalently
+            concise phrase otherwise. Describe only what the command will do;
+            never claim success, failure, completion, or another result, and
+            never include secrets. Examples: "Inspect the current Git status",
+            "Run the targeted shell tests", "检查当前 Git 状态".
         timeout (`float`, defaults to `60.0`):
             The maximum time (in seconds) allowed for the command to run.
             Default is 60.0 seconds.

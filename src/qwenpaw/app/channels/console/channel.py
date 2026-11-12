@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from qwenpaw.schemas import (
+    AgentResponse,
     MessageType,
     Message,
     RunStatus,
@@ -34,6 +35,8 @@ from ...notification_store import publish as publish_notification
 from ....constant import DEFAULT_MEDIA_DIR
 from ....token_usage.model_wrapper import TokenRecordingModelWrapper
 from ....exceptions import ModelQuotaExceededException
+from ....plugins.activity import PluginBusyError
+from ....plugins.errors import SDKError
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -575,6 +578,25 @@ class ConsoleChannel(BaseChannel):
             logger.exception("console process/reply failed")
             err_msg = str(e).strip() or "An error occurred while processing."
             self._print_error(err_msg)
+            if isinstance(e, (SDKError, PluginBusyError)):
+                response = AgentResponse(
+                    object="response",
+                    session_id=session_id,
+                    status=RunStatus.Failed,
+                    error={
+                        "code": (
+                            "plugin_busy"
+                            if isinstance(e, PluginBusyError)
+                            else (
+                                "backend_unavailable"
+                                if err_msg.startswith("backend_unavailable:")
+                                else "sdk_error"
+                            )
+                        ),
+                        "message": err_msg,
+                    },
+                )
+                yield f"data: {self._serialize_event_for_sse(response)}\n\n"
         finally:
             try:
                 await self._on_response_cycle_end(session_id)

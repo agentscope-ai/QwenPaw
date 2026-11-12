@@ -392,14 +392,18 @@ def instantiate_channel(
         claims = ()
         runtime_config = ch_cfg
         connection_timeout = settings.connection_timeout
-        if connection_timeout is None and row.plugin_id == key == "wechat":
+        if (
+            connection_timeout is None
+            and row.plugin_id == key
+            and key in {"wechat", "feishu"}
+        ):
             from ...plugins.official_channel_catalog import (
                 official_channel_for_plugin,
             )
 
             official = official_channel_for_plugin(row.plugin_id)
             if official is not None and official["channel_key"] == key:
-                connection_timeout = 330.0
+                connection_timeout = 330.0 if key == "wechat" else 60.0
         try:
             if row.plugin_id == key == "wechat":
                 runtime_config = prepared_config.config

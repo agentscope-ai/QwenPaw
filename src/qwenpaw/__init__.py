@@ -7,7 +7,12 @@ import time
 # The lazy plugins package and this module are stdlib-only and PYZ compatible.
 from .plugins import dependency_maintenance as _environment_custody
 
+from .plugins.dependency_recovery import (
+    recover_additions as _recover_additions,
+)
+
 _environment_custody.state_root()
+_recover_additions(_environment_custody.host_sites())
 _environment_custody.lease_environment(_environment_custody.host_sites())
 
 # These imports must follow environment custody acquisition.

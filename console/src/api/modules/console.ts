@@ -80,6 +80,8 @@ export const consoleApi = {
     status?: string;
     agent_id?: string;
     unread_only?: boolean;
+    exclude_acl_pending?: boolean;
+    signal?: AbortSignal;
     event_id?: string;
   }) => {
     const query = new URLSearchParams();
@@ -96,15 +98,30 @@ export const consoleApi = {
     if (params?.unread_only !== undefined) {
       query.set("unread_only", String(params.unread_only));
     }
+    if (params?.exclude_acl_pending !== undefined) {
+      query.set("exclude_acl_pending", String(params.exclude_acl_pending));
+    }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return request<{
+    type Response = {
       events: InboxEvent[];
       total?: number;
       unread_count?: number;
-    }>(`/console/inbox/events${suffix}`);
+      source_errors?: { community?: "community_history_unavailable" };
+      /** Opaque account generation; null means disconnected, absent means unknown. */
+      community_scope?: string | null;
+    };
+    const path = `/console/inbox/events${suffix}`;
+    return params?.signal
+      ? request<Response>(path, { signal: params.signal })
+      : request<Response>(path);
   },
 
-  markInboxRead: (payload: { event_ids?: string[]; all?: boolean }) =>
+  markInboxRead: (payload: {
+    event_ids?: string[];
+    all?: boolean;
+    source_types?: string[];
+    agent_id?: string;
+  }) =>
     request<{ updated: number }>("/console/inbox/read", {
       method: "POST",
       body: JSON.stringify(payload),

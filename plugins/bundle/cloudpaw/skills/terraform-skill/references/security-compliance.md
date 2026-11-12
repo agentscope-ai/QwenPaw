@@ -463,7 +463,7 @@ resource "aws_iam_policy" "bad_policy" {
 - [Checkov Documentation](https://www.checkov.io/)
 - [terraform-compliance](https://terraform-compliance.com/)
 - [Open Policy Agent](https://www.openpolicyagent.org/)
-- [AWS Security Best Practices](https://aws.amazon.com/security/best-practices/)
+- [AWS Security Best Practices](https://docs.aws.amazon.com/wellarchitected/latest/security-pillar/welcome.html)
 
 ---
 

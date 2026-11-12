@@ -133,6 +133,7 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostResponseCard } from "./HostBubbles";
+import { QuoteSelection } from "./QuoteSelection";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
   awaitInChatScope,
@@ -274,8 +275,8 @@ import {
   stopBackgroundWatchersNotInSession,
 } from "../../hooks/useBackgroundTaskWatcher";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
-import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
-import HarnessModelSelector from "./components/HarnessModelSelector";
+import BackendApprovalToggle from "./components/BackendApprovalToggle";
+import BackendModelSelector from "./components/BackendModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -294,6 +295,7 @@ import {
 import {
   requiresQwenPawModel,
   supportsAgentAttachments,
+  useBackendCapabilities,
 } from "../../utils/agentBackend";
 
 // ---------------------------------------------------------------------------
@@ -1292,7 +1294,7 @@ export default function ChatPage() {
     enabled: terminalEnabled,
     reason: terminalDisabledReason,
     confirmed: terminalCapabilityConfirmed,
-  } = useTerminalEnabled(selectedAgent);
+  } = useTerminalEnabled();
   const backendChatId = resolveBackendChatId(chatId);
   const decisionScope = `${selectedAgent}:${queueSessionId}:${
     backendChatId ?? ""
@@ -1447,7 +1449,7 @@ export default function ChatPage() {
   >([]);
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
-  const backendCapabilities = selectedAgentInfo?.backend_capabilities;
+  const backendCapabilities = useBackendCapabilities(selectedAgentInfo);
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
   // An Advisor conversation runs two models, so its pill shows the pair.
   const advisorConversation = useIsAdvisorConversation();
@@ -4136,7 +4138,10 @@ export default function ChatPage() {
                 />
               )
             ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
+              <BackendModelSelector
+                backendId={selectedAgentBackend}
+                capabilities={backendCapabilities}
+              />
             ) : null}
             {pluginSenderPrefix}
           </>
@@ -4188,7 +4193,7 @@ export default function ChatPage() {
                 }}
               />
             ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
+              <BackendApprovalToggle
                 backend={selectedAgentBackend}
                 sessionId={queueKey}
                 presets={approvalPresets}
@@ -4659,6 +4664,11 @@ export default function ChatPage() {
                 </ChatSessionTransition>
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
+            <QuoteSelection
+              containerRef={chatMessagesAreaRef}
+              scopeKey={queueKey}
+              enabled={!isSessionTransition && !isAgentTransition}
+            />
           </div>
 
           {/* Rate-limit guidance banner */}
