@@ -1,0 +1,21 @@
+{
+  "extends": "../../_shared/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@qwenpaw/plugin-sdk": [
+        "node_modules/@qwenpaw/plugin-sdk"
+      ],
+      "lucide-react": [
+        "node_modules/lucide-react"
+      ],
+      "react": [
+        "node_modules/@types/react"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "../../_shared/ui"
+  ]
+}

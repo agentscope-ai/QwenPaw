@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import uuid
-from typing import Any, Dict
+from typing import Any, AsyncIterator, Dict
 
 from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
@@ -277,7 +278,7 @@ class CronExecutor:
 
         final_no_content = False
 
-        async def _run() -> None:
+        async def _run() -> AsyncIterator[Any]:
             nonlocal delivery_error, final_no_content
 
             async def _deliver(event: Any) -> None:
@@ -316,6 +317,7 @@ class CronExecutor:
                     )
             final_event: Any | None = None
             async for event in self._workspace.stream_query(req):
+                yield event
                 if job.dispatch.silent:
                     continue
                 if job.dispatch.mode == "final":
@@ -338,9 +340,63 @@ class CronExecutor:
                     job.id,
                 )
 
+        async def _run_tracked() -> None:
+            tracker = getattr(self._workspace, "task_tracker", None)
+            if _chat_spec is None or tracker is None:
+                async for _ in _run():
+                    pass
+                return
+
+            error: BaseException | None = None
+
+            def _to_sse(event: Any) -> str:
+                if hasattr(event, "model_dump_json"):
+                    data = event.model_dump_json()
+                else:
+                    data = json.dumps(
+                        {"text": str(event)},
+                        ensure_ascii=True,
+                    )
+                return f"data: {data}\n\n"
+
+            async def _tracked_stream(_payload: Any):
+                nonlocal error
+                try:
+                    async for event in _run():
+                        yield _to_sse(event)
+                except asyncio.CancelledError as exc:
+                    error = exc
+                    raise
+                except Exception as exc:
+                    error = exc
+                    raise
+
+            queue, is_new_run = await tracker.attach_or_start(
+                _chat_spec.id,
+                None,
+                _tracked_stream,
+                owner=self._workspace,
+                on_finished=chat_manager.mark_chat_finished,
+                channel_id=target_channel,
+            )
+            if not is_new_run:
+                await tracker.detach_subscriber(_chat_spec.id, queue)
+                raise RuntimeError(
+                    "A task is already running for this cron chat",
+                )
+
+            async for _ in tracker.stream_from_queue(
+                queue,
+                _chat_spec.id,
+                cancel_run=True,
+            ):
+                pass
+            if error is not None:
+                raise error
+
         try:
             await asyncio.wait_for(
-                _run(),
+                _run_tracked(),
                 timeout=job.runtime.timeout_seconds,
             )
             await append_trace_from_session_delta(

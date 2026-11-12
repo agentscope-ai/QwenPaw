@@ -46,9 +46,9 @@ def _capture_runtime_selection(get_runtime, is_frozen=None):
 
 def host_bundle_identity():
     """Bind desktop recovery to the bundle independently of runtime policy."""
-    from .channel_bootstrap import plugin_runtime_site, runtime_manifest
+    from .channel_bootstrap import bundle_runtime_identity
 
-    return plugin_runtime_site(Path("/"), runtime_manifest()).parent.name
+    return bundle_runtime_identity()
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,6 @@ from typing import Any
 from ..app.chats.models import ChatSpec
 from ..agents.context.scroll.sync import import_session_history
 from ..utils.io_utils import run_sync_io
-from ..harnesses.session import HarnessSessionBridge
 from .import_support import (
     _chat_id,
     _progress_milestone,
@@ -44,6 +43,8 @@ async def import_conversations(
     state: ConversationState,
 ) -> None:
     """Import readable root chats and archive old imported internals."""
+    from ..runtime.backends.session import HarnessSessionBridge
+
     bridge = HarnessSessionBridge(workspace.session)
     if inventory.ignored_session_ids:
         await _report(progress, "正在整理此前误导入的内部执行轨迹…")

@@ -108,6 +108,15 @@ configured fallback model when one is used.
 Type in the input box at the bottom, then press **Enter** or click the send
 button (↑). QwenPaw replies in real time.
 
+**Quote a response:**
+Select text in an assistant reply (including code), then click **Quote to follow-up**.
+On touch screens, long-press to select text; keyboard users can press
+**Alt+Shift+Q** after selecting. **Escape** dismisses the action.
+The selected text is appended to your current draft as an editable Markdown
+blockquote (`>`), with line breaks and indentation preserved. Add your question
+and send normally; the quote is part of your user message. Drafts stay separate
+for each conversation and agent.
+
 **Voice input:**
 The composer supports **voice input** (browser and OS microphone permission
 required). Behavior matches **Voice transcription** settings (e.g. transcribe
@@ -671,6 +680,18 @@ python -c "import whisper; print('openai-whisper installed')"
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
 | Token Usage           | Settings → Token Usage         | Usage by date/model                            |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
+
+---
+
+## Community account connection
+
+Under **Settings → Community & Messages**, enter your Platform account and password and select **Save and connect**. Replacement credentials are validated before changing the existing connection. Leaving the password blank reuses the saved password only for the same account. Disconnecting pauses automatic login; **Forget saved credentials** removes the stored account and password.
+
+Credentials are encrypted in `SECRET_DIR/community_credentials.json`. They are not exported to tool process environments or exposed in general environment settings. The credential file and encryption key reside in the private directory protected by File Guard; POSIX permissions are `0600` for the file and `0700` for the directory. File Guard does not provide OS-level isolation against arbitrary code running as the same user. Keep it enabled and use an appropriate sandbox for untrusted tools.
+
+Persist the private directory and its key when recreating Docker containers, and retain the working directory to preserve the existing connection state. Save and update community credentials through the settings page; deployment environment variables are not used for login.
+
+Remote login requires an authenticated owner and an HTTPS entry point. For standalone TLS-terminating proxies, configure their IP/CIDR in `security.trusted_proxies`, preserve the public Host, and send `X-Forwarded-Proto: https`. For Hub, set `control_plane.public_base_url`; TLS-terminating proxies must also be listed in `control_plane.security.trusted_proxy_ips`. Hub validates the entry protocol and supplies a trusted public origin to the personal runtime, stripping client-supplied internal origin headers.
 
 ---
 
