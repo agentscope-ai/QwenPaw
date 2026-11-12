@@ -13,6 +13,7 @@ mod notification_delivery;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod macos_dev_bundle;
 mod runtime_env;
+mod startup_diagnostics;
 mod tray;
 mod updates;
 #[cfg(windows)]
@@ -31,24 +32,36 @@ fn open_devtools(window: WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and attach to the shared runtime.
 pub fn run() {
+    startup_diagnostics::init(startup_diagnostics::Mode::Desktop);
+    startup_diagnostics::record("Load desktop context", "started");
     let context = tauri::generate_context!();
+    startup_diagnostics::set_desktop_version(&context.package_info().version.to_string());
     #[cfg(all(target_os = "macos", debug_assertions))]
     if let Err(error) = macos_dev_bundle::relaunch_if_needed(
         &context.config().identifier,
-        context.config().product_name.as_deref().unwrap_or("QwenPaw Desktop"),
+        context
+            .config()
+            .product_name
+            .as_deref()
+            .unwrap_or("QwenPaw Desktop"),
         env!("CARGO_PKG_VERSION"),
     ) {
-        eprintln!("[desktop] {error}");
+        startup_diagnostics::report_fatal("Prepare macOS development bundle", &error);
         std::process::exit(1);
     }
+    startup_diagnostics::record("Register desktop window", "started");
     let registration = match updates::coordination::register_desktop(&context.config().identifier) {
         Ok(Some(registration)) => registration,
-        Ok(None) => return,
+        Ok(None) => {
+            startup_diagnostics::record("Update deferred", "Desktop start deferred while updating");
+            return;
+        }
         Err(error) => {
-            eprintln!("[QwenPaw Desktop] Cannot register this window: {error}");
+            startup_diagnostics::report_fatal("Register desktop window", &error);
             std::process::exit(1);
         }
     };
+    startup_diagnostics::record("Build desktop application", "started");
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -94,18 +107,14 @@ pub fn run() {
         .manage(notifications::NotificationState::default())
         .manage(notification_delivery::ActivationState::default())
         .setup(|app| {
-            updates::coordination::setup(app.handle())?;
-            backend::setup(app)?;
-            tray::setup(app)?;
-            #[cfg(windows)]
-            if let Err(error) = notification_delivery::setup(app.handle()) {
-                log::error!("Could not register desktop notification activation: {error}");
-            }
-            #[cfg(windows)]
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(err) = webview_recovery::install(&window) {
-                    log::error!("[webview] failed to install browser-process recovery: {err}");
-                }
+            // Tauri runs setup inside the event loop and panics on errors, which
+            // release builds never show. Report and exit here instead.
+            if let Err(error) = setup_desktop(app) {
+                startup_diagnostics::report_fatal(
+                    &startup_diagnostics::current_stage(),
+                    &startup_diagnostics::error_chain(error.as_ref()),
+                );
+                std::process::exit(1);
             }
             Ok(())
         })
@@ -119,6 +128,10 @@ pub fn run() {
 
     match build_result {
         Ok(app) => {
+            startup_diagnostics::record(
+                "Desktop application built",
+                "Setup runs when the event loop starts",
+            );
             app.run(|app_handle, event| match event {
                 RunEvent::ExitRequested { api, code, .. } => {
                     #[cfg(windows)]
@@ -148,13 +161,45 @@ pub fn run() {
             });
         }
         Err(err) => {
-            eprintln!("[QwenPaw Desktop] Fatal startup error: {err}");
+            startup_diagnostics::report_fatal(
+                &startup_diagnostics::current_stage(),
+                &startup_diagnostics::error_chain(&err),
+            );
             std::process::exit(1);
         }
     }
 }
 
+/// Initialize coordination, logging, backend attachment and the tray.
+fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    startup_diagnostics::record("Initialize installation coordination", "started");
+    updates::coordination::setup(app.handle())?;
+    startup_diagnostics::record(
+        "Initialize desktop logging and backend attachment",
+        "started",
+    );
+    backend::setup(app)?;
+    startup_diagnostics::record("Initialize system tray", "started");
+    tray::setup(app)?;
+    #[cfg(windows)]
+    if let Err(error) = notification_delivery::setup(app.handle()) {
+        log::error!("Could not register desktop notification activation: {error}");
+    }
+    #[cfg(windows)]
+    if let Some(window) = app.get_webview_window("main") {
+        if let Err(err) = webview_recovery::install(&window) {
+            log::error!("[webview] failed to install browser-process recovery: {err}");
+        }
+    }
+    startup_diagnostics::record("Desktop ready", "Desktop setup completed");
+    Ok(())
+}
+
 /// Run the detached desktop supervisor without constructing a WebView.
 pub fn run_agent_host() -> Result<(), String> {
-    backend::daemon::run()
+    startup_diagnostics::init(startup_diagnostics::Mode::AgentHost);
+    startup_diagnostics::record("Start background supervisor", "started");
+    backend::daemon::run().inspect_err(|error| {
+        startup_diagnostics::report_fatal("Start background supervisor", error);
+    })
 }

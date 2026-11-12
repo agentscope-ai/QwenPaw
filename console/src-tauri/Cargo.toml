@@ -88,6 +88,10 @@ windows = { version = "0.61.3", features = [
     "UI_Notifications",
 ] }
 
+[target.'cfg(not(windows))'.dependencies]
+# Native startup error dialog; Windows uses MessageBoxW instead.
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

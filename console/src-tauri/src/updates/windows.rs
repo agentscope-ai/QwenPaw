@@ -42,11 +42,24 @@ impl Installer {
         } {
             Ok(process) => process,
             Err(e) if e.code() == ERROR_INVALID_PARAMETER.to_hresult() => return Ok(false),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                return Err(format!(
+                    "Cannot query installer process PID {}: {e}",
+                    self.pid
+                ))
+            }
         };
-        let result = creation_time(process).map(|created| {
-            created == self.created && unsafe { WaitForSingleObject(process, 0) } == WAIT_TIMEOUT
-        });
+        let result = creation_time(process)
+            .map_err(|e| {
+                format!(
+                    "Cannot read installer creation time for PID {}: {e}",
+                    self.pid
+                )
+            })
+            .map(|created| {
+                created == self.created
+                    && unsafe { WaitForSingleObject(process, 0) } == WAIT_TIMEOUT
+            });
         let _ = unsafe { CloseHandle(process) };
         result
     }
@@ -101,4 +114,28 @@ pub(super) fn launch_installer(
     let _ = unsafe { CloseHandle(process.hThread) };
     let _ = unsafe { CloseHandle(process.hProcess) };
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    #[test]
+    fn matching_live_process_keeps_installation_guard_active() {
+        let installer = Installer {
+            pid: std::process::id(),
+            created: creation_time(unsafe { GetCurrentProcess() }).unwrap(),
+        };
+        assert!(installer.running().unwrap());
+    }
+
+    #[test]
+    fn mismatched_creation_time_does_not_keep_installation_guard_active() {
+        let installer = Installer {
+            pid: std::process::id(),
+            created: 0,
+        };
+        assert!(!installer.running().unwrap());
+    }
 }
