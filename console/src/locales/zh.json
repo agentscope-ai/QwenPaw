@@ -3070,6 +3070,8 @@
     "download": "下载",
     "downloadFailed": "文件下载失败",
     "resize": "调整文件抽屉宽度",
+    "enterFullscreen": "全屏预览",
+    "exitFullscreen": "退出全屏预览",
     "loadFailed": "文件加载失败。请确认文件仍在当前智能体工作区的主工作目录中。",
     "previewUnavailable": "暂不支持预览，仍可查看元数据并下载。",
     "mentionInChat": "在聊天中引用",
