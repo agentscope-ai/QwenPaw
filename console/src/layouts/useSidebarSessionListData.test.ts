@@ -16,7 +16,10 @@ import { ApiError } from "../api/request";
 import { useChatRouteResolution } from "../pages/Chat/hooks/useChatRouteResolution";
 import sessionApi from "../pages/Chat/sessionApi";
 import { useAgentStore } from "../stores/agentStore";
-import { useSessionListStore } from "../stores/sessionListStore";
+import {
+  SESSION_LIST_REFRESH_EVENT,
+  useSessionListStore,
+} from "../stores/sessionListStore";
 import { useMessageQueueStore } from "../stores/messageQueueStore";
 import { SessionListPollingController } from "../components/SessionListPollingController";
 import {
@@ -815,6 +818,141 @@ describe("SessionListPollingController", () => {
     });
     expect(listSpy.mock.calls.length).toBe(callsAfterInitial);
     sessionApi.isSessionSwitching = false;
+  });
+
+  it("coalesces completion events into one refresh after an in-flight request", async () => {
+    const pending = deferred<ExtendedChatSession[]>();
+    const completed = {
+      ...makeSession("s1"),
+      lastFinishedAt: "2026-11-09T10:00:00Z",
+    };
+    const listSpy = vi
+      .spyOn(sessionApi, "getSessionList")
+      .mockReturnValueOnce(pending.promise)
+      .mockResolvedValue([completed]);
+    renderActive(vi.fn());
+
+    act(() => {
+      for (let i = 0; i < 3; i++) {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      }
+    });
+    expect(listSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => pending.resolve([makeSession("s1")]));
+
+    expect(listSpy).toHaveBeenCalledTimes(2);
+    expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+      completed.lastFinishedAt,
+    );
+  });
+
+  it.each([false, true])(
+    "refreshes queued completion metadata immediately after switching (hidden: %s)",
+    async (hidden) => {
+      vi.spyOn(document, "hidden", "get").mockReturnValue(hidden);
+      const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+      renderActive(vi.fn());
+      await act(() => vi.advanceTimersByTimeAsync(0));
+
+      sessionApi.startNewSwitch();
+      listSpy.mockResolvedValue([
+        { ...makeChat("s1"), last_finished_at: "2026-11-09T10:00:00Z" },
+      ]);
+      act(() => {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      });
+      expect(listSpy).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        sessionApi.finishSessionSwitch();
+        window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+      });
+
+      expect(listSpy).toHaveBeenCalledTimes(2);
+      expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+        "2026-11-09T10:00:00Z",
+      );
+      await act(async () => {
+        window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+      });
+      expect(listSpy).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["before", "after"])(
+    "preserves a queued refresh when switching finishes %s the in-flight request",
+    async (switchFinishes) => {
+      const pending = deferred<ExtendedChatSession[]>();
+      const completed = {
+        ...makeSession("s1"),
+        lastFinishedAt: "2026-11-09T10:00:00Z",
+      };
+      const listSpy = vi
+        .spyOn(sessionApi, "getSessionList")
+        .mockReturnValueOnce(pending.promise)
+        .mockResolvedValue([completed]);
+      renderActive(vi.fn());
+
+      sessionApi.startNewSwitch();
+      act(() => {
+        document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+      });
+      if (switchFinishes === "before") {
+        act(() => {
+          sessionApi.finishSessionSwitch();
+          window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+        });
+        expect(listSpy).toHaveBeenCalledTimes(1);
+      }
+
+      await act(async () => pending.resolve([makeSession("s1")]));
+
+      if (switchFinishes === "after") {
+        expect(listSpy).toHaveBeenCalledTimes(1);
+        await act(async () => {
+          sessionApi.finishSessionSwitch();
+          window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+        });
+      }
+      expect(listSpy).toHaveBeenCalledTimes(2);
+      expect(useSessionListStore.getState().sessions[0]?.lastFinishedAt).toBe(
+        completed.lastFinishedAt,
+      );
+    },
+  );
+
+  it("does not refresh after switching without a queued completion event", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    sessionApi.startNewSwitch();
+    await act(async () => {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("discards a queued refresh when the controller unmounts during switching", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    const controller = renderActive(vi.fn());
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    sessionApi.startNewSwitch();
+    act(() => {
+      document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+    });
+    controller.unmount();
+    await act(async () => {
+      sessionApi.finishSessionSwitch();
+      window.dispatchEvent(new Event("qwenpaw:sidebar-switch-done"));
+    });
+
+    expect(listSpy).toHaveBeenCalledTimes(1);
   });
 
   it("waits ten seconds before refreshing an idle session list", async () => {
