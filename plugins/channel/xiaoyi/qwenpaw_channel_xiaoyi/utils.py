@@ -5,14 +5,8 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
-import shutil
-import uuid
 
-from qwenpaw.utils.io_utils import (
-    make_dirs_async,
-    run_sync_io,
-    write_bytes_async,
-)
+from qwenpaw.utils.io_utils import make_dirs_async, write_bytes_async
 
 from .constants import TEXT_CHUNK_LIMIT
 
@@ -45,7 +39,7 @@ def chunk_text(text: str) -> list[str]:
 
 
 async def download_file(url, media_dir: Path, filename, *, session):
-    """Publish a complete file in its own directory under the media root."""
+    """Save a downloaded file directly under the media root."""
     try:
         async with session.get(url) as response:
             if response.status >= 400:
@@ -67,16 +61,11 @@ async def download_file(url, media_dir: Path, filename, *, session):
         if not Path(safe_name).suffix:
             extension = mimetypes.guess_extension(content_type) or f".bin"
             safe_name = f"{safe_name}{extension}"
-        directory = media_dir / uuid.uuid4().hex
-        path = directory / safe_name
+        path = media_dir / safe_name
         if not path.resolve().is_relative_to(media_dir.resolve()):
             return None
-        try:
-            await make_dirs_async(directory)
-            await write_bytes_async(path, data)
-        except BaseException:
-            await run_sync_io(shutil.rmtree, directory, ignore_errors=True)
-            raise
+        await make_dirs_async(media_dir)
+        await write_bytes_async(path, data)
         return str(path)
     except Exception:
         return None

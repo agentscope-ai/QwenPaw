@@ -314,14 +314,16 @@ class XiaoYiDriver(SharedResponseDriver):
             ref.resource_id,
             resource,
         )
-        self._routes.record_delivery(handle, [intent])
         try:
-            await self._checkpoint()
-        except ValueError as exc:
-            self._routes.record_delivery(handle, [ref])
-            if str(exc) == f"RESPONSE_STATE_CAPACITY":
-                raise XiaoYiDeliveryError(f"RESPONSE_STATE_CAPACITY") from exc
-            raise
+            await self._checkpoint_intent(handle, intent)
+        except Exception as exc:
+            reason = (
+                f"RESPONSE_STATE_CAPACITY"
+                if isinstance(exc, ValueError)
+                and str(exc) == f"RESPONSE_STATE_CAPACITY"
+                else f"CHECKPOINT_FAILED"
+            )
+            raise XiaoYiDeliveryError(reason) from exc
 
         wrote_chunk = False
         kind = _STREAM_PART_KINDS[resource[f"stream_type"]]
@@ -357,28 +359,33 @@ class XiaoYiDriver(SharedResponseDriver):
     async def _perform_reaction(self, params):
         raise XiaoYiDeliveryError("REACTION_UNSUPPORTED")
 
-    async def _record_finish(self, snapshot, step, attributes):
-        ref = ResponseResourceRef.create("xiaoyi.finish", step, attributes)
-        updated = replace(
+    def _snapshot_with_resource(self, handle, ref):
+        snapshot = self._routes.snapshot(handle)
+        resources = {
+            (old.kind, old.resource_id): old for old in snapshot.resource_refs
+        }
+        resources[ref.kind, ref.resource_id] = ref
+        return replace(
             snapshot,
             version=snapshot.version + 1,
-            resource_refs=tuple(
-                sorted(
-                    [
-                        old
-                        for old in snapshot.resource_refs
-                        if (old.kind, old.resource_id)
-                        != (ref.kind, ref.resource_id)
-                    ]
-                    + [ref],
-                ),
-            ),
+            resource_refs=tuple(sorted(resources.values())),
         )
-        self._routes.restore(updated)
+
+    async def _checkpoint_intent(self, handle, ref):
+        async with self._checkpoint_lock:
+            candidate = self._snapshot_with_resource(handle, ref)
+            await self._write_checkpoint(candidate)
+            self._routes.restore(candidate)
+
+    async def _record_finish(self, handle, step, attributes):
+        ref = ResponseResourceRef.create(f"xiaoyi.finish", step, attributes)
+        # Keep the observed result even if the checkpoint is interrupted.
+        self._routes.restore(self._snapshot_with_resource(handle, ref))
         await self._checkpoint()
-        return updated
+        return self._routes.snapshot(handle)
 
     async def _before_cleanup_complete(self, snapshot):
+        handle = snapshot.response_handle
         route = dict(snapshot.route_refs[0].attributes)
         if not route.get("session_id") or not route.get("task_id"):
             return snapshot
@@ -409,7 +416,10 @@ class XiaoYiDriver(SharedResponseDriver):
                 "state": "unknown",
                 "reason_code": "PLATFORM_RESULT_UNKNOWN",
             }
-            snapshot = await self._record_finish(snapshot, step, attributes)
+            await self._checkpoint_intent(
+                handle,
+                ResponseResourceRef.create(f"xiaoyi.finish", step, attributes),
+            )
             try:
                 await platform.send_finish_step(route, step, state)
             except XiaoYiDeliveryError as exc:
@@ -417,10 +427,10 @@ class XiaoYiDriver(SharedResponseDriver):
                     state="unknown" if exc.side_effect_possible else "failed",
                     reason_code=exc.reason_code,
                 )
-                await self._record_finish(snapshot, step, attributes)
+                await self._record_finish(handle, step, attributes)
                 raise
             attributes.update(state="acknowledged", reason_code="")
-            snapshot = await self._record_finish(snapshot, step, attributes)
+            snapshot = await self._record_finish(handle, step, attributes)
         return snapshot
 
     def _compact_receipt(self, snapshot):

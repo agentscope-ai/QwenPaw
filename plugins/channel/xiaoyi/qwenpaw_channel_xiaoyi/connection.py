@@ -185,8 +185,8 @@ class XiaoYiConnection:
                 try:
                     await asyncio.wait_for(self._pong.wait(), PONG_TIMEOUT)
                 except TimeoutError:
-                    # Ingress backpressure can deliberately pause the reader.
-                    if self._dispatching_text:
+                    # The reader may be paused or receive Pong at the deadline.
+                    if self._dispatching_text or self._pong.is_set():
                         continue
                     logger.warning(
                         f"xiaoyi [%s]: Pong timeout",

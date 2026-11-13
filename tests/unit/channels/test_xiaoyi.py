@@ -18,6 +18,7 @@ from qwenpaw.channel_protocol.models import ResponseFinishParams
 from qwenpaw.config.config import ChannelConfig
 from qwenpaw.plugins.architecture import PluginManifest
 from qwenpaw.plugins.channel_adapter import describe_channel
+from qwenpaw.plugins.execution.errors import RpcError
 from qwenpaw.schemas import DataContent, Message, MessageType, TextContent
 from tests.channel_support.driver import ROOT, bind, module
 from tests.channel_support.protocol import eventually, finish, send
@@ -315,6 +316,26 @@ async def test_pong_timeout_reconnects_primary_only(
     assert connections[f"backup"] is backup and not backup.closed
 
 
+@pytest.mark.parametrize(f"xiaoyi", [{f"heartbeat": True}], indirect=True)
+async def test_pong_received_at_timeout_keeps_connection(xiaoyi, monkeypatch):
+    driver, _, _, _, _, _ = xiaoyi
+    connection = driver._platform._connections[f"primary"]
+    wait_for_pong = connection._pong.wait
+    pongs = 0
+
+    async def pong_at_deadline():
+        nonlocal pongs
+        await wait_for_pong()
+        pongs += 1
+        if pongs == 1:
+            raise TimeoutError
+
+    monkeypatch.setattr(module(f"xiaoyi", f"connection"), f"PONG_TIMEOUT", 1)
+    monkeypatch.setattr(connection._pong, f"wait", pong_at_deadline)
+    await eventually(lambda: pongs >= 2 or not connection.connected)
+    assert pongs >= 2 and connection.connected
+
+
 @pytest.mark.parametrize(
     f"xiaoyi",
     [{f"heartbeat": True, f"queue_size": 1}],
@@ -426,7 +447,10 @@ async def test_short_connections_exhaust_retries_on_custom_gateway(
     assert list(connections) == [f"primary"]
 
 
-async def test_same_name_attachments_keep_independent_files(xiaoyi):
+async def test_attachments_save_directly_and_replace_same_name(
+    xiaoyi,
+    tmp_path,
+):
     _, peer, _, connections, _, _ = xiaoyi
     ws_url = module(f"xiaoyi", f"platform").DEFAULT_WS_URL
     media = ws_url.replace(f"ws://", f"http://").replace(
@@ -441,6 +465,13 @@ async def test_same_name_attachments_keep_independent_files(xiaoyi):
             name=f"CON.txt",
         ),
     )
+    await eventually(lambda: len(peer.batches) == 1)
+    first = peer.batches[0][f"events"][0][f"content_parts"]
+    assert first[0][f"text"] == f"hello [CON.txt: download failed]"
+    path = tmp_path / f"media" / f"_CON.txt"
+    assert first[1][f"file_url"] == str(path)
+    assert path.read_bytes() == b"first"
+
     await connections[f"backup"].send_json(
         with_files(
             f"second",
@@ -450,19 +481,17 @@ async def test_same_name_attachments_keep_independent_files(xiaoyi):
         ),
     )
     await eventually(lambda: len(peer.batches) == 2)
-    events = {
-        event[f"metadata"][f"native_message_id"]: event[f"content_parts"]
-        for batch in peer.batches
-        for event in batch[f"events"]
-    }
-    first, second = events[f"first"], events[f"second"]
-    assert first[0][f"text"] == f"hello [CON.txt: download failed]"
-    files = [first[1], second[1]]
-    assert [file[f"filename"] for file in files] == [f"CON.txt", f"CON.txt"]
-    paths = [Path(file[f"file_url"]) for file in files]
-    assert paths[0] != paths[1]
-    assert all(path.name == f"_CON.txt" for path in paths)
-    assert [path.read_bytes() for path in paths] == [b"first", b"second"]
+    second = peer.batches[1][f"events"][0][f"content_parts"]
+    assert (
+        first[1]
+        == second[1]
+        == {
+            f"type": f"file",
+            f"file_url": str(path),
+            f"filename": f"CON.txt",
+        }
+    )
+    assert path.read_bytes() == b"second"
 
 
 async def test_stop_joins_pending_attachment_work(xiaoyi, monkeypatch):
@@ -651,6 +680,10 @@ async def test_worker_uses_configured_reply_mode(
         await asyncio.wait_for(running, 3)
         await eventually(lambda: len(results(xiaoyi)) == before_final + 3)
         rows = [row for _, row in results(xiaoyi)]
+        assert rows[-2][f"status"][f"state"] == f"completed"
+        assert rows[-2][f"status"][f"message"][f"parts"] == [
+            {f"kind": f"text", f"text": f"Done"},
+        ]
         assert rows[-1][f"final"] and rows[-1][f"append"]
         artifacts = [row for row in rows[:-1] if f"artifact" in row]
         append = not streaming_enabled
@@ -847,6 +880,51 @@ async def test_cancel_ends_task_after_the_closed_preview(xiaoyi):
 
 
 @pytest.mark.parametrize(f"xiaoyi", [STREAMING], indirect=True)
+@pytest.mark.parametrize(
+    (f"error", f"reason"),
+    [
+        (RpcError(-32603, f"internal error"), f"CHECKPOINT_FAILED"),
+        (ValueError(f"RESPONSE_STATE_CAPACITY"), f"RESPONSE_STATE_CAPACITY"),
+    ],
+)
+async def test_stream_checkpoint_failure_preserves_previous_delivery(
+    xiaoyi,
+    monkeypatch,
+    error,
+    reason,
+):
+    driver, peer, identity, _, _, _ = xiaoyi
+    handle = (await receive(xiaoyi))[f"response_handle"]
+    await stream(peer, identity, handle, 0, f"...")
+    await stream(peer, identity, handle, 1, f"preview")
+    previous = driver._delivery_resource(handle, f"message-stream")
+    original = peer.call
+
+    async def fail_stream_intent(name, params):
+        if name == f"host.state.put" and any(
+            ref[f"attributes"].get(f"unsettled") == f"true"
+            for snapshot in params[f"value"]
+            for ref in snapshot[f"resource_refs"]
+        ):
+            raise error
+        return await original(name, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(peer, f"call", fail_stream_intent)
+        reply = await stream(peer, identity, handle, 2, f"unsent")
+    assert reply[f"state"] == f"failed" and reply[f"reason_code"] == reason
+    assert driver._delivery_resource(handle, f"message-stream") == previous
+    reply = await stream(peer, identity, handle, 3, f"answer", end=True)
+    assert reply[f"state"] == f"acknowledged"
+    await finish(peer, identity, handle)
+    await eventually(lambda: len(results(xiaoyi)) == 4)
+    preview, answer, status, final = [row for _, row in results(xiaoyi)]
+    assert preview[f"artifact"][f"parts"][0][f"text"] == f"preview"
+    assert answer[f"artifact"][f"parts"][0][f"text"] == f"answer"
+    assert status[f"status"][f"state"] == f"completed" and final[f"final"]
+
+
+@pytest.mark.parametrize(f"xiaoyi", [STREAMING], indirect=True)
 async def test_partial_stream_write_keeps_unknown_receipt(xiaoyi, monkeypatch):
     driver, peer, identity, _, _, _ = xiaoyi
     handle = (await receive(xiaoyi))[f"response_handle"]
@@ -930,13 +1008,35 @@ async def test_native_text_keeps_session_task_and_same_server_reply(
     ]
 
 
-async def test_completed_response_sends_status_then_final_empty_artifact_once(
+@pytest.mark.parametrize(f"failed_step", [f"completed", f"final"])
+async def test_finish_retries_unsent_frame_without_repeating_sent_frames(
     xiaoyi,
+    monkeypatch,
+    failed_step,
 ):
     _, peer, identity, _, _, _ = xiaoyi
     event = await receive(xiaoyi)
-    await send(peer, identity, event["response_handle"])
-    await finish(peer, identity, event["response_handle"])
+    handle = event[f"response_handle"]
+    await send(peer, identity, handle)
+    original = peer.call
+
+    async def fail_finish_intent(name, params):
+        if name == f"host.state.put" and any(
+            ref[f"kind"] == f"xiaoyi.finish"
+            and ref[f"resource_id"] == failed_step
+            and ref[f"attributes"][f"state"] == f"unknown"
+            for snapshot in params[f"value"]
+            for ref in snapshot[f"resource_refs"]
+        ):
+            raise RpcError(-32603, f"internal error")
+        return await original(name, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(peer, f"call", fail_finish_intent)
+        with pytest.raises(RpcError) as failure:
+            await finish(peer, identity, handle)
+    assert failure.value.data[f"reason_code"] == f"RESPONSE_FINISH_FAILED"
+    await finish(peer, identity, handle)
     await eventually(lambda: len(results(xiaoyi)) == 3)
     rows = [result for _, result in results(xiaoyi)]
     assert [result["kind"] for result in rows] == [
@@ -953,8 +1053,44 @@ async def test_completed_response_sends_status_then_final_empty_artifact_once(
     assert rows[2]["final"] is True and rows[2]["artifact"]["parts"] == [
         {"kind": "text", "text": ""},
     ]
-    await finish(peer, identity, event["response_handle"])
+    await finish(peer, identity, handle)
     assert len(results(xiaoyi)) == 3
+
+
+async def test_finish_keeps_sent_status_when_cancelled_during_checkpoint(
+    xiaoyi,
+    monkeypatch,
+):
+    driver, peer, identity, _, _, _ = xiaoyi
+    handle = (await receive(xiaoyi))[f"response_handle"]
+    send_finish_step = driver._platform.send_finish_step
+    status_sent = asyncio.Event()
+
+    async def block_checkpoint(route, step, state):
+        await send_finish_step(route, step, state)
+        if step == f"completed":
+            await driver._checkpoint_lock.acquire()
+            status_sent.set()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(driver._platform, f"send_finish_step", block_checkpoint)
+        finishing = asyncio.create_task(finish(peer, identity, handle))
+        try:
+            await asyncio.wait_for(status_sent.wait(), 3)
+            finishing.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await finishing
+        finally:
+            if status_sent.is_set():
+                driver._checkpoint_lock.release()
+            if not finishing.done():
+                finishing.cancel()
+                await asyncio.gather(finishing, return_exceptions=True)
+
+    await finish(peer, identity, handle)
+    await eventually(lambda: any(row[f"final"] for _, row in results(xiaoyi)))
+    status, final = [row for _, row in results(xiaoyi)]
+    assert status[f"status"][f"state"] == f"completed" and final[f"final"]
 
 
 async def test_one_primary_disconnect_falls_back_to_backup_for_reply(xiaoyi):
