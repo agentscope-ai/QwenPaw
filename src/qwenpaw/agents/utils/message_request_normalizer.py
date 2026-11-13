@@ -119,7 +119,7 @@ def mark_media_omitted_after_overflow(msgs: list[Msg]) -> int:
     """Mark historical omissions in memory while retaining original media.
 
     Keep original assets and the active turn. Only mark historical media
-    after the provider has rejected the request body size. The next session
+    after the provider has rejected the media payload. The next session
     state save serializes these markers; this function does not write to
     disk or update history.db.
     """
@@ -459,8 +459,12 @@ def _strip_media_blocks_in_place(
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
-                if filtered:
-                    replacement: Any = filtered
+                if stripped_count and should_strip is _is_media_block:
+                    # Do not leave success text such as "Image loaded" after
+                    # removing the media it refers to from a retry request.
+                    replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
+                elif filtered:
+                    replacement = filtered
                 elif stripped_count:
                     replacement = MEDIA_UNSUPPORTED_PLACEHOLDER
                 else:
