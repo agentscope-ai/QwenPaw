@@ -1,3 +1,5 @@
+import { getApiUrl } from "../api/config";
+
 const REQUEST_TIMEOUT_MS = 2500;
 const READINESS_TIMEOUT_MS = 30_000;
 const PROBE_INTERVAL_MS = 1000;
@@ -136,7 +138,7 @@ export async function waitForChunkServerReady(
       report.attempts += 1;
       try {
         const version = await readResponse(
-          new URL("/api/version", page),
+          new URL(getApiUrl("/version"), page),
           controller.signal,
           report,
         );
