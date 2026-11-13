@@ -30,6 +30,7 @@ concurrency:
   # Shared with plugins-release.yml so index merges never run concurrently.
   group: plugins-release
   cancel-in-progress: false
+  queue: max
 
 env:
   PLUGIN_DIR: plugins/apps/qwenpaw-creator

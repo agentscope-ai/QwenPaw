@@ -24,6 +24,7 @@ on:
 concurrency:
   group: plugins-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   upload-oss:

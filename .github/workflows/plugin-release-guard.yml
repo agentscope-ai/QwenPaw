@@ -29,6 +29,7 @@ jobs:
     concurrency:
       group: plugins-release
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@v4
         with:

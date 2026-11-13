@@ -18,6 +18,7 @@ permissions:
 concurrency:
   group: plugins-release
   cancel-in-progress: false
+  queue: max
 
 env:
   OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
