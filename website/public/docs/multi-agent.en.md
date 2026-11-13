@@ -114,6 +114,8 @@ In **Settings → Agent Management** page:
 - Click "Edit" button to modify agent's name and description (after modifying description, the system will automatically update PROFILE.md)
 - Click "Delete" button to remove agent (default agent cannot be deleted)
 
+The `default` agent can be edited from its card or detail view, including its name, description, backend, and mail settings. Its ID and workspace stay fixed, and it cannot be deleted, disabled, unpinned, or reordered.
+
 ---
 
 ## Example Scenarios
