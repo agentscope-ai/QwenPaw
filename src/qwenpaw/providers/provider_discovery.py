@@ -24,6 +24,21 @@ DiscoveryErrorKind = Literal[
     "configuration",
 ]
 
+# Explicit None in model_fields_set means "successful probe, clear stale
+# value" for these discovery fields. Failed probes omit the field so merge
+# keeps the previous value.
+#
+# Fetched models must not go through a model_dump()/model_validate()
+# round trip before merge. That would put every default None into
+# model_fields_set, so a failed probe would be treated as an explicit
+# clear. The current fetch-then-merge pipeline is safe because probed
+# models keep omitted fields unset.
+DISCOVERY_CLEARABLE_NONE_FIELDS = frozenset(
+    {
+        "max_input_length_auto_detected",
+    },
+)
+
 DISCOVERY_MODEL_FIELDS = (
     "model_type",
     f"released_at",
@@ -82,7 +97,17 @@ def merge_discovered_model(
         base is not None and base.max_output_length_source == "user"
     )
     for field in remote.model_fields_set:
-        if getattr(remote, field) is None:
+        value = getattr(remote, field)
+        if value is None:
+            # Successful discovery may explicitly clear stale API facts
+            # (e.g. Ollama show omitted num_ctx). Failed probes omit the
+            # field from model_fields_set so the previous value is kept.
+            if (
+                field in DISCOVERY_CLEARABLE_NONE_FIELDS
+                and base is not None
+                and field not in config_overrides
+            ):
+                payload[field] = None
             continue
         if base is not None:
             if field in config_overrides:
@@ -97,7 +122,7 @@ def merge_discovered_model(
                 "max_input_length_configured",
             }:
                 continue
-        payload[field] = getattr(remote, field)
+        payload[field] = value
     payload.update(
         {
             "id": remote.id,
@@ -132,16 +157,21 @@ def apply_discovery_metadata(
         overridden = set(configured.config_overrides)
         user_output_capability = configured.max_output_length_source == "user"
         for field in DISCOVERY_MODEL_FIELDS:
+            if field not in remote.model_fields_set:
+                continue
+            if field in overridden:
+                continue
             if (
-                field in remote.model_fields_set
-                and getattr(remote, field) is not None
-                and field not in overridden
-                and not (
-                    field.startswith("max_output_length")
-                    and user_output_capability
-                )
+                field.startswith("max_output_length")
+                and user_output_capability
             ):
-                setattr(configured, field, getattr(remote, field))
+                continue
+            value = getattr(remote, field)
+            if value is None:
+                if field in DISCOVERY_CLEARABLE_NONE_FIELDS:
+                    setattr(configured, field, None)
+                continue
+            setattr(configured, field, value)
         if (
             remote.max_output_length is not None
             and "max_output_length" not in overridden

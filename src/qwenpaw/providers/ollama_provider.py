@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """An Ollama provider implementation."""
 
+from __future__ import annotations
+
 import os
-from typing import Any
+from typing import Any, List
 
 from agentscope.model import ChatModelBase
 from openai import AsyncOpenAI
 
 from qwenpaw.providers.capping_formatter import _CappingOpenAIFormatter
+from qwenpaw.providers.model_info import ModelInfo
+from qwenpaw.providers.ollama_discovery import enrich_listed_models
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelConnectionResult
 
@@ -59,8 +63,12 @@ class OllamaProvider(OpenAIProvider):
         model_id: str,
         timeout: float = 5,
     ) -> ModelConnectionResult:
-        """Check if a specific model is reachable/usable"""
-        models = await self.fetch_models(timeout=timeout)
+        """Confirm the model id is listed via ``/v1/models`` only.
+
+        ``fetch_models`` also probes ``/api/show`` for every model. A
+        connection check must not do that.
+        """
+        models = await super().fetch_models(timeout=timeout)
         if any(model.id == model_id for model in models):
             return ModelConnectionResult(
                 success=True,
@@ -73,13 +81,72 @@ class OllamaProvider(OpenAIProvider):
             verification="provider_only",
         )
 
+    def _native_probe_headers(self) -> dict[str, str]:
+        """Headers for native ``/api/show`` probes.
+
+        The OpenAI-compatible client already sends ``api_key`` and
+        ``_build_default_headers()``. Secured Ollama can accept
+        ``/v1/models`` and reject bare native calls, so these probes carry
+        the same material. An Authorization value already configured in
+        the headers is left unchanged.
+        """
+        headers = {
+            str(key): str(value)
+            for key, value in (self._build_default_headers() or {}).items()
+        }
+        if any(
+            str(key).lower() == "authorization" and str(value).strip()
+            for key, value in headers.items()
+        ):
+            return headers
+        api_key = (self.api_key or "").strip()
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
     def _context_catalog_enabled(self) -> bool:
         """Ollama serves models locally: the family's cloud window does not
         apply (a local ``qwen3-coder:30b`` truncates at ``num_ctx``, not at
         262k). Skip the static catalog; an explicit per-model
-        ``max_input_length`` still wins, everything else gets the 128k
-        default."""
+        ``max_input_length`` still wins. When discovery has populated
+        ``max_input_length_auto_detected`` from ``/api/show``, that
+        value is used; otherwise the 128k default remains."""
         return False
+
+    async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
+        """List models, then attach Ollama's real context window when known.
+
+        The OpenAI-compatible ``/v1/models`` rows do not carry context
+        metadata, so without this step every Ollama model stays at the
+        128k placeholder and compaction never aligns with ``num_ctx``.
+
+        A failed ``/api/show`` or malformed ``parameters`` leaves that
+        model unchanged so merge can keep a previous auto-detected
+        window. A successful show that omitted ``num_ctx`` clears
+        ``max_input_length_auto_detected``.
+
+        An explicit Modelfile ``num_ctx`` is clamped to the training
+        context (``model_info[general.architecture + ".context_length"]``)
+        when that cap is a positive integer. Chat ``generate_kwargs``
+        ``num_ctx`` is not used: the OpenAI-compatible endpoint cannot
+        set the context size. With no explicit Modelfile ``num_ctx``,
+        the 128k default remains.
+
+        ``timeout`` is a shared wall-clock deadline for the ``/api/show``
+        probes. HTTPX's per-call timeout does not cap total response
+        time, so a slow ``/api/show`` is cancelled at this deadline.
+        When it expires, completed ``/api/show`` results are kept; only
+        unfinished probes stay unset.
+        """
+        models = await super().fetch_models(timeout=timeout)
+        if not models:
+            return models
+        return await enrich_listed_models(
+            self.base_url,
+            self._native_probe_headers(),
+            models,
+            timeout,
+        )
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential._openai import OpenAICredential
