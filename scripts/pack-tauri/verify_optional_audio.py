@@ -16,7 +16,7 @@ def verify(bundle: Path) -> dict:
 
     internal = bundle / "_internal"
     optional = internal / "qwenpaw/plugins/optional/local_whisper"
-    for name in ("main.py", "plugin.json"):
+    for name in ("plugin.py", "plugin.json"):
         if not (optional / name).is_file():
             raise ValueError(f"Missing optional Whisper adapter: {name}")
     forbidden = set()

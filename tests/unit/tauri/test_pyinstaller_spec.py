@@ -5,6 +5,8 @@ import ast
 import importlib.util
 from pathlib import Path
 import runpy
+import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -200,6 +202,29 @@ def test_optional_runtimes_stay_out_of_full_and_desktop():
         "codex_cli_bin",
         "qoder_agent_sdk",
     } <= excluded
+
+
+def test_optional_audio_verifier_accepts_shipped_plugin(tmp_path, monkeypatch):
+    """Validate the real adapter files without building desktop executables."""
+    bundle = tmp_path / "bundle"
+    shutil.copytree(
+        REPO_ROOT / "src/qwenpaw/plugins/optional/local_whisper",
+        bundle / "_internal/qwenpaw/plugins/optional/local_whisper",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    archive = SimpleNamespace(
+        toc={"PYZ.pyz": None},
+        open_embedded_archive=lambda _name: SimpleNamespace(toc={}),
+    )
+    monkeypatch.setattr(
+        "PyInstaller.archive.readers.CArchiveReader",
+        lambda _path: archive,
+    )
+    verify = runpy.run_path(
+        str(SPEC_PATH.parent / "verify_optional_audio.py"),
+    )["verify"]
+
+    assert verify(bundle)["optional_audio_check"] == "passed"
 
 
 def test_desktop_spec_reaches_analysis_without_vendor_sdks(
