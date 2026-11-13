@@ -31,7 +31,7 @@ def _dependency_names(project, extra):
     [(None, False), ("full", False), ("whisper", True)],
     ids=["default-excludes-whisper", "full-excludes-whisper", "whisper-extra"],
 )
-def test_whisper_is_only_installed_when_requested(extra, includes_whisper):
+def test_whisper_dependency_is_opt_in(extra, includes_whisper):
     path = Path(__file__).parents[3] / "pyproject.toml"
     project = tomllib.loads(path.read_text(encoding="utf-8"))["project"]
 

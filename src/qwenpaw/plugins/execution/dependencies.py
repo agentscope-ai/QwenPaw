@@ -890,7 +890,7 @@ def _file_top_levels(declared, files):
     return tuple(sorted(tops))
 
 
-def _complete_dependency_file_tops(snapshot, names):
+def _complete_dependency_top_levels(snapshot, names):
     """Inspect a pinned set of existing providers without importing them."""
     rows = dict(snapshot.distributions)
     for name in names:

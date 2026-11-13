@@ -1077,7 +1077,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         backend = self._loader.registry.get_transcription_backend(backend_id)
         if backend is None:
             raise SDKError(f"Unknown transcription backend: {backend_id}")
-        return await backend.call(
+        return await backend.transcribe(
             file_path=file_path,
             workspace_id=workspace_id,
             session_id=session_id,
@@ -1090,7 +1090,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
         backend = self._loader.registry.get_transcription_backend(backend_id)
         if backend is None:
             raise SDKError(f"Unknown transcription backend: {backend_id}")
-        return await backend.call()
+        return await backend.status()
 
     async def discover_models(self, provider_id: str) -> tuple[ModelInfo, ...]:
         from ..providers.provider_manager import ProviderManager

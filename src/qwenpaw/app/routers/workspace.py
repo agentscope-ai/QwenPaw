@@ -1418,7 +1418,7 @@ async def put_transcription_provider_type(
 )
 async def get_local_whisper_status() -> dict:
     """Read installation readiness and the last dependency import result."""
-    from ...plugins.local_transcription import get_runtime_status
+    from ...plugins.local_whisper import get_runtime_status
 
     return await get_runtime_status()
 
@@ -1426,7 +1426,7 @@ async def get_local_whisper_status() -> dict:
 @router.post("/local-whisper-install", status_code=202)
 async def install_local_whisper() -> dict:
     """Install the bundled SDK plugin through the standard plugin loader."""
-    from ...plugins.local_transcription import get_service, get_status
+    from ...plugins.local_whisper import get_service, get_status
 
     service = get_service()
     if service is None:
@@ -1559,7 +1559,7 @@ async def post_transcribe_audio(
         )
 
     if provider_type == "local_whisper":
-        from ...plugins.local_transcription import get_status
+        from ...plugins.local_whisper import get_status
         from ...plugins.registry import PluginRegistry
 
         status = await run_sync_io(get_status)

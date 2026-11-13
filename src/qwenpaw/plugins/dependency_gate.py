@@ -723,7 +723,7 @@ async def prepare_shared_dependencies(
     from .install_lock import canonical_environment_path as canonical
     from .wheel_additions import WheelFiles, validate_additions
     from .execution.dependencies import (
-        _complete_dependency_file_tops,
+        _complete_dependency_top_levels,
         _dependency_closure,
         protected_dependency_target,
     )
@@ -749,7 +749,7 @@ async def prepare_shared_dependencies(
             raise _unverified("complete write evidence required")
         if inspection_names:
             observed = await run_sync_io(
-                _complete_dependency_file_tops,
+                _complete_dependency_top_levels,
                 observed,
                 inspection_names,
             )
@@ -965,12 +965,12 @@ async def prepare_shared_dependencies(
                     },
                 )
                 snapshot = await run_sync_io(
-                    _complete_dependency_file_tops,
+                    _complete_dependency_top_levels,
                     snapshot,
                     inspection_names,
                 )
                 proposed = await run_sync_io(
-                    _complete_dependency_file_tops,
+                    _complete_dependency_top_levels,
                     proposed,
                     inspection_names,
                 )

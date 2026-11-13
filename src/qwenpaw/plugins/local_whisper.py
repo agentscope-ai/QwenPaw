@@ -133,7 +133,7 @@ async def get_runtime_status() -> dict:
     if backend is None:
         return await run_sync_io(get_status)
     try:
-        runtime = await backend.call(workspace_id=current_workspace_id())
+        runtime = await backend.status(workspace_id=current_workspace_id())
     except (PluginBusyError, StaleContextError):
         return await run_sync_io(get_status)
     if not runtime.available:
@@ -141,7 +141,7 @@ async def get_runtime_status() -> dict:
     return status
 
 
-class LocalTranscriptionService:
+class LocalWhisperInstallService:
     """Track one install job and its current dependency upgrade.
 
     Disk status reads run outside the operation lock. Only results for the

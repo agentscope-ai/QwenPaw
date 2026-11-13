@@ -98,7 +98,7 @@ def get_configured_transcription_provider_id() -> str:
 
 def check_local_whisper_available() -> dict:
     """Lightweight settings probe; never import the optional recognizer."""
-    from ...plugins.local_transcription import get_status
+    from ...plugins.local_whisper import get_status
 
     return get_status()
 
@@ -116,7 +116,7 @@ async def _transcribe_backend(
         logger.warning("Transcription backend %s is not active", backend_id)
         return None
     try:
-        result = await backend.call(
+        result = await backend.transcribe(
             file_path=file_path,
             workspace_id=current_workspace_id(),
             session_id=get_current_session_id() or "",

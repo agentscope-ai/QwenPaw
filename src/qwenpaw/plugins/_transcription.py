@@ -18,14 +18,38 @@ from .transcription import (
 )
 
 
-class TranscriptionBackend:
+class TranscriptionAdapter:
     def __init__(self, context, spec):
         self.context = context
         self.spec = spec
         self.plugin_id = context.plugin_id
         self.closed = False
 
-    async def call(self, *, file_path=None, workspace_id="", session_id=""):
+    async def status(
+        self,
+        *,
+        workspace_id="",
+        session_id="",
+    ) -> TranscriptionStatus:
+        return await self._invoke(
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+
+    async def transcribe(
+        self,
+        file_path: str,
+        *,
+        workspace_id="",
+        session_id="",
+    ) -> TranscriptionResult:
+        return await self._invoke(
+            file_path=file_path,
+            workspace_id=workspace_id,
+            session_id=session_id,
+        )
+
+    async def _invoke(self, *, file_path=None, workspace_id="", session_id=""):
         if self.closed:
             raise StaleContextError("Transcription backend was released")
         deadline = (
@@ -75,7 +99,7 @@ def register(context, spec):
     if spec.timeout is not None and spec.timeout <= 0:
         raise SDKError("Transcription timeout must be positive")
     context._guard()
-    adapter = TranscriptionBackend(context, spec)
+    adapter = TranscriptionAdapter(context, spec)
     registry = context._api._registry
     registry.register_transcription_backend(spec.id, adapter)
 

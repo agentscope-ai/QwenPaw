@@ -71,7 +71,7 @@ from qwenpaw.plugins.transcription import (
 
 class Plugin:
     def register(self, context):
-        context.register_transcription_backend(TranscriptionSpec(
+        context.register_transcription(TranscriptionSpec(
             id="my-recognizer", label="My recognizer",
             transcribe=self.transcribe, status=self.status, timeout=120,
         ))
@@ -99,4 +99,4 @@ plugin = Plugin()
 
 第三方后端 ID 可通过 `transcription_provider_type` 配置或设置 API 选择；
 不需要在核心增加供应商分支。本轮设置页面仍只展示原有选项。
-本目录的 `main.py` 是使用这些公开接口的实际插件示例。
+本目录的 `plugin.py` 是使用这些公开接口的实际插件示例。

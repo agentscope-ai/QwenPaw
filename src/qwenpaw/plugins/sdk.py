@@ -1375,7 +1375,7 @@ class PluginContext:  # pylint: disable=protected-access
 
         return register(self, spec)
 
-    def register_transcription_backend(
+    def register_transcription(
         self,
         spec: TranscriptionSpec,
     ) -> Registration:

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.config.utils import load_config, mutate_config
-from qwenpaw.plugins import local_transcription as local
+from qwenpaw.plugins import local_whisper as local
 from qwenpaw.plugins.dependency_gate import GateDecision
 from qwenpaw.plugins.lifecycle import UnloadMode
 from qwenpaw.plugins.loader import PluginLoader
@@ -36,7 +36,7 @@ async def setup(tmp_path, monkeypatch, whisper_dependency_inventory):
                 "ffmpeg_installed": True,
             },
         )
-        service = local.LocalTranscriptionService(
+        service = local.LocalWhisperInstallService(
             host._loader,
             host.root / "plugin_runtime" / "migrations" / "local-whisper.json",
         )
@@ -246,7 +246,7 @@ async def test_status_never_imports_whisper_or_torch(
 
     monkeypatch.setattr(builtins, "__import__", guarded)
     async with PluginTestHost(tmp_path / "host") as host:
-        service = local.LocalTranscriptionService(
+        service = local.LocalWhisperInstallService(
             host._loader,
             host.root / "migration.json",
         )
@@ -368,7 +368,7 @@ async def test_dependency_confirmation_survives_restart(
     stage.assert_awaited_once()
     calls = gate.call_count
     await service.close()
-    restarted = local.LocalTranscriptionService(
+    restarted = local.LocalWhisperInstallService(
         host._loader,
         service.state_path,
     )
@@ -408,7 +408,7 @@ async def test_close_waits_for_cleanup_and_preserves_caller_cancellation(
             cleaning.set()
             await run_async_to_completion(release.wait())
 
-    service = local.LocalTranscriptionService(
+    service = local.LocalWhisperInstallService(
         None,
         tmp_path / "migration.json",
     )
@@ -464,7 +464,7 @@ async def test_import_failure_and_metadata_less_dependency_recover_through_http(
         async with PluginTestHost(tmp_path / "host") as host:
             select()
             await host.load(local.SOURCE)
-            service = local.LocalTranscriptionService(
+            service = local.LocalWhisperInstallService(
                 host._loader,
                 host.root / "migration.json",
             )
@@ -642,7 +642,7 @@ async def test_late_upgrade_query_cannot_replace_new_confirmation(
         lambda _: SimpleNamespace(status=lookup),
     )
     monkeypatch.setattr(local, "install_with_upgrade", require_upgrade)
-    service = local.LocalTranscriptionService(
+    service = local.LocalWhisperInstallService(
         SimpleNamespace(
             plugin_lifecycle=lifecycle,
             find_installed_plugin_dir=lambda _: None,

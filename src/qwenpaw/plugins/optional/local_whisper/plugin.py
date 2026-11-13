@@ -19,7 +19,7 @@ class Plugin:
 
     def register(self, context):
         context.on_activate(self.activate)
-        context.register_transcription_backend(
+        context.register_transcription(
             TranscriptionSpec(
                 "local_whisper",
                 "Local Whisper",

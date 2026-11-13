@@ -31,7 +31,7 @@ from qwenpaw.providers.ollama_provider import OllamaProvider
 from qwenpaw.providers.openai_provider import OpenAIProvider
 
 _MOD = "qwenpaw.agents.utils.audio_transcription"
-_LOCAL = "qwenpaw.plugins.local_transcription"
+_LOCAL = "qwenpaw.plugins.local_whisper"
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +377,7 @@ class TestTranscribeLocalWhisper:
         from qwenpaw.plugins.transcription import TranscriptionResult
 
         backend = MagicMock()
-        backend.call = AsyncMock(
+        backend.transcribe = AsyncMock(
             return_value=TranscriptionResult(error="unavailable"),
         )
         with patch(
@@ -391,9 +391,9 @@ class TestTranscribeLocalWhisper:
             result = await _transcribe_local_whisper("/tmp/audio.wav")
             assert result is None
         if registered:
-            backend.call.assert_awaited_once()
+            backend.transcribe.assert_awaited_once()
         else:
-            backend.call.assert_not_awaited()
+            backend.transcribe.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -407,7 +407,7 @@ class TestTranscribeLocalWhisper:
         )
 
         backend = MagicMock()
-        backend.call = AsyncMock(return_value=TranscriptionResult(text))
+        backend.transcribe = AsyncMock(return_value=TranscriptionResult(text))
         with patch(
             "qwenpaw.plugins.registry.PluginRegistry."
             "get_transcription_backend",
@@ -416,7 +416,10 @@ class TestTranscribeLocalWhisper:
             assert (
                 await _transcribe_local_whisper("/tmp/audio.wav") == expected
             )
-        assert backend.call.call_args.kwargs["file_path"] == "/tmp/audio.wav"
+        assert (
+            backend.transcribe.call_args.kwargs["file_path"]
+            == "/tmp/audio.wav"
+        )
 
 
 # ---------------------------------------------------------------------------

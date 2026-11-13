@@ -725,12 +725,12 @@ async def main():
             shutil.rmtree(candidate)
         if sys.argv[5] == 'migration':
             from qwenpaw.config.utils import mutate_config
-            from qwenpaw.plugins import local_transcription as local
+            from qwenpaw.plugins import local_whisper as local
             local.SOURCE = source
             mutate_config(lambda c: setattr(
                 c.agents, 'transcription_provider_type', 'local_whisper',
             ))
-            service = local.LocalTranscriptionService(
+            service = local.LocalWhisperInstallService(
                 host._loader,
                 root / 'plugin_runtime/migrations/local-whisper.json',
             )
@@ -1194,7 +1194,7 @@ async def test_cancelled_installer_keeps_normalized_input_until_thread_stops(
 def test_enabled_local_whisper_migrates_through_shared_installer(tmp_path):
     """Use a tiny offline wheel to exercise migration's real install path."""
     import shutil
-    from qwenpaw.plugins.local_transcription import SOURCE
+    from qwenpaw.plugins.local_whisper import SOURCE
 
     source = tmp_path / "local-whisper"
     shutil.copytree(SOURCE, source)

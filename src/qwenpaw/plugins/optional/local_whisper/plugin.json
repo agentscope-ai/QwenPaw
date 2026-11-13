@@ -3,7 +3,7 @@
   "name": "Local Whisper",
   "version": "1.0.0",
   "type": "general",
-  "entry": {"backend": "main.py"},
+  "entry": {"backend": "plugin.py"},
   "sdk": {"version": "1.1", "capabilities": ["transcription", "resources"]},
   "dependencies": ["openai-whisper>=20231117", "torch"],
   "meta": {"dependency_install_timeout": 1800}

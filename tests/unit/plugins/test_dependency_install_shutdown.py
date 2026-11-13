@@ -17,7 +17,7 @@ import psutil
 import pytest
 
 from qwenpaw.app import _app
-from qwenpaw.plugins import install_lock, local_transcription
+from qwenpaw.plugins import install_lock, local_whisper
 from qwenpaw.plugins.loader import PluginLoader
 from qwenpaw.plugins.testing import PluginTestHost
 
@@ -170,14 +170,14 @@ async def test_shutdown_cancels_dependency_install(
     plugin_id = "extension-contract"
     if kind == "whisper":
         source = tmp_path / "whisper"
-        shutil.copytree(local_transcription.SOURCE, source)
+        shutil.copytree(local_whisper.SOURCE, source)
         manifest_path = source / "plugin.json"
         manifest = json.loads(manifest_path.read_text())
         # Force an actual install even when this host already has Whisper.
         manifest["dependencies"].append("shutdown-probe==1.0")
         manifest_path.write_text(json.dumps(manifest))
-        monkeypatch.setattr(local_transcription, "SOURCE", source)
-        plugin_id = local_transcription.PLUGIN_ID
+        monkeypatch.setattr(local_whisper, "SOURCE", source)
+        plugin_id = local_whisper.PLUGIN_ID
 
     monkeypatch.setenv("PIP_NO_INDEX", "1")
     entered = threading.Event()
@@ -218,7 +218,7 @@ async def test_shutdown_cancels_dependency_install(
             with pytest.raises(SDKError, match="shutdown-probe"):
                 await host.load(installed_source)
         service = (
-            local_transcription.LocalTranscriptionService(
+            local_whisper.LocalWhisperInstallService(
                 loader,
                 host.root / "migration.json",
             )
@@ -228,7 +228,7 @@ async def test_shutdown_cancels_dependency_install(
         app = SimpleNamespace(
             state=SimpleNamespace(
                 plugin_loader=loader,
-                local_transcription=service,
+                local_whisper_install=service,
                 multi_agent_manager=SimpleNamespace(stop_all=AsyncMock()),
             ),
         )

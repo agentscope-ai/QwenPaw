@@ -20,7 +20,7 @@ from qwenpaw.plugins.transcription import (
 
 class Plugin:
     def register(self, ctx):
-        ctx.register_transcription_backend(TranscriptionSpec(
+        ctx.register_transcription(TranscriptionSpec(
             "sample", "Sample", self.transcribe, self.status,
         ))
 
