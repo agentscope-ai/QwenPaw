@@ -192,7 +192,12 @@ function buildProtectionMasks(markdown: string): {
       // relative to the item, not to the document, so the prefix to strip is
       // the item's content indent rather than zero.
       const continued = listIndent > 0 && indent >= listIndent;
-      const offset = continued ? listIndent : containerOffset(line);
+      // Inside a list item the remaining prefix may still carry blockquote
+      // markers (`- item` then `  > ~~~`), so strip the list indent first and
+      // let the container scan handle whatever follows it.
+      const offset = continued
+        ? listIndent + containerOffset(line.slice(listIndent))
+        : containerOffset(line);
       const content = line.slice(offset);
       const openingFence = getOpeningFence(content);
       const item = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]+)/.exec(line);
@@ -318,7 +323,9 @@ function markLinkDestinations(
   // possibly using an angle-bracket destination or a destination that starts
   // on the following line.
   const definitionPrefix =
-    "^[ \\t]*(?:>[ \\t]?)*(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+)?";
+    "^[ \\t]*(?:(?:>[ \\t]?)|(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+))*";
+  const continuedPrefix =
+    "[ \\t]*(?:(?:>[ \\t]?)|(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+))*";
   const definitionPatterns = [
     new RegExp(
       `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*(?:<([^<>]*)>|(\\S+))`,
@@ -326,7 +333,7 @@ function markLinkDestinations(
     ),
     new RegExp(
       `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*\\r?\\n` +
-        "[ \\t]{0,3}(?:<([^<>\\n]*)>|(\\S+))",
+        `${continuedPrefix}[ \\t]{0,3}(?:<([^<>\\n]*)>|(\\S+))`,
       "gm",
     ),
   ];

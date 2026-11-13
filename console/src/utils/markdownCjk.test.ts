@@ -255,3 +255,46 @@ describe("normalizeCjkEmphasis continued-container guardrails", () => {
     expect(normalizeCjkEmphasis(source)).toBe(source);
   });
 });
+
+describe("normalizeCjkEmphasis nested-container guardrails", () => {
+  it("keeps a blockquote fence nested in a list item", () => {
+    const source = [
+      "- item",
+      "",
+      "  > ~~~",
+      "  > **代码。**后",
+      "  > ~~~",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a list fence nested in a blockquote", () => {
+    const source = [
+      "> - item",
+      ">",
+      ">   ~~~",
+      ">   **代码。**后",
+      ">   ~~~",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a blockquote reference destination on the next line", () => {
+    const source = [
+      "> [ref]:",
+      "> https://example.com/**版本。**后续",
+      ">",
+      "> [下载][ref]",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a reference definition in an ordered list", () => {
+    const source = [
+      "1. [ref]: https://example.com/**版本。**后续",
+      "",
+      "[下载][ref]",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+});
