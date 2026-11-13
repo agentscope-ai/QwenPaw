@@ -16,6 +16,7 @@ import base64
 import importlib
 import io
 import json
+import logging
 import time
 import zipfile
 from pathlib import Path
@@ -344,8 +345,11 @@ class TestClientLifecycle:
 
         _run(_go())
 
-    def test_aclose_hub_client_drain_timeout_warns(self, monkeypatch):
-        async def _wait_for(fut, timeout=None):
+    def test_aclose_hub_client_drain_timeout_warns(self, monkeypatch, caplog):
+        async def _wait_for(awaitable, timeout=None):
+            # Consume the coroutine production hands us, then time out, so
+            # it does not surface as an unawaited-coroutine warning.
+            awaitable.close()
             raise asyncio.TimeoutError
 
         monkeypatch.setattr(hub.asyncio, "wait_for", _wait_for)
@@ -354,7 +358,12 @@ class TestClientLifecycle:
             hub._async_client = None
             await hub.aclose_hub_client()
 
-        _run(_go())  # must not raise
+        with caplog.at_level(logging.WARNING):
+            _run(_go())  # must not raise
+
+        # The timeout path must warn, not fail silently.
+        assert "still in flight" in caplog.text
+        assert hub._async_client is None
 
 
 # ---------------------------------------------------------------------------
