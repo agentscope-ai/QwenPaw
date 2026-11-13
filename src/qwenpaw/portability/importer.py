@@ -810,7 +810,9 @@ class ProviderImportService(ImportPlanningMixin):
                 except BaseException as exc:
                     try:
                         if card_written:
-                            await driver_config.card_store.delete(server.name)
+                            await driver_config.delete_driver_best_effort(
+                                server.name,
+                            )
                         if credential_ref:
                             await driver_config.credential_store.delete(
                                 credential_ref,

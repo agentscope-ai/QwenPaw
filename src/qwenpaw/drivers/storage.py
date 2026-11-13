@@ -8,11 +8,13 @@ import logging
 import os
 import tempfile
 import threading
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
+
+from ..utils.io_utils import run_sync_io
 
 from .constants import (
     POLICY_EFFECT_ASK,
@@ -58,6 +60,7 @@ __all__ = [
     "dump_card",
     "list_card_paths",
     "load_card",
+    "save_config_card",
 ]
 
 
@@ -91,15 +94,39 @@ class AsyncDriverCardStore:
 
     async def save(self, card: DriverCard) -> Path:
         """Persist one DriverCard and remove stale same-name card files."""
-        return await asyncio.to_thread(self._save_sync, card)
+        return await run_sync_io(self._save_sync, card)
+
+    async def save_config(self, card: DriverCard) -> Path:
+        """Persist configuration while retaining the latest access policy."""
+        return await run_sync_io(save_config_card, card, self._cards_dir)
+
+    async def save_policy(self, card: DriverCard) -> DriverCard:
+        """Update policy without rewriting a concurrently edited connection."""
+        return await run_sync_io(self._save_policy_sync, card)
+
+    def _save_policy_sync(self, card: DriverCard) -> DriverCard:
+        with self._lock:
+            path = self._stored_path_sync(card.name)
+            if path is None:
+                raise DriverCardError(
+                    "Cannot update policy for a deleted Driver",
+                )
+            latest = load_card(path)
+            if latest.protocol != card.protocol:
+                raise DriverCardError(
+                    "Driver protocol changed before policy update",
+                )
+            current = replace(latest, policy=card.policy)
+            self._save_sync(current)
+            return current
 
     async def save_if_absent(self, card: DriverCard) -> bool:
         """Persist *card* only when no card with the same name exists."""
-        return await asyncio.to_thread(self._save_if_absent_sync, card)
+        return await run_sync_io(self._save_if_absent_sync, card)
 
     async def delete(self, name: str) -> None:
         """Delete stored card files for one Driver name."""
-        await asyncio.to_thread(self._delete_sync, name)
+        await run_sync_io(self._delete_sync, name)
 
     async def stored_path(self, name: str) -> Path | None:
         """Return the first stored DriverCard path for a name, if any."""
@@ -163,6 +190,18 @@ class AsyncDriverCardStore:
                 mtime,
             )
         return snapshot
+
+
+def save_config_card(card: DriverCard, cards_dir: Path) -> Path:
+    """Atomically retain current policy when a configuration writer saves a card."""
+    # The synchronous mail writer shares the same in-process store transaction.
+    # pylint: disable=protected-access
+    store = AsyncDriverCardStore(cards_dir)
+    with store._lock:
+        path = store._stored_path_sync(card.name)
+        if path is not None:
+            card = replace(card, policy=load_card(path).policy)
+        return store._save_sync(card)
 
 
 def load_card(path: Path) -> DriverCard:
