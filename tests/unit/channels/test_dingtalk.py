@@ -335,6 +335,64 @@ async def test_stream_card_final_reply_uses_original_card(native):
     assert len([row for kind, row in rt.rows if kind == "deliver"]) == 1
 
 
+@pytest.mark.parametrize("native", ["card"], indirect=True)
+async def test_stream_card_separates_table_from_paragraph(native):
+    """Separate the outgoing table and keep the cached stream text intact."""
+    rt = native
+    event = await ingress(rt, message(f"table", group=True))
+    handle = event[f"response_handle"]
+    table = f"| k | v |\n| --- | --- |\n| a | 1 |"
+    text = f"Details:\n{table}"
+    expected = f"Details:\n\n{table}"
+    assert (
+        await send(
+            rt,
+            handle,
+            operation=f"stream.start",
+            stream_type=f"message",
+            sequence=0,
+            accumulated_text=text,
+        )
+    )[f"state"] == f"acknowledged"
+    updates = [row for kind, row in rt.rows if kind == f"update"]
+    assert len(updates) == 1
+    assert updates[0][f"content"] == expected
+    assert updates[0][f"isFull"] and not updates[0][f"isFinalize"]
+    assert any(
+        card.last_streamed_content == text
+        for card in rt.driver._platform._active_cards.values()
+    )
+    assert (
+        await send(
+            rt,
+            handle,
+            delivery_id=f"same-content",
+            target_delivery_id=f"delivery",
+            operation=f"stream.delta",
+            stream_type=f"message",
+            sequence=1,
+            accumulated_text=text,
+        )
+    )[f"state"] == f"acknowledged"
+    assert sum(kind == f"update" for kind, _ in rt.rows) == 1
+    assert (
+        await send(
+            rt,
+            handle,
+            delivery_id=f"end",
+            target_delivery_id=f"delivery",
+            operation=f"stream.end",
+            stream_type=f"message",
+            sequence=2,
+            accumulated_text=text,
+        )
+    )[f"state"] == f"acknowledged"
+    updates = [row for kind, row in rt.rows if kind == f"update"]
+    assert len(updates) == 2
+    assert updates[-1][f"content"] == expected
+    assert updates[-1][f"isFull"] and updates[-1][f"isFinalize"]
+
+
 async def test_failed_feedback_archives_current_receipt_and_replays(
     native,
     monkeypatch,
@@ -441,6 +499,134 @@ async def test_markdown_chunks_keeps_short_and_splits_long_table():
     assert chunks == split_text(table, max_len=transport._MARKDOWN_CHUNK_LEN)
     assert len(chunks) >= 2
     assert all("| --- |" in chunk for chunk in chunks)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "Details:\n| k | v |\n|---|---|\n| a | 1 |",
+            "Details:\n\n| k | v |\n|---|---|\n| a | 1 |",
+        ),
+        (
+            f"Details:\r\n| k | v |\r\n| --- | --- |\r\n",
+            f"Details:\r\n\r\n| k | v |\r\n| --- | --- |\r\n",
+        ),
+        ("x\nk | v\n:-- | --:", "x\n\nk | v\n:-- | --:"),
+        ("x\n| k |\n|---|", "x\n\n| k |\n|---|"),
+        ("x\n\n| k | v |\n|---|---|", "x\n\n| k | v |\n|---|---|"),
+        ("| k | v |\n|---|---|", "| k | v |\n|---|---|"),
+        (
+            "```\nx\n| k | v |\n|---|---|\n```",
+            "```\nx\n| k | v |\n|---|---|\n```",
+        ),
+        ("title\n---\nbody", "title\n---\nbody"),
+        ("a | b\n---", "a | b\n---"),
+        (
+            "| Note: results below\n| k | v |\n|---|---|",
+            "| Note: results below\n\n| k | v |\n|---|---|",
+        ),
+        (
+            "note\n    | k | v |\n    |---|---|",
+            "note\n    | k | v |\n    |---|---|",
+        ),
+        ("note\n\t| k | v |\n\t|---|---|", "note\n\t| k | v |\n\t|---|---|"),
+    ],
+)
+async def test_ensure_table_spacing(text, expected):
+    """Only a table that directly follows a paragraph line is separated."""
+    markdown = module("dingtalk", "markdown")
+    assert markdown.ensure_table_spacing(text) == expected
+    assert markdown.ensure_table_spacing(expected) == expected
+
+
+@pytest.mark.parametrize(
+    f"rows_before_dashes",
+    [f"", f"| Alice | OK |\n", f"Alice\n| Carol | OK |\n"],
+)
+async def test_table_spacing_preserves_delimiter_like_body_rows(
+    rows_before_dashes,
+):
+    markdown = module("dingtalk", "markdown")
+    table = (
+        "| Name | Status |\n"
+        "| --- | --- |\n"
+        f"{rows_before_dashes}"
+        "| --- | --- |\n"
+        "| Bob | OK |"
+    )
+    assert markdown.ensure_table_spacing(table) == table
+    assert markdown.ensure_table_spacing(f"{table}\n\nDetails:\n{table}") == (
+        f"{table}\n\nDetails:\n\n{table}"
+    )
+
+
+async def test_table_spacing_preserves_code_span_with_mismatched_columns():
+    markdown = module(f"dingtalk", f"markdown")
+    text = f"Example: `heading\n| a | b |\n| --- |\nliteral`"
+    assert markdown.ensure_table_spacing(text) == text
+
+
+@pytest.mark.parametrize(
+    ("opening", "inner", "closing"),
+    [
+        ("````markdown", "```", "````"),
+        ("```markdown", "~~~", "```"),
+        ("~~~markdown", "```", "~~~"),
+        ("~~~~markdown", "~~~", "~~~~"),
+        ("```markdown", "```not a closing fence", "```"),
+        ("```markdown", "  ```not a closing fence", "```"),
+    ],
+)
+async def test_table_spacing_preserves_fences(opening, inner, closing):
+    markdown = module("dingtalk", "markdown")
+    table = "Details:\n| k | v |\n|---|---|"
+    code = f"{opening}\n{inner}\n{table}\n{closing}"
+    assert markdown.ensure_table_spacing(code) == code
+    assert markdown.ensure_table_spacing(f"{code}\n{table}") == (
+        f"{code}\nDetails:\n\n| k | v |\n|---|---|"
+    )
+
+
+@pytest.mark.parametrize(
+    ("opening", "indent", "closing"),
+    [
+        ("* ```markdown", "  ", "```\n"),
+        (f"* Example:\n\n    ```markdown", f"  ", f"```\n"),
+        ("10. ~~~markdown", "    ", "~~~\n"),
+        ("- ```markdown", "  ", ""),
+    ],
+)
+async def test_table_spacing_preserves_list_fences(opening, indent, closing):
+    markdown = module("dingtalk", "markdown")
+    code = (
+        f"{opening}\n{indent}Details:\n"
+        f"{indent}| k | v |\n{indent}| --- | --- |\n"
+    )
+    if closing:
+        code += indent + closing
+    table = "| k | v |\n| --- | --- |\n| a | 1 |"
+    assert markdown.ensure_table_spacing(f"{code}\nDetails:\n{table}") == (
+        f"{code}\nDetails:\n\n{table}"
+    )
+
+
+@pytest.mark.parametrize("native", ["card"], indirect=True)
+async def test_stream_card_preserves_non_table_code(native):
+    event = await ingress(native, message("code", group=True))
+    text = "```text\nx\n1. literal\n```"
+    assert (
+        await send(
+            native,
+            event["response_handle"],
+            operation="stream.start",
+            stream_type="message",
+            sequence=0,
+            accumulated_text=text,
+        )
+    )["state"] == "acknowledged"
+    updates = [row for kind, row in native.rows if kind == "update"]
+    assert updates[-1]["content"] == text
 
 
 async def test_long_markdown_table_splits_on_session_webhook(native):

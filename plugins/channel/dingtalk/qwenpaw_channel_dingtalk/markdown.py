@@ -3,6 +3,11 @@
 
 import re
 
+from markdown_it import MarkdownIt
+
+
+_TABLE_PARSER = MarkdownIt(f"commonmark").enable(f"table").disable(f"inline")
+
 
 def ensure_list_spacing(text: str) -> str:
     """
@@ -39,6 +44,22 @@ def ensure_list_spacing(text: str) -> str:
         out.append(line)
 
     return "\n".join(out)
+
+
+def ensure_table_spacing(text: str) -> str:
+    """Separate top-level pipe tables from preceding text for DingTalk."""
+    if f"|" not in text:
+        return text
+
+    # Source line offsets index the even entries; odd entries hold newlines.
+    parts = re.split(rf"(\r\n?|\n)", text)
+    for token in _TABLE_PARSER.parse(text):
+        if token.type != f"table_open" or token.level or token.map is None:
+            continue
+        header = token.map[0] * 2
+        if header and parts[header - 2].strip():
+            parts[header - 1] *= 2
+    return f"".join(parts)
 
 
 def dedent_code_blocks(text: str) -> str:
@@ -100,10 +121,12 @@ def normalize_dingtalk_markdown(
     """
     Apply DingTalk Markdown normalization steps:
     1) Ensure blank lines before numbered list items
-    2) Dedent fenced code blocks
-    3) Optionally prefix code lines inside fenced blocks
+    2) Ensure blank lines before pipe tables
+    3) Dedent fenced code blocks
+    4) Optionally prefix code lines inside fenced blocks
     """
     text = ensure_list_spacing(text)
+    text = ensure_table_spacing(text)
     text = dedent_code_blocks(text)
     if code_prefix is not None:
         text = format_code_blocks(text, prefix=code_prefix)
