@@ -1,306 +1,85 @@
 ---
 name: xlsx
-description: "当电子表格文件是主要输入或输出时使用此技能。这意味着用户想要：打开、读取、编辑或修复现有的 .xlsx、.xlsm、.csv 或 .tsv 文件（例如添加列、计算公式、格式化、制图、清理混乱数据）；从头创建新的电子表格或从其他数据源创建；或在表格文件格式之间进行转换。当用户通过名称或路径引用电子表格文件时特别触发——即使是随意提及（如\"我下载目录里的 xlsx\"）——并且想对其进行操作或从中生成内容。也适用于将混乱的表格数据文件（格式错误的行、错位的表头、垃圾数据）清理或重构为规范的电子表格。交付物必须是电子表格文件。当主要交付物是 Word 文档、HTML 报告、独立 Python 脚本、数据库管道或 Google Sheets API 集成时不触发，即使涉及表格数据也不触发。"
+description: "当电子表格文件是主要输入或输出时使用此技能。这意味着用户想要：打开、读取、编辑或修复现有的 .xlsx、.xlsm、.xltx、.csv 或 .tsv 文件（例如添加列、计算公式、格式化、制图、清理混乱数据）；从头创建新的电子表格或从其他数据源创建；或在表格文件格式之间进行转换。当用户通过名称或路径引用电子表格文件时特别触发——即使是随意提及（如\"我下载目录里的 xlsx\"）——并且想对其进行操作或从中生成内容。也适用于将混乱的表格数据文件（格式错误的行、错位的表头、垃圾数据）清理或重构为规范的电子表格。交付物必须是电子表格文件。当主要交付物是 Word 文档、HTML 报告、独立 Python 脚本、数据库管道或 Google Sheets API 集成时不触发，即使涉及表格数据也不触发。"
 license: Proprietary. LICENSE.txt has complete terms
 metadata:
-  builtin_skill_version: "1.1"
+  builtin_skill_version: "2.0"
 ---
 
 > **重要说明：** 所有 `scripts/` 路径均相对于此技能目录。
 > 运行方式：`cd {this_skill_dir} && python scripts/...`
 > 或使用 `execute_shell_command` 的 `cwd` 参数。
 
-# 输出要求
+# XLSX 创建、编辑与分析
 
-## 所有 Excel 文件
+## 前置依赖
 
-### 专业字体
-- 除非用户另有指示，所有交付物应使用统一的专业字体（如 Arial、Times New Roman）
+- **openpyxl**: Excel 文件创建和编辑
+- **pandas**: 数据分析和批量操作
+- **markitdown** (pip, 已预装 — 仅当导入失败或命令缺失时才安装)
+- **LibreOffice** (`soffice`): 通过 `scripts/recalc.py` 进行公式重算（通过 `scripts/office/soffice.py` 为沙箱环境自动配置）
+- `git` 是可选的，但可以改善验证工作流中的红线差异输出。
+- 在 Windows 上，依赖项必须已安装并在 `PATH` 中可用；如缺失，请报告依赖问题并停止（不要反复重试）。
 
-### 零公式错误
-- 每个 Excel 模型必须以零公式错误交付（#REF!、#DIV/0!、#VALUE!、#N/A、#NAME?）
+| 任务 | 方法 |
+|---|---|
+| 带公式/格式的**创建**或**编辑** | `openpyxl` — 见下方注意事项 |
+| **批量数据**导入或导出 | `pandas`（`read_excel`、`to_excel`） |
+| **快速查看**某个工作表 | `markitdown file.xlsx` — 每个工作表输出 `## SheetName`；也能读 `.xlsm`。没有单元格坐标，不要据此规划编辑 |
+| **读取**模型（公式*和*数值） | 两次 `load_workbook` — 见注意事项 |
 
-### 保留现有模板（更新模板时）
-- 修改文件时需仔细研究并完全匹配现有的格式、样式和约定
-- 切勿对已有既定模式的文件强加标准化格式
-- 现有模板约定始终优先于本指南
+> `openpyxl`、`pandas`、`markitdown` 已预装 — 不要先运行 `pip install`；直接编写脚本并导入。仅当导入失败（或 `markitdown` 命令缺失）时：用 `pip install` 安装缺失的包。
+
+> 下方脚本路径均相对于本技能目录。
+
+## 所有输出的要求
+
+- 全文使用**专业字体**（Arial、Times New Roman），除非用户另有指示。
+- **零公式错误。** 只要 `recalc.py` 还报告 `errors_found`，就绝不交付。如果你认为某个错误在你接手前就存在，请证明它：用 `data_only=True` 加载*原始*文件并查看那个单元格。你引入的错误与你继承的错误看起来一模一样。
+- **使用公式，绝不硬编码结果。** 写 `sheet['B10'] = '=SUM(B2:B9)'`，而不是 Python 算出的总和。工作表必须能在输入变化时重新计算。
+- **严格按用户的规格执行。** 精确的工作表名、精确的列标题，以及用户明确写出的公式。一个计算出别的东西的重新设计，再优雅也是失败的。
+- **在读者能看到的地方记录每个假设和硬编码数字** — 单元格批注，或表格末尾的相邻单元格。存在真实来源时注明出处（`Source: Company 10-K, FY2024, Page 45, Revenue Note, [SEC EDGAR URL]`）；数字来自用户时，直说即可。
+- **你*创建*的供他人填写的工作簿**需要一段简短的图例，说明要编辑哪些单元格，并给出一行符合预期格式的真实示例值。绝不要把这样的示例行加进你受托编辑的文件。
+- **编辑现有文件：严格遵循其既有约定。** 它们优先于本指南的所有规则。先找到文件预留的输入单元格 — 通常用不同的字体颜色、填充或底纹标记 — 只在这些地方写入，并保持所有现有公式原封不动。
+
+## 重新计算（文件包含公式时为必需步骤）
+
+openpyxl 写入的公式只是字符串，**没有缓存值**。在你重算之前，对任何读取缓存值的工具来说 — `pandas`、`load_workbook(data_only=True)` 以及大多数预览器 — 每个公式单元格读回来的都是 `None`。
+
+```bash
+python scripts/recalc.py output.xlsx [timeout_seconds]   # 默认 30
+```
+
+LibreOffice 会计算每个公式，文件被**原地重写**，你会得到 JSON：`status`（`success` | `errors_found`）、`total_formulas`、`total_errors`，以及为每类错误最多列出 100 个单元格的 `error_summary`（`locations_truncated` 说明省略了多少 — 相信 `total_errors`，而不是列表的长度）。修复它指出的错误并再次运行。**JSON 带有 `error` 键而不是 `status` 意味着什么都没有重算**，且只有这种情况以非零退出 — `errors_found` 退出码为 0，因此绝不把干净退出当作干净的工作簿。支持 Linux、macOS 与 Windows。
+
+**重算通过（绿色）只能证明你的公式*能求值*，不能证明它们*是对的*。** 差一位的范围或引用错行的公式，会产出一个干净、无错误但数字全错的文件。在铺开整张表格之前，先写 2-3 个公式，确认它们取到的值符合预期。
+
+**链接到其他文件的工作簿会丢失这些链接** — 如果你先用 openpyxl 重新保存、然后再重算。这样的公式形如 `='[1]Returns Analysis'!$B$2` — `[1]` 是工作簿外部引用列表的索引，指向*磁盘上的另一个文件*，不是工作表。那个文件在本环境中通常不存在，因此该单元格的缓存值是保存其数据的唯一载体。openpyxl 保存时会剥离该值；LibreOffice 随后不得不真正解析该引用，失败后写入 `#NAME?`，并删除所有链接。`recalc.py` 在这种状态下拒绝运行 — 在覆盖保存之前，先把那些单元格的值从原文件中复制出来（`--force` 可强制覆盖，并接受数据丢失）。
+
+## 选择能通过验证的公式
+
+LibreOffice 实现的函数比 Excel 少，而它无法求值的函数会变成字面 `#NAME?`，直接烘焙进你交付的文件。
+
+- **优先使用 Excel 2007 时代的函数** — `SUMIFS`、`INDEX`、`MATCH`、`IFERROR`、`SUMPRODUCT` — 它们不需要前缀。
+- **六个 2007 之后的函数可用，但必须带 `_xlfn.` 前缀**，因为 openpyxl 把公式逐字写进 XML，而 Excel 内部存储 2007 之后的函数名时带前缀（其界面会隐藏前缀）：`_xlfn.TEXTJOIN`、`_xlfn.CONCAT`、`_xlfn.IFS`、`_xlfn.SWITCH`、`_xlfn.MAXIFS`、`_xlfn.MINIFS`。不带前缀书写时，每个都会产生 `#NAME?`。
+- **绝不使用 `XLOOKUP`、`XMATCH`、`SORT`、`FILTER`、`UNIQUE` 或 `SEQUENCE`。** 本运行时的 LibreOffice 在*任何*前缀下都无法对它们求值。较新的构建可以求值，但它们是溢出（spilling）数组函数，而 openpyxl 写出的文件没有溢出元数据，因此只有区域左上角的单元格会得到值 — 并且 `recalc.py` 对这个被截断的结果仍报告 `total_errors: 0`。查找用 `INDEX`/`MATCH`；排序、筛选和去重在写入单元格之前用 Python 完成。
+- LibreOffice 无法解析的公式会被**小写**写回 — 这是在 `#NAME?` 旁边的一个快速识别信号。
+
+## openpyxl 注意事项
+
+- **读取模型需要加载两次。** `data_only=True` 给出缓存值但没有公式；默认模式给出公式字符串但没有值。一次加载无法两者兼得。
+- **`data_only=True` 模式下保存是破坏性的。** 那个工作簿已不含任何公式，保存会把每个公式替换为字面值 — 永久性地。
+- **对 openpyxl 刚写出的文件用 `data_only=True` 读取，处处返回 `None`** — 先运行 `recalc.py`。（结果为 `""` 的公式读回来也是 `None`。）
+- **合并单元格：只写左上角锚点。** 区域内其他单元格都是 `MergedCell`，其 `.value` 是只读的。
+- **`.xlsm` 会丢失宏，除非给 `load_workbook` 传 `keep_vba=True`**。
+- **含空格的工作表名在跨表引用中必须加引号**：`='Assumptions Inputs'!$B$5`。不加引号会求值为 `#VALUE!`。
 
 ## 财务模型
 
-### 颜色编码标准
-除非用户或现有模板另有规定
+除非用户另有指示，或现有文件已经在用别的做法。
 
-#### 行业标准颜色约定
-- **蓝色文本 (RGB: 0,0,255)**：硬编码输入，以及用户会为不同情景更改的数字
-- **黑色文本 (RGB: 0,0,0)**：所有公式和计算
-- **绿色文本 (RGB: 0,128,0)**：从同一工作簿中其他工作表拉取的链接
-- **红色文本 (RGB: 255,0,0)**：指向其他文件的外部链接
-- **黄色背景 (RGB: 255,255,0)**：需要关注的关键假设或需要更新的单元格
+**颜色：** 蓝色文本（`0,0,255`）表示硬编码输入和情景调节项 · 黑色表示公式 · 绿色（`0,128,0`）表示指向同工作簿其他工作表的链接 · 红色（`255,0,0`）表示指向其他文件的链接 · 黄色填充（`255,255,0`）表示关键假设和需要用户填写的单元格。
 
-### 数字格式标准
+**数字：** 货币 `$#,##0`，单位注明在表头（`Revenue ($mm)`）· 零值显示为 `-`，包括百分比（`$#,##0;($#,##0);-`）· 负数用括号 · 百分比 `0.0%`，**以小数存储**（`0.15` 渲染为 `15.0%`；存 `15` 会渲染成 `1500.0%`）· 估值倍数 `0.0x` · 年份存为文本（`"2024"`，绝不是 `2,024`）。
 
-#### 必需的格式规则
-- **年份**：格式化为文本字符串（例如 "2024" 而非 "2,024"）
-- **货币**：使用 $#,##0 格式；始终在表头中注明单位（"Revenue ($mm)"）
-- **零值**：使用数字格式将所有零值显示为 "-"，包括百分比（例如 "$#,##0;($#,##0);-"）
-- **百分比**：默认使用 0.0% 格式（一位小数）
-- **倍数**：估值倍数使用 0.0x 格式（EV/EBITDA、P/E）
-- **负数**：使用括号 (123) 而非负号 -123
-
-### 公式构建规则
-
-#### 假设放置
-- 将所有假设（增长率、利润率、倍数等）放在单独的假设单元格中
-- 在公式中使用单元格引用而非硬编码值
-- 示例：使用 =B5*(1+$B$6) 而非 =B5*1.05
-
-#### 公式错误预防
-- 验证所有单元格引用是否正确
-- 检查范围中的偏移错误
-- 确保所有预测期间的公式一致
-- 使用边界情况测试（零值、负数）
-- 验证没有非预期的循环引用
-
-#### 硬编码值的文档要求
-- 在注释中或旁边的单元格中（如果在表格末尾）添加说明。格式："Source: [系统/文档], [日期], [具体引用], [URL（如适用）]"
-- 示例：
-  - "Source: Company 10-K, FY2024, Page 45, Revenue Note, [SEC EDGAR URL]"
-  - "Source: Company 10-Q, Q2 2025, Exhibit 99.1, [SEC EDGAR URL]"
-  - "Source: Bloomberg Terminal, 8/15/2025, AAPL US Equity"
-  - "Source: FactSet, 8/20/2025, Consensus Estimates Screen"
-
-# XLSX 创建、编辑和分析
-
-## 概述
-
-用户可能要求您创建、编辑或分析 .xlsx 文件的内容。您有不同的工具和工作流可用于不同的任务。
-
-## 前置条件
-
-- **openpyxl**：Excel 文件创建和编辑
-- **pandas**：数据分析和批量操作
-- **LibreOffice** (`soffice`)：通过 `scripts/recalc.py` 进行公式重新计算
-- `git` 是可选的，但可以改善验证工作流中的红线差异输出。
-- 在 Windows 上，依赖项必须已安装并在 `PATH` 中可用；如果缺失，报告依赖问题并停止（不要反复重试）。
-
-## 重要要求
-
-**公式重新计算需要 LibreOffice**：使用 `scripts/recalc.py` 重新计算公式值。该脚本在首次运行时自动配置 LibreOffice，并处理 Unix 套接字受限的沙箱环境（通过 `scripts/office/soffice.py`）。
-
-## 读取和分析数据
-
-### 使用 pandas 进行数据分析
-对于数据分析、可视化和基本操作，使用 **pandas** 提供的强大数据操作功能：
-
-```python
-import pandas as pd
-
-# 读取 Excel
-df = pd.read_excel('file.xlsx')  # Default: first sheet
-all_sheets = pd.read_excel('file.xlsx', sheet_name=None)  # All sheets as dict
-
-# 分析数据
-df.head()      # Preview data
-df.info()      # Column info
-df.describe()  # Statistics
-
-# 写入 Excel
-df.to_excel('output.xlsx', index=False)
-```
-
-## Excel 文件工作流
-
-## 关键要求：使用公式，而非硬编码值
-
-**始终使用 Excel 公式，而不是在 Python 中计算值后硬编码。** 这确保电子表格保持动态且可更新。
-
-### 错误做法 - 硬编码计算值
-```python
-# 错误做法：在 Python 中计算并硬编码结果
-total = df['Sales'].sum()
-sheet['B10'] = total  # Hardcodes 5000
-
-# 错误做法：在 Python 中计算增长率
-growth = (df.iloc[-1]['Revenue'] - df.iloc[0]['Revenue']) / df.iloc[0]['Revenue']
-sheet['C5'] = growth  # Hardcodes 0.15
-
-# 错误做法：在 Python 中计算平均值
-avg = sum(values) / len(values)
-sheet['D20'] = avg  # Hardcodes 42.5
-```
-
-### 正确做法 - 使用 Excel 公式
-```python
-# 正确做法：让 Excel 自行计算总和
-sheet['B10'] = '=SUM(B2:B9)'
-
-# 正确做法：将增长率写成 Excel 公式
-sheet['C5'] = '=(C4-C2)/C2'
-
-# 正确做法：使用 Excel 函数计算平均值
-sheet['D20'] = '=AVERAGE(D2:D19)'
-```
-
-这适用于所有计算——总计、百分比、比率、差值等。电子表格应能在源数据更改时重新计算。
-
-## 通用工作流
-1. **选择工具**：pandas 用于数据处理，openpyxl 用于公式/格式化
-2. **创建/加载**：创建新工作簿或加载现有文件
-3. **修改**：添加/编辑数据、公式和格式
-4. **保存**：写入文件
-5. **重新计算公式（使用公式时为必需步骤）**：使用 scripts/recalc.py 脚本
-   ```bash
-   python scripts/recalc.py output.xlsx
-   ```
-6. **验证并修复任何错误**：
-   - 脚本返回包含错误详情的 JSON
-   - 如果 `status` 为 `errors_found`，检查 `error_summary` 获取具体错误类型和位置
-   - 修复已识别的错误并再次重新计算
-   - 常见需修复的错误：
-     - `#REF!`：无效的单元格引用
-     - `#DIV/0!`：除以零
-     - `#VALUE!`：公式中的数据类型错误
-     - `#NAME?`：无法识别的公式名称
-
-### 创建新的 Excel 文件
-
-```python
-# 使用 openpyxl 处理公式和格式
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment
-
-wb = Workbook()
-sheet = wb.active
-
-# 添加数据
-sheet['A1'] = 'Hello'
-sheet['B1'] = 'World'
-sheet.append(['Row', 'of', 'data'])
-
-# 添加公式
-sheet['B2'] = '=SUM(A1:A10)'
-
-# 设置格式
-sheet['A1'].font = Font(bold=True, color='FF0000')
-sheet['A1'].fill = PatternFill('solid', start_color='FFFF00')
-sheet['A1'].alignment = Alignment(horizontal='center')
-
-# 列宽
-sheet.column_dimensions['A'].width = 20
-
-wb.save('output.xlsx')
-```
-
-### 编辑现有 Excel 文件
-
-```python
-# 使用 openpyxl 保留公式和格式
-from openpyxl import load_workbook
-
-# 加载现有文件
-wb = load_workbook('existing.xlsx')
-sheet = wb.active  # or wb['SheetName'] for specific sheet
-
-# 处理多个工作表
-for sheet_name in wb.sheetnames:
-    sheet = wb[sheet_name]
-    print(f"Sheet: {sheet_name}")
-
-# 修改单元格
-sheet['A1'] = 'New Value'
-sheet.insert_rows(2)  # Insert row at position 2
-sheet.delete_cols(3)  # Delete column 3
-
-# 新增工作表
-new_sheet = wb.create_sheet('NewSheet')
-new_sheet['A1'] = 'Data'
-
-wb.save('modified.xlsx')
-```
-
-## 重新计算公式
-
-通过 openpyxl 创建或修改的 Excel 文件包含公式字符串但不包含计算值。使用提供的 `scripts/recalc.py` 脚本重新计算公式：
-
-```bash
-python scripts/recalc.py <excel_file> [timeout_seconds]
-```
-
-示例：
-```bash
-python scripts/recalc.py output.xlsx 30
-```
-
-该脚本：
-- 首次运行时自动设置 LibreOffice 宏
-- 重新计算所有工作表中的所有公式
-- 扫描所有单元格以查找 Excel 错误（#REF!、#DIV/0! 等）
-- 返回包含详细错误位置和计数的 JSON
-- 适用于 Linux、macOS 和 Windows
-
-## 公式验证清单
-
-确保公式正常工作的快速检查：
-
-### 基本验证
-- [ ] **测试 2-3 个示例引用**：在构建完整模型之前验证它们是否获取了正确的值
-- [ ] **列映射**：确认 Excel 列匹配（例如第 64 列 = BL，而非 BK）
-- [ ] **行偏移**：记住 Excel 行从 1 开始索引（DataFrame 第 5 行 = Excel 第 6 行）
-
-### 常见陷阱
-- [ ] **NaN 处理**：使用 `pd.notna()` 检查空值
-- [ ] **靠右侧的列**：财年数据通常在第 50+ 列
-- [ ] **多个匹配项**：搜索所有出现的位置，而非仅第一个
-- [ ] **除以零**：在公式中使用 `/` 之前检查分母（#DIV/0!）
-- [ ] **错误引用**：验证所有单元格引用指向预期的单元格（#REF!）
-- [ ] **跨工作表引用**：使用正确的格式（Sheet1!A1）链接工作表
-
-### 公式测试策略
-- [ ] **从小处开始**：在广泛应用之前先在 2-3 个单元格上测试公式
-- [ ] **验证依赖关系**：检查公式中引用的所有单元格是否存在
-- [ ] **测试边界情况**：包含零值、负值和极大值
-
-### 解读 scripts/recalc.py 输出
-脚本返回包含错误详情的 JSON：
-```json
-{
-  "status": "success",           // or "errors_found"
-  "total_errors": 0,              // Total error count
-  "total_formulas": 42,           // Number of formulas in file
-  "error_summary": {              // Only present if errors found
-    "#REF!": {
-      "count": 2,
-      "locations": ["Sheet1!B5", "Sheet1!C10"]
-    }
-  }
-}
-```
-
-## 最佳实践
-
-### 库的选择
-- **pandas**：最适合数据分析、批量操作和简单数据导出
-- **openpyxl**：最适合复杂格式化、公式和 Excel 特定功能
-
-### 使用 openpyxl
-- 单元格索引从 1 开始（row=1, column=1 指向单元格 A1）
-- 使用 `data_only=True` 读取计算值：`load_workbook('file.xlsx', data_only=True)`
-- **警告**：如果以 `data_only=True` 打开并保存，公式将被替换为值并永久丢失
-- 对于大文件：读取时使用 `read_only=True`，写入时使用 `write_only=True`
-- 公式会被保留但不会被计算——使用 scripts/recalc.py 更新值
-
-### 使用 pandas
-- 指定数据类型以避免推断问题：`pd.read_excel('file.xlsx', dtype={'id': str})`
-- 对于大文件，读取指定列：`pd.read_excel('file.xlsx', usecols=['A', 'C', 'E'])`
-- 正确处理日期：`pd.read_excel('file.xlsx', parse_dates=['date_column'])`
-
-## 代码风格指南
-**重要**：生成用于 Excel 操作的 Python 代码时：
-- 编写简洁的 Python 代码，不添加不必要的注释
-- 避免冗长的变量名和冗余操作
-- 避免不必要的 print 语句
-
-**对于 Excel 文件本身**：
-- 为包含复杂公式或重要假设的单元格添加注释
-- 记录硬编码值的数据来源
-- 为关键计算和模型部分添加说明
+**结构：** 每个假设放在自己带标签的单元格中，由使用它的公式引用（`=B5*(1+$B$6)`，绝不是 `=B5*1.05`）· 公式在所有预测期间保持一致，因为中途单独改动一行的某个单元格是最常见的静默错误 · 为可能为零的分母加保护。
