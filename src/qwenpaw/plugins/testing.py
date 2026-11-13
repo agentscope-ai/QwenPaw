@@ -296,6 +296,9 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if not pending.future.done():
                 pending.future.cancel()
 
+        for workspace in self._workspaces.values():
+            if workspace.transcript_store is not None:
+                workspace.transcript_store.close()
         await self._app_services.stop()
         AuditLog.close_instance()
         for governor in self._governors.values():
@@ -507,13 +510,18 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace.set_app_services(self._app_services)
             from ..app.chats.manager import ChatManager
             from ..app.chats.repo.json_repo import JsonChatRepository
-            from ..app.chats.session import SafeJSONSession
+            from ..app.chats.session import DatabaseSession
+            from ..app.chats.transcript_catalog import TranscriptCatalog
 
             workspace._service_manager.services["chat_manager"] = ChatManager(
                 repo=JsonChatRepository(path / "chats.json"),
             )
-            workspace._service_manager.services["session"] = SafeJSONSession(
-                save_dir=str(path / "sessions"),
+            catalog = TranscriptCatalog(path)
+            workspace._service_manager.services["transcript_store"] = catalog
+            workspace._service_manager.services["session"] = DatabaseSession(
+                catalog=catalog,
+                legacy_save_dir=str(path / "sessions"),
+                backend_runtime=lambda: workspace.backend_runtime,
             )
             from ..hooks.session import SessionLoadHook, SessionSaveHook
 
@@ -1253,12 +1261,34 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             channel=channel,
             agent_id=workspace_id,
         )
-        stream = workspace.backend_runtime.stream(backend_id, trusted)
+        from ..config.config import load_agent_config, save_agent_config
+        from ..utils.io_utils import run_sync_io
+        from ._events import _observing
+
+        def select_backend():
+            config = load_agent_config(workspace_id)
+            config.backend = backend_id
+            save_agent_config(workspace_id, config)
+            return config
+
+        workspace._config = await run_sync_io(select_backend)
+        stream = workspace.stream_query(trusted)
         try:
-            async for item in stream:
+            while True:
+                token = _observing.set(True)
+                try:
+                    item = await anext(stream)
+                except StopAsyncIteration:
+                    return
+                finally:
+                    _observing.reset(token)
                 yield chat_event(item)
         finally:
-            await stream.aclose()
+            token = _observing.set(True)
+            try:
+                await stream.aclose()
+            finally:
+                _observing.reset(token)
 
     async def stream_chat(
         self,

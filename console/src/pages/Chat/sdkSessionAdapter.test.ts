@@ -100,4 +100,31 @@ describe("SDK session hydration boundary", () => {
     await adapter.api.removeSession({ id: "created" });
     expect(adapter.isReady("created")).toBe(false);
   });
+
+  it("transforms only the SDK view without mutating loaded history", async () => {
+    const loaded = {
+      ...session("chat-a"),
+      messages: [{ id: "history", role: "user" }],
+    } as Awaited<ReturnType<IAgentScopeRuntimeWebUISessionAPI["getSession"]>>;
+    const onSessionLoaded = vi.fn();
+    const adapter = createSdkSessionAdapter(
+      source(vi.fn(async () => loaded)),
+      onSessionLoaded,
+      (_id, current) =>
+        current
+          ? {
+              ...current,
+              messages: [{ id: "history-boundary", role: "assistant" }],
+            }
+          : current,
+    );
+
+    const visible = await adapter.api.getSession("chat-a");
+
+    expect(visible?.messages).toEqual([
+      { id: "history-boundary", role: "assistant" },
+    ]);
+    expect(loaded?.messages).toEqual([{ id: "history", role: "user" }]);
+    expect(onSessionLoaded).toHaveBeenCalledExactlyOnceWith("chat-a", visible);
+  });
 });

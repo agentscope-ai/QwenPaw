@@ -88,6 +88,9 @@ def _install_hook(fork: _Fork, tmp_path: Path, body: str) -> None:
 
 
 class _ChatManager:
+    async def can_start_run(self, chat_id: str) -> bool:
+        return True
+
     async def get_or_create_chat(
         self,
         *args: Any,

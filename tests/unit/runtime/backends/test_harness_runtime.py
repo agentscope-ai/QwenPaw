@@ -247,11 +247,10 @@ async def main():
             assert host.list_harnesses() == ()
             events = [event async for event in host.stream_chat("hello")]
             assert events[-1].status == "completed"
-            history = (
-                Path(sys.argv[1])
-                / "workspaces/test/sessions/console/test.json"
+            workspace = await host._workspace("test")
+            saved = await workspace.session.get_session_state_dict(
+                "test", "test", "console",
             )
-            saved = json.loads(history.read_text())
             assert any(block.get("text") == "native-answer"
                        for message in saved["agent"]["state"]["context"]
                        for block in message["content"])

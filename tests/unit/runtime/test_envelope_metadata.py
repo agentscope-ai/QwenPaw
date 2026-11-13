@@ -147,7 +147,9 @@ async def test_metadata_is_added_to_existing_stream_outputs():
                     state="success",
                 ),
             ],
-            [2, 1, 1, 2],
+            # The 4-byte data delta stays under the snapshot gate; the
+            # terminal TOOL_RESULT_END snapshot still carries it.
+            [2, 1, 0, 2],
         ),
         (
             [
@@ -175,6 +177,42 @@ async def test_metadata_is_added_to_existing_stream_outputs():
             assert all(
                 payload["metadata"] == event.metadata for payload in payloads
             )
+
+
+@pytest.mark.asyncio
+async def test_emitted_tool_result_delta_still_carries_metadata():
+    """A snapshot the byte gate lets through keeps its event metadata.
+
+    Small tool result deltas are now suppressed, so the data delta that
+    used to emit unconditionally has to cross the threshold to be seen.
+    """
+    envelope = Envelope()
+    for event in (
+        _event(
+            EventType.TOOL_RESULT_START,
+            tool_call_id="result",
+            tool_call_name="lookup",
+        ),
+        _event(
+            EventType.TOOL_RESULT_TEXT_DELTA,
+            tool_call_id="result",
+            delta="done",
+        ),
+    ):
+        await _translate(envelope, event)
+
+    data_event = _event(
+        EventType.TOOL_RESULT_DATA_DELTA,
+        tool_call_id="result",
+        block_id="image",
+        media_type="image/png",
+        data="YWJj" * 512,
+        url=None,
+    )
+    payloads = await _translate(envelope, data_event)
+
+    assert len(payloads) == 1
+    assert payloads[0]["metadata"] == data_event.metadata
 
 
 @pytest.mark.asyncio

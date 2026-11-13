@@ -19,6 +19,7 @@ import logging
 from fnmatch import fnmatch
 from typing import Any, Optional
 
+from ..token_usage.model_wrapper import auxiliary_model_usage
 from ..utils.model_response import (
     consume_model_response,
     extract_response_text,
@@ -293,11 +294,12 @@ async def _llm_generalize_pattern(
             ),
         ]
         # ``disable_thinking=True`` interpreted by compat layer
-        raw = await _consume_model_text(
-            model,
-            messages,
-            disable_thinking=True,
-        )
+        with auxiliary_model_usage():
+            raw = await _consume_model_text(
+                model,
+                messages,
+                disable_thinking=True,
+            )
     except Exception as exc:
         logger.debug("rule generalization LLM call failed (%s)", exc)
         return ""

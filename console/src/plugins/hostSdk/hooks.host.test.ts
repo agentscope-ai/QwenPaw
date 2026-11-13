@@ -2,9 +2,8 @@
 /**
  * Contract tests for the host hooks exposed to plugins.
  *
- * Division of labour with the existing hooks.test.ts (left byte-for-byte
- * untouched): that file covers the three PawApp-scoping paths of
- * getCurrentSessionId. This file covers the five remaining exports
+ * The hooks.test.ts file covers PawApp scoping and the real SDK context.
+ * This file covers the five remaining exports with isolated mocks
  * (useHostTheme / useHostLocale / useHostSelectedAgent /
  * useHostCurrentSession / getSelectedAgentId) plus the fallback arms of
  * getCurrentSessionId that the existing file never reaches.
@@ -45,9 +44,12 @@ vi.mock("../../stores/agentStore", () => {
   return { useAgentStore };
 });
 
-vi.mock("@agentscope-ai/chat", () => ({
-  useChatAnywhereSessionsState: () => chatMock.state,
-}));
+vi.mock(
+  "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext",
+  () => ({
+    useChatAnywhereSessionsState: () => chatMock.state,
+  }),
+);
 
 vi.mock("../../pages/Chat/sessionApi", () => ({ default: sessionApiMock }));
 

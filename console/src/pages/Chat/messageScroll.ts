@@ -1,9 +1,75 @@
-const REVERSE_MESSAGE_SCROLL_SELECTOR =
-  '[class*="chat-anywhere-message-list-bubble-scroll"]' +
-  '[class*="bubble-list-order-desc"]';
+const MESSAGE_SCROLL_SELECTOR =
+  '[class*="chat-anywhere-message-list-bubble-scroll"]';
+const REVERSE_MESSAGE_SCROLL_SELECTOR = `${MESSAGE_SCROLL_SELECTOR}[class*="bubble-list-order-desc"]`;
 
 const LINE_HEIGHT_PX = 16;
 const SCROLL_TOLERANCE_PX = 1;
+
+export function getMessageScroller(root: HTMLElement): HTMLElement | null {
+  return root.querySelector<HTMLElement>(MESSAGE_SCROLL_SELECTOR);
+}
+
+export function needsHistoryFill(scroller: HTMLElement): boolean {
+  return (
+    scroller.clientHeight > 0 &&
+    scroller.scrollHeight <= scroller.clientHeight + SCROLL_TOLERANCE_PX
+  );
+}
+
+export interface MessageScrollAnchor {
+  id: string;
+  offsetTop: number;
+}
+
+export function isOldestLoadedMessageVisible(
+  scroller: HTMLElement,
+  message: HTMLElement | null,
+  tolerance = SCROLL_TOLERANCE_PX,
+): boolean {
+  if (!message || !scroller.contains(message)) return false;
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const messageRect = message.getBoundingClientRect();
+  return (
+    messageRect.top >= scrollerRect.top - tolerance &&
+    messageRect.top <= scrollerRect.bottom + tolerance
+  );
+}
+
+export function captureMessageScrollAnchor(
+  scroller: HTMLElement,
+): MessageScrollAnchor | null {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const visible = Array.from(
+    scroller.querySelectorAll<HTMLElement>("[id][data-role]"),
+  )
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > scrollerRect.top && rect.top < scrollerRect.bottom;
+    })
+    .sort(
+      (left, right) =>
+        left.getBoundingClientRect().top - right.getBoundingClientRect().top,
+    );
+  const anchor = visible[0];
+  if (!anchor) return null;
+  return {
+    id: anchor.id,
+    offsetTop: anchor.getBoundingClientRect().top - scrollerRect.top,
+  };
+}
+
+export function restoreMessageScrollAnchor(
+  scroller: HTMLElement,
+  anchor: MessageScrollAnchor,
+): boolean {
+  const element = document.getElementById(anchor.id);
+  if (!element || !scroller.contains(element)) return false;
+  const offsetTop =
+    element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  scroller.scrollTop += offsetTop - anchor.offsetTop;
+  return true;
+}
 
 function wheelDeltaInPixels(
   deltaY: number,
@@ -84,4 +150,46 @@ export function scrollReverseMessageList(
 
   scroller.scrollTop = nextScrollTop;
   return true;
+}
+
+export function getUnscrollableHistoryTarget(
+  root: HTMLElement,
+  target: EventTarget | null,
+  oldestLoadedMessage: HTMLElement | null,
+  deltaY: number,
+): HTMLElement | null {
+  if (!(target instanceof Element) || deltaY >= 0) return null;
+
+  const scroller = target.closest<HTMLElement>(REVERSE_MESSAGE_SCROLL_SELECTOR);
+  if (!scroller || !root.contains(scroller)) return null;
+  if (
+    scroller.scrollHeight - scroller.clientHeight > SCROLL_TOLERANCE_PX ||
+    hasScrollableChildBeforeScroller(target, scroller, deltaY) ||
+    !isOldestLoadedMessageVisible(scroller, oldestLoadedMessage)
+  ) {
+    return null;
+  }
+
+  return scroller;
+}
+
+export function getUnscrollableNewerHistoryTarget(
+  root: HTMLElement,
+  target: EventTarget | null,
+  newestLoadedMessage: HTMLElement | null,
+  deltaY: number,
+): HTMLElement | null {
+  if (!(target instanceof Element) || deltaY <= 0) return null;
+
+  const scroller = target.closest<HTMLElement>(REVERSE_MESSAGE_SCROLL_SELECTOR);
+  if (!scroller || !root.contains(scroller)) return null;
+  if (
+    scroller.scrollTop < -SCROLL_TOLERANCE_PX ||
+    hasScrollableChildBeforeScroller(target, scroller, deltaY) ||
+    !isOldestLoadedMessageVisible(scroller, newestLoadedMessage)
+  ) {
+    return null;
+  }
+
+  return scroller;
 }

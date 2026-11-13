@@ -20,6 +20,15 @@ const [codexMessages, qoderMessages] = ["codex", "qoder"].map(
 const locales = { en, id, ja, "pt-BR": ptBR, ru, vi, zh };
 
 const requiredPaths = [
+  "chat.fork",
+  "chat.forkTitle",
+  "chat.forkDescription",
+  "chat.forkCreated",
+  "chat.forkFailed",
+  "chat.forkUnavailable",
+  "chat.forkUnsupported",
+  "chat.forkBoundaryMissing",
+
   "common.saving",
   "mcp.qwenpawManaged",
   "mcp.qwenpawManagedHint",

@@ -4,6 +4,7 @@
 This module handles system commands like /compact, /new, /clear, etc.
 """
 
+import asyncio
 import json
 import logging
 import shlex
@@ -14,8 +15,9 @@ from typing import TYPE_CHECKING, Any
 from agentscope.message import HintBlock, Msg, TextBlock
 from reme.config import parse_action, parse_kwargs
 
+from .._session_request import is_ephemeral_request
 from ..config.config import get_model_max_input_length, load_agent_config
-from ..config.history_path import resolve_history_db_path
+from ..app.chats.transcript_catalog import resolve_session_database_path
 from ..constant import DEBUG_HISTORY_FILE, MAX_LOAD_HISTORY_COUNT
 from ..exceptions import SystemCommandException
 from ..loop.gates.runner import clear_pending_gate_state
@@ -174,6 +176,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         workspace_dir: str | None = None,
         scroll_state: dict | None = None,
         session_id: str | None = None,
+        context_generation: int = 0,
         prompt_context: Any = None,
         reme_action_authorizer: ReMeActionAuthorizer | None = None,
     ):
@@ -196,7 +199,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 exclusive with ``agent``.
             agent_id: Agent ID for config loading (standalone mode).
             workspace_dir: Workspace directory (standalone mode) — needed to
-                open the scroll ``history.db`` when ``/compact`` runs under the
+                open the conversation DB when ``/compact`` runs under the
                 scroll strategy.
             scroll_state: The session's persisted scroll checkpoint block, used
                 to seed a standalone ``/compact`` so its eviction index stays
@@ -218,6 +221,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._workspace_dir = workspace_dir
         self._scroll_state = scroll_state
         self._session_id = session_id
+        self._context_generation = context_generation
         self._prompt_context = prompt_context
         self._reme_action_authorizer = reme_action_authorizer
         # Set by a standalone scroll ``/compact`` to the manager's refreshed
@@ -432,6 +436,13 @@ class CommandHandler(ConversationCommandHandlerMixin):
         index_text = ""
         continuation_text = ""
         compress_stats: dict = {}
+        previous_state = self._state.model_copy(deep=True)
+        manager = getattr(self._agent, "_context_manager", None)
+        previous_scroll = (
+            manager.to_dict()
+            if manager is not None and hasattr(manager, "to_dict")
+            else None
+        )
         try:
             # Agent-backed mode: ``QwenPawAgent.compress_context`` already
             # routes to scroll or native by itself. Standalone mode builds a
@@ -471,7 +482,14 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 compress_stats = dict(
                     getattr(cm, "last_compress", None) or {},
                 )
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
+            for field in type(previous_state).model_fields:
+                setattr(self._state, field, getattr(previous_state, field))
+            self._updated_scroll_state = None
+            if previous_scroll is not None:
+                manager.load_state(previous_scroll)
+            if isinstance(e, asyncio.CancelledError):
+                raise
             logger.exception("compress_context failed: %s", e)
             return await self._make_system_msg(
                 f"❌ **Compact Failed!**\n\n- Reason: {e}\n"
@@ -561,12 +579,19 @@ class CommandHandler(ConversationCommandHandlerMixin):
     def _stored_scroll_summary_text(self) -> str:
         """Render the persisted Scroll continuation state, if available."""
         if self._agent is not None:
-            return self._scroll_summary_text(self._agent)
+            summary = self._scroll_summary_text(self._agent)
+            if summary:
+                return summary
         state = self._scroll_state
-        if not isinstance(state, dict):
-            return ""
-        raw_summary = state.get("continuation_summary")
+        raw_summary = (
+            state.get("continuation_summary")
+            if isinstance(state, dict)
+            else None
+        )
         if not isinstance(raw_summary, dict):
+            for message in self._state.context:
+                if (message.metadata or {}).get("has_compressed_summary"):
+                    return message.get_text_content() or ""
             return ""
         summary = ContinuationSummary.from_dict(raw_summary)
         return summary.render() if summary is not None else ""
@@ -644,7 +669,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         Returns ``None`` unless the strategy is ``scroll`` and a workspace is
         known — in which case the caller stays on native compression. The
-        manager opens the workspace ``history.db``; the caller must
+        manager opens the conversation database; the caller must
         ``close()`` it. No model is needed at construction (compaction reads it
         from the agent passed to ``compress``).
         """
@@ -658,14 +683,6 @@ class CommandHandler(ConversationCommandHandlerMixin):
             from .context.scroll.history import HistoryStore
             from .context.scroll.manager import ScrollContextManager
 
-            sc = lcc.scroll_config
-            history = await run_sync_io(
-                HistoryStore,
-                resolve_history_db_path(
-                    self._workspace_dir,
-                    sc.db_filename,
-                ),
-            )
             # Must match the id normal turns persist under (the builder uses
             # ``ctx.session_id``), so these rows align with the live history.
             session_id = (
@@ -673,6 +690,26 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 or getattr(self._state, "session_id", "")
                 or "local"
             )
+            request = getattr(self._prompt_context, "request", None)
+            if is_ephemeral_request(request):
+                db_path = (
+                    Path(self._workspace_dir) / lcc.scroll_config.db_filename
+                )
+            else:
+                db_path = await run_sync_io(
+                    resolve_session_database_path,
+                    self._workspace_dir,
+                    session_id=session_id,
+                    user_id=getattr(request, "user_id", "") or session_id,
+                    channel=getattr(request, "channel", "") or "",
+                )
+            if db_path is None:
+                raise FileNotFoundError("conversation database is missing")
+            history = await run_sync_io(HistoryStore, db_path)
+            if self._context_generation > 0:
+                session_id = (
+                    f"{session_id}\x1fcontext:{self._context_generation}"
+                )
             return ScrollContextManager(
                 history=history,
                 session_id=session_id,
@@ -680,7 +717,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 # Already gated: the adapter only supplies an offloader when
                 # ``offload_dialog`` is on, so this archives iff configured.
                 offloader=self._offloader,
-                summary_timeout_seconds=sc.summary_timeout_seconds,
+                summary_timeout_seconds=lcc.scroll_config.summary_timeout_seconds,
             )
         except Exception:
             logger.exception("Failed to build scroll manager for /compact")
@@ -691,6 +728,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         await self._reset_modes()
         if not messages:
             self._set_summary("")
+            self._reset_scroll_state()
             reset_auto_memory_turn_state(self._state)
             return await self._make_system_msg(
                 "**No messages for auto-memory.**\n\n"
@@ -698,7 +736,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 "- Compressed summary is clear\n"
                 "- Plan state cleared\n"
                 "- No action taken",
-                metadata={"clear_plan": True},
+                metadata={"context_reset": True, "clear_plan": True},
             )
         if not self._has_memory_manager():
             return await self._make_system_msg(
@@ -721,7 +759,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             "- Auto-memory task started in background\n"
             "- Plan state cleared\n"
             "- Ready for new conversation",
-            metadata={"clear_plan": True},
+            metadata={"context_reset": True, "clear_plan": True},
         )
 
     async def _process_clear(
@@ -735,12 +773,20 @@ class CommandHandler(ConversationCommandHandlerMixin):
         reset_auto_memory_turn_state(self._state)
         await self._reset_modes()
         return await self._make_system_msg(
-            "**History Cleared!**\n\n"
+            "**Context Reset!**\n\n"
             "- Compressed summary reset\n"
-            "- Memory is now empty\n"
+            "- Active model context is now empty\n"
             "- Plan state cleared",
-            metadata={"clear_history": True, "clear_plan": True},
+            metadata={"context_reset": True, "clear_plan": True},
         )
+
+    def _reset_scroll_state(self) -> None:
+        """Discard bookkeeping when the command replaces the context."""
+        self._scroll_state = None
+        self._updated_scroll_state = None
+        manager = getattr(self._agent, "_context_manager", None)
+        if manager is not None and hasattr(manager, "load_state"):
+            manager.load_state({})
 
     async def _persist_and_clear(self) -> None:
         """Persist current context to disk via offloader, then clear."""
@@ -755,6 +801,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
             except Exception as e:
                 logger.warning("offloader.offload_context failed: %s", e)
         state.context.clear()
+        self._reset_scroll_state()
 
     async def _process_compact_str(
         self,
@@ -1425,7 +1472,11 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         try:
             # Check if there's a compressed summary
-            compressed_summary = self._get_summary()
+            compressed_summary = (
+                self._stored_scroll_summary_text()
+                if await self._uses_scroll_context()
+                else self._get_summary()
+            )
             has_summary = bool(compressed_summary)
 
             # Build dump messages: summary first (if exists), then messages
@@ -1439,6 +1490,12 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 )
                 dump_messages.append(summary_msg)
 
+            if (
+                has_summary
+                and messages
+                and (messages[0].metadata or {}).get("has_compressed_summary")
+            ):
+                messages = messages[1:]
             dump_messages.extend(messages)
 
             await run_sync_io(
@@ -1492,21 +1549,18 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 history_file,
             )
 
-            # Clear existing context without persisting (this IS the
-            # "replay history into state" path; new context is what we
-            # just loaded from disk).
-            self._state.context.clear()
-            self._set_summary("")
-
-            # If first message has summary marker, extract and restore summary
-            if has_summary_marker and loaded_messages:
+            uses_scroll = await self._uses_scroll_context()
+            summary_content = ""
+            if has_summary_marker and loaded_messages and not uses_scroll:
                 summary_msg = loaded_messages.pop(0)
                 summary_content = summary_msg.get_text_content() or ""
-                self._set_summary(summary_content)
-                logger.info("Restored compressed summary from history file")
 
-            for msg in loaded_messages:
-                self._state.context.append(msg)
+            # Imported Scroll summaries stay in context as ordinary messages.
+            # They carry text, never another conversation's Recall pointers.
+            self._state.context.clear()
+            self._state.context.extend(loaded_messages)
+            self._set_summary(summary_content)
+            self._reset_scroll_state()
 
             # Auto-memory lifecycle data belongs to the context that was
             # replaced above.  Do not let pending turns, saved snapshots, or
@@ -1523,6 +1577,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
                 f"- Has summary: {has_summary_marker}\n"
                 f"- File: `{history_file}`\n"
                 f"- Memory cleared before loading",
+                metadata={"context_reset": True},
             )
         except Exception as e:
             logger.exception(f"Failed to load history: {e}")

@@ -20,7 +20,12 @@ import uuid
 from contextlib import aclosing
 from typing import Any, AsyncGenerator
 
-from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from .._session_request import is_ephemeral_request
+from .._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TURN_COMMIT_KEY,
+)
 from ..exceptions import ConfigurationException
 from ..utils.daily_telemetry import record_agent_activity
 from ..utils.io_utils import run_async_to_completion
@@ -56,7 +61,7 @@ class Runtime:
         request: Any,
     ) -> AsyncGenerator[Any, None]:
         """8-phase lifecycle orchestration."""
-        request = self._normalize(request)
+        request = self.normalize_request(request)
         from ..schemas import AgentRequest
 
         if (
@@ -303,13 +308,8 @@ class Runtime:
         """
         request = getattr(ctx, "request", None)
         request_context = getattr(request, "request_context", None)
-        if isinstance(request_context, dict):
-            ephemeral = request_context.get(ACP_EPHEMERAL_META_KEY)
-            if ephemeral is True or (
-                isinstance(ephemeral, str)
-                and ephemeral.lower() in {"1", "true", "yes"}
-            ):
-                return
+        if is_ephemeral_request(request):
+            return
 
         agent = getattr(ctx, "agent", None)
         if agent is None:
@@ -357,12 +357,32 @@ class Runtime:
             )
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
+            save = session.save_session_state
+            save_kwargs = {}
+            turn_id = (request_context or {}).get(
+                TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+            )
+            if (
+                turn_id
+                and isinstance(request_context, dict)
+                and request_context.get(TRANSCRIPT_RECORDING_READY_KEY)
+                and callable(
+                    getattr(type(session), "save_turn_session_state", None),
+                )
+            ):
+                save = session.save_turn_session_state
+                save_kwargs["turn_id"] = str(turn_id)
+                if TURN_COMMIT_KEY in request_context:
+                    save_kwargs["pending_commit"] = request_context[
+                        TURN_COMMIT_KEY
+                    ]
             await run_async_to_completion(
-                session.save_session_state(
+                save(
                     session_id=ctx.session_id,
                     user_id=user_id,
                     channel=channel,
                     agent=proxy,
+                    **save_kwargs,
                 ),
             )
             logger.info(
@@ -573,7 +593,8 @@ class Runtime:
         return f"<system-reminder>{detail}</system-reminder>"
 
     @staticmethod
-    def _normalize(request: Any) -> Any:
+    def normalize_request(request: Any) -> Any:
+        """Resolve request identity before leasing or recording a turn."""
         from ..schemas import AgentRequest
 
         if isinstance(request, dict):

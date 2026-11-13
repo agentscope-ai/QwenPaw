@@ -15,6 +15,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from .._session_request import is_ephemeral_request
+from .._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+)
 from ._state_utils import StateProxy
 from .slash_command_registry import CommandSpec, FallbackHandler
 
@@ -475,8 +480,10 @@ async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
         return None, {}
 
     request = getattr(ctx, "request", None)
+    if is_ephemeral_request(request):
+        return AgentState(), {}
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or ""
+    channel = getattr(request, "channel", "") or ""
 
     proxy = StateProxy()
     await session.load_session_state(
@@ -512,6 +519,7 @@ async def _save_agent_state(
     state: "Any",
     *,
     scroll_block: dict | None = None,
+    reset_context: bool = False,
 ) -> None:
     """Save AgentState back to workspace.session.
 
@@ -528,26 +536,42 @@ async def _save_agent_state(
         return
 
     request = getattr(ctx, "request", None)
+    if is_ephemeral_request(request):
+        return
     user_id = (getattr(request, "user_id", "") if request else "") or ""
-    channel = (getattr(request, "channel", "") if request else "") or ""
+    channel = getattr(request, "channel", "") or ""
 
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}
     if scroll_block is not None:
         proxy.data["scroll"] = scroll_block
     proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
-    await session.save_session_state(
+    save = session.save_session_state
+    save_kwargs = {}
+    request_context = getattr(request, "request_context", None) or {}
+    turn_id = request_context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)
+    if (
+        turn_id
+        and request_context.get(TRANSCRIPT_RECORDING_READY_KEY)
+        and callable(getattr(type(session), "save_turn_session_state", None))
+    ):
+        save = session.save_turn_session_state
+        save_kwargs = {"turn_id": str(turn_id), "reset_context": reset_context}
+    elif reset_context and hasattr(session, "reset_session_state"):
+        save = session.reset_session_state
+    await save(
         session_id=ctx.session_id,
         user_id=user_id or ctx.session_id,
         channel=channel,
         agent=proxy,
+        **save_kwargs,
     )
 
 
 def _resolve_scroll_block(
     *,
     updated: dict | None,
-    context_empty: bool,
+    reset_context: bool,
     existing: dict | None,
 ) -> dict | None:
     """Decide which scroll checkpoint a conversation command should persist.
@@ -556,14 +580,14 @@ def _resolve_scroll_block(
     command's effect on ``state.context``:
 
     * ``updated`` set    — a scroll ``/compact`` refreshed it → save it.
-    * ``context_empty``  — ``/clear`` / ``/new`` wiped the window → drop it
+    * ``reset_context`` — a successful reset replaced the window → drop it
       (reset), so a stale eviction index doesn't resurface old turns.
     * otherwise          — preserve the existing block (read-only commands must
       not nuke it, which was the prior bug).
     """
     if updated is not None:
         return updated
-    if context_empty:
+    if reset_context:
         return None
     return existing
 
@@ -645,6 +669,7 @@ def _make_conversation_adapter(
             workspace_dir=ws_dir,
             scroll_state=existing_scroll,
             session_id=getattr(ctx, "session_id", None),
+            context_generation=int(payload.get("_context_generation", 0)),
             prompt_context=ctx,
             reme_action_authorizer=lambda action, kwargs: (
                 _request_reme_action_approval(ctx, action, kwargs)
@@ -653,13 +678,25 @@ def _make_conversation_adapter(
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"
         result = await cmd_handler.handle_command(full_query)
+        request = getattr(ctx, f"request", None)
+        if request is not None:
+            if not isinstance(request.request_context, dict):
+                request.request_context = {}
+            request.request_context[f"conversation_command"] = name
 
+        metadata = getattr(result, "metadata", None) or {}
+        reset_context = metadata.get("context_reset") is True
         scroll_block = _resolve_scroll_block(
             updated=cmd_handler.updated_scroll_state,
-            context_empty=not state.context,
+            reset_context=reset_context,
             existing=existing_scroll,
         )
-        await _save_agent_state(ctx, state, scroll_block=scroll_block)
+        await _save_agent_state(
+            ctx,
+            state,
+            scroll_block=scroll_block,
+            reset_context=reset_context,
+        )
         return result
 
     return CommandSpec(

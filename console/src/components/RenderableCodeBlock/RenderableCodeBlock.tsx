@@ -1,14 +1,14 @@
+import { CodeRowWindow } from "./CodeRowWindow";
 import { resolveLanguage } from "./language";
 import { useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ComponentProps } from "@ant-design/x-markdown";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Check, Code2, Copy, Download, Eye } from "lucide-react";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
+import type { SyntaxHighlighterProps } from "react-syntax-highlighter";
+import SyntaxHighlighter from "react-syntax-highlighter/dist/esm/prism-async";
+import oneDark from "react-syntax-highlighter/dist/esm/styles/prism/one-dark";
+import oneLight from "react-syntax-highlighter/dist/esm/styles/prism/one-light";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "../../contexts/ThemeContext";
 import { MermaidCodeBlock } from "../MermaidCodeBlock";
@@ -18,6 +18,7 @@ type ViewMode = "preview" | "raw";
 type RenderableLanguage = "latex" | "mermaid";
 type RenderableCodeBlockProps = Partial<ComponentProps> & {
   children?: ReactNode;
+  virtualize?: boolean;
 };
 
 const LANGUAGE_ALIASES: Record<string, RenderableLanguage> = {
@@ -127,18 +128,50 @@ function BlockActions({
   );
 }
 
+const renderCodeRows: NonNullable<SyntaxHighlighterProps["renderer"]> = (
+  props,
+) => <CodeRowWindow {...props} />;
+
 function SourceCode({
   source,
   language,
+  virtualize = false,
 }: {
   source: string;
   language: string;
+  virtualize?: boolean;
 }) {
   const { isDark } = useTheme();
+  const dimensions = useMemo(() => {
+    if (!virtualize || source.length <= 32 * 1024) return null;
+    const lines = source.split("\n");
+    if (lines.length <= 256) return null;
+    // Reserve horizontal extent even when the longest line is off screen.
+    const columns = lines.reduce((longest, line) => {
+      let width = 0;
+      for (const character of line) {
+        if (character === "\t") width += 8 - (width % 8);
+        else width += character.codePointAt(0)! > 255 ? 2 : 1;
+      }
+      return Math.max(longest, width);
+    }, 0);
+    return { columns };
+  }, [source, virtualize]);
+  const large = dimensions !== null;
 
   return (
     <SyntaxHighlighter
-      codeTagProps={{ style: { background: "transparent" } }}
+      codeTagProps={{
+        style: {
+          background: "transparent",
+          ...(dimensions
+            ? {
+                display: "block",
+                minWidth: `${dimensions.columns}ch`,
+              }
+            : {}),
+        },
+      }}
       customStyle={{
         background: "transparent",
         borderRadius: 0,
@@ -147,6 +180,7 @@ function SourceCode({
         margin: 0,
         padding: "18px 20px",
       }}
+      renderer={large ? renderCodeRows : undefined}
       language={language === "latex" ? "latex" : language || "text"}
       style={isDark ? oneDark : oneLight}
     >
@@ -158,9 +192,11 @@ function SourceCode({
 function SourceOnlyBlock({
   source,
   language,
+  virtualize = false,
 }: {
   source: string;
   language: string;
+  virtualize?: boolean;
 }) {
   return (
     <section
@@ -172,7 +208,11 @@ function SourceOnlyBlock({
         <BlockActions language={language || "text"} source={source} />
       </header>
       <div className={styles.panel}>
-        <SourceCode language={language} source={source} />
+        <SourceCode
+          language={language}
+          source={source}
+          virtualize={virtualize}
+        />
       </div>
     </section>
   );
@@ -333,6 +373,7 @@ export function RenderableCodeBlock(props: RenderableCodeBlockProps) {
     className,
     domNode,
     streamStatus,
+    virtualize,
     ...htmlProps
   } = props;
   const language = resolveLanguage(lang, className);
@@ -351,7 +392,11 @@ export function RenderableCodeBlock(props: RenderableCodeBlockProps) {
 
   if (!renderableLanguage) {
     return (
-      <SourceOnlyBlock language={language} source={extractText(children)} />
+      <SourceOnlyBlock
+        language={language}
+        source={extractText(children)}
+        virtualize={virtualize}
+      />
     );
   }
 

@@ -606,13 +606,20 @@ describe("installed SDK activation after route ownership resolution", () => {
     const host = mountLinkedHost(`/chat/${B}`);
 
     expect(fixture.history).not.toHaveBeenCalled();
-    expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+    expect(screen.getByTestId("linked-messages")).toBeVisible();
+    expect(screen.getByTestId("linked-messages").parentElement).toHaveProperty(
+      "inert",
+      true,
+    );
     await act(async () => resolveGate.resolve());
     await waitFor(() => {
       expect(screen.getByTestId("linked-messages")).toHaveTextContent(
         `linked-history-${B}`,
       );
       expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", false);
     });
     expect(host.current().sessions.currentSessionId).toBe(B);
     expect(host.current().path).toBe(`/chat/${B}`);
@@ -690,7 +697,10 @@ describe("installed SDK activation after route ownership resolution", () => {
 
       await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
       expect(resolve).toHaveBeenCalledTimes(coldResolved ? 2 : 1);
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(host.current().path).toBe(`/chat/${B}`);
       expect(fixture.create).not.toHaveBeenCalled();
     },
@@ -740,7 +750,7 @@ describe("installed SDK activation after route ownership resolution", () => {
   );
 
   it.each([404, 409])(
-    "hides repeated-alias history while a new resolution awaits %s",
+    "keeps repeated-alias history inert while resolution awaits %s",
     async (status) => {
       const alias = `runtime-${B}`;
       const gate = deferred();
@@ -768,12 +778,18 @@ describe("installed SDK activation after route ownership resolution", () => {
       await act(async () => host.current().navigate(`/chat/${alias}`));
 
       expect(resolve).toHaveBeenCalledTimes(2);
-      expect(screen.getByRole("status")).toBeVisible();
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByText(i18n.t("common.loading"))).toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(fixture.history).toHaveBeenCalledOnce();
       await act(async () => gate.resolve());
       await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
-      expect(screen.getByTestId("linked-messages")).not.toBeVisible();
+      expect(screen.getByTestId("linked-messages")).toBeVisible();
+      expect(
+        screen.getByTestId("linked-messages").parentElement,
+      ).toHaveProperty("inert", true);
       expect(host.current().path).toBe(`/chat/${alias}`);
       expect(fixture.create).not.toHaveBeenCalled();
     },
@@ -859,13 +875,17 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
       fixture.records.push(record(B));
       sessionApi.preferredChatId = localId;
       await sessionApi.getSessionList();
-      sessionApi.setLastUserMessage(
-        [A, localId],
-        command,
-        undefined,
-        "reset-command",
-      );
-      fixture.history.mockResolvedValue({ status: "running", messages: [] });
+      fixture.history.mockResolvedValue({
+        status: "running",
+        messages: [
+          {
+            id: "reset-command",
+            role: "user",
+            type: "message",
+            content: [{ type: "text", text: command }],
+          },
+        ],
+      });
       const preloaded = await sessionApi.preloadSession(localId);
       expect(preloaded.realId).toBe(A);
       expect(preloaded.session.generating).toBe(true);
@@ -895,9 +915,10 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
 
   it.each(["/clear", "/new"])(
     "keeps cleared history empty after %s across navigation and remount",
-    async (command) => {
+    async () => {
       fixture.records.push(record(B));
-      sessionApi.setLastUserMessage(A, command, undefined, "reset-command");
+      // The server projection is authoritative after reset completion.
+      fixture.history.mockResolvedValue({ status: "idle", messages: [] });
       const host = mountHost(fixture);
       await waitFor(() => expect(host.adapter.isReady(A)).toBe(true));
       expect(host.current().messages.getMessages()).toEqual([]);
@@ -948,7 +969,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     await waitFor(() => expect(screen.getByRole("alert")).toBeVisible());
     let surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
-    expect(surface).not.toBeVisible();
+    expect(surface).toBeVisible();
     expect(host.current().sessions.currentSessionId).toBe(A);
 
     await user.click(
@@ -958,7 +979,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     expect(screen.getByRole("alert")).toBeVisible();
     surface = screen.getByTestId("sdk-loader-probe").parentElement!;
     expect(surface.inert).toBe(true);
-    expect(surface).not.toBeVisible();
+    expect(surface).toBeVisible();
 
     await user.click(
       screen.getByRole("button", { name: i18n.t("common.retry") }),

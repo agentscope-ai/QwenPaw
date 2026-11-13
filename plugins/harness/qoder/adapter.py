@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from qoder_agent_sdk import (
+    AssistantMessage,
+    fork_session,
     PermissionResultAllow,
     PermissionResultDeny,
     QoderAgentOptions,
@@ -23,7 +25,6 @@ from qoder_agent_sdk import (
     QoderSDKError,
     ToolPermissionContext,
     access_token_from_env,
-    delete_session,
     get_session_messages,
     qodercli_auth,
 )
@@ -36,6 +37,7 @@ from qwenpaw.plugins.harnesses import (
     HarnessContext,
     HarnessDiscoveredSkill,
     HarnessEvent,
+    HarnessEventKind,
     HarnessHistoryItem,
     HarnessLogin,
     HarnessModel,
@@ -583,6 +585,18 @@ class QoderBackend:
             client = None
             try:
                 client = await self._client_for_session(context)
+                external_id = self._sessions[identity]
+                yield HarnessEvent(
+                    kind=HarnessEventKind.SESSION_BOUND,
+                    data={"external_session_id": external_id},
+                )
+                previous = await run_io(
+                    get_session_messages,
+                    external_id,
+                    str(context.cwd),
+                )
+                previous_uuid = previous[-1].uuid if previous else None
+                completed, last_message_id = False, None
                 query_input = (
                     self._attachment_input(
                         request.prompt,
@@ -595,8 +609,54 @@ class QoderBackend:
                 await client.query(query_input)
                 mapper = QoderEventMapper()
                 async for message in client.receive_response():
+                    if isinstance(message, AssistantMessage):
+                        last_message_id = message.message_id
                     for event in mapper.convert(message):
+                        if event.kind == HarnessEventKind.COMPLETED:
+                            completed = True
+                            continue
                         yield event
+                if completed:
+                    for attempt in range(40):
+                        messages = await run_io(
+                            get_session_messages,
+                            external_id,
+                            str(context.cwd),
+                        )
+                        persisted_uuid = (
+                            messages[-1].uuid if messages else None
+                        )
+                        persisted_message_id = (
+                            messages[-1].message.get("id")
+                            if messages
+                            else None
+                        )
+                        # Wire UUIDs differ from transcript UUIDs in Qoder.
+                        if (
+                            persisted_uuid
+                            and persisted_uuid != previous_uuid
+                            and (
+                                not last_message_id
+                                or persisted_message_id == last_message_id
+                            )
+                        ):
+                            break
+                        if attempt == 39:
+                            raise RuntimeError(
+                                "Qoder has not persisted this turn's boundary "
+                                f"(expected={last_message_id}, "
+                                f"persisted={persisted_message_id})",
+                            )
+                        await asyncio.sleep(0.05)
+                    yield HarnessEvent(
+                        kind=HarnessEventKind.TURN_BOUNDARY,
+                        data={
+                            "external_session_id": external_id,
+                            "boundary_kind": "message",
+                            "boundary_id": messages[-1].uuid,
+                        },
+                    )
+                    yield HarnessEvent(kind=HarnessEventKind.COMPLETED)
             except (asyncio.CancelledError, GeneratorExit):
                 if client is not None:
                     await finish(self._interrupt_client(identity, client))
@@ -728,6 +788,35 @@ class QoderBackend:
         ]
         return tuple(events)
 
+    async def bind_session(self, context, external_session_id):
+        """Restore the durable identity without replaying local history."""
+        await self.prepare()
+        async with self._session_lock:
+            key = self._session_key(context)
+            if self._sessions.get(key) != external_session_id:
+                client = self._clients.get(key)
+                if client is not None:
+                    await finish(self._evict_client(key, client))
+            payload = dict(self._sessions)
+            payload.pop(context.session_id, None)
+            if external_session_id:
+                payload[key] = external_session_id
+            else:
+                payload.pop(key, None)
+            await self._save_sessions(payload)
+
+    async def fork_session(self, context, *, boundary):
+        """Fork the native transcript through an inclusive message UUID."""
+        if boundary["boundary_kind"] != "message":
+            raise ValueError("invalid Qoder fork boundary")
+        result = await run_io(
+            fork_session,
+            boundary["external_session_id"],
+            directory=str(context.cwd),
+            up_to_message_id=boundary["boundary_id"],
+        )
+        return result.session_id
+
     async def reset_session(self, context: HarnessCallContext):
         await self.prepare()
         identity = self._session_key(context)
@@ -738,17 +827,11 @@ class QoderBackend:
                 await finish(self._reset_session(context, identity))
 
     async def _reset_session(self, context, identity):
-        native_id = await self._claim_session(context)
+        await self._claim_session(context)
         client = self._clients.get(identity)
         if client is not None:
             await self._evict_client(identity, client)
-        if native_id:
-            try:
-                await run_io(delete_session, native_id)
-            except (OSError, ValueError) as exc:
-                raise SDKError(
-                    f"Could not delete Qoder session: {exc}",
-                ) from exc
+        # Historical forks and checkpoints still own the native transcript.
         payload = dict(self._sessions)
         payload.pop(identity, None)
         await self._save_sessions(payload)

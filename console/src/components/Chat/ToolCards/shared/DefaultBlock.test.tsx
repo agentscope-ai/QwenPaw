@@ -11,14 +11,14 @@ vi.mock("@agentscope-ai/chat", () => ({
   ),
 }));
 
-vi.mock("react-syntax-highlighter", () => ({
-  Prism: ({ children }: { children: string }) => (
+vi.mock("react-syntax-highlighter/dist/esm/prism-async", () => ({
+  default: ({ children }: { children: string }) => (
     <pre data-testid="syntax">{children}</pre>
   ),
 }));
 
-vi.mock("react-syntax-highlighter/dist/esm/styles/prism", () => ({
-  oneDark: {},
+vi.mock("react-syntax-highlighter/dist/esm/styles/prism/one-dark", () => ({
+  default: {},
 }));
 
 const { copyTextMock } = vi.hoisted(() => ({

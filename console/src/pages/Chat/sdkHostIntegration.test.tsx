@@ -16,6 +16,9 @@ import { LongTextPasteInput } from "./LongTextPaste";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
 import { ApiError } from "@/api/request";
 import type { ChatSpec } from "@/api";
+import type { IAgentScopeRuntimeWebUIMessage } from "@agentscope-ai/chat";
+import sessionApi from "./sessionApi";
+import { historyMessageWindow } from "./historyMessageWindowStore";
 import {
   getPendingProjectDirectory,
   setPendingProjectDirectory,
@@ -46,6 +49,7 @@ const {
   mockResolveChat,
   mockUnknownRoutes,
   mockResolvedRoutes,
+  mockSdkMessages,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockPreviewModelInfo: vi.fn(),
@@ -67,6 +71,14 @@ const {
   mockResolveChat: vi.fn(),
   mockUnknownRoutes: new Set<string>(),
   mockResolvedRoutes: new Map<string, ChatSpec>(),
+  mockSdkMessages: {
+    enabled: false,
+    getMessages: vi.fn(() => [] as IAgentScopeRuntimeWebUIMessage[]),
+    getSessionMessages: vi.fn(
+      (_id: string) => [] as IAgentScopeRuntimeWebUIMessage[],
+    ),
+    setSessionMessages: vi.fn(),
+  },
 }));
 
 let capturedOptions: any = null;
@@ -106,42 +118,51 @@ vi.mock("./components/ChatSessionInitializer", () => ({
   default: () => null,
 }));
 
-vi.mock("@agentscope-ai/chat", () => ({
-  AgentScopeRuntimeWebUI: vi.fn((props: any) => {
-    capturedOptions = props.options;
-    useEffect(() => {
-      const id = props.options?.session?.currentSessionId;
-      if (id)
-        void props.options.session.api.getSession(id).catch(() => undefined);
-    }, [props.options?.session?.api, props.options?.session?.currentSessionId]);
-    observedSdkSessions.push({
-      agent: mockSelectedAgent(),
-      sessionId: props.options?.session?.currentSessionId,
-    });
-    return (
-      <div data-testid="chat-ui">
-        {props.options?.theme?.rightHeader}
-        {props.options?.sender?.prefix}
-      </div>
-    );
-  }),
-  useChatAnywhereSessionsState: vi.fn(() => ({
-    sessions: [],
-    currentSessionId: null,
-    setCurrentSessionId: vi.fn(),
-    setSessions: vi.fn(),
-  })),
-  useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
-  useChatAnywhereInput: vi.fn((select: any) =>
-    select({
-      loading: mockSdkInput.loading,
-      setSessionLoading: mockSdkInput.setSessionLoading,
-      setLoading: vi.fn(),
-      getLoading: vi.fn(() => false),
-      setDisabled: vi.fn(),
+vi.mock("@agentscope-ai/chat", async () => {
+  const { forwardRef, useImperativeHandle } = await import("react");
+  return {
+    AgentScopeRuntimeWebUI: forwardRef((props: any, ref) => {
+      useImperativeHandle(ref, () =>
+        mockSdkMessages.enabled ? { messages: mockSdkMessages } : null,
+      );
+      capturedOptions = props.options;
+      useEffect(() => {
+        const id = props.options?.session?.currentSessionId;
+        if (id)
+          void props.options.session.api.getSession(id).catch(() => undefined);
+      }, [
+        props.options?.session?.api,
+        props.options?.session?.currentSessionId,
+      ]);
+      observedSdkSessions.push({
+        agent: mockSelectedAgent(),
+        sessionId: props.options?.session?.currentSessionId,
+      });
+      return (
+        <div data-testid="chat-ui">
+          {props.options?.theme?.rightHeader}
+          {props.options?.sender?.prefix}
+        </div>
+      );
     }),
-  ),
-}));
+    useChatAnywhereSessionsState: vi.fn(() => ({
+      sessions: [],
+      currentSessionId: null,
+      setCurrentSessionId: vi.fn(),
+      setSessions: vi.fn(),
+    })),
+    useChatAnywhereSessions: vi.fn(() => ({ createSession: vi.fn() })),
+    useChatAnywhereInput: vi.fn((select: any) =>
+      select({
+        loading: mockSdkInput.loading,
+        setSessionLoading: mockSdkInput.setSessionLoading,
+        setLoading: vi.fn(),
+        getLoading: vi.fn(() => mockSdkInput.loading),
+        setDisabled: vi.fn(),
+      }),
+    ),
+  };
+});
 
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereI18nContext",
@@ -212,8 +233,12 @@ vi.mock("@/contexts/ThemeContext", () => ({
   useTheme: vi.fn(() => ({ isDark: false })),
 }));
 
-vi.mock("./sessionApi", () => ({
+vi.mock("./sessionApi", async (importOriginal) => ({
+  mergeHistoryMessages: (await importOriginal<typeof import("./sessionApi")>())
+    .mergeHistoryMessages,
   default: {
+    loadUserMessageIndex: vi.fn(async () => []),
+    loadUserMessageIndexPage: vi.fn(async () => ({ items: [], total: 0 })),
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -243,8 +268,13 @@ vi.mock("./sessionApi", () => ({
     })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      noMore: true,
+    })),
+    loadNewerHistory: vi.fn(() => null),
+    showLatestHistory: vi.fn(() => null),
+    syncVisibleHistory: vi.fn(),
     setVisibleSession: vi.fn(),
     getSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     lastActiveChatId: "last-chat-1",
@@ -262,6 +292,7 @@ vi.mock("./sessionApi", () => ({
       };
     }),
     triggerResolve: vi.fn(),
+    invalidateConvertedCache: vi.fn(),
     resetWindowIdentity: vi.fn(),
     isSessionSwitching: false,
     isUnresolvedLocalSession: vi.fn(() => false),
@@ -620,6 +651,9 @@ describe("ChatPage coverage", () => {
       mockSelectedAgent.mockReturnValue(id);
     });
     mockSdkInput.loading = false;
+    mockSdkMessages.enabled = false;
+    mockSdkMessages.getMessages.mockReturnValue([]);
+    mockSdkMessages.getSessionMessages.mockReset().mockReturnValue([]);
     mockGetChatStatus.mockReset();
     mockGetChatStatus.mockResolvedValue({ status: "idle" });
     chatExtensions.__resetForTests();
@@ -673,8 +707,65 @@ describe("ChatPage coverage", () => {
   });
 
   afterEach(() => {
+    historyMessageWindow.end();
     chatExtensions.__resetForTests();
     vi.clearAllMocks();
+  });
+
+  it("retains the live response when wheel paging enters history", async () => {
+    const live: IAgentScopeRuntimeWebUIMessage = {
+      id: "live-response",
+      role: "assistant",
+      cards: [],
+    };
+    mockSdkMessages.enabled = true;
+    mockSdkInput.loading = true;
+    const foreign = { ...live, id: "foreign-response" };
+    mockSdkMessages.getMessages.mockReturnValue([foreign]);
+    mockSdkMessages.getSessionMessages.mockImplementation((id: string) =>
+      id === "live-history" ? [live] : [],
+    );
+    vi.mocked(sessionApi.loadOlderHistory).mockResolvedValueOnce({
+      messages: [{ id: "old-user", role: "user", cards: [] }] as never[],
+      noMore: true,
+    });
+    vi.mocked(sessionApi.showLatestHistory).mockReturnValueOnce([]);
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/live-history"],
+    });
+    const surface = await screen.findByTestId("chat-ui");
+    const scroller = document.createElement("div");
+    scroller.className =
+      "qwenpaw-chat-anywhere-message-list-bubble-scroll bubble-list-order-desc";
+    scroller.scrollTop = -400;
+    surface.append(scroller);
+    const anchor = document.createElement("div");
+    anchor.id = foreign.id;
+    surface.append(anchor);
+    Object.defineProperties(surface, {
+      clientHeight: { value: 500 },
+      scrollHeight: { value: 1000 },
+    });
+    fireEvent.scroll(surface);
+    await waitFor(() =>
+      expect(historyMessageWindow.getSnapshot()?.onReturnToLatest).toEqual(
+        expect.any(Function),
+      ),
+    );
+    expect(sessionApi.syncVisibleHistory).toHaveBeenCalledWith("live-history", [
+      live,
+    ]);
+    expect(mockSdkMessages.setSessionMessages).toHaveBeenCalledWith(
+      "live-history",
+      [expect.objectContaining({ history: true }), live],
+    );
+    act(() => historyMessageWindow.getSnapshot()!.onReturnToLatest!());
+    expect(historyMessageWindow.getSnapshot()).toBeNull();
+    expect(scroller.scrollTop).toBe(0);
+    expect(mockSdkMessages.setSessionMessages).toHaveBeenLastCalledWith(
+      "live-history",
+      [live],
+    );
   });
 
   function RouteHarness() {
@@ -718,7 +809,7 @@ describe("ChatPage coverage", () => {
     });
 
     const sdk = await screen.findByTestId("chat-ui");
-    expect(sdk).not.toBeVisible();
+    expect(sdk).toBeVisible();
     expect(mockSdkHistoryLoad).not.toHaveBeenCalled();
     expect(session.getSession).not.toHaveBeenCalled();
     expect(holdOwnershipLock).not.toHaveBeenCalled();
@@ -1191,24 +1282,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("handles history clear message detection", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      // Exercise the payloadRequestsHistoryClear / messageRequestsHistoryClear paths
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: { clear_history: true },
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
   it("handles payload completion detection", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
@@ -1420,7 +1493,7 @@ describe("ChatPage coverage", () => {
         signal: undefined,
       });
       expect(fetch).toHaveBeenCalledWith(
-        expect.stringContaining("/console/chat"),
+        expect.stringContaining("/console/chat?materialized_replay=1"),
         expect.objectContaining({
           method: "POST",
         }),
@@ -2088,52 +2161,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── responseParser: payloadRequestsHistoryClear via response.output ────
-  it("responseParser detects history clear in response output array", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "response",
-          status: "completed",
-          output: [
-            {
-              type: "message",
-              role: "assistant",
-              metadata: { clear_history: true },
-              content: [{ type: "text", text: "cleared" }],
-            },
-          ],
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
-  // ── responseParser: nested metadata clear_history ──────────────────────
-  it("responseParser detects nested metadata clear_history", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({
-          object: "message",
-          metadata: {
-            metadata: { clear_history: true },
-          },
-        }),
-      );
-      expect(parsed).toBeTruthy();
-    }
-  });
-
   // ── customFetch: successful fetch with full request body ───────────────
   it("customFetch sends correct request body and returns response", async () => {
     const mockResponse = {
@@ -2180,7 +2207,7 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("customFetch caches an attachment-only user turn", async () => {
+  it("customFetch sends an attachment-only user turn", async () => {
     const mockResponse = {
       ok: true,
       status: 200,
@@ -2188,8 +2215,6 @@ describe("ChatPage coverage", () => {
       json: () => Promise.resolve({}),
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
-    const sessionApiMock = (await import("./sessionApi")).default;
-
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -2212,25 +2237,25 @@ describe("ChatPage coverage", () => {
       signal: undefined,
     });
 
-    expect(sessionApiMock.setLastUserMessage).toHaveBeenCalledWith(
-      expect.any(Array),
-      "",
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    const body = JSON.parse(String(request?.[1]?.body));
+    expect(body.input[0].content).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          type: "file",
-          file_url: "report.pdf",
-        }),
+        expect.objectContaining({ type: "file", file_url: "report.pdf" }),
       ]),
-      expect.any(String),
     );
   });
 
-  it("uses the runtime for the API but only the submitted Chat ID for pending storage", async () => {
+  it("uses the runtime identity in the backend request", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/sdk-chat-uuid"],
     });
     await screen.findByTestId("chat-ui");
-    const session = (await import("./sessionApi")).default;
     await capturedOptions.api.fetch({
       session_id: "sdk-chat-uuid",
       context: {
@@ -2242,11 +2267,6 @@ describe("ChatPage coverage", () => {
         { role: "user", content: [{ type: "text", text: "private input" }] },
       ],
     });
-    const cacheIds = vi
-      .mocked(session.setLastUserMessage)
-      .mock.calls.slice(-1)[0]?.[0];
-    expect(cacheIds).toContain("sdk-chat-uuid");
-    expect(cacheIds).not.toContain("shared-runtime");
     const request = vi
       .mocked(fetch)
       .mock.calls.find(
@@ -2385,8 +2405,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── customFetch: non-ok response discards last user message ────────────
-  it("customFetch discards last user message on non-ok response", async () => {
+  // ── customFetch: non-ok response passthrough ────────────────────────────
+  it("customFetch returns a non-ok response", async () => {
     const mockResponse = { ok: false, status: 500, body: null };
     global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
 

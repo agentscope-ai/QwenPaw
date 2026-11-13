@@ -17,11 +17,10 @@ export function createHeadlineFilterState(): HeadlineStreamFilterState {
 }
 
 export function stripScrollHeadlines(text: string): string {
-  return text
+  const stripped = text
     .replace(HEADLINE_LINE_RE, "")
-    .replace(TRAILING_HEADLINE_RE, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+    .replace(TRAILING_HEADLINE_RE, "");
+  return stripped === text ? text : stripped.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /** Mutate completed text blocks without interpreting nested stream deltas. */

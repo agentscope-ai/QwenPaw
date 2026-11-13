@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import zipfile
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +19,12 @@ from qoder_agent_sdk import (
     Transport,
 )
 from qoder_agent_sdk._internal.sessions import _get_project_dir
+from qwenpaw.app.chats.api import (
+    ChatForkRequest,
+    fork_chat_at_turn,
+    get_fork_capability,
+)
+from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.plugins.harnesses import (
     HarnessAttachment,
     HarnessAttachmentKind,
@@ -53,6 +60,34 @@ class QoderTransport(Transport):
         pass
 
     def result(self, *, failed=False):
+        if not failed:
+            project = _get_project_dir(str(self.options.cwd.resolve()))
+            project.mkdir(parents=True, exist_ok=True)
+            path = project / f"{self.native_id}.jsonl"
+            entries = (
+                [json.loads(line) for line in path.read_text().splitlines()]
+                if path.exists()
+                else []
+            )
+            parent = next(
+                (e["uuid"] for e in reversed(entries) if "uuid" in e),
+                None,
+            )
+            entry = {
+                "type": "assistant",
+                "uuid": str(uuid.uuid4()),
+                "parentUuid": parent,
+                "sessionId": self.native_id,
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "text", "text": "Done"},
+                    ],
+                    "stop_reason": "end_turn",
+                },
+            }
+            with path.open("a") as stream:
+                stream.write(json.dumps(entry) + "\n")
         return {
             "type": "result",
             "subtype": "error_during_execution" if failed else "success",
@@ -273,17 +308,19 @@ async def test_turn_model_permissions_and_events(runtime, failed):
     )
     events = await collect(backend, call, "fail" if failed else "Review")
     assert [e.kind for e in events] == [
+        HarnessEventKind.SESSION_BOUND,
         HarnessEventKind.TEXT_DELTA,
         HarnessEventKind.TOOL_STARTED,
         HarnessEventKind.TOOL_COMPLETED,
+        *([] if failed else [HarnessEventKind.TURN_BOUNDARY]),
         HarnessEventKind.ERROR if failed else HarnessEventKind.COMPLETED,
     ]
-    assert events[0].text == "Done"
-    assert (events[1].tool_name, events[1].data["arguments"]) == (
+    assert events[1].text == "Done"
+    assert (events[2].tool_name, events[2].data["arguments"]) == (
         "Bash",
         {"command": "pytest"},
     )
-    assert events[2].text == "1 passed"
+    assert events[3].text == "1 passed"
     if failed:
         assert events[-1].text == "Vendor turn failed"
     options = runtime.transports[-1].options
@@ -366,7 +403,7 @@ async def test_legacy_session_reopens_reads_and_clears_without_crossing_users(
     old.parent.mkdir()
     old.write_text(json.dumps({"chat": native}))
     first, call = runtime.backend(), runtime.call()
-    await collect(first, call)
+    events = await collect(first, call)
     assert runtime.transports[-1].options.resume == native
     await first.close()
     second = runtime.backend()
@@ -375,8 +412,21 @@ async def test_legacy_session_reopens_reads_and_clears_without_crossing_users(
     await collect(second, runtime.call("bob"))
     assert runtime.transports[-1].options.resume is None
     assert runtime.transports[-1].options.session_id != native
+    boundary = next(
+        e.data for e in events if e.kind == HarnessEventKind.TURN_BOUNDARY
+    )
+    child = await second.fork_session(call, boundary=boundary)
+    fork_call = runtime.call(session="fork-child")
+    await second.bind_session(fork_call, child)
+    continued = await collect(second, fork_call)
+    assert runtime.transports[-1].options.resume == child
+    child_boundary = next(
+        e.data for e in continued if e.kind == HarnessEventKind.TURN_BOUNDARY
+    )
+    grandchild = await second.fork_session(fork_call, boundary=child_boundary)
+    assert grandchild not in {child, native}
     project = _get_project_dir(str(call.cwd.resolve()))
-    project.mkdir(parents=True)
+    project.mkdir(parents=True, exist_ok=True)
     transcript = project / f"{native}.jsonl"
     transcript.write_text(
         json.dumps(
@@ -395,7 +445,7 @@ async def test_legacy_session_reopens_reads_and_clears_without_crossing_users(
     )
     assert [item.text for item in await second.history(call)] == ["Recovered"]
     await second.reset_session(call)
-    assert not transcript.exists() and await second.history(call) == ()
+    assert transcript.exists() and await second.history(call) == ()
     await collect(second, call)
     assert runtime.transports[-1].options.session_id != native
     assert old.read_text() == json.dumps({"chat": native})
@@ -429,6 +479,7 @@ async def test_approval_belongs_to_live_call(runtime, outcome, behavior):
     assert seen == [("Bash", "tool", 60)]
     bob = backend.run_turn(runtime.call("bob"), HarnessRunRequest("wait"))
     try:
+        assert (await anext(bob)).kind == HarnessEventKind.SESSION_BOUND
         assert (await anext(bob)).kind == HarnessEventKind.TEXT_DELTA
         stale = await first.options.can_use_tool(
             "Bash",
@@ -513,8 +564,50 @@ async def test_actual_zip_manifest_registration_and_host_call(
                 session_id="zip-call",
             )
         ]
-        assert output[-1].status == "completed"
+        assert output[-1].status == "completed", output[-1]
         assert "Done" in str(output) and "1 passed" in str(output)
         assert (
             runtime.transports[-1].inputs[0]["message"]["content"] == "Review"
         )
+
+        workspace = await host._workspace("test")
+        parent = await workspace.chat_manager.create_chat(
+            ChatSpec(
+                name="Native fork",
+                session_id="zip-call",
+                user_id="test",
+                channel="console",
+            ),
+        )
+        for _ in range(2):
+            state = workspace.transcript_store.read_provider_state(
+                session_id=parent.session_id,
+                user_id=parent.user_id,
+                channel=parent.channel,
+            )
+            turn_id = list(state["boundaries"])[-1]
+            capability = await get_fork_capability(
+                parent.id,
+                turn_id,
+                workspace.chat_manager,
+                workspace,
+            )
+            assert capability == {"can_fork": True, "reason": None}
+            child = await fork_chat_at_turn(
+                parent.id,
+                ChatForkRequest(turn_id=turn_id),
+                workspace.chat_manager,
+                workspace,
+            )
+            assert child.parent_chat_id == parent.id
+            output = [
+                item
+                async for item in host.run_harness(
+                    "qoder",
+                    HarnessRunRequest("Continue"),
+                    workspace_id="test",
+                    session_id=child.session_id,
+                )
+            ]
+            assert output[-1].status == "completed", output[-1]
+            parent = child

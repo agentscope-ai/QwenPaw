@@ -4233,6 +4233,16 @@
     "system": "System"
   },
   "chat": {
+    "fork": "Fork",
+    "forkTitle": "Fork from this turn?",
+    "forkDescription": "A new independent conversation will contain this turn and all earlier turns.",
+    "forkCreated": "Fork created",
+    "forkFailed": "Failed to fork conversation",
+    "forkPreparing": "Preparing fork",
+    "forkUnavailable": "This turn cannot be forked",
+    "forkUnsupported": "This agent backend does not support forking",
+    "forkBoundaryMissing": "This turn has no completed native fork boundary and cannot be forked yet",
+    "sessionLoadFailed": "Could not load this conversation. Please reopen it.",
     "quoteFollowUp": "Quote to follow-up",
     "longTextPaste": {
       "title": "Paste long text",
@@ -4253,6 +4263,13 @@
     "newTask": "New task",
     "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
+    "olderHistoryLoadFailed": "Failed to load older messages",
+    "messageNavigation": {
+      "title": "Navigation ({{count}})",
+      "locate": "Scroll directory to active user message",
+      "userMessage": "User message",
+      "bottom": "Scroll to bottom"
+    },
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
       "stepsCanceled": "Canceled · {{count}} steps",
@@ -4447,6 +4464,7 @@
     },
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
+    "canceledWithoutReply": "Canceled by user; no reply",
     "turnCanceled": "Canceled"
   },
   "security": {

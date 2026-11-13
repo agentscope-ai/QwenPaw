@@ -41,34 +41,6 @@ export { default as CodeModeCard } from "./CodeModeCard";
 export { default as RunToolBatchCard } from "./RunToolBatchCard";
 export { default as GenericToolCard } from "./GenericToolCard";
 
-// ── Re-import for registry ────────────────────────────────────────────
-import ReadFileCard from "./ReadFileCard";
-import WriteFileCard from "./WriteFileCard";
-import EditFileCard from "./EditFileCard";
-import AppendFileCard from "./AppendFileCard";
-import GrepSearchCard from "./GrepSearchCard";
-import GlobSearchCard from "./GlobSearchCard";
-import ViewImageCard from "./ViewImageCard";
-import ViewVideoCard from "./ViewVideoCard";
-import DesktopScreenshotCard from "./DesktopScreenshotCard";
-import SendFileCard from "./SendFileCard";
-import BrowserCard from "./BrowserCard";
-// ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
-import BrowserUseCard from "./deprecated/BrowserUseCard";
-// ── END DEPRECATED BROWSER ──
-import GetCurrentTimeCard from "./GetCurrentTimeCard";
-import SetTimezoneCard from "./SetTimezoneCard";
-import TokenUsageCard from "./TokenUsageCard";
-import MemorySearchCard from "./MemorySearchCard";
-import ListAgentsCard from "./ListAgentsCard";
-import ChatWithAgentCard from "./ChatWithAgentCard";
-import SubmitToAgentCard from "./SubmitToAgentCard";
-import CheckAgentTaskCard from "./CheckAgentTaskCard";
-import DelegateExternalAgentCard from "./DelegateExternalAgentCard";
-import ShellCard from "./ShellCard";
-import CodeModeCard from "./CodeModeCard";
-import RunToolBatchCard from "./RunToolBatchCard";
-
 // ── Common props type ─────────────────────────────────────────────────
 
 export interface BuiltinCardProps {
@@ -78,57 +50,4 @@ export interface BuiltinCardProps {
 
 export type BuiltinCardComponent = React.FC<BuiltinCardProps>;
 
-// ── Tool-name → component registry ───────────────────────────────────
-
-export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
-  // File I/O
-  read_file: ReadFileCard,
-  write_file: WriteFileCard,
-  edit_file: EditFileCard,
-  append_file: AppendFileCard,
-
-  // Search
-  grep_search: GrepSearchCard,
-  glob_search: GlobSearchCard,
-
-  // Media
-  view_image: ViewImageCard,
-  view_video: ViewVideoCard,
-  desktop_screenshot: DesktopScreenshotCard,
-  send_file_to_user: SendFileCard,
-
-  // Unified Browser SDK
-  browser: BrowserCard,
-
-  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
-  browser_use: BrowserUseCard,
-  // ── END DEPRECATED BROWSER ──
-
-  // Time
-  get_current_time: GetCurrentTimeCard,
-  set_user_timezone: SetTimezoneCard,
-
-  // Token usage
-  get_token_usage: TokenUsageCard,
-
-  // Memory
-  memory_search: MemorySearchCard,
-
-  // Agent management
-  list_agents: ListAgentsCard,
-  chat_with_agent: ChatWithAgentCard,
-  submit_to_agent: SubmitToAgentCard,
-  check_agent_task: CheckAgentTaskCard,
-  delegate_external_agent: DelegateExternalAgentCard,
-
-  // Shell
-  execute_shell_command: ShellCard,
-  shell: ShellCard,
-  bash: ShellCard,
-  terminal: ShellCard,
-  run_command: ShellCard,
-
-  // Workflow
-  run_tool_batch: RunToolBatchCard,
-  run_code: CodeModeCard,
-};
+export { BUILTIN_CARD_REGISTRY } from "../lazyRegistry";

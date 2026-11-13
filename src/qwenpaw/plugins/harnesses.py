@@ -47,6 +47,8 @@ class HarnessAttachmentKind(str, Enum):
 
 
 class HarnessEventKind(str, Enum):
+    SESSION_BOUND = "session_bound"
+    TURN_BOUNDARY = "turn_boundary"
     TEXT_DELTA = "text_delta"
     REASONING_DELTA = "reasoning_delta"
     TOOL_STARTED = "tool_started"
@@ -126,6 +128,7 @@ class HarnessCapabilities:
     provider_skills_discovery: bool = False
     provider_mcp_discovery: bool = False
     mcp_tool_allowlist: bool = False
+    fork_mode: Literal["none", "latest", "turn"] = "none"
     external_history: bool = False
     commands: tuple[HarnessCommand, ...] = ()
     approval_presets: tuple[HarnessApprovalPreset, ...] = ()
@@ -146,6 +149,9 @@ class HarnessCapabilities:
                         f"{attribute.name} must be a tuple of "
                         f"{expected.__name__}",
                     )
+            elif attribute.name == "fork_mode":
+                if value not in {"none", "latest", "turn"}:
+                    raise SDKError("Invalid native fork mode")
             elif not isinstance(value, bool):
                 raise SDKError(f"{attribute.name} must be boolean")
 

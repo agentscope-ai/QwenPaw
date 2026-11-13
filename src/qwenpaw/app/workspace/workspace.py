@@ -23,17 +23,23 @@ from typing import (
     Optional,
 )
 
+from ..._session_request import is_ephemeral_request
 from ...config.timezone import normalize_tz
+from ..._session_signals import TURN_COMMIT_KEY
+from ...schemas import AgentResponse, RunStatus
+from ...runtime import Runtime
+from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 from ...config.utils import load_config
 from ...constant import WORKING_DIR
+from ...token_usage.turn_usage import (
+    add_session_cache_usage,
+    resolve_turn_usage,
+)
 from ...utils.io_utils import run_async_to_completion
 
 from .service_manager import ServiceDescriptor, ServiceManager
 from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
-    create_history_service,
-    prepare_history_service,
-    history_service_reuse_compatible,
     create_driver_service,
     create_driver_config_watcher,
     create_chat_service,
@@ -43,7 +49,14 @@ from .service_factories import (
 )
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
-from ..chats.session import SafeJSONSession
+from ..chats.session import DatabaseSession
+from ..chats.transcript_catalog import TranscriptCatalog
+from ..chats.history_store import TranscriptHistoryStore
+from ..chats.transcript_recorder import (
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TranscriptRecorder,
+)
+from ..chats.utils import session_state_to_messages
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config, load_agent_config_async
@@ -51,12 +64,12 @@ from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
 if TYPE_CHECKING:
-    from ...agents.context.scroll.history import HistoryStore
     from ...memory import MemoryBackendContext
 
 logger = logging.getLogger(__name__)
 
 _MEMORY_BACKEND_FALLBACK = "remelight"
+_TURN_USAGE_SNAPSHOT_CONTEXT_KEY = "_qwenpaw_turn_usage_snapshot"
 
 
 def _configured_memory_backend_id(ws: "Workspace") -> str:
@@ -192,7 +205,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._config = None  # Loaded before start()
         self._config_mtime: float | None = None
         self.cron_start_paused = False
-        self._history_retention_days = 0
         self._started = False
         self._start_attempted = False
         self._manager = None  # Reference to MultiAgentManager
@@ -210,12 +222,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
     # Service access via properties (delegates to ServiceManager)
     @property
-    def history_store(self) -> Optional["HistoryStore"]:
-        """Shared Scroll store; request context managers only borrow it."""
-        return self._service_manager.services.get("history_store")
-
-    @property
-    def session(self) -> Optional[SafeJSONSession]:
+    def session(self) -> Optional[DatabaseSession]:
         """Get session instance from ServiceManager."""
         return self._service_manager.services.get("session")
 
@@ -233,6 +240,19 @@ class Workspace:  # pylint: disable=too-many-public-methods
     def chat_manager(self):
         """Get chat manager instance from ServiceManager."""
         return self._service_manager.services.get("chat_manager")
+
+    @property
+    def transcript_store(self) -> Optional[TranscriptCatalog]:
+        """Get the durable transcript store, when available."""
+        return self._service_manager.services.get("transcript_store")
+
+    @property
+    def history_store(self) -> Optional[TranscriptHistoryStore]:
+        """Get the storage-independent conversation history reader."""
+        transcript = self.transcript_store
+        if transcript is None:
+            return None
+        return TranscriptHistoryStore(transcript)
 
     @property
     def channel_manager(self):
@@ -435,7 +455,36 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._app_services = app_services
 
     @_sdk_observe_stream
-    async def stream_query(
+    async def stream_query(self, request: Any) -> AsyncGenerator[Any, None]:
+        """Lease the session for the entire request, including final writes."""
+        available = getattr(self._manager, "assert_agent_available", None)
+        if available is not None:
+            available(self.agent_id)
+        request = Runtime.normalize_request(request)
+        session_id = str(getattr(request, "session_id", "") or "")
+        identity = (
+            session_id,
+            str(getattr(request, "user_id", "") or session_id),
+            str(getattr(request, "channel", "") or ""),
+        )
+
+        async def can_start():
+            manager = self.chat_manager
+            return manager is None or await manager.can_start_session(identity)
+
+        async with self.task_tracker.session_execution(
+            identity,
+            can_start,
+            owner=self,
+        ):
+            stream = self._stream_query(request)
+            try:
+                async for item in stream:
+                    yield item
+            finally:
+                await stream.aclose()
+
+    async def _stream_query(
         self,
         request: Any,
     ) -> AsyncGenerator[Any, None]:
@@ -443,14 +492,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        available = getattr(self._manager, "assert_agent_available", None)
-        if available is not None:
-            available(self.agent_id)
-        from ...schemas import AgentRequest
-
-        if isinstance(request, dict):
-            request = AgentRequest(**request)
-
         config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
@@ -475,28 +516,227 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 settings,
                 cwd=self.workspace_dir,
             )
+        else:
+            rt = Runtime(workspace=self, app_services=self._app_services)
+            stream = rt.run(request)
+        transcript_store = (
+            None if is_ephemeral_request(request) else self.transcript_store
+        )
+        legacy_messages = []
+        if (
+            transcript_store is not None
+            and self.session is not None
+            and getattr(request, "session_id", None)
+        ):
+            identity = {
+                "session_id": str(getattr(request, "session_id", "") or ""),
+                "user_id": str(
+                    getattr(request, "user_id", "") or request.session_id,
+                ),
+                "channel": str(
+                    getattr(request, "channel", "") or "",
+                ),
+            }
             try:
-                async for item in stream:
-                    yield item
-            finally:
-                from ...plugins._events import observing
-
-                if observing():
-                    await stream.aclose()
-            return
-
-        from ...runtime.runtime import Runtime
-
-        rt = Runtime(workspace=self, app_services=self._app_services)
-        stream = rt.run(request)
+                has_transcript = await asyncio.to_thread(
+                    transcript_store.has_session,
+                    **identity,
+                )
+                if not has_transcript:
+                    state = await self.session.get_session_state_dict(
+                        identity["session_id"],
+                        identity["user_id"],
+                        identity["channel"],
+                    )
+                    legacy_messages = await asyncio.to_thread(
+                        session_state_to_messages,
+                        state,
+                    )
+                    del state
+            except Exception:
+                logger.warning(
+                    "Legacy transcript migration skipped for session %s",
+                    sanitize_log_value(identity["session_id"]),
+                    exc_info=True,
+                )
+                raise
+        recorder = TranscriptRecorder(
+            store=transcript_store,
+            request=request,
+            legacy_messages=legacy_messages,
+        )
+        del legacy_messages
         try:
+            await recorder.start()
             async for item in stream:
+                terminal = isinstance(item, AgentResponse) and item.status in (
+                    RunStatus.Completed,
+                    RunStatus.Cancelled,
+                    RunStatus.Failed,
+                )
+                try:
+                    if terminal:
+                        await self.finalize_turn_usage(request)
+                    await recorder.observe(item)
+                except Exception:
+                    # A failed final commit must not publish its staged state
+                    # through either the error path or channel usage cleanup.
+                    request.request_context.get(TURN_COMMIT_KEY, {}).clear()
+                    request.request_context[
+                        _TURN_USAGE_SNAPSHOT_CONTEXT_KEY
+                    ] = {
+                        "resolved": True,
+                        "usage": None,
+                        "context_usage": None,
+                    }
+                    raise
+                if terminal:
+                    pending = request.request_context.pop(TURN_COMMIT_KEY, {})
+                    checkpoint = pending.get("checkpoint")
+                    if checkpoint is not None:
+                        try:
+                            await CHECKPOINT_RUNTIME.schedule_auto_snapshot(
+                                self,
+                                **checkpoint,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Auto checkpoint scheduling failed",
+                            )
                 yield item
+        except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
+            await asyncio.shield(recorder.finish("cancelled"))
+            raise
+        except BaseException as exc:
+            error = {
+                "code": type(exc).__name__,
+                "message": "",
+            }
+            await recorder.finish("failed", error=error)
+            raise
         finally:
             from ...plugins._events import observing
 
             if observing():
                 await stream.aclose()
+        await recorder.finish("completed")
+
+    async def finalize_turn_usage(
+        self,
+        request: Any,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Resolve and persist one turn's usage across durable stores."""
+        if is_ephemeral_request(request):
+            return None, None
+        request_context = getattr(request, "request_context", None)
+        if not isinstance(request_context, dict):
+            request_context = {}
+            request.request_context = request_context
+
+        cached = request_context.get(_TURN_USAGE_SNAPSHOT_CONTEXT_KEY)
+        if isinstance(cached, dict) and cached.get("resolved") is True:
+            return cached.get("usage"), cached.get("context_usage")
+
+        session_id = str(getattr(request, "session_id", "") or "")
+        user_id = str(getattr(request, "user_id", "") or session_id)
+        channel = str(getattr(request, "channel", "") or "")
+        is_command = bool(request_context.get(f"conversation_command"))
+        pending = request_context.get(TURN_COMMIT_KEY)
+        runtime_state = (
+            (pending.get("runtime") or {}).get("state")
+            if pending is not None
+            else None
+        )
+        turn, context_usage, _agent_state = await resolve_turn_usage(
+            session_id=session_id,
+            agent_id=self.agent_id,
+            session=self.session,
+            user_id=user_id,
+            channel=channel,
+            estimate_missing_usage=not is_command,
+            **({"runtime_state": runtime_state} if runtime_state else {}),
+        )
+        session = self.session
+        previous_usage = None
+        if session is not None and (turn is not None or is_command):
+            _, previous = await session.get_current_usage(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            previous_usage = (previous or {}).get(f"usage")
+            if isinstance(previous_usage, dict) and turn is not None:
+                turn = add_session_cache_usage(
+                    turn,
+                    None,
+                    previous_usage=previous_usage,
+                )
+        request_context[_TURN_USAGE_SNAPSHOT_CONTEXT_KEY] = {
+            "resolved": True,
+            "usage": turn,
+            "context_usage": context_usage,
+        }
+        if turn is None and context_usage is None:
+            return None, None
+
+        if pending is not None:
+            pending["usage"] = {
+                "usage": (
+                    previous_usage if is_command and turn is None else turn
+                ),
+                "context_usage": context_usage,
+            }
+            return turn, context_usage
+
+        session = self.session
+        if session is not None:
+            try:
+                await session.set_current_usage(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    usage=(
+                        previous_usage if is_command and turn is None else turn
+                    ),
+                    context_usage=context_usage,
+                )
+            except Exception:
+                logger.warning(
+                    "Current context usage persist skipped for session %s",
+                    sanitize_log_value(session_id),
+                    exc_info=True,
+                )
+                raise
+
+        store = self.transcript_store
+        transcript_turn_id = request_context.get(
+            TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+        )
+        if store is not None and transcript_turn_id:
+            try:
+                attached = await asyncio.to_thread(
+                    store.attach_turn_usage,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    turn_id=str(transcript_turn_id),
+                    usage=turn,
+                    context_usage=context_usage,
+                )
+                if not attached:
+                    logger.warning(
+                        "Transcript turn usage target missing for session %s",
+                        sanitize_log_value(session_id),
+                    )
+            except Exception:
+                logger.warning(
+                    "Transcript turn usage persist skipped for session %s",
+                    sanitize_log_value(session_id),
+                    exc_info=True,
+                )
+                raise
+
+        return turn, context_usage
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -554,31 +794,36 @@ class Workspace:  # pylint: disable=too-many-public-methods
             ),
         )
 
-        # Priority 10: Session (replaces old Runner init)
+        # Runtime snapshots and display transcripts share one per-session DB.
         sm.register(
             ServiceDescriptor(
-                name="session",
-                service_class=SafeJSONSession,
+                name="transcript_store",
+                service_class=TranscriptCatalog,
                 init_args=lambda ws: {
-                    "save_dir": str(ws.workspace_dir / "sessions"),
+                    "workspace_dir": ws.workspace_dir,
                 },
+                stop_method="close",
+                reusable=True,
                 priority=10,
                 concurrent_init=False,
             ),
         )
 
-        # Close after request-producing services. Reload transfers this store
-        # only when its configured path and file identity still match.
         sm.register(
             ServiceDescriptor(
-                name="history_store",
-                create_service=create_history_service,
-                post_init=prepare_history_service,
-                stop_method="shutdown",
-                reusable=True,
-                reuse_compatibility=history_service_reuse_compatible,
-                require_clean_stop=True,
+                name="session",
+                service_class=DatabaseSession,
+                init_args=lambda ws: {
+                    "catalog": ws.transcript_store,
+                    "backend_runtime": lambda: ws.backend_runtime,
+                    "legacy_save_dir": str(ws.workspace_dir / "sessions"),
+                    "history_db_filename": (
+                        ws.config.running.light_context_config.scroll_config.db_filename
+                    ),
+                },
+                dependencies=["transcript_store"],
                 priority=15,
+                concurrent_init=False,
             ),
         )
 
@@ -741,13 +986,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
         for name, component in components.items():
             await self._service_manager.set_reusable(name, component)
 
-    async def start_history_retention(self) -> None:
-        """Apply maintenance only after this workspace owns the agent."""
-        if self.history_store is not None:
-            await self.history_store.start_retention(
-                self._history_retention_days,
-            )
-
     async def start(self):
         """Start workspace and initialize all components."""
         if self._started:
@@ -781,10 +1019,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
         try:
             # 1. Load agent configuration
             self._config = load_agent_config(self.agent_id)
-            lcc = self._config.running.light_context_config
-            self._history_retention_days = (
-                lcc.scroll_config.history_retention_days
-            )
             logger.debug(
                 "Loaded config for agent: "
                 f"{sanitize_log_value(self.agent_id)}",
@@ -798,9 +1032,6 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await self._service_manager.start_all()
 
             self._started = True
-            # Reload candidates activate maintenance after ownership commits.
-            if not self.cron_start_paused:
-                await self.start_history_retention()
             logger.info(
                 "Workspace started successfully: "
                 f"{sanitize_log_value(self.agent_id)}",

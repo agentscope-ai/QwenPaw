@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sqlite3
+import threading
+from contextlib import closing
 from pathlib import Path
 
 import pytest
 
 import qwenpaw.app.chats.session as session_mod
 from qwenpaw.app.chats.session import (
+    DatabaseSession,
     SafeJSONSession,
     _safe_json_loads,
     migrate_legacy_weixin_session_files,
@@ -28,6 +32,9 @@ from qwenpaw.app.chats.session import (
     session_filename,
     session_relative_paths,
 )
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
+from qwenpaw.agents.context.scroll.history import HistoryStore
+from qwenpaw.agents.context.types import LogEntry
 from qwenpaw.exceptions import AgentStateError
 
 
@@ -42,6 +49,267 @@ class _StateModule:
 
     def load_state_dict(self, state: dict) -> None:
         self._state = dict(state)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repeat_user", ["", "session"])
+@pytest.mark.parametrize("plugin_mapping", [False, True])
+async def test_json_migration_imports_recall_once(
+    tmp_path: Path,
+    repeat_user: str,
+    plugin_mapping: bool,
+) -> None:
+    """Legacy recall follows the JSON import and stable message identity."""
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    state = {
+        "agent": {
+            "state": {
+                "context": [
+                    {
+                        "id": "old-message",
+                        "name": "user",
+                        "role": "user",
+                        "content": [{"type": "text", "text": "hello"}],
+                    },
+                ],
+            },
+        },
+    }
+    (legacy_dir / "session.json").write_text(
+        json.dumps(state),
+        encoding="utf-8",
+    )
+    harness_dir = (
+        tmp_path / "plugin-data" / "qwenpaw-harness-codex"
+        if plugin_mapping
+        else tmp_path / "harnesses"
+    )
+    harness_dir.mkdir(parents=True)
+    binding_key = (
+        json.dumps(["session", "", "session"]) if plugin_mapping else "session"
+    )
+    (harness_dir / "codex_sessions.json").write_text(
+        json.dumps({binding_key: "native-thread-id"}),
+        encoding="utf-8",
+    )
+    source = HistoryStore(tmp_path / "history.db")
+    try:
+        source.append(
+            session_id="session",
+            entry=LogEntry(kind="model_turn", content="hello"),
+            dedup_key="old-message",
+        )
+        source.append(
+            session_id="session",
+            entry=LogEntry(kind="context_msg", content="unmatched"),
+        )
+    finally:
+        source.close()
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    try:
+        await session.ensure_legacy_migrated(
+            session_id="session",
+            user_id="",
+            channel="",
+        )
+        await session.ensure_legacy_migrated(
+            session_id="session",
+            user_id=repeat_user,
+            channel="",
+        )
+        assert len(list((tmp_path / "transcripts").glob("*.db"))) == 1
+        db_path = (
+            tmp_path
+            / "transcripts"
+            / (
+                catalog.storage_id_for(
+                    session_id="session",
+                    user_id="",
+                    channel="",
+                )
+                + ".db"
+            )
+        )
+        with closing(sqlite3.connect(db_path)) as connection, connection:
+            rows = connection.execute(
+                "SELECT seq, turn_id FROM event_log "
+                "WHERE event_type = 'recall.entry_committed' "
+                "ORDER BY seq",
+            ).fetchall()
+            runtime_seq = connection.execute(
+                "SELECT seq FROM event_log "
+                "WHERE event_type = 'runtime.committed' "
+                "ORDER BY seq DESC LIMIT 1",
+            ).fetchone()[0]
+        assert [row[1] for row in rows] == ["legacy:1", None]
+        assert rows[-1][0] < runtime_seq
+        provider = catalog.read_provider_state(
+            session_id="session",
+            user_id="",
+            channel="",
+        )
+        assert provider["binding"] == {
+            "provider": "codex",
+            "external_session_id": "native-thread-id",
+        }
+        assert provider["boundaries"] == {}
+    finally:
+        catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_database_session_imports_json_once_and_resets_context(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    legacy_path = legacy_dir / "u_session-1.json"
+    legacy_path.write_text(
+        json.dumps(
+            {
+                "agent": {
+                    "state": {
+                        "context": [
+                            {
+                                "name": "assistant",
+                                "role": "assistant",
+                                "content": [
+                                    {"type": "text", "text": "hello"},
+                                ],
+                                "metadata": {
+                                    "qwenpaw_turn_usage": {
+                                        "usage": {"total_tokens": 4},
+                                        "context_usage": {
+                                            "estimated_tokens": 2,
+                                            "max_input_length": 100,
+                                            "context_usage_ratio": 2,
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    import_count = 0
+    import_legacy = session._migrate_legacy_snapshot
+
+    async def track_import(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        snapshot,
+    ) -> bool:
+        nonlocal import_count
+        import_count += 1
+        return await import_legacy(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            snapshot=snapshot,
+        )
+
+    monkeypatch.setattr(session, "_migrate_legacy_snapshot", track_import)
+
+    state = await session.get_session_state_dict(
+        "session-1",
+        "u",
+        "console",
+    )
+    assert state["_context_generation"] == 0
+    assert legacy_path.exists()
+    legacy_state = await SafeJSONSession(
+        save_dir=str(legacy_dir),
+    ).get_session_state_dict("session-1", "u")
+    assert legacy_state == {"agent": state["agent"]}
+    await session.get_session_state_dict("session-1", "u", "console")
+    assert import_count == 1
+    _, migrated_usage = await session.get_current_usage(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert migrated_usage == {
+        "usage": {"total_tokens": 4},
+        "context_usage": {
+            "estimated_tokens": 2,
+            "max_input_length": 100,
+            "context_usage_ratio": 2,
+        },
+    }
+    anchor = catalog.read_turn_context(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        turn_id="legacy:1",
+    )
+    assert anchor is not None
+    assert anchor.state == {"agent": state["agent"]}
+
+    await session.set_current_usage(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        usage={"total_tokens": 5},
+        context_usage={
+            "estimated_tokens": 3,
+            "max_input_length": 100,
+            "context_usage_ratio": 3,
+        },
+    )
+    generation = await session.reset_session_state(
+        "session-1",
+        "u",
+        "console",
+        agent=_StateModule({"state": {"context": []}}),
+    )
+    restored = await session.get_session_state_dict(
+        "session-1",
+        "u",
+        "console",
+    )
+    current_generation, current_usage = await session.get_current_usage(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+
+    assert generation == 1
+    assert restored["_context_generation"] == 1
+    assert current_generation == 1
+    assert current_usage == {
+        "usage": None,
+        "context_usage": {
+            "estimated_tokens": 0,
+            "max_input_length": 100,
+            "context_usage_ratio": 0,
+        },
+    }
+    loaded = _StateModule({})
+    await session.load_session_state(
+        "session-1",
+        "u",
+        "console",
+        agent=loaded,
+    )
+    assert loaded._state["_context_generation"] == 1
+    catalog.close()
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +413,318 @@ async def test_load_missing_session_allow_not_exist(session):
 
 
 @pytest.mark.asyncio
+async def test_database_session_imports_legacy_before_partial_update(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    legacy_path = legacy_dir / session_filename("pawapp--example", "")
+    legacy_path.write_text(
+        json.dumps({"existing_setting": "must survive"}),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+
+    await session.update_session_state(
+        session_id="pawapp--example",
+        key="new_setting",
+        value="new",
+    )
+
+    state = await session.get_session_state_dict("pawapp--example")
+    assert state["existing_setting"] == "must survive"
+    assert state["new_setting"] == "new"
+    assert json.loads(legacy_path.read_text(encoding="utf-8")) == {
+        "existing_setting": "must survive",
+    }
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_legacy_imports_return_the_same_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    legacy_path = legacy_dir / session_filename("session-1", "u")
+    legacy_path.write_text(
+        json.dumps({"agent": {"marker": "persisted-context"}}),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    original_read = catalog.read_runtime_state
+    first_reads = 0
+    first_reads_lock = threading.Lock()
+    first_reads_ready = threading.Barrier(2)
+
+    def synchronized_read(
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ):
+        nonlocal first_reads
+        snapshot = original_read(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+        should_wait = False
+        if snapshot is None:
+            with first_reads_lock:
+                if first_reads < 2:
+                    first_reads += 1
+                    should_wait = True
+        if should_wait:
+            first_reads_ready.wait(timeout=5)
+        return snapshot
+
+    monkeypatch.setattr(catalog, "read_runtime_state", synchronized_read)
+    results = await asyncio.gather(
+        session.get_session_state_dict("session-1", "u", "console"),
+        session.get_session_state_dict("session-1", "u", "console"),
+    )
+
+    expected = {
+        "agent": {"marker": "persisted-context"},
+        "_context_generation": 0,
+    }
+    assert results == [expected, expected]
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_waits_for_migration_and_removes_both_legacy_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    filename = session_filename("session-1", "u")
+    root_path = legacy_dir / filename
+    root_path.write_text(json.dumps({"agent": {"marker": "private"}}))
+    channel_path = Path(
+        SafeJSONSession(str(legacy_dir))._get_save_path(
+            "session-1",
+            "u",
+            "console",
+        ),
+    )
+    assert root_path.exists() and channel_path.exists()
+
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    snapshot = await session.get_legacy_snapshot(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert snapshot is not None
+    started = asyncio.Event()
+    resume = asyncio.Event()
+    migrate = session._migrate_legacy_snapshot
+
+    async def paused_migration(**kwargs):
+        started.set()
+        await resume.wait()
+        return await migrate(**kwargs)
+
+    monkeypatch.setattr(session, "_migrate_legacy_snapshot", paused_migration)
+    migration = asyncio.create_task(
+        session.start_legacy_migration(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+            snapshot=snapshot,
+            wait_for_projection=True,
+        ),
+    )
+    await started.wait()
+    deletion = asyncio.create_task(
+        session.delete_session_state("session-1", "u", "console"),
+    )
+    await asyncio.sleep(0)
+    assert not deletion.done()
+    resume.set()
+    await migration
+    assert await deletion
+    assert not root_path.exists() and not channel_path.exists()
+    assert not catalog.has_session(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert (
+        await session.get_legacy_snapshot(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+        )
+        is None
+    )
+    assert not await session.start_legacy_migration(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        snapshot=snapshot,
+    )
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_keeps_root_legacy_used_by_another_channel(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    root_path = legacy_dir / session_filename("session-1", "u")
+    root_path.write_text(json.dumps({"agent": {"marker": "shared"}}))
+    (tmp_path / "chats.json").write_text(
+        json.dumps(
+            {
+                "chats": [
+                    {
+                        "session_id": "session-1",
+                        "user_id": "u",
+                        "channel": channel,
+                    }
+                    for channel in ("console", "feishu")
+                ],
+            },
+        ),
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+
+    await session.delete_session_state("session-1", "u", "console")
+
+    assert root_path.exists()
+    snapshot = await session.get_legacy_snapshot(
+        session_id="session-1",
+        user_id="u",
+        channel="feishu",
+    )
+    assert snapshot is not None
+    assert snapshot.state["agent"]["marker"] == "shared"
+    for channel in ("console", "feishu"):
+        await session.delete_session_state(
+            "session-1",
+            "u",
+            channel,
+            deleting_channels=("console", "feishu"),
+        )
+    assert not root_path.exists()
+    restarted = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(legacy_dir),
+    )
+    assert (
+        await restarted.get_legacy_snapshot(
+            session_id="session-1",
+            user_id="u",
+            channel="console",
+        )
+        is None
+    )
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_legacy_path_probe_runs_off_event_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    loop_thread = threading.get_ident()
+    probe_threads: list[int] = []
+    original_exists = Path.exists
+
+    def tracked_exists(path: Path) -> bool:
+        if path.name == "u_missing.json":
+            probe_threads.append(threading.get_ident())
+        return original_exists(path)
+
+    monkeypatch.setattr(Path, "exists", tracked_exists)
+    state = await session.get_session_state_dict(
+        "missing",
+        "u",
+        "console",
+    )
+
+    assert state == {}
+    assert probe_threads
+    assert all(thread_id != loop_thread for thread_id in probe_threads)
+    catalog.close()
+
+
+@pytest.mark.asyncio
+async def test_get_current_usage_does_not_decode_runtime_state(
+    tmp_path: Path,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    catalog.write_runtime_state(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        state={"agent": {"state": {"context": ["large state"]}}},
+    )
+    catalog.set_current_usage(
+        session_id="session-1",
+        usage={"total_tokens": 42},
+        context_usage={"estimated_tokens": 21},
+    )
+    row = catalog._catalog_row(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+    assert row is not None
+    database_path = catalog._store_path(str(row["storage_id"]))
+    with closing(sqlite3.connect(database_path)) as connection, connection:
+        connection.execute(
+            "UPDATE session_runtime SET state_json = ? "
+            "WHERE session_id = ?",
+            ("invalid runtime state", "session-1"),
+        )
+
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    generation, usage = await session.get_current_usage(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+    )
+
+    assert generation == 0
+    assert usage == {
+        "usage": {"total_tokens": 42},
+        "context_usage": {"estimated_tokens": 21},
+    }
+    catalog.close()
+
+
+@pytest.mark.asyncio
 async def test_load_missing_session_raises_when_not_allowed(session):
     with pytest.raises(AgentStateError):
         await session.load_session_state(
@@ -174,9 +754,24 @@ async def test_update_session_state_creates_file(session, tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("key", "value", "delete", "expected_memory"),
+    [
+        (("agent", "memory", "x"), "new", False, {"x": "new"}),
+        ("agent.memory.x", None, False, {"x": None}),
+        ("agent.memory.x", None, True, {}),
+        ("agent.memory.absent", None, True, {"x": "old"}),
+        ("agent.absent.x", None, True, {"x": "old"}),
+        ("agent.other.x", None, True, {"x": "old"}),
+    ],
+)
 async def test_update_session_state_appends_to_existing(
     session,
     tmp_path: Path,
+    key,
+    value,
+    delete,
+    expected_memory,
 ):
     path = tmp_path / "u_sess-3.json"
     path.write_text(
@@ -186,19 +781,22 @@ async def test_update_session_state_appends_to_existing(
 
     await session.update_session_state(
         session_id="sess-3",
-        key=("agent", "memory", "x"),
-        value="new",
+        key=key,
+        value=value,
         user_id="u",
+        delete=delete,
     )
 
     saved = json.loads(path.read_text("utf-8"))
-    assert saved == {"agent": {"memory": {"x": "new"}, "other": 1}}
+    assert saved == {"agent": {"memory": expected_memory, "other": 1}}
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("delete", [False, True])
 async def test_update_session_state_serializes_across_instances(
     tmp_path: Path,
     monkeypatch,
+    delete,
 ):
     """Two session objects must not lose updates to the same file."""
     first_session = SafeJSONSession(save_dir=str(tmp_path))
@@ -231,9 +829,10 @@ async def test_update_session_state_serializes_across_instances(
     second_update = asyncio.create_task(
         second_session.update_session_state(
             session_id="shared",
-            key="second",
+            key="first" if delete else "second",
             value=2,
             user_id="u",
+            delete=delete,
         ),
     )
     await asyncio.sleep(0.05)
@@ -243,11 +842,12 @@ async def test_update_session_state_serializes_across_instances(
     saved = json.loads(
         (tmp_path / "u_shared.json").read_text(encoding="utf-8"),
     )
-    assert saved == {"first": 1, "second": 2}
+    assert saved == ({} if delete else {"first": 1, "second": 2})
 
 
 @pytest.mark.asyncio
-async def test_update_session_state_missing_file_disallowed(session):
+@pytest.mark.parametrize("delete", [False, True])
+async def test_update_session_state_missing_file_disallowed(session, delete):
     with pytest.raises(AgentStateError):
         await session.update_session_state(
             session_id="ghost",
@@ -255,6 +855,7 @@ async def test_update_session_state_missing_file_disallowed(session):
             value=1,
             user_id="u",
             create_if_not_exist=False,
+            delete=delete,
         )
 
 
@@ -448,3 +1049,160 @@ def test_archive_dir_constant_excluded_from_session_scans():
     # level down so it must not start with a dot-stripped name that
     # collides with session files.
     assert session_mod._WEIXIN_LEGACY_ARCHIVE_DIR.startswith(".")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["runtime", "binding"])
+async def test_interrupted_compressed_migration_resumes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    """Resume partial import without losing compacted state or turn anchors."""
+    legacy_dir = tmp_path / "sessions"
+    legacy_dir.mkdir()
+    history = HistoryStore(tmp_path / "history.db")
+    messages = []
+    for index in range(1, 6):
+        message = {
+            "id": f"message-{index}",
+            "role": "user",
+            "name": "user",
+            "content": [{"type": "text", "text": f"turn {index}"}],
+        }
+        messages.append(message)
+        history.append(
+            session_id="session",
+            entry=LogEntry(
+                kind="context_msg",
+                role="user",
+                content=f"turn {index}",
+                blocks=message["content"],
+            ),
+            dedup_key=message["id"],
+        )
+    history.close()
+    state = {
+        "agent": {
+            "state": {"context": messages[-2:]},
+            "scroll": {
+                "continuation_summary": "summary of turns 1 to 3",
+                "index": {"tiers": [[{"seq_hi": 3}]]},
+            },
+        },
+    }
+    (legacy_dir / "session.json").write_text(
+        json.dumps(state),
+        encoding="utf-8",
+    )
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(catalog=catalog, legacy_save_dir=str(legacy_dir))
+    original_write = catalog.write_runtime_state
+    original_binding = session._import_legacy_provider_binding
+
+    def interrupted_write(**kwargs):
+        if failure == "runtime" and kwargs.get("turn_id") == "legacy:2":
+            raise RuntimeError("interrupted runtime")
+        return original_write(**kwargs)
+
+    def interrupted_binding(**kwargs):
+        if failure == "binding":
+            raise RuntimeError("interrupted binding")
+        return original_binding(**kwargs)
+
+    monkeypatch.setattr(catalog, "write_runtime_state", interrupted_write)
+    monkeypatch.setattr(
+        session,
+        "_import_legacy_provider_binding",
+        interrupted_binding,
+    )
+    identity = dict(session_id="session", user_id="", channel="")
+    try:
+        with pytest.raises(session_mod.LegacyMigrationError):
+            await session.ensure_legacy_migrated(**identity)
+        assert not session._migration_complete(**identity)
+        first = catalog.read_turn_context(**identity, turn_id="legacy:1")
+        assert first is not None
+        monkeypatch.setattr(catalog, "write_runtime_state", original_write)
+        session = DatabaseSession(
+            catalog=catalog,
+            legacy_save_dir=str(legacy_dir),
+        )
+        restored = await session.get_session_state_dict(**identity)
+        assert restored == {**state, "_context_generation": 0}
+        assert session._migration_complete(**identity)
+        assert (
+            catalog.read_turn_context(
+                **identity,
+                turn_id="legacy:1",
+            )
+            == first
+        )
+        for index in range(1, 6):
+            assert (
+                catalog.read_turn_context(
+                    **identity,
+                    turn_id=f"legacy:{index}",
+                )
+                is not None
+            )
+        assert not await session.ensure_legacy_migrated(**identity)
+        page = catalog.get_page(**identity)
+        assert page is not None
+        assert len(page.messages) == 5
+        catalog.write_runtime_state(**identity, state={"continued": True})
+        assert not await session.start_legacy_migration(**identity)
+        assert await session.get_session_state_dict(**identity) == {
+            "continued": True,
+            "_context_generation": 0,
+        }
+    finally:
+        catalog.close()
+
+
+@pytest.mark.parametrize("query_error", [False, True])
+def test_migration_probe_closes_read_connections(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    query_error: bool,
+) -> None:
+    catalog = TranscriptCatalog(tmp_path)
+    session = DatabaseSession(
+        catalog=catalog,
+        legacy_save_dir=str(tmp_path / "sessions"),
+    )
+    identity = dict(session_id="session", user_id="", channel="")
+    connections: list[sqlite3.Connection] = []
+    connect = sqlite3.connect
+
+    class ReadConnection(sqlite3.Connection):
+        def execute(self, statement, *args, **kwargs):
+            if query_error and statement.startswith("SELECT 1 FROM event_log"):
+                raise sqlite3.OperationalError("migration read failed")
+            return super().execute(statement, *args, **kwargs)
+
+    def track_connect(*args, **kwargs):
+        kwargs["factory"] = ReadConnection
+        connection = connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    try:
+        catalog.write_runtime_state(**identity, state={})
+        monkeypatch.setattr(sqlite3, "connect", track_connect)
+        if query_error:
+            with pytest.raises(
+                sqlite3.OperationalError,
+                match="migration read failed",
+            ):
+                session._migration_complete(**identity)
+        else:
+            assert not session._migration_complete(**identity)
+        assert len(connections) == 2
+        for connection in connections:
+            with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+                connection.execute("SELECT 1")
+    finally:
+        for connection in connections:
+            connection.close()
+        catalog.close()

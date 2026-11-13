@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.models import (
     ChatGroupKind,
     ChatSpec,
@@ -80,6 +81,25 @@ async def test_create_and_get_chat_round_trip(manager: ChatManager):
     assert fetched.name == "Hello"
     assert fetched.session_id == "console:u1"
 
+    children = await asyncio.gather(
+        *(
+            manager.create_chat(
+                _make_spec(session_id=f"fork-{index}").model_copy(
+                    update={"parent_chat_id": created.id},
+                ),
+            )
+            for index in range(2)
+        ),
+    )
+    assert [chat.name for chat in children] == ["Hello (1)", "Hello (2)"]
+    nested = await manager.create_chat(
+        _make_spec(session_id="nested").model_copy(
+            update={"parent_chat_id": children[0].id},
+        ),
+    )
+    assert nested.name == "Hello (3)"
+    assert (await manager.get_chat(nested.id)).name == "Hello (3)"
+
 
 @pytest.mark.asyncio
 async def test_create_chat_rejects_unknown_group(manager: ChatManager):
@@ -132,7 +152,23 @@ async def test_count_chats(manager: ChatManager):
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_chat_creates_when_missing(manager: ChatManager):
+@pytest.mark.parametrize("database_first", [False, True])
+async def test_get_or_create_chat_creates_when_missing(
+    manager: ChatManager,
+    repo_path: Path,
+    database_first: bool,
+):
+    storage_id = None
+    if database_first:
+        catalog = TranscriptCatalog(repo_path.parent)
+        identity = dict(
+            session_id="console:new",
+            user_id="new-user",
+            channel="console",
+        )
+        catalog.write_runtime_state(**identity, state={})
+        storage_id = catalog.storage_id_for(**identity)
+        catalog.close()
     spec = await manager.get_or_create_chat(
         session_id="console:new",
         user_id="new-user",
@@ -143,6 +179,9 @@ async def test_get_or_create_chat_creates_when_missing(manager: ChatManager):
     assert spec.user_id == "new-user"
     assert spec.name == "auto-registered"
     assert spec.source == SessionSource.chat
+    assert spec.storage_id == spec.id
+    if storage_id is not None:
+        assert spec.id == storage_id
 
     # Sanity: a follow-up call returns the SAME spec (idempotent).
     again = await manager.get_or_create_chat(
@@ -463,9 +502,9 @@ async def test_get_chat_id_by_session_returns_most_recent_match(
     old = await manager.create_chat(
         _make_spec(session_id="console:dup", name="old"),
     )
-    new = await manager.create_chat(
-        _make_spec(session_id="console:dup", name="new"),
-    )
+    # Seed historical duplicate records; new creates are idempotent.
+    new = _make_spec(session_id="console:dup", name="new")
+    await manager._repo.upsert_chat(new)
     # Force ``new`` to be the most recent.
     await manager.patch_chat(new.id, ChatUpdate(name="new+1"))
 
@@ -485,9 +524,8 @@ async def test_touch_chat_by_session_uses_one_load_and_one_save(
     old = await manager.create_chat(
         _make_spec(session_id="console:dup", name="old"),
     )
-    latest = await manager.create_chat(
-        _make_spec(session_id="console:dup", name="latest"),
-    )
+    latest = _make_spec(session_id="console:dup", name="latest")
+    await manager._repo.upsert_chat(latest)
     latest = await manager.patch_chat(
         latest.id,
         ChatUpdate(name="latest+1"),

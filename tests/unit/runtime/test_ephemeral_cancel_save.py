@@ -12,14 +12,15 @@ from qwenpaw.runtime.runtime import Runtime
 
 
 @pytest.mark.asyncio
-async def test_ephemeral_cancel_does_not_create_hidden_session() -> None:
+@pytest.mark.parametrize("flag", [True, "true", "1", "yes"])
+async def test_ephemeral_cancel_does_not_create_hidden_session(flag) -> None:
     class FailIfSaved:
         async def save_session_state(self, **_kwargs) -> None:
             raise AssertionError("ephemeral request must not be saved")
 
     ctx = SimpleNamespace(
         request=SimpleNamespace(
-            request_context={ACP_EPHEMERAL_META_KEY: True},
+            request_context={ACP_EPHEMERAL_META_KEY: flag},
         ),
         agent=SimpleNamespace(state_dict=lambda: {"state": {}}),
         workspace=SimpleNamespace(session=FailIfSaved()),

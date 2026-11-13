@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the token usage core module."""
+
 from __future__ import annotations
 
 import asyncio
@@ -1054,6 +1055,46 @@ class TestTokenRecordingModelWrapper:
         assert second[f"prompt_tokens"] == 300
         assert second[f"last_prompt_tokens"] == 200
         assert wrapper.pop_usage_for_session(f"live-usage") == second
+
+    def test_auxiliary_usage_preserves_context_and_restores_scope(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        from qwenpaw.token_usage.model_wrapper import (
+            auxiliary_model_usage,
+            set_conversation_context_tokens,
+        )
+
+        monkeypatch.setattr(
+            f"qwenpaw.app.agent_context.get_current_session_id",
+            lambda: f"auxiliary-usage",
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 60000
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        set_conversation_context_tokens(123)
+        wrapper._record_usage(usage)
+        with pytest.raises(ValueError), auxiliary_model_usage():
+            set_conversation_context_tokens(1)
+            usage.input_tokens = 180
+            wrapper._record_usage(usage)
+            raise ValueError(f"scope cleanup")
+        snapshot = wrapper.peek_usage_for_session(f"auxiliary-usage")
+        assert snapshot[f"prompt_tokens"] == 60180
+        assert snapshot[f"last_prompt_tokens"] == 60000
+        assert snapshot[f"context_tokens"] == 123
+        assert len(captured) == 2
+        usage.input_tokens = 61000
+        set_conversation_context_tokens(234)
+        wrapper._record_usage(usage)
+        snapshot = wrapper.pop_usage_for_session(f"auxiliary-usage")
+        assert snapshot[f"last_prompt_tokens"] == 61000
+        assert snapshot[f"context_tokens"] == 234
+        assert snapshot[f"prompt_tokens"] == 121180
 
     @pytest.mark.parametrize(f"reported", [None, 0, 80])
     def test_raw_cache_presence_controls_observation(
