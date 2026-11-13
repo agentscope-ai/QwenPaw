@@ -603,6 +603,68 @@ def test_pr_version_guard_rebuilds_external_frontend_inputs(
         guard.check_pr(tmp_path / "base", tmp_path / "candidate", build=True)
 
 
+@pytest.mark.parametrize("bumped", [(), ("codex",), ("codex", "qoder")])
+def test_pr_version_guard_rebuilds_shared_harness_frontends(
+    tmp_path,
+    monkeypatch,
+    bumped,
+):
+    import check_plugin_versions as guard
+
+    for side, color in (("base", "red"), ("candidate", "blue")):
+        root = tmp_path / side
+        scripts = root / "scripts/pack"
+        scripts.mkdir(parents=True)
+        shutil.copy(
+            REPO_ROOT / "scripts/pack/generate_plugin_metadata.py",
+            scripts,
+        )
+        shared = root / "plugins/harness/_shared/ui/Settings.css"
+        shared.parent.mkdir(parents=True)
+        shared.write_text(f".harness-settings {{ color: {color}; }}")
+        for name in ("codex", "qoder", "unrelated"):
+            kind = "apps" if name == "unrelated" else "harness"
+            plugin = root / "plugins" / kind / ("fixture-" + name)
+            entry = plugin / "frontend/dist/index.js"
+            entry.parent.mkdir(parents=True)
+            entry.write_text("previous build")
+            (plugin / "plugin.json").write_text(
+                json.dumps(
+                    {
+                        "id": name,
+                        "version": "1.0.1"
+                        if side == "candidate" and name in bumped
+                        else "1.0.0",
+                        "entry": {"frontend": "frontend/dist/index.js"},
+                    },
+                ),
+            )
+
+    rebuilt = set()
+
+    def build(root, path):
+        # Replace only npm; input discovery and publication comparison stay real.
+        assert path.parent.name == "harness", "Unrelated app rebuilt"
+        rebuilt.add(path.name.removeprefix("fixture-"))
+        (path / "frontend/dist/index.js").write_bytes(
+            (root / "plugins/harness/_shared/ui/Settings.css").read_bytes(),
+        )
+
+    monkeypatch.setattr(guard, "_build_frontend", build)
+    if len(bumped) == 2:
+        guard.check_pr(tmp_path / "base", tmp_path / "candidate", build=True)
+    else:
+        with pytest.raises(ValueError, match="version increase") as error:
+            guard.check_pr(
+                tmp_path / "base",
+                tmp_path / "candidate",
+                build=True,
+            )
+        for name in {"codex", "qoder"} - set(bumped):
+            assert name + ": published content changed" in str(error.value)
+    assert rebuilt == {"codex", "qoder"}
+
+
 @pytest.mark.parametrize(
     "version,catalog_present",
     [("2.2.2", False), ("2.3.0", False), ("2.2.2", True)],

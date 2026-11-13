@@ -131,10 +131,10 @@ def check_pr(base_root: Path, candidate_root: Path, *, build=False):
         "scripts/pack/sync_harness_helpers.py",
     )
 
-    def shared_input(root):
+    def shared_input(root, names):
         return content_digest(
             (str(path.relative_to(root)), path.read_bytes())
-            for name in shared
+            for name in names
             for path in (
                 [root / name]
                 if (root / name).is_file()
@@ -143,7 +143,13 @@ def check_pr(base_root: Path, candidate_root: Path, *, build=False):
             if path.is_file() and "node_modules" not in path.parts
         )
 
-    shared_changed = shared_input(base_root) != shared_input(candidate_root)
+    shared_changed = shared_input(base_root, shared) != shared_input(
+        candidate_root, shared
+    )
+    harness_shared = ("plugins/harness/_shared",)
+    harness_shared_changed = shared_input(
+        base_root, harness_shared
+    ) != shared_input(candidate_root, harness_shared)
     errors = []
     for key, (path, manifest) in after.items():
         old = before.get(key)
@@ -160,6 +166,7 @@ def check_pr(base_root: Path, candidate_root: Path, *, build=False):
         inputs_changed = (
             old is None
             or shared_changed
+            or (path.parent.name == "harness" and harness_shared_changed)
             or external_changed
             or (_digest(old_pack, old[0], {}) != _digest(new_pack, path, {}))
         )
