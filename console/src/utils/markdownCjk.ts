@@ -25,6 +25,8 @@
  * Related: CommonMark discussion `commonmark/commonmark-spec#650`.
  */
 
+import { buildSyntaxMasks } from "./markdownSyntaxMask";
+
 const CORE_PUNCTUATION = new Set([
   "。",
   "！",
@@ -50,16 +52,6 @@ const TRAILING_CLOSERS = new Set([
 const CJK_SCRIPT =
   /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 const UNICODE_PUNCTUATION_OR_SYMBOL = /[\p{P}\p{S}]/u;
-
-const OPENING_FENCE = /^( {0,3})(`{3,}|~{3,})(.*)$/;
-const LEADING_SPACE = /^ {0,3}/;
-const INDENT = /^(?: {4}|\t)/;
-const BLANK = /^[ \t]*$/;
-
-interface Fence {
-  character: "`" | "~";
-  length: number;
-}
 
 interface Delimiter {
   character: "*" | "_";
@@ -164,231 +156,7 @@ function buildProtectionMasks(markdown: string): {
   protectedText: Uint8Array;
   paragraphReset: Uint8Array;
 } {
-  const block = new Uint8Array(markdown.length);
-  const paragraphReset = new Uint8Array(markdown.length + 1);
-  let fence: Fence | undefined;
-  let fenceOffset = 0;
-  let listIndent = 0;
-
-  for (let lineStart = 0; lineStart < markdown.length; ) {
-    const newline = markdown.indexOf("\n", lineStart);
-    const lineEndWithNewline = newline < 0 ? markdown.length : newline + 1;
-    let contentEnd = newline < 0 ? markdown.length : newline;
-    if (contentEnd > lineStart && markdown[contentEnd - 1] === "\r") {
-      contentEnd--;
-    }
-    const line = markdown.slice(lineStart, contentEnd);
-
-    if (fence) {
-      // Inside a fence only the container prefix that opened it may be
-      // stripped. Re-deriving the prefix per line would read `- ~~~` or
-      // `> ~~~` as the closing fence and start rewriting code.
-      block.fill(1, lineStart, lineEndWithNewline);
-      if (isClosingFence(line.slice(fenceOffset), fence)) fence = undefined;
-    } else {
-      const indent = line.length - line.replace(/^ +/, "").length;
-      // A list item keeps its content indent for the following lines, even
-      // across blank lines. Fences inside that continuation are indented
-      // relative to the item, not to the document, so the prefix to strip is
-      // the item's content indent rather than zero.
-      const continued = listIndent > 0 && indent >= listIndent;
-      // Inside a list item the remaining prefix may still carry blockquote
-      // markers (`- item` then `  > ~~~`), so strip the list indent first and
-      // let the container scan handle whatever follows it.
-      const offset = continued
-        ? listIndent + containerOffset(line.slice(listIndent))
-        : containerOffset(line);
-      const content = line.slice(offset);
-      const openingFence = getOpeningFence(content);
-      const item = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]+)/.exec(line);
-      if (item) {
-        const markerWidth = item[0].length - item[1].length - item[2].length;
-        listIndent = item[1].length + markerWidth + Math.min(item[2].length, 4);
-      } else if (!BLANK.test(line) && indent < listIndent) {
-        listIndent = 0;
-      }
-      if (openingFence) {
-        fence = openingFence;
-        fenceOffset = offset;
-        block.fill(1, lineStart, lineEndWithNewline);
-      } else if (INDENT.test(content)) {
-        block.fill(1, lineStart, lineEndWithNewline);
-      } else if (BLANK.test(content)) {
-        paragraphReset[lineStart] = 1;
-        paragraphReset[lineEndWithNewline] = 1;
-      }
-    }
-    lineStart = lineEndWithNewline;
-  }
-
-  const protectedText = block.slice();
-  markInlineCode(markdown, block, protectedText);
-  markLinkDestinations(markdown, block, protectedText);
-  return { block, protectedText, paragraphReset };
-}
-
-/**
- * Length of the container prefix (blockquote markers and the first list
- * marker) so fenced and indented code inside quotes and list items are still
- * recognised.
- */
-function containerOffset(line: string): number {
-  let offset = 0;
-  for (;;) {
-    const quote = /^ {0,3}>[ \t]?/.exec(line.slice(offset));
-    if (quote) {
-      offset += quote[0].length;
-      continue;
-    }
-    // Consume exactly one separator character after the marker. The rest is
-    // real content indentation: `-     code` is an indented code block, and
-    // swallowing those spaces would turn it into ordinary text.
-    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]/.exec(line.slice(offset));
-    if (!list) break;
-    offset += list[0].length;
-  }
-  return offset;
-}
-
-function getOpeningFence(line: string): Fence | undefined {
-  const match = OPENING_FENCE.exec(line);
-  if (!match) return undefined;
-  const run = match[2];
-  if (run[0] === "`" && match[3].includes("`")) return undefined;
-  return { character: run[0] as "`" | "~", length: run.length };
-}
-
-function isClosingFence(line: string, fence: Fence): boolean {
-  const offset = LEADING_SPACE.exec(line)?.[0].length ?? 0;
-  let end = offset;
-  while (line[end] === fence.character) end++;
-  return end - offset >= fence.length && BLANK.test(line.slice(end));
-}
-
-function markInlineCode(
-  markdown: string,
-  block: Uint8Array,
-  protectedText: Uint8Array,
-): void {
-  for (let index = 0; index < markdown.length; index++) {
-    if (block[index] || markdown[index] !== "`" || isEscaped(markdown, index)) {
-      continue;
-    }
-    const openingLength = countCharacterRun(markdown, index, "`");
-    let closingStart = -1;
-
-    for (let cursor = index + openingLength; cursor < markdown.length; ) {
-      if (block[cursor]) break;
-      if (markdown[cursor] !== "`" || isEscaped(markdown, cursor)) {
-        cursor++;
-        continue;
-      }
-      const closingLength = countCharacterRun(markdown, cursor, "`");
-      if (closingLength === openingLength) {
-        closingStart = cursor;
-        break;
-      }
-      cursor += closingLength;
-    }
-
-    if (closingStart < 0) {
-      protectedText.fill(1, index);
-      return;
-    }
-    const end = closingStart + openingLength;
-    protectedText.fill(1, index, end);
-    index = end - 1;
-  }
-}
-
-/**
- * Mark inline-link destinations and reference definitions so their URLs are
- * never rewritten: moving punctuation inside a URL would change the target.
- */
-function markLinkDestinations(
-  markdown: string,
-  block: Uint8Array,
-  protectedText: Uint8Array,
-): void {
-  for (let index = 0; index < markdown.length - 1; index++) {
-    if (block[index] || protectedText[index]) continue;
-    if (markdown[index] !== "]" || markdown[index + 1] !== "(") continue;
-    const close = findClosingParen(markdown, index + 1, block);
-    if (close < 0) continue;
-    protectedText.fill(1, index + 2, close);
-    index = close;
-  }
-
-  // Reference definitions, possibly inside a blockquote or a list item, and
-  // possibly using an angle-bracket destination or a destination that starts
-  // on the following line.
-  const definitionPrefix =
-    "^[ \\t]*(?:(?:>[ \\t]?)|(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+))*";
-  const continuedPrefix =
-    "[ \\t]*(?:(?:>[ \\t]?)|(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+))*";
-  const definitionPatterns = [
-    new RegExp(
-      `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*(?:<([^<>]*)>|(\\S+))`,
-      "gm",
-    ),
-    new RegExp(
-      `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*\\r?\\n` +
-        `${continuedPrefix}[ \\t]{0,3}(?:<([^<>\\n]*)>|(\\S+))`,
-      "gm",
-    ),
-  ];
-  for (const pattern of definitionPatterns) {
-    for (const match of markdown.matchAll(pattern)) {
-      const target = match[1] ?? match[2];
-      if (!target) continue;
-      const start = (match.index ?? 0) + match[0].length - target.length;
-      if (block[start]) continue;
-      protectedText.fill(1, start, start + target.length);
-    }
-  }
-
-  // Autolinks: <https://...> and <user@host>. Their text is the destination.
-  const autolink = /<([a-zA-Z][a-zA-Z0-9+.-]*:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
-  for (const match of markdown.matchAll(autolink)) {
-    const start = (match.index ?? 0) + 1;
-    if (block[start]) continue;
-    protectedText.fill(1, start, start + match[1].length);
-  }
-}
-
-/** Index of the `)` matching the `(` at `open`, or -1 when unclosed. */
-function findClosingParen(
-  markdown: string,
-  open: number,
-  block: Uint8Array,
-): number {
-  let depth = 0;
-  for (let index = open; index < markdown.length; index++) {
-    if (block[index]) return -1;
-    const character = markdown[index];
-    if (character === "\\") {
-      index++;
-      continue;
-    }
-    if (character === "<") {
-      // An angle-bracketed destination is one unit: a `)` inside it belongs
-      // to the URL, not to the enclosing link.
-      const end = markdown.indexOf(">", index + 1);
-      const newline = markdown.indexOf("\n", index + 1);
-      if (end > index && (newline < 0 || end < newline)) {
-        index = end;
-        continue;
-      }
-    }
-    if (character === "(") {
-      depth++;
-      continue;
-    }
-    if (character !== ")") continue;
-    depth--;
-    if (depth === 0) return index;
-  }
-  return -1;
+  return buildSyntaxMasks(markdown);
 }
 
 function countRun(
@@ -405,16 +173,6 @@ function countRun(
   ) {
     end++;
   }
-  return end - start;
-}
-
-function countCharacterRun(
-  markdown: string,
-  start: number,
-  character: string,
-): number {
-  let end = start;
-  while (markdown[end] === character) end++;
   return end - start;
 }
 

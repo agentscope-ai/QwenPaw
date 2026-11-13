@@ -53,6 +53,7 @@
     "lexical": "0.48.0",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.12.2",
+    "micromark": "^4.0.2",
     "monaco-editor": "0.55.1",
     "motion": "^12.42.2",
     "pretty-bytes": "^7.1.0",

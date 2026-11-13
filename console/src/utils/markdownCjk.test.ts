@@ -86,6 +86,10 @@ describe("normalizeCjkEmphasis", () => {
       "__代码！__後",
       "~~~",
       "inline `**代码。**后` end",
+      // The blank line is what makes the next two lines indented *code*.
+      // Without it they continue the paragraph above and CommonMark renders
+      // them as ordinary body text, so the repair is supposed to touch them.
+      "",
       "    *缩进代码；*後",
       "\t_缩进代码：_かな",
     ].join("\n");
@@ -296,5 +300,54 @@ describe("normalizeCjkEmphasis nested-container guardrails", () => {
       "[下载][ref]",
     ].join("\n");
     expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+  // ---- fifth review round (zhaozhuang521, 2026-11-13) ----
+  it("protects a fence nested in a quoted list item", () => {
+    const source = "> - item\n>\n>     ~~~\n>   **代码。**后\n>     ~~~\n";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("protects a bare link destination", () => {
+    for (const source of [
+      "see https://example.com/a/**版本。**x ok",
+      "see www.example.com/a/**版本。**x ok",
+      "see ftp://example.com/a/**版本。**x ok",
+    ]) {
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+
+  it("protects LaTeX formulas", () => {
+    for (const source of [
+      "in $\\text{**内容。**后}$ end",
+      "in \\(\\text{**内容。**后}\\) end",
+      "in $$\\text{**内容。**后}$$ end",
+    ]) {
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+
+  it("protects a link title", () => {
+    const source = '[下载](docs "title) **内容。**后") tail';
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("repairs emphasis in a footnote body", () => {
+    const source = "ref [^1]\n\n[^1]: **内容。**后\n";
+    expect(normalizeCjkEmphasis(source)).toBe(
+      "ref [^1]\n\n[^1]: **内容**。后\n",
+    );
+  });
+
+  it("keeps repairing text after a fence closes with its container", () => {
+    const source = "> ~~~\n> **代码。**后\n> ~~~\n\n**正文。**后\n";
+    expect(normalizeCjkEmphasis(source)).toBe(
+      "> ~~~\n> **代码。**后\n> ~~~\n\n**正文**。后\n",
+    );
+  });
+
+  it("does not read a literal bracket-paren as a link", () => {
+    const source = "a]( **正文。**后\n";
+    expect(normalizeCjkEmphasis(source)).toBe("a]( **正文**。后\n");
   });
 });
