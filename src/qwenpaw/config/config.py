@@ -1069,6 +1069,17 @@ class ReMeLightMemoryConfig(BaseModel):
         default_factory=RerankerConfig,
     )
 
+    memory_model: ModelSlotConfig | None = Field(
+        default=None,
+        description=(
+            "Optional model slot for memory-writing LLM jobs (auto-memory, "
+            "auto-dream, Daily Paper, Auto Fin). Accepts an object with "
+            "provider_id/model, or a bare model-name string that inherits "
+            "the main model's provider. Object form is canonical. When "
+            "unset, the agent's main model is used."
+        ),
+    )
+
     needs_reindex: bool = Field(
         default=False,
         description=(
@@ -1089,6 +1100,14 @@ class ReMeLightMemoryConfig(BaseModel):
         default=True,
         description="Whether to expose the memory_search tool to the agent",
     )
+
+    @field_validator("memory_model", mode="before")
+    @classmethod
+    def parse_memory_model_slot(cls, value: Any) -> Any:
+        """Accept object slots or bare model-name strings."""
+        if isinstance(value, str):
+            return ModelSlotConfig(model=value.strip())
+        return value
 
     @field_validator("dream_cron", "daily_paper_cron", "auto_fin_cron")
     @classmethod

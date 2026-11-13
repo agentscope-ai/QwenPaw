@@ -5,7 +5,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import ANY, AsyncMock, Mock
 
 import pytest
 from agentscope.message import Base64Source, DataBlock, UserMsg
@@ -32,6 +32,13 @@ def _image_message():
 def memory_job(monkeypatch):
     """Keep host routing real; replace only config, model and the ReMe job."""
     config = ReMeLightMemoryConfig()
+    agent_config = AgentProfileConfig(id="memory-agent", name="Memory Agent")
+    agent_config.running.reme_light_memory_config = config
+    monkeypatch.setattr(
+        memory_module,
+        "load_agent_config_async",
+        AsyncMock(return_value=agent_config),
+    )
     model = SimpleNamespace(model="vision:v1", model_key="custom:vision:v1")
     metadata = ModelInfo(
         id="vision:v1",
@@ -148,6 +155,7 @@ async def test_images_require_setting_and_actual_memory_model_support(
     assert call.kwargs["messages"][0]["content"][0]["type"] == "data"
     memory_job.factory.assert_awaited_once_with(
         "memory-agent",
+        agent_config=ANY,
         require_image_support=enabled and requested,
         resize_images_to_max_bytes=True,
     )
@@ -277,6 +285,7 @@ async def test_llm_jobs_keep_injected_model_until_completion(memory_job):
     assert manager._reme.update_component.await_count == 2
     memory_job.factory.assert_awaited_with(
         "memory-agent",
+        agent_config=ANY,
         require_image_support=False,
         resize_images_to_max_bytes=True,
     )
