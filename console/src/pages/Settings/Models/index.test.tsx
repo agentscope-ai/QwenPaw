@@ -29,6 +29,7 @@ vi.mock("./useProviders", () => ({
 }));
 
 vi.mock("react-i18next", () => ({
+  initReactI18next: { type: "3rdParty", init: vi.fn() },
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
       opts ? `${key}:${JSON.stringify(opts)}` : key,
@@ -108,6 +109,8 @@ vi.mock("@agentscope-ai/design", async (importOriginal) => {
     ...original,
     Input: antd.Input,
     Button: antd.Button,
+    Form: antd.Form,
+    Select: antd.Select,
     Modal: (props: React.ComponentProps<typeof antd.Modal>) => {
       modalPropsMock(props);
       return React.createElement(antd.Modal, props);
