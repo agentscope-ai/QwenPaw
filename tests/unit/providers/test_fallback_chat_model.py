@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, AsyncGenerator, cast
 
 import pytest
@@ -113,6 +114,22 @@ class HttpError(Exception):
         self.status_code = status_code
 
 
+class _LeakyError(Exception):
+    """Transient error whose text carries fake credential material.
+
+    Used to prove the safe fallback reason never embeds raw provider
+    error text (which can contain API keys or bearer tokens).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "HTTP 503: Authorization failed using "
+            "api_key=secret-test-value "
+            "Authorization: Bearer secret-test-token",
+        )
+        self.status_code = 503
+
+
 async def _stream(
     *items: ChatResponse,
     error: Exception | None = None,
@@ -140,6 +157,16 @@ def _response(text: str) -> ChatResponse:
     )
 
 
+def _response_with_metadata() -> ChatResponse:
+    """A response carrying metadata unrelated to any fallback."""
+    response = _response("ok")
+    response.metadata = {
+        "usage": {"total_tokens": 10},
+        "custom_field": "preserved",
+    }
+    return response
+
+
 async def test_falls_back_on_transient_error_before_output() -> None:
     primary = FakeModel("primary", HttpError(503))
     fallback = FakeModel("fallback", lambda: _stream(_response("ok")))
@@ -159,8 +186,154 @@ async def test_falls_back_on_transient_error_before_output() -> None:
             "to_provider_id": "",
             "to_model_id": "fallback",
             "reason_kind": "transient",
+            "model_requested": "primary",
+            "model_used": "fallback",
+            "fallback_reason": "transient (503)",
+            "fallback_chain_position": 1,
         },
     ]
+
+
+async def test_fallback_response_carries_issue_8103_metadata() -> None:
+    """A silent fallback must be visible in the response metadata (#8103)."""
+    primary = FakeModel(
+        "komect:qwen38-27b-guangdong",
+        HttpError(503),
+        provider_id="komect",
+    )
+    fallback = FakeModel(
+        "qwen3.8-max",
+        lambda: _response("served by fallback"),
+        provider_id="qwen",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.content[0]["text"] == "served by fallback"
+    assert response.metadata["model_used"] == "qwen3.8-max"
+    assert (
+        response.metadata["model_requested"] == "komect:qwen38-27b-guangdong"
+    )
+    assert response.metadata["fallback_reason"] == "transient (503)"
+    assert response.metadata["fallback_chain_position"] == 1
+    # The pre-existing keys are untouched.
+    assert (
+        response.metadata["qwenpaw_actual_model"]["model_id"] == "qwen3.8-max"
+    )
+    assert len(response.metadata["qwenpaw_model_fallbacks"]) == 1
+
+
+async def test_fallback_metadata_on_streaming_last_chunk() -> None:
+    """Streaming fallbacks annotate the final chunk, not just the first."""
+    primary = FakeModel("primary", HttpError(503))
+    fallback = FakeModel(
+        "fallback",
+        lambda: _stream(_response("part-one"), _response("part-two")),
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+    chunks = [chunk async for chunk in response]
+
+    assert len(chunks) == 2
+    for chunk in chunks:
+        assert chunk.metadata["model_used"] == "fallback"
+        assert chunk.metadata["model_requested"] == "primary"
+        assert chunk.metadata["fallback_reason"] == "transient (503)"
+        assert chunk.metadata["fallback_chain_position"] == 1
+
+
+async def test_fallback_metadata_on_structured_output() -> None:
+    """Structured-output fallbacks carry the same metadata (#8103)."""
+    primary = FakeModel(
+        "primary",
+        HttpError(503),
+        provider_id="primary-provider",
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: StructuredResponse(content={"answer": "ok"}),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model.generate_structured_output(messages=[], tools=[])
+
+    assert response.content == {"answer": "ok"}
+    assert response.metadata["model_used"] == "fallback"
+    assert response.metadata["model_requested"] == "primary"
+    assert response.metadata["fallback_reason"] == "transient (503)"
+    assert response.metadata["fallback_chain_position"] == 1
+
+
+async def test_fallback_metadata_multi_hop_records_serving_position() -> None:
+    """Position/reason follow the serving candidate, not the first hop."""
+    primary = FakeModel("primary", HttpError(503))
+    candidate_a = FakeModel("candidate-a", HttpError(429))
+    candidate_b = FakeModel("candidate-b", lambda: _response("ok"))
+    model = FallbackChatModel([primary, candidate_a, candidate_b])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.metadata["model_used"] == "candidate-b"
+    assert response.metadata["model_requested"] == "primary"
+    # The reason is the transition that selected the serving model.
+    assert response.metadata["fallback_reason"] == "rate_limited (429)"
+    assert response.metadata["fallback_chain_position"] == 2
+    events = response.metadata["qwenpaw_model_fallbacks"]
+    assert [event["fallback_chain_position"] for event in events] == [1, 2]
+
+
+async def test_fallback_metadata_never_leaks_exception_text() -> None:
+    """Provider error text (keys, tokens) must not reach metadata."""
+    primary = FakeModel("primary", _LeakyError())
+    fallback = FakeModel("fallback", lambda: _response("ok"))
+    model = FallbackChatModel([primary, fallback])
+    sink = install_fallback_notice_sink()
+
+    response = await model(messages=[], tools=[])
+
+    assert response.metadata["fallback_reason"] == "transient (503)"
+    serialized = json.dumps(response.metadata, default=str)
+    assert "secret-test-value" not in serialized
+    assert "secret-test-token" not in serialized
+    sink_serialized = json.dumps(sink, default=str)
+    assert "secret-test-value" not in sink_serialized
+    assert "secret-test-token" not in sink_serialized
+
+
+async def test_fallback_annotation_preserves_unrelated_metadata() -> None:
+    """Annotating a fallback must not drop pre-existing metadata."""
+    primary = FakeModel("primary", HttpError(503))
+    fallback = FakeModel("fallback", lambda: _response_with_metadata())
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.metadata["usage"] == {"total_tokens": 10}
+    assert response.metadata["custom_field"] == "preserved"
+    assert response.metadata["model_used"] == "fallback"
+
+
+async def test_no_fallback_response_has_no_fallback_metadata() -> None:
+    """A primary that serves directly must not gain fallback keys."""
+    only = FakeModel("only", lambda: _response("ok"))
+    model = FallbackChatModel([only])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.content[0]["text"] == "ok"
+    metadata = response.metadata or {}
+    for key in (
+        "model_used",
+        "model_requested",
+        "fallback_reason",
+        "fallback_chain_position",
+    ):
+        assert key not in metadata
+    assert "qwenpaw_model_fallbacks" not in metadata
+    assert metadata["qwenpaw_actual_model"]["model_id"] == "only"
 
 
 async def test_stream_idle_timeout_falls_back_after_retries() -> None:
@@ -210,6 +383,12 @@ async def test_stream_idle_timeout_falls_back_after_retries() -> None:
                 "to_provider_id": "",
                 "to_model_id": "fallback",
                 "reason_kind": "transient",
+                "model_requested": "primary",
+                "model_used": "fallback",
+                # The idle-timeout error carries no HTTP status, so the
+                # reason is the classified kind alone.
+                "fallback_reason": "transient",
+                "fallback_chain_position": 1,
             },
         ]
     finally:
@@ -242,6 +421,10 @@ async def test_falls_back_when_primary_model_is_not_found() -> None:
             "to_provider_id": "fallback-provider",
             "to_model_id": "fallback",
             "reason_kind": "model_not_found",
+            "model_requested": "retired-primary",
+            "model_used": "fallback",
+            "fallback_reason": "model_not_found (404)",
+            "fallback_chain_position": 1,
         },
     ]
 
@@ -291,6 +474,10 @@ async def test_identity_and_context_follow_fallback(
             "to_provider_id": "fallback-provider",
             "to_model_id": "fallback",
             "reason_kind": "rate_limited",
+            "model_requested": "primary",
+            "model_used": "fallback",
+            "fallback_reason": "rate_limited (429)",
+            "fallback_chain_position": 1,
         },
     ]
 
@@ -648,6 +835,10 @@ async def test_structured_output_reports_multi_hop_fallback() -> None:
             "to_provider_id": "first-provider",
             "to_model_id": "first-fallback",
             "reason_kind": "transient",
+            "model_requested": "primary",
+            "model_used": "first-fallback",
+            "fallback_reason": "transient (503)",
+            "fallback_chain_position": 1,
         },
         {
             "type": "model_fallback",
@@ -656,6 +847,10 @@ async def test_structured_output_reports_multi_hop_fallback() -> None:
             "to_provider_id": "final-provider",
             "to_model_id": "final-fallback",
             "reason_kind": "rate_limited",
+            "model_requested": "primary",
+            "model_used": "final-fallback",
+            "fallback_reason": "rate_limited (429)",
+            "fallback_chain_position": 2,
         },
     ]
     assert response.metadata["qwenpaw_actual_model"] == {
@@ -750,6 +945,31 @@ async def test_fallback_sink_records_events_and_actual_model() -> None:
     assert sink["events"][0]["type"] == "model_fallback"
     assert sink["events"][0]["to_model_id"] == "fallback"
     assert (sink["actual_model"] or {})["model_id"] == "fallback"
+
+
+async def test_fallback_sink_events_carry_option_a_fields() -> None:
+    """The request sink carries the new fields to Console/channels."""
+    sink = install_fallback_notice_sink()
+    primary = FakeModel(
+        "primary",
+        HttpError(429),
+        provider_id="primary-provider",
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _response("ok"),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    await model()
+
+    assert len(sink["events"]) == 1
+    event = sink["events"][0]
+    assert event["model_used"] == "fallback"
+    assert event["model_requested"] == "primary"
+    assert event["fallback_reason"] == "rate_limited (429)"
+    assert event["fallback_chain_position"] == 1
 
 
 async def test_active_model_resets_after_streamed_fallback() -> None:
