@@ -36,7 +36,7 @@ async def _one_event_stream(_payload):
     # Upstream now invokes on_finished only after a successful response
     # terminal, so the stream must emit one for the callback-path tests.
     yield "data: " + json.dumps(
-        {"object": "response", "status": "completed"}
+        {"object": "response", "status": "completed"},
     ) + "\n\n"
 
 

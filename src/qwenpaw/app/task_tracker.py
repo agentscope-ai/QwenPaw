@@ -77,7 +77,8 @@ async def _notify_finished(
         # the bound without wedging the producer: cleanup in the caller's
         # finally runs as soon as the bound fires.
         done, _ = await asyncio.wait(
-            {callback}, timeout=ON_FINISHED_TIMEOUT
+            {callback},
+            timeout=ON_FINISHED_TIMEOUT,
         )
         if callback not in done:
             callback.cancel()
