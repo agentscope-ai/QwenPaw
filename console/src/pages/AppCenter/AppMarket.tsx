@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { openExternalLink } from "@/utils/openExternalLink";
+import { getConsoleAssetUrl } from "@/utils/runtimeBasePath";
 import {
   buildMarketDownloadUrl,
   fetchMarketPlugins,
@@ -78,7 +79,7 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 // Curated featured apps use pinned artwork because the market API may not
 // provide an icon for them.
 const FEATURED_APP_ICONS: Record<string, string> = {
-  "@agentscope/qwenpaw-creator": `${import.meta.env.BASE_URL}creator-logo.png`,
+  "@agentscope/qwenpaw-creator": getConsoleAssetUrl("creator-logo.png"),
 };
 // The upstream market entry ships the same English text under every locale
 // key, so curated apps carry their real translations here (keyed by language

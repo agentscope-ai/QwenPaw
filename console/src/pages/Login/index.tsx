@@ -15,6 +15,7 @@ import { authApi } from "../../api/modules/auth";
 import { setAuthToken } from "../../api/config";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getPostLoginHref } from "../../utils/navigationMode";
+import { getConsoleAssetUrl } from "../../utils/runtimeBasePath";
 import styles from "./index.module.less";
 
 export default function LoginPage() {
@@ -191,9 +192,9 @@ export default function LoginPage() {
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <img
-            src={`${import.meta.env.BASE_URL}${
-              isDark ? "logo-dark.svg" : "logo-light.svg"
-            }`}
+            src={getConsoleAssetUrl(
+              isDark ? "logo-dark.svg" : "logo-light.svg",
+            )}
             alt="QwenPaw"
             style={{ height: 48, marginBottom: 12 }}
           />

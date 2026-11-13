@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlsplit
 import aiohttp
 from multidict import CIMultiDict
 from starlette.responses import Response
+from starlette.routing import get_route_path
 from starlette.websockets import WebSocketState
 from yarl import URL
 
@@ -405,7 +406,7 @@ class ChannelIngressService:
         candidates = [
             binding
             for binding in self._bindings.values()
-            if (method, request.scope["path"]) in binding.routes
+            if (method, get_route_path(request.scope)) in binding.routes
             and (not selectors or binding.wire.route_selector == selectors[0])
             and self._current(binding, binding.reference)
         ]

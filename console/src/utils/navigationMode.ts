@@ -1,4 +1,5 @@
 import { normalizeConsoleBasename } from "./consoleBasename";
+import { getRuntimeBasePath } from "./runtimeBasePath";
 
 interface LocationLike {
   pathname: string;
@@ -6,9 +7,9 @@ interface LocationLike {
   hash?: string;
 }
 
-const CONSOLE_BASENAME = normalizeConsoleBasename(
-  import.meta.env.VITE_CONSOLE_BASENAME,
-);
+const CONSOLE_BASENAME =
+  getRuntimeBasePath() ||
+  normalizeConsoleBasename(import.meta.env.VITE_CONSOLE_BASENAME);
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 
 function historyStateRecord(state: unknown): Record<string, unknown> {

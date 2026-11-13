@@ -6,6 +6,7 @@
  * Mission Control button both open the Spaces switcher.
  */
 import { useEffect, useState } from "react";
+import { getConsoleAssetUrl } from "../utils/runtimeBasePath";
 import { useTranslation } from "react-i18next";
 import { Dropdown, Tooltip } from "antd";
 import {
@@ -108,7 +109,7 @@ export default function MenuBar({ hidden = false }: { hidden?: boolean }) {
             title={t("os.qwenpawMenu", "QwenPaw menu")}
             aria-label={t("os.qwenpawMenu", "QwenPaw menu")}
           >
-            <img src={`${import.meta.env.BASE_URL}qwenpaw.png`} alt="QwenPaw" />
+            <img src={getConsoleAssetUrl("qwenpaw.png")} alt="QwenPaw" />
           </button>
         </Dropdown>
         <Tooltip

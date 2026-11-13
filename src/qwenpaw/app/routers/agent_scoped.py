@@ -11,6 +11,7 @@ from starlette.middleware.base import (
     RequestResponseEndpoint,
 )
 from starlette.responses import Response
+from starlette.routing import get_route_path
 
 
 class AgentContextMiddleware(BaseHTTPMiddleware):
@@ -29,7 +30,7 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         agent_id = None
 
         # Priority 1: Extract agentId from path: /api/agents/{agentId}/...
-        path_parts = request.url.path.split("/")
+        path_parts = get_route_path(request.scope).split("/")
         if len(path_parts) >= 4 and path_parts[1] == "api":
             if path_parts[2] == "agents":
                 agent_id = path_parts[3]

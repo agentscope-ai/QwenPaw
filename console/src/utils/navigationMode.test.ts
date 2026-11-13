@@ -156,4 +156,21 @@ describe("configured console basename", () => {
     );
     expect(navigation.getOsRootHref("/login")).toBe("/os");
   });
+
+  it("prefers the server-injected runtime base path", async () => {
+    window.__qpBase = "/app/qwenpaw/web";
+    const navigation = await loadNavigation(undefined);
+    const location = {
+      pathname: "/app/qwenpaw/web/chat",
+      search: "?draft=one",
+    };
+    expect(navigation.getRouterBasename(location.pathname)).toBe(
+      "/app/qwenpaw/web",
+    );
+    expect(navigation.stripRouterBasename(location.pathname)).toBe("/chat");
+    expect(navigation.getLoginHref(location)).toBe(
+      "/app/qwenpaw/web/login?redirect=%2Fchat%3Fdraft%3Done",
+    );
+    delete window.__qpBase;
+  });
 });

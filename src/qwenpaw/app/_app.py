@@ -41,6 +41,11 @@ from ..utils.logging import (
 )
 from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
+from .base_path import (
+    BasePathMiddleware,
+    ConsoleIndexResponse,
+    normalize_base_path,
+)
 from .auth import (
     AuthMiddleware,
     RuntimeBoundaryMiddleware,
@@ -835,6 +840,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         startup_display.stop()
 
 
+_BASE_PATH = normalize_base_path(os.environ.get("QWENPAW_BASE_PATH"))
+
 app = FastAPI(
     lifespan=lifespan,
     docs_url="/docs" if DOCS_ENABLED else None,
@@ -924,7 +931,11 @@ _INDEX_NO_CACHE_HEADERS = {
 @app.get("/")
 def read_root():
     if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-        return FileResponse(_CONSOLE_INDEX, headers=_INDEX_NO_CACHE_HEADERS)
+        return ConsoleIndexResponse(
+            _CONSOLE_INDEX,
+            base_path=_BASE_PATH,
+            headers=_INDEX_NO_CACHE_HEADERS,
+        )
     return {
         "message": (
             f"{PROJECT_NAME} web console is not available. "
@@ -1014,8 +1025,9 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
 
     def _serve_console_index():
         if _CONSOLE_INDEX and _CONSOLE_INDEX.exists():
-            return FileResponse(
+            return ConsoleIndexResponse(
                 _CONSOLE_INDEX,
+                base_path=_BASE_PATH,
                 headers=_INDEX_NO_CACHE_HEADERS,
             )
 
@@ -1062,3 +1074,6 @@ if os.path.isdir(_CONSOLE_STATIC_DIR):
                 return FileResponse(static_file, stat_result=file_stat)
 
         return _serve_console_index()
+
+
+app.add_middleware(BasePathMiddleware, base_path=_BASE_PATH)
