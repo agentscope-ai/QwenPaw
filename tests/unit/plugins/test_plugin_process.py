@@ -82,8 +82,19 @@ async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
     tmp_path,
     process,
     worker_logs,
+    monkeypatch,
 ):
+    for name in ("HOME", "QWENPAW_WORKING_DIR", "QWENPAW_RUNTIME_ID"):
+        monkeypatch.setenv(name, str(tmp_path))
     spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        "assert not {'HOME', 'QWENPAW_WORKING_DIR', 'QWENPAW_RUNTIME_ID'}"
+        ".intersection(os.environ)\n" + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
     notices = []
     process.register_method(
         "sample.host",

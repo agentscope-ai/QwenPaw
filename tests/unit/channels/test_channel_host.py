@@ -842,6 +842,61 @@ async def test_channel_preflight_rechecks_metadata_read_during_probe(
 
 
 @pytest.mark.asyncio
+async def test_channel_worker_preserves_canonical_runtime_context(
+    host,
+    monkeypatch,
+):
+    from qwenpaw.constant import WORKING_DIR
+
+    WORKING_DIR.mkdir(parents=True, exist_ok=True)
+    (WORKING_DIR / ".env").write_text(
+        "CHANNEL_CONTEXT_ENV_PROBE=unexpected\n",
+        encoding="utf-8",
+    )
+    home = host.root / "runtime home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", "./unresolved-runtime")
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "channel-context-runtime")
+    monkeypatch.delenv("CHANNEL_CONTEXT_ENV_PROBE", raising=False)
+    expected_home = str(home) if os.name != "nt" else None
+    expected_profile = str(Path.home().resolve()) if os.name == "nt" else None
+    media = host.root / "explicit-media"
+    ws = await host.workspace("context", media_dir=str(media))
+    source = host.artifact()
+    shutil.copytree(
+        Path(__file__).resolve().parents[3]
+        / "plugins/channel/wechat/qwenpaw_channel_wechat",
+        source / "qwenpaw_channel_wechat",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    driver = source / "sample.py"
+    driver.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "if os.name != 'nt':\n"
+        "    import pwd\n"
+        "    def missing_user(uid): raise KeyError(uid)\n"
+        "    pwd.getpwuid = missing_user\n"
+        "from qwenpaw_channel_wechat.platform import WeChatPlatform\n"
+        "from qwenpaw.constant import WORKING_DIR\n"
+        f"assert WORKING_DIR == Path({str(WORKING_DIR)!r})\n"
+        f"assert os.environ['QWENPAW_WORKING_DIR'] == {str(WORKING_DIR)!r}\n"
+        "assert os.environ['QWENPAW_RUNTIME_ID'] == 'channel-context-runtime'\n"
+        "assert 'CHANNEL_CONTEXT_ENV_PROBE' not in os.environ\n"
+        f"assert os.environ.get('HOME') == {expected_home!r}\n"
+        f"assert os.environ.get('USERPROFILE') == {expected_profile!r}\n"
+        + driver.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    record = await host.loader.load_plugin_from_path(source)
+    assert record.status == "active"
+    _, value = await host.identity(ws)
+    assert value["config"]["workspace_dir"] == str(ws.workspace_dir)
+    assert value["config"]["media_dir"] == str(media)
+    assert value["config"]["app_secret"] == "local-only"
+
+
+@pytest.mark.asyncio
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,

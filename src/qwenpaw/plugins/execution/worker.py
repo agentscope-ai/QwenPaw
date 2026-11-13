@@ -65,6 +65,8 @@ def _configure(
     boot: Any,
     packet: dict[str, Any],
     protected_namespaces: tuple[str, ...],
+    *,
+    environment_passthrough: tuple[str, ...] = (),
 ) -> None:
     root = boot._absolute_existing_directory(packet["code_root"], "code_root")
     support = Path(__file__).resolve().parents[3]
@@ -154,7 +156,7 @@ def _configure(
     plugins.__path__ = [str(support / "qwenpaw/plugins")]
     sys.modules["qwenpaw.plugins"] = plugins
     # Direct path assignment never executes additional .pth files.
-    boot._clean_environment(())
+    boot._clean_environment(environment_passthrough)
     private_env = boot.validate_private_environment(
         packet.get("private_env", {}),
     )
@@ -441,6 +443,7 @@ def main(
     runtime_factory: Any = None,
     *,
     protected_namespaces: tuple[str, ...] = (),
+    environment_passthrough: tuple[str, ...] = (),
 ) -> int:
     output = None
     protocol_input = None
@@ -492,7 +495,12 @@ def main(
                 platform.uname()
                 _guard_inspection(boot)
             diagnostics.mark("configure")
-            _configure(boot, packet, protected_namespaces)
+            _configure(
+                boot,
+                packet,
+                protected_namespaces,
+                environment_passthrough=environment_passthrough,
+            )
             diagnostics.emit(
                 "worker_environment",
                 paths=list(sys.path),
