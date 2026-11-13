@@ -40,6 +40,7 @@ from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import (
     _is_media_block,
     mark_media_omitted_after_overflow,
+    omitted_media_marker,
 )
 from .utils.text_block_utils import (
     drop_empty_text_blocks,
@@ -1814,14 +1815,20 @@ class QwenPawAgent(Agent):
                         total_stripped += stripped_count
                         stripped_this_message += stripped_count
                         if stripped_count > 0:
+                            replacement: Any = (
+                                filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                            )
+                            if filtered:
+                                # Some content survived the strip, so the
+                                # removed media would otherwise vanish without
+                                # a trace ("Image loaded: x.png" with no image).
+                                replacement = filtered + [
+                                    omitted_media_marker(filtered),
+                                ]
                             if isinstance(block, dict):
-                                block["output"] = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block["output"] = replacement
                             else:
-                                block.output = (
-                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
-                                )
+                                block.output = replacement
 
                 new_content.append(block)
 
