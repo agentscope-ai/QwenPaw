@@ -192,7 +192,10 @@ class MessageRenderer:
         *,
         semantic: bool,
     ) -> List[SemanticContentPart]:
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.agents.context.scroll.serialize import (
+            strip_headline,
+            strip_injected_context,
+        )
         from qwenpaw.schemas import MessageType
 
         msg_type = getattr(message, "type", None)
@@ -441,6 +444,9 @@ class MessageRenderer:
                 # Hide the scroll headline (⟦ … ⟧) from display; it stays in
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
+                # Injected context notes / background tool hints are stored
+                # as ordinary text; they are not part of the reply either.
+                text = strip_injected_context(text)
                 if text:
                     if s.supports_markdown:
                         # Repair CJK emphasis boundaries (e.g. ``**中文。**后``)
