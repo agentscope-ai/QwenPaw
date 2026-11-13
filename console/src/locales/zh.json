@@ -4296,7 +4296,8 @@
     },
     "regenerate": "重新生成",
     "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
-    "turnCanceled": "已停止"
+    "turnCanceled": "已停止",
+    "outputTruncated": "模型已达到输出上限，当前回答不完整。请让模型继续回答，或提高输出上限。"
   },
   "security": {
     "parent": "设置",

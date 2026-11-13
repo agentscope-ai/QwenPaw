@@ -89,9 +89,15 @@ async def test_repeated_cancellation_preserves_queued_terminal_callback(
         await host.stop_channel(CHANNEL)
 
 
+@pytest.mark.parametrize(
+    f"message,status",
+    [(f"ordinary", f"completed"), (f"empty-output", f"failed")],
+)
 async def test_stop_retains_terminal_task_queued_before_callback_admission(
     tmp_path,
     monkeypatch,
+    message,
+    status,
 ):
     # Keep this ownership/cleanup scenario and its assertions together.
     # pylint: disable=too-many-statements
@@ -145,7 +151,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
             "_before_consume_process",
             remember_request,
         )
-        await host.receive_channel(CHANNEL, incoming("empty-output", "queued"))
+        await host.receive_channel(CHANNEL, incoming(message, f"queued"))
         await asyncio.wait_for(queued.wait(), WAIT_TIMEOUT)
         assert len(notifications) == 2
         stopping = asyncio.create_task(host.stop_channel(CHANNEL))
@@ -174,7 +180,7 @@ async def test_stop_retains_terminal_task_queued_before_callback_admission(
         assert not cancelled
         events = ctx.storage.read_json("events.json")
         assert [event["phase"] for event in events] == ["start", "end"]
-        assert events[-1]["status"] == "completed"
+        assert events[-1][f"status"] == status
         assert events[0]["run_id"] == events[1]["run_id"]
 
         assert channel._run_states == {}

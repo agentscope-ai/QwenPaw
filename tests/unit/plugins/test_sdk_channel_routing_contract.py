@@ -279,7 +279,7 @@ async def test_sender_scope_separates_real_queues_with_same_session(tmp_path):
 
 @pytest.mark.parametrize(
     "message,status",
-    [("empty-output", "completed"), ("fail-before-content", "failed")],
+    [(f"empty-output", f"failed"), (f"fail-before-content", f"failed")],
 )
 async def test_run_terminal_without_content(tmp_path, message, status):
     async with PluginTestHost(tmp_path / "host") as host:
