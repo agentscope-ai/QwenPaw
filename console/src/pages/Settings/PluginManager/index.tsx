@@ -23,6 +23,7 @@ export default function PluginManagerPage() {
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get("view");
+  const targetPlugin = searchParams.get("plugin") ?? "";
   const activeTab =
     viewParam === "official" || viewParam === "market"
       ? viewParam
@@ -35,6 +36,10 @@ export default function PluginManagerPage() {
     refreshUpdates,
     uninstallingId,
     handleUninstall,
+    enablingId,
+    enableOne,
+    repairOne,
+    disableOne,
     updates,
     updatesLoading,
     updatingId,
@@ -84,11 +89,17 @@ export default function PluginManagerPage() {
       ),
       children: (
         <InstalledPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
           plugins={plugins}
           loading={loading}
           uninstallingId={uninstallingId}
           onRefresh={refreshUpdates}
           onUninstall={handleUninstall}
+          enablingId={enablingId}
+          onEnable={enableOne}
+          onRepair={repairOne}
+          onDisable={disableOne}
           updates={updates}
           updatesLoading={updatesLoading}
           updatingId={updatingId}
@@ -101,13 +112,21 @@ export default function PluginManagerPage() {
     {
       key: "official",
       label: t("pluginManager.officialTitle"),
-      children: <OfficialPluginList onInstalled={handleInstalled} />,
+      children: (
+        <OfficialPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
+          onInstalled={handleInstalled}
+        />
+      ),
     },
     {
       key: "market",
       label: t("pluginManager.marketTitle"),
       children: (
         <MarketPluginList
+          key={targetPlugin}
+          initialSearch={targetPlugin}
           onInstalled={handleInstalled}
           installedPlugins={plugins ?? []}
         />

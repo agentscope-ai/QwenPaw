@@ -7,8 +7,9 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
-from ...harnesses.events import HarnessHistoryItem, HarnessHistoryKind
-from ...harnesses.codex.rollout_reader import (
+from ...plugins.harnesses import HarnessHistoryItem, HarnessHistoryKind
+from ...config.config import load_agent_config_async
+from .codex_rollout_reader import (
     CodexRolloutReader,
     codex_non_root_session_kind,
 )
@@ -82,7 +83,6 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
             Path(source_location.data_home),
         )
 
-    # pylint: disable-next=R0914,R0912,R0915
     async def inventory(
         self,
         *,
@@ -91,20 +91,54 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         include_sessions: bool = True,
         session_ids: set[str] | None = None,
     ) -> ProviderInventory:
-        """Discover and normalize Codex-owned portable objects."""
-        local_only = self._source_location.data_home_source == "explicit"
-        adapter = None
+        """Keep the SDK archive owner admitted throughout online discovery."""
+        if self._source_location.data_home_source == "explicit":
+            return await self._inventory(
+                None,
+                None,
+                limit=limit,
+                progress=progress,
+                include_sessions=include_sessions,
+                session_ids=session_ids,
+            )
+        config = await load_agent_config_async(self._workspace.agent_id)
+        settings = (
+            dict(config.backend_settings)
+            if config.backend == self.provider_id
+            else {}
+        )
+        runtime = self._workspace.backend_runtime
         status = None
-        if not local_only:
-            settings = (
-                dict(self._workspace.config.backend_settings)
-                if self._workspace.config.backend == self.provider_id
-                else {}
+        try:
+            status = await asyncio.wait_for(
+                runtime.call(self.provider_id, "status", settings),
+                timeout=_DISCOVERY_TIMEOUT_SECONDS,
             )
-            adapter = await self._workspace.harness_runtime.adapter(
-                self.provider_id,
-                settings,
+        except asyncio.TimeoutError:
+            pass
+        async with runtime.archive(self.provider_id, settings) as archive:
+            return await self._inventory(
+                archive,
+                status,
+                limit=limit,
+                progress=progress,
+                include_sessions=include_sessions,
+                session_ids=session_ids,
             )
+
+    # pylint: disable-next=R0914,R0912,R0915
+    async def _inventory(
+        self,
+        adapter: Any,
+        status: Any,
+        *,
+        limit: int,
+        progress: ProgressReporter | None,
+        include_sessions: bool,
+        session_ids: set[str] | None,
+    ) -> ProviderInventory:
+        """Run the existing local/online merge with an admitted facade."""
+        local_only = self._source_location.data_home_source == "explicit"
         rollout_reader = self._rollout_reader
         offline_threads: list[dict[str, Any]] = []
         ignored_session_ids: list[str] = []
@@ -124,14 +158,6 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         else:
             warnings = []
 
-        if adapter is not None:
-            try:
-                status = await asyncio.wait_for(
-                    adapter.status(),
-                    timeout=_DISCOVERY_TIMEOUT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                status = None
         installed = bool(status is not None and status.installed)
         if local_only:
             warnings.append(
@@ -442,9 +468,7 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         if installed:
             try:
                 records = await asyncio.wait_for(
-                    adapter.external_skill_records(
-                        self._workspace.workspace_dir.resolve(),
-                    ),
+                    adapter.external_skill_records(),
                     timeout=_DISCOVERY_TIMEOUT_SECONDS,
                 )
             except Exception as exc:  # pylint: disable=broad-except
@@ -455,7 +479,17 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         if not records:
             records = await run_sync_io(rollout_reader.skill_records)
 
-        workspace_skills = self._workspace.workspace_dir.resolve() / "skills"
+        return await run_sync_io(
+            self._select_skills,
+            self._workspace.workspace_dir,
+            records,
+            plugins,
+        )
+
+    @staticmethod
+    def _select_skills(workspace_dir, records, plugins):
+        """Validate a bounded snapshot of source Skill paths off the loop."""
+        workspace_skills = workspace_dir.resolve() / "skills"
         plugin_roots = []
         for plugin in plugins:
             source = str(plugin.metadata.get("install_path") or "")
@@ -501,32 +535,16 @@ class CodexMigrationProvider:  # pylint: disable=too-few-public-methods
         installed: bool,
         warnings: list[str],
     ) -> list[SourceMCPServer]:
-        plugin_servers, plugin_warnings, _count = discover_codex_plugin_mcp(
+        plugin_servers, plugin_warnings, _count = await run_sync_io(
+            discover_codex_plugin_mcp,
             plugins,
         )
         warnings.extend(plugin_warnings)
         if not installed:
             return plugin_servers
-        external_records = getattr(adapter, "external_mcp_records", None)
-        if external_records is None:
-            try:
-                discovered = await adapter.discover_mcp(
-                    self._workspace.workspace_dir.resolve(),
-                )
-                if discovered:
-                    warnings.append(
-                        f"Found {len(discovered)} Codex MCP server(s), but "
-                        "this Codex adapter exposes redacted discovery only.",
-                    )
-                return plugin_servers
-            except Exception as exc:  # pylint: disable=broad-except
-                warnings.append(
-                    f"Codex MCP discovery failed: {_error_detail(exc)}",
-                )
-                return plugin_servers
         try:
             records = await asyncio.wait_for(
-                external_records(self._workspace.workspace_dir.resolve()),
+                adapter.external_mcp_records(),
                 timeout=_DISCOVERY_TIMEOUT_SECONDS,
             )
         except Exception as exc:  # pylint: disable=broad-except

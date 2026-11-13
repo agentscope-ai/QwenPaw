@@ -26,6 +26,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from agentscope.tool import FunctionTool, Toolkit
 import pytest
 
 from qwenpaw.agents.tools.shell import (
@@ -48,6 +49,7 @@ from qwenpaw.agents.tools.shell import (
     _read_temp_output,
     _sanitize_win_cmd,
     _shell_basename,
+    execute_shell_command,
     smart_decode,
 )
 from qwenpaw.sandbox import (
@@ -1245,6 +1247,21 @@ async def test_execute_posix_host_timeout_preserves_partial_output(tmp_path):
 
 class TestExecuteShellCommand:
     """Tests for execute_shell_command with mocked subprocess."""
+
+    @pytest.mark.asyncio
+    async def test_schema_keeps_title_optional_and_command_required(self):
+        toolkit = Toolkit(tools=[FunctionTool(execute_shell_command)])
+
+        schemas = await toolkit.get_tool_schemas()
+        parameters = schemas[0]["function"]["parameters"]
+        title = parameters["properties"]["title"]
+
+        assert list(parameters["properties"])[:2] == ["command", "title"]
+        assert parameters["required"] == ["command"]
+        assert title["default"] == ""
+        assert "Always provide" in title["description"]
+        assert "current conversation language" in title["description"]
+        assert "never claim success" in title["description"]
 
     @pytest.mark.asyncio
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")

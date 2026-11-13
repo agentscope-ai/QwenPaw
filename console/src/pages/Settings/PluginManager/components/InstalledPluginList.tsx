@@ -12,6 +12,7 @@ import {
 } from "antd";
 import { Package, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import type { PluginInfo, PluginUpdateInfo } from "@/api/modules/plugin";
 import { usePluginColumns } from "../hooks/usePluginColumns";
 import { PluginTypeTag } from "./PluginTypeTag";
@@ -26,6 +27,11 @@ const { Text } = Typography;
 
 interface InstalledPluginListProps {
   plugins?: PluginInfo[];
+  initialSearch?: string;
+  enablingId: string | null;
+  onEnable: (plugin: PluginInfo) => void;
+  onRepair: (plugin: PluginInfo) => void;
+  onDisable: (plugin: PluginInfo) => void;
   loading: boolean;
   uninstallingId: string | null;
   onRefresh: () => void;
@@ -40,6 +46,11 @@ interface InstalledPluginListProps {
 
 export function InstalledPluginList({
   plugins = [],
+  initialSearch = "",
+  enablingId,
+  onEnable,
+  onRepair,
+  onDisable,
   loading,
   uninstallingId,
   onRefresh,
@@ -52,16 +63,45 @@ export function InstalledPluginList({
   onUpdateAll,
 }: InstalledPluginListProps) {
   const { t } = useTranslation();
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [viewMode, setViewMode] = useState<PluginViewMode>("card");
   const isMobile = useIsMobile();
 
-  const columns = usePluginColumns({ uninstallingId, onUninstall });
+  const renderActivation = (plugin: PluginInfo) =>
+    !plugin.enabled || !plugin.loaded || plugin.status === "failed" ? (
+      <Button
+        loading={enablingId === plugin.id}
+        disabled={enablingId !== null && enablingId !== plugin.id}
+        onClick={() =>
+          plugin.status === "failed" ? onRepair(plugin) : onEnable(plugin)
+        }
+      >
+        {t(
+          plugin.status === "failed" ? "pluginManager.repair" : "common.enable",
+        )}
+      </Button>
+    ) : (
+      <Button
+        loading={enablingId === plugin.id}
+        disabled={enablingId !== null && enablingId !== plugin.id}
+        onClick={() => onDisable(plugin)}
+      >
+        {t("common.disable")}
+      </Button>
+    );
+  const columns = usePluginColumns({
+    uninstallingId,
+    onUninstall,
+    renderActivation,
+  });
 
   const filteredPlugins = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
     return plugins.filter(
-      (plugin) => !keyword || plugin.name.toLocaleLowerCase().includes(keyword),
+      (plugin) =>
+        !keyword ||
+        plugin.name.toLocaleLowerCase().includes(keyword) ||
+        plugin.id.toLocaleLowerCase().includes(keyword),
     );
   }, [plugins, search]);
 
@@ -153,7 +193,16 @@ export function InstalledPluginList({
                   <div className={cardStyles.cardIcon}>
                     <Package size={18} />
                   </div>
-                  <PluginStatusTag plugin={plugin} style={{ margin: 0 }} />
+                  <div className={cardStyles.cardTopActions}>
+                    <CommunityFeedback
+                      origin={plugin.installation_origin}
+                      installedPluginId={plugin.id}
+                      installedVersion={plugin.version}
+                      resourceName={plugin.name}
+                      variant="inline"
+                    />
+                    <PluginStatusTag plugin={plugin} style={{ margin: 0 }} />
+                  </div>
                 </div>
                 <div className={cardStyles.cardTitleRow}>
                   <Text
@@ -175,6 +224,7 @@ export function InstalledPluginList({
                   </span>
                 </div>
                 <div className={cardStyles.cardActions}>
+                  {renderActivation(plugin)}
                   {renderUpdateAction(plugin)}
                   <Button
                     danger
@@ -212,6 +262,13 @@ export function InstalledPluginList({
                   </div>
                   <div className={rowStyles.catalogInfo}>
                     <div className={rowStyles.catalogNameRow}>
+                      <CommunityFeedback
+                        origin={plugin.installation_origin}
+                        installedPluginId={plugin.id}
+                        installedVersion={plugin.version}
+                        resourceName={plugin.name}
+                        variant="inline"
+                      />
                       <Text strong>{plugin.name}</Text>
                       <PluginTypeTag type={plugin.plugin_type ?? "general"} />
                       <PluginStatusTag plugin={plugin} style={{ margin: 0 }} />
@@ -227,6 +284,7 @@ export function InstalledPluginList({
                     </div>
                   </div>
                   <div className={rowStyles.catalogActions}>
+                    {renderActivation(plugin)}
                     {renderUpdateAction(plugin)}
                     <Button
                       danger

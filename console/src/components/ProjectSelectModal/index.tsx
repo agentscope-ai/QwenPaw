@@ -11,7 +11,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { Modal, Tabs, Input, Button, Alert, List } from "antd";
+import { Modal, Tabs, Input, Button, Alert, List, App } from "antd";
 import {
   FolderOpen,
   FolderSymlink,
@@ -27,6 +27,8 @@ import {
 } from "../../api/modules/projectDirectory";
 import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
 import { useProjectDir } from "../../stores/projectDirectoryStore";
+import { isVolumeRoot } from "../../utils/volumeRoot";
+import { confirmVolumeRootProjectDir } from "../../utils/volumeRootWarning";
 import styles from "./index.module.less";
 
 interface ProjectSelectModalProps {
@@ -521,6 +523,7 @@ export default function ProjectSelectModal({
   onConfirm,
 }: ProjectSelectModalProps) {
   const { t } = useTranslation();
+  const { message } = App.useApp();
   const { setProjectDir } = useProjectDir();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [activeTab, setActiveTab] = useState("folders");
@@ -541,7 +544,60 @@ export default function ProjectSelectModal({
       .catch(() => undefined);
   };
 
+  /**
+   * Warns before accepting a volume root as the project directory.
+   *
+   * The sandbox cannot grant access there (its ACE is inheritable and a
+   * volume root has no parent), so the backend runs such a session
+   * without the sandbox. Let the user decide: the command still runs.
+   */
+  const guardVolumeRoot = async (path: string): Promise<boolean> => {
+    if (!isVolumeRoot(path)) {
+      return true;
+    }
+    return confirmVolumeRootProjectDir({ path, t });
+  };
+
+  /**
+   * The agent's default workspace directory.
+   *
+   * Fetched when the modal opens, and re-fetched if that first request has
+   * not landed yet (it may still be pending, or have failed), because a null
+   * here is not "no directory": it is "not known yet", and the workspace tab
+   * must not adopt a directory it cannot inspect.
+   */
+  const resolveWorkspaceDir = async (): Promise<string | null> => {
+    if (workspaceDir) return workspaceDir;
+    try {
+      const info = await projectDirectoryApi.get();
+      if (info.workspace_dir) {
+        setWorkspaceDir(info.workspace_dir);
+        return info.workspace_dir;
+      }
+    } catch {
+      // Unknown default: the caller refuses rather than adopting it blind.
+    }
+    return null;
+  };
+
+  /**
+   * Guards the directory a flow is about to adopt.
+   *
+   * `null` selects the agent's default workspace, which both the folder-list
+   * flow and the workspace tab can land on, so it is resolved and checked
+   * instead of being skipped. Returning false keeps the flow from writing.
+   */
+  const guardProjectDir = async (path: string | null): Promise<boolean> => {
+    const target = path ?? (await resolveWorkspaceDir());
+    if (target === null) {
+      message.error(t("projectDirectory.workspaceUnknown"));
+      return false;
+    }
+    return guardVolumeRoot(target);
+  };
+
   const handleConfirm = async (path: string | null) => {
+    if (!(await guardProjectDir(path))) return;
     if (path !== undefined) {
       // For workspace default (path === null), explicitly reset on backend too
       if (path === null) {
@@ -557,6 +613,7 @@ export default function ProjectSelectModal({
   };
 
   const handlePathSelected = async (path: string) => {
+    if (!(await guardVolumeRoot(path))) return;
     try {
       await projectDirectoryApi.set(path);
     } catch {
@@ -566,15 +623,21 @@ export default function ProjectSelectModal({
     onConfirm(path);
   };
 
-  const handleCloneDone = async (path: string) => {
-    // After clone, the server already set the active project; update store.
-    setProjectDir(path);
-    onConfirm(path);
+  const handleCloneDone = (path: string) => {
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      // After clone, the server already set the active project; update store.
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const handleLocalDone = (path: string) => {
-    setProjectDir(path);
-    onConfirm(path);
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const handleDefaultDirsChanged = async () => {
@@ -584,6 +647,9 @@ export default function ProjectSelectModal({
         defaults.source === "workspace_fallback"
           ? null
           : defaults.project_dirs[0]?.path ?? null;
+      // The directory has already been decided by the editor and gated by
+      // its `beforeChange` hook, which runs before the write. Here we only
+      // adopt what the server now holds.
       setProjectDir(primary);
       onConfirm(primary);
     } catch {
@@ -592,8 +658,11 @@ export default function ProjectSelectModal({
   };
 
   const handleNewDone = (path: string) => {
-    setProjectDir(path);
-    onConfirm(path);
+    void guardVolumeRoot(path).then((ok) => {
+      if (!ok) return;
+      setProjectDir(path);
+      onConfirm(path);
+    });
   };
 
   const tabItems = [
@@ -610,6 +679,9 @@ export default function ProjectSelectModal({
           scope={{ kind: "agent", agentId }}
           multiAgentDefault
           inline
+          beforeChange={(entries) =>
+            guardProjectDir(entries?.[0]?.path ?? null)
+          }
           onChanged={() => void handleDefaultDirsChanged()}
         />
       ),

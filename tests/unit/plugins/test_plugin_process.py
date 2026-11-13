@@ -132,6 +132,129 @@ async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
 
 
 @pytest.mark.asyncio
+async def test_startup_failure_preserves_redacted_cause_after_log_flood(
+    tmp_path,
+    process,
+    worker_logs,
+    monkeypatch,
+):
+    from qwenpaw.plugins.execution import worker_logs as log_bridge
+
+    monkeypatch.setattr(log_bridge, "monotonic", lambda: 1.0)
+    spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import sys\n"
+        "class Worker:\n"
+        "    def bind(self, context): self.context = context\n"
+        "    async def start(self, config):\n"
+        "        for _ in range(100): print('sdk noise', file=sys.stderr)\n"
+        "        try:\n"
+        "            raise ValueError(\n"
+        "                'https://user:url-secret@example.test/ws?ticket=query-secret '\n"
+        "                + config['app_secret'])\n"
+        "        except ValueError as cause:\n"
+        "            raise RuntimeError('component startup failed') from cause\n"
+        "    async def stop(self): pass\n",
+    )
+    spec = replace(
+        spec,
+        source_revision=digest(spec.code_root),
+        config={**spec.config, "app_secret": "unlabelled-config-secret"},
+    )
+    await process.start(spec)
+    await eventually(
+        lambda: process.health_snapshot()["component_state"] == "failed",
+    )
+    await eventually(lambda: "component startup failed" in worker_logs.text)
+    output = worker_logs.text
+    assert "ValueError" in output and "RuntimeError" in output
+    assert "worker.py" in output and "component_start" in output
+    assert "example.test/ws" in output
+    for secret in ("url-secret", "query-secret", "unlabelled-config-secret"):
+        assert secret not in output
+    assert (await process.stop()).exited
+
+
+def test_windows_crypto_paths_are_normalized_before_native_lookup():
+    from importlib import metadata
+
+    script = r"""
+import importlib.util
+import ntpath
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+sys.path.insert(0, sys.argv[2])
+spec = importlib.util.spec_from_file_location("worker", sys.argv[1])
+worker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(worker)
+worker._install_windows_crypto_path_fix()
+assert "Crypto" not in sys.modules  # Optional SDK remains lazy.
+from Crypto.Util import _file_system, _raw_api
+_file_system.os = SimpleNamespace(path=ntpath)
+for root in ("C:\\sdk", "\\\\?\\C:\\sdk", "\\\\?\\UNC\\server\\share",
+             "\\\\?\\C:\\" + "long-folder\\" * 30):
+    root = root.rstrip("\\")
+    _file_system.__file__ = root + "\\Crypto\\Util\\_file_system.py"
+    actual = _raw_api.pycryptodome_filename(["Crypto", "Util"], "_cpuid_c.pyd")
+    assert actual == root + "\\Crypto\\Util\\_cpuid_c.pyd", actual
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            script,
+            str(ROOT / "src/qwenpaw/plugins/execution/worker.py"),
+            str(metadata.distribution("pycryptodome").locate_file("")),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+@pytest.mark.asyncio
+async def test_windows_worker_imports_crypto_from_extended_path(
+    tmp_path,
+    process,
+    worker_logs,
+):
+    from importlib import metadata
+
+    site = tmp_path / "dependencies"
+    distribution = metadata.distribution("pycryptodome")
+    shutil.copytree(distribution.locate_file("Crypto"), site / "Crypto")
+    site = Path("\\\\?\\" + str(site.resolve()))
+    spec, _ = launch(tmp_path, dependency_paths=(site,))
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        source.read_text().replace(
+            "    async def start(self, config):\n",
+            "    async def start(self, config):\n"
+            "        from Crypto.Cipher import AES\n"
+            "        key = bytes.fromhex('000102030405060708090a0b0c0d0e0f')\n"
+            "        plain = bytes.fromhex('00112233445566778899aabbccddeeff')\n"
+            "        assert AES.new(key, AES.MODE_ECB).encrypt(plain).hex() == "
+            "'69c4e0d86a7b0430d8cdb78070b4c55a'\n",
+        ),
+    )
+    await process.start(replace(spec, source_revision=digest(spec.code_root)))
+    await eventually(
+        lambda: process.health_snapshot()["component_state"]
+        in {"ready", "failed"},
+    )
+    assert (
+        process.health_snapshot()["component_state"] == "ready"
+    ), worker_logs.text
+    assert (await process.stop()).exited
+
+
+@pytest.mark.asyncio
 async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     tmp_path,
     process,
@@ -145,6 +268,9 @@ async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     spec, _ = launch(tmp_path)
     health = await process.start(spec)
     await eventually(lambda: "sample SDK diagnostic" in worker_logs.text)
+    await eventually(
+        lambda: '"phase": "component_started"' in worker_logs.text,
+    )
     worker_logs.clear()
     baseline = process.health_snapshot()["log_bytes"]
     cleaned = []
@@ -278,6 +404,7 @@ async def test_crash_restarts_generation_and_retains_host_handler(
 async def test_blocked_sdk_start_keeps_parent_loop_responsive(
     tmp_path,
     process,
+    worker_logs,
 ):
     spec, marker = launch(tmp_path, mode="blocked")
     ticks = []
@@ -298,8 +425,42 @@ async def test_blocked_sdk_start_keeps_parent_loop_responsive(
         == "responsive"
     )
     assert int(marker.read_text()) == health["pid"]
+    await eventually(lambda: '"event": "startup_slow"' in worker_logs.text)
+    assert (
+        sum('"await_frames"' in row.message for row in worker_logs.records)
+        == 1
+    )
     stopped = await asyncio.wait_for(process.stop(timeout=0.3), 3)
     assert stopped.exited and stopped.forced and not alive(health["pid"])
+
+
+@pytest.mark.parametrize("readonly", [False, True])
+def test_source_backup_and_restore_preserve_contents_and_mode(
+    tmp_path,
+    readonly,
+):
+    from qwenpaw.plugins.dependency_transaction import (
+        backup_source,
+        restore_source,
+    )
+
+    target = tmp_path / "installed"
+    target.mkdir()
+    source = target / "plugin.py"
+    content = b"VALUE = 'original'\n"
+    source.write_bytes(content)
+    source.chmod(stat.S_IREAD if readonly else 0o755)
+    mode = stat.S_IMODE(source.stat().st_mode)
+    operation = tmp_path / "operation"
+    operation.mkdir()
+    before = backup_source(operation, target)
+    assert source.read_bytes() == content
+    assert stat.S_IMODE(source.stat().st_mode) == mode
+    source.chmod(mode | stat.S_IWRITE)
+    source.write_bytes(b"VALUE = 'changed'\n")
+    restore_source(operation, {"source_before": before})
+    assert source.read_bytes() == content
+    assert stat.S_IMODE(source.stat().st_mode) == mode
 
 
 @pytest.mark.asyncio

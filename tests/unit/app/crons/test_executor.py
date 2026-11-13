@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -13,6 +14,7 @@ from qwenpaw.app.crons.models import (
     DispatchTarget,
     JobRuntimeSpec,
 )
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
 
@@ -224,8 +226,6 @@ async def test_non_shared_job_reuses_its_dedicated_session(
 
 @pytest.mark.asyncio
 async def test_timeout_preserves_run_reference(monkeypatch):
-    import asyncio
-
     from qwenpaw.app.crons.executor import CronExecutionTimeout
 
     class SlowWorkspace(_Workspace):
@@ -248,6 +248,71 @@ async def test_timeout_preserves_run_reference(monkeypatch):
         status="timeout",
         error="timed out after 0.01s",
     )
+
+
+@pytest.mark.asyncio
+async def test_agent_run_is_tracked_by_chat_id_and_can_stop(monkeypatch):
+    started = asyncio.Event()
+    event = Event(object="message", status=RunStatus.InProgress)
+
+    class SlowWorkspace(_Workspace):
+        async def stream_query(self, request):
+            yield event
+            started.set()
+            await asyncio.Event().wait()
+
+    workspace = SlowWorkspace()
+    workspace.task_tracker = TaskTracker()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="cron-chat",
+    )
+    job = make_cron_job_spec(job_id="tracked-job")
+    finalize = _patch_trace_storage(monkeypatch)
+    execution = asyncio.create_task(
+        CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(job),
+    )
+
+    await asyncio.wait_for(started.wait(), timeout=1)
+    assert await workspace.task_tracker.get_status("cron-chat") == "running"
+    queue = await workspace.task_tracker.attach("cron-chat")
+    assert queue is not None
+    sse = await asyncio.wait_for(queue.get(), timeout=1)
+    assert sse.startswith("data: ")
+    assert '"object":"message"' in sse
+    await workspace.task_tracker.detach_subscriber("cron-chat", queue)
+    assert await workspace.task_tracker.request_stop("cron-chat") is True
+
+    with pytest.raises(asyncio.CancelledError):
+        await execution
+    assert await workspace.task_tracker.get_status("cron-chat") == "idle"
+    workspace.chat_manager.mark_chat_finished.assert_not_awaited()
+    finalize.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tracked_agent_run_preserves_execution_error(monkeypatch):
+    class FailingWorkspace(_Workspace):
+        async def stream_query(self, request):
+            raise RuntimeError("agent failed")
+            yield
+
+    workspace = FailingWorkspace()
+    workspace.task_tracker = TaskTracker()
+    workspace.chat_manager = AsyncMock()
+    workspace.chat_manager.get_or_create_chat.return_value = SimpleNamespace(
+        id="cron-chat",
+    )
+    _patch_trace_storage(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="agent failed"):
+        await CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(make_cron_job_spec(job_id="failing-job"))
 
 
 @pytest.mark.asyncio

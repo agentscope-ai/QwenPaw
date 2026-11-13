@@ -9,7 +9,7 @@
 
 .filterTag {
   flex-shrink: 0;
-  min-height: 30px;
+  min-height: 32px;
   padding: 4px 12px;
   border: 1px solid var(--app-border);
   border-radius: 16px;
@@ -76,23 +76,83 @@
   font-size: 13px;
 }
 @media (max-width: 767px) {
+  // Keep search and actions on one row; controls shrink instead of stacking.
   .controlRow {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
     gap: 8px;
   }
 
   .search {
-    width: 100%;
+    flex: 1;
+    min-width: 0;
+    width: auto;
   }
 
   .controlActions {
-    width: 100%;
+    flex-shrink: 0;
   }
 
   .sort {
     min-width: 0;
     flex: 1;
     width: auto;
+  }
+
+  // Market row (search + sort + refresh) is too tight on one line:
+  // search takes the first row, sort + refresh the second.
+  .controlRowMarket {
+    flex-wrap: wrap;
+
+    .search {
+      flex: 1 1 100%;
+    }
+
+    .controlActions {
+      width: 100%;
+    }
+  }
+}
+
+// Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+// match inputs and selects so search / sort / refresh share one height.
+@media (pointer: coarse) {
+  .controlRow {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    // antd pins the single-select root to 32px while the selector stretches,
+    // which offsets the box against sibling controls and leaves the label /
+    // arrow off-center; stretch root + selector + line-height together.
+    :global(:is(.qwenpaw-select-single, .ant-select-single)) {
+      height: 44px;
+
+      :global(:is(.qwenpaw-select-selector, .ant-select-selector)) {
+        height: 100%;
+      }
+
+      :global(:is(.qwenpaw-select-selection-item, .ant-select-selection-item)),
+      :global(
+          :is(
+              .qwenpaw-select-selection-placeholder,
+              .ant-select-selection-placeholder
+            )
+        ) {
+        line-height: 42px;
+      }
+    }
+
+    // Keep the square icon button square under the 44px touch height.
+    .iconButton {
+      width: 44px;
+    }
+  }
+
+  .filterTag {
+    min-height: 44px;
   }
 }
