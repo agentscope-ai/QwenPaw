@@ -83,3 +83,37 @@ def test_local_models_download_missing_id(app_server) -> None:
     )
     # Should return 400 or 422
     assert response.status_code in [400, 422]
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_local_server_status_reports_accelerator_fields(app_server) -> None:
+    """The local status payload exposes accelerator metadata."""
+    response = app_server.api_request("GET", "/api/local-models/server")
+    assert response.status_code == 200
+    data = response.json()
+    assert "accelerator" in data
+    assert "device_name" in data
+    assert "version" in data
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_local_model_config_auto_update_round_trip(app_server) -> None:
+    """The auto-update preference is exposed and persisted."""
+    response = app_server.api_request(
+        "PUT",
+        "/api/local-models/config",
+        json={"auto_update": True},
+    )
+    assert response.status_code == 200
+
+    config = app_server.api_request("GET", "/api/local-models/config")
+    assert config.status_code == 200
+    assert config.json()["auto_update"] is True
+
+    app_server.api_request(
+        "PUT",
+        "/api/local-models/config",
+        json={"auto_update": False},
+    )

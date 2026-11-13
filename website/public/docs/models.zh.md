@@ -22,9 +22,11 @@ QwenPaw 官方还提供了适合本地部署的 QwenPaw-Flash 系列模型，包
 
 ## QwenPaw Local (llama.cpp) 配置
 
-> QwenPaw Local 目前仍处于测试阶段，稳定性以及对 GPU 的兼容性存在问题，如果追求稳定或是需要使用 GPU 加速，短期内建议使用 Ollama 或 LM Studio 作为本地模型提供商。
-
 QwenPaw Local 是基于 llama.cpp 的本地模型提供商，可以进入 **模型** 界面进行配置和管理。
+
+QwenPaw Local 在 Apple Silicon 上使用 Metal；当所安装的运行库包含 CUDA 后端时使用 CUDA，否则回退到 CPU。引擎面板会显示检测到的加速器（例如 `Metal · Apple M5 Max`）。如需强制使用 CPU 推理，请打开 **本地模型进阶配置**，关闭 **GPU 加速**；该设置会在下一次启动本地服务时生效。
+
+运行库自动更新默认开启。可在 **本地模型进阶配置** 中关闭 **自动更新引擎运行库**。开启时，QwenPaw 会定期检查，并在没有本地服务运行时安装较新的 llama.cpp 运行库；正在运行的服务不会被中断，更新会延后。
 
 ![QwenPaw Local 提供商](https://img.alicdn.com/imgextra/i4/O1CN01SCsDMo1PV3tJhmYgD_!!6000000001845-2-tps-3810-2064.png)
 

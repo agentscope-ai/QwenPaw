@@ -632,6 +632,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
+            local_model_manager.start_auto_update()
             startup_provider_ids = provider_manager.startup_sync_provider_ids()
             asyncio.create_task(
                 provider_manager.sync_startup_provider_models(
@@ -776,12 +777,21 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         if local_model_mgr is not None:
             logger.info("Stopping local model server...")
             try:
+                await local_model_mgr.stop_auto_update()
+            except Exception as exc:
+                logger.error(
+                    "Error stopping local runtime auto-update: %s",
+                    exc,
+                )
+            try:
                 await local_model_mgr.shutdown_server()
             except Exception as exc:
                 logger.error(
                     "Error shutting down local model server gracefully: %s",
                     exc,
                 )
+            finally:
+                # Also cancel an in-flight runtime auto-update download.
                 with suppress(OSError, RuntimeError, ValueError):
                     local_model_mgr.shutdown_server_sync()
 
