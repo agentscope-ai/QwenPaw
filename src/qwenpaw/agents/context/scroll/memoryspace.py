@@ -865,7 +865,7 @@ class MemorySpace:
             )
             if not include_turn:
                 return fetch_page(0, requested)
-            rows, raw_partial, _ = self._collect_distinct_hits(
+            rows, raw_partial, _, starts = self._collect_distinct_hits(
                 fetch_page,
                 requested,
                 _budget,
@@ -875,6 +875,7 @@ class MemorySpace:
                 requested,
                 _budget,
                 raw_hits_partial=raw_partial,
+                starts=starts,
             )
 
         # FTS5 MATCH takes a query grammar, not plain text. Sanitize first; an
@@ -922,7 +923,12 @@ class MemorySpace:
             )
 
         try:
-            rows, raw_partial, distinct_count = self._collect_distinct_hits(
+            (
+                rows,
+                raw_partial,
+                distinct_count,
+                starts,
+            ) = self._collect_distinct_hits(
                 like_page if use_like else fts_page,
                 requested,
                 _budget,
@@ -930,7 +936,12 @@ class MemorySpace:
         except _FtsQueryError:
             _budget.ensure_time()
             use_like = True
-            rows, raw_partial, distinct_count = self._collect_distinct_hits(
+            (
+                rows,
+                raw_partial,
+                distinct_count,
+                starts,
+            ) = self._collect_distinct_hits(
                 like_page,
                 requested,
                 _budget,
@@ -959,6 +970,7 @@ class MemorySpace:
             requested,
             _budget,
             raw_hits_partial=raw_partial,
+            starts=starts,
         )
 
     def _search_matching_rows_only(
@@ -1015,16 +1027,17 @@ class MemorySpace:
         fetch_page: Callable[[int, int], list[dict]],
         limit: int,
         budget: _SearchBudget,
-    ) -> tuple[list[dict], bool, int]:
+    ) -> tuple[list[dict], bool, int, dict[int, int | None]]:
         """Page raw hits until ``limit`` distinct turns or a hard boundary.
 
-        Returns ``(rows, raw_hits_partial, distinct_count)``. Fetching one
+        Returns ``(rows, raw_hits_partial, distinct_count, starts)``. Fetching one
         extra row per page distinguishes exhaustion from the total raw-hit
         cap, so callers never silently present a cap-limited result as
         complete.
         """
         rows: list[dict] = []
         distinct: set[tuple[object, object, int]] = set()
+        starts: dict[int, int | None] = {}
         offset = 0
         has_more = False
         while len(distinct) < limit and offset < self._row_cap:
@@ -1040,7 +1053,7 @@ class MemorySpace:
                 has_more = False
                 break
             rows.extend(page)
-            starts = self._turn_start_seqs(page, budget)
+            starts.update(self._turn_start_seqs(page, budget))
             for row in page:
                 if row.get("_truncated") or int(row.get("seq", -1)) < 0:
                     continue
@@ -1059,7 +1072,7 @@ class MemorySpace:
         raw_partial = (
             len(distinct) < limit and offset >= self._row_cap and has_more
         )
-        return rows, raw_partial, len(distinct)
+        return rows, raw_partial, len(distinct), starts
 
     def _search_fts_rows(
         self,
@@ -1279,9 +1292,20 @@ class MemorySpace:
         budget: _SearchBudget,
         *,
         raw_hits_partial: bool = False,
+        starts: dict[int, int | None] | None = None,
     ) -> list[dict]:
         """Deduplicate boundaries first, then load each selected turn once."""
-        starts = self._turn_start_seqs(rows, budget)
+        if starts is None:
+            starts = {}
+        missing = [
+            row
+            for row in rows
+            if not row.get("_truncated")
+            and int(row.get("seq", -1)) >= 0
+            and int(row["seq"]) not in starts
+        ]
+        if missing:
+            starts.update(self._turn_start_seqs(missing, budget))
         notices: list[dict] = []
         groups: dict[tuple[object, object, int], dict] = {}
         for row in rows:
