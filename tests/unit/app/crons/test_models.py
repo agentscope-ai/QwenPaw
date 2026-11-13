@@ -8,6 +8,7 @@ from qwenpaw.app.crons.models import (
     CronJobSpec,
     DispatchSpec,
     DispatchTarget,
+    JobRuntimeSpec,
     ScheduleSpec,
     _crontab_dow_to_name,
 )
@@ -143,3 +144,23 @@ def test_cron_job_spec_text_rejects_silent_delivery():
                 silent=True,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# JobRuntimeSpec.thinking_level
+# ---------------------------------------------------------------------------
+
+
+def test_job_runtime_thinking_level_defaults_to_inherit():
+    assert JobRuntimeSpec().thinking_level == "inherit"
+
+
+@pytest.mark.parametrize("level", ["off", "minimal", "high", "xhigh"])
+def test_job_runtime_accepts_explicit_thinking_level(level):
+    assert JobRuntimeSpec(thinking_level=level).thinking_level == level
+
+
+@pytest.mark.parametrize("level", ["enabled", "budget", "urgent", ""])
+def test_job_runtime_rejects_unknown_thinking_level(level):
+    with pytest.raises(ValidationError):
+        JobRuntimeSpec(thinking_level=level)

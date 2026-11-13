@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.app.crons.executor import CronExecutor
-from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
+from qwenpaw.app.crons.models import (
+    DispatchSpec,
+    DispatchTarget,
+    JobRuntimeSpec,
+)
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
@@ -428,3 +432,38 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
             channel_manager=AsyncMock(),
         ).execute(job)
     assert not workspace.requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("level", ["off", "high"])
+async def test_job_thinking_level_is_carried_per_request(monkeypatch, level):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="thinking-job")
+    job.runtime = JobRuntimeSpec(thinking_level=level)
+
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    context = workspace.requests[0]["request_context"]
+    assert context["thinking_level"] == level
+
+
+@pytest.mark.asyncio
+async def test_inheriting_job_keeps_request_thinking_unset(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="inherit-job")
+
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    assert "thinking_level" not in workspace.requests[0]["request_context"]

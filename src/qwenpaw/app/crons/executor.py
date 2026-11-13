@@ -203,6 +203,10 @@ class CronExecutor:
             if job.runtime.tool_safety
             else ToolExecutionLevel.OFF.value
         )
+        # Per-job thinking override: only carried when it differs from the
+        # agent default, so inheriting jobs keep their exact request shape.
+        if job.runtime.thinking_level != "inherit":
+            request_context["thinking_level"] = job.runtime.thinking_level
         req["request_context"] = request_context
 
         # Determine session_id based on share_session
