@@ -116,7 +116,8 @@ export function normalizeCjkEmphasis(markdown: string): string {
     const isRepairCandidate =
       punctuationStart >= 0 &&
       isCjkAt(markdown, index + runLength) &&
-      rangeIsUnprotected(protectedText, punctuationStart, index + runLength);
+      rangeIsUnprotected(protectedText, punctuationStart, index + runLength) &&
+      !createsEscapePair(markdown, punctuationStart);
 
     if (isRepairCandidate && matchingTop) {
       delimiters.pop();
@@ -175,18 +176,19 @@ function buildProtectionMasks(markdown: string): {
       contentEnd--;
     }
     const line = markdown.slice(lineStart, contentEnd);
+    const content = line.slice(containerOffset(line));
 
     if (fence) {
       block.fill(1, lineStart, lineEndWithNewline);
-      if (isClosingFence(line, fence)) fence = undefined;
+      if (isClosingFence(content, fence)) fence = undefined;
     } else {
-      const openingFence = getOpeningFence(line);
+      const openingFence = getOpeningFence(content);
       if (openingFence) {
         fence = openingFence;
         block.fill(1, lineStart, lineEndWithNewline);
-      } else if (INDENT.test(line)) {
+      } else if (INDENT.test(content)) {
         block.fill(1, lineStart, lineEndWithNewline);
-      } else if (BLANK.test(line)) {
+      } else if (BLANK.test(content)) {
         paragraphReset[lineStart] = 1;
         paragraphReset[lineEndWithNewline] = 1;
       }
@@ -196,7 +198,28 @@ function buildProtectionMasks(markdown: string): {
 
   const protectedText = block.slice();
   markInlineCode(markdown, block, protectedText);
+  markLinkDestinations(markdown, block, protectedText);
   return { block, protectedText, paragraphReset };
+}
+
+/**
+ * Length of the container prefix (blockquote markers and the first list
+ * marker) so fenced and indented code inside quotes and list items are still
+ * recognised.
+ */
+function containerOffset(line: string): number {
+  let offset = 0;
+  for (;;) {
+    const quote = /^ {0,3}>[ \t]?/.exec(line.slice(offset));
+    if (quote) {
+      offset += quote[0].length;
+      continue;
+    }
+    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(line.slice(offset));
+    if (!list) break;
+    offset += list[0].length;
+  }
+  return offset;
 }
 
 function getOpeningFence(line: string): Fence | undefined {
@@ -250,6 +273,59 @@ function markInlineCode(
   }
 }
 
+/**
+ * Mark inline-link destinations and reference definitions so their URLs are
+ * never rewritten: moving punctuation inside a URL would change the target.
+ */
+function markLinkDestinations(
+  markdown: string,
+  block: Uint8Array,
+  protectedText: Uint8Array,
+): void {
+  for (let index = 0; index < markdown.length - 1; index++) {
+    if (block[index] || protectedText[index]) continue;
+    if (markdown[index] !== "]" || markdown[index + 1] !== "(") continue;
+    const close = findClosingParen(markdown, index + 1, block);
+    if (close < 0) continue;
+    protectedText.fill(1, index + 2, close);
+    index = close;
+  }
+
+  const definition = /^ {0,3}\[[^\]\n]+\]:[ \t]*(?:<([^>\n]*)>|(\S+))/gm;
+  for (const match of markdown.matchAll(definition)) {
+    const target = match[1] ?? match[2];
+    if (!target) continue;
+    const start = (match.index ?? 0) + match[0].length - target.length;
+    if (block[start]) continue;
+    protectedText.fill(1, start, start + target.length);
+  }
+}
+
+/** Index of the `)` matching the `(` at `open`, or -1 when unclosed. */
+function findClosingParen(
+  markdown: string,
+  open: number,
+  block: Uint8Array,
+): number {
+  let depth = 0;
+  for (let index = open; index < markdown.length; index++) {
+    if (block[index]) return -1;
+    const character = markdown[index];
+    if (character === "\\") {
+      index++;
+      continue;
+    }
+    if (character === "(") {
+      depth++;
+      continue;
+    }
+    if (character !== ")") continue;
+    depth--;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
 function countRun(
   markdown: string,
   protectedText: Uint8Array,
@@ -295,6 +371,29 @@ function findTrailingPunctuationStart(markdown: string, end: number): number {
   const beforeCore = cursor;
   while (cursor > 0 && CORE_PUNCTUATION.has(markdown[cursor - 1])) cursor--;
   return cursor < beforeCore ? cursor : -1;
+}
+
+/**
+ * Moving the punctuation run out of the delimiter must not turn an existing
+ * backslash into an escape for the delimiter itself (``**a\。**b``), which
+ * would drop the emphasis and leave a stray backslash behind.
+ */
+function createsEscapePair(
+  markdown: string,
+  punctuationStart: number,
+): boolean {
+  if (punctuationStart <= 0 || markdown[punctuationStart - 1] !== "\\") {
+    return false;
+  }
+  let backslashes = 0;
+  for (
+    let cursor = punctuationStart - 1;
+    cursor >= 0 && markdown[cursor] === "\\";
+    cursor--
+  ) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
 }
 
 function isCjkAt(markdown: string, index: number): boolean {

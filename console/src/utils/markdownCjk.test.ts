@@ -146,3 +146,40 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis(plain)).toBe(plain);
   });
 });
+
+describe("normalizeCjkEmphasis guardrails", () => {
+  it("keeps fenced code nested in a blockquote untouched", () => {
+    const source = "> ~~~markdown\n> **内容。**后\n> ~~~";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps fenced code nested in a list item untouched", () => {
+    const source = "- ~~~markdown\n  **内容。**后\n  ~~~";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a blockquote body working outside code fences", () => {
+    expect(normalizeCjkEmphasis("> **内容。**后")).toBe("> **内容**。后");
+  });
+
+  it("keeps inline link destinations untouched", () => {
+    const source = "[下载](https://example.com/中文/**版本。**后续)";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps image destinations untouched", () => {
+    const source = "![图](https://example.com/中文/**版本。**后续.png)";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps reference-style link destinations untouched", () => {
+    const source =
+      "[下载][ref]\n\n[ref]: https://example.com/中文/**版本。**后续";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("does not create a new escape pair when punctuation moves", () => {
+    expect(normalizeCjkEmphasis("**内容\\。**后")).toBe("**内容\\。**后");
+    expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\**。后");
+  });
+});
