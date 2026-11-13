@@ -9,6 +9,7 @@ Covers:
 - edit_file
 - append_file
 """
+
 # pylint: disable=protected-access,unused-argument
 
 import asyncio
@@ -32,9 +33,17 @@ from qwenpaw.agents.tools.file_io import (
 )
 from qwenpaw.agents.tools.utils import (
     TRUNCATION_METADATA_KEY,
+    _decode_capped_text_snapshot,
+    _read_file_safe_sync,
+    read_file_native,
+    read_file_native_with_encoding,
     read_file_safe,
 )
-
+from qwenpaw.agents.utils.file_handling import (
+    IncrementalTextDecoder,
+    decode_text_bytes,
+    decode_text_bytes_with_encoding_fallback,
+)
 
 # ---------------------------------------------------------------------------
 # _resolve_file_path
@@ -127,11 +136,19 @@ class TestReadFile:
 
     @pytest.mark.asyncio
     async def test_safe_read_uses_one_binary_snapshot(self, tmp_path):
-        """Safe reads strip a BOM and tolerate invalid trailing bytes."""
+        """Safe reads strip a UTF-8 BOM on the utf-8-sig path."""
         path = tmp_path / "snapshot.txt"
-        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+        path.write_bytes(b"\xef\xbb\xbfhello")
 
         assert await read_file_safe(str(path)) == "hello"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_decodes_gbk_without_dropping_text(self, tmp_path):
+        """GBK/CP936 notes must not be stripped by a UTF-8-only decode."""
+        path = tmp_path / "gbk-note.txt"
+        path.write_bytes(("姓名: 张三" + chr(10)).encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "姓名: 张三" + chr(10)
 
     @pytest.mark.asyncio
     async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
@@ -140,6 +157,271 @@ class TestReadFile:
         path.write_bytes(b"first\r\nsecond\rthird\n")
 
         assert await read_file_safe(str(path)) == "first\nsecond\nthird\n"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_utf8_keeps_valid_prefix(self, tmp_path):
+        """Cutting a multibyte UTF-8 character must not fall through to GBK."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("utf-8")
+        snapshot = raw[:-1]
+        path = tmp_path / "utf8.txt"
+        # Extra bytes make this a capped read, not a short corrupt file.
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(snapshot))
+
+        assert result == "行\n姓名: 张"
+        assert "三" not in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_gbk_still_decodes(self, tmp_path):
+        """A capped non-UTF-8 snapshot still uses the encoding ladder."""
+        text = "姓名: 张三\n"
+        raw = text.encode("gbk")
+        with pytest.raises(UnicodeDecodeError):
+            raw.decode("utf-8")
+        path = tmp_path / "gbk.txt"
+        path.write_bytes(raw + b"xxxx")
+
+        assert await read_file_safe(str(path), max_bytes=len(raw)) == text
+
+    @pytest.mark.asyncio
+    async def test_safe_read_truncated_gbk_keeps_character_prefix(
+        self,
+        tmp_path,
+    ):
+        """A cap inside a GBK character keeps the valid prefix."""
+        text = "姓名: 张三"
+        raw = text.encode("gbk")
+        path = tmp_path / "gbk-cut.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(raw) - 1)
+
+        assert result == "姓名: 张"
+
+    @pytest.mark.asyncio
+    async def test_native_read_truncated_utf8_keeps_crlf_prefix(
+        self,
+        tmp_path,
+    ):
+        """A capped native read keeps the UTF-8 prefix and original CRLF."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("utf-8")
+        path = tmp_path / "utf8-native.txt"
+        # Extra bytes make this a capped read, not a short corrupt file.
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_native(str(path), max_bytes=len(raw) - 1)
+        decoded, encoding, lossy = await read_file_native_with_encoding(
+            str(path),
+            max_bytes=len(raw) - 1,
+        )
+
+        assert result == "行\r\n姓名: 张"
+        assert decoded == "行\r\n姓名: 张"
+        assert encoding == "utf-8"
+        assert lossy is False
+        assert "三" not in result
+        assert not result.startswith("å")
+
+    @pytest.mark.asyncio
+    async def test_native_read_truncated_gbk_keeps_character_prefix(
+        self,
+        tmp_path,
+    ):
+        """A capped native read keeps the GBK prefix and original CRLF."""
+        text = "行\r\n姓名: 张三"
+        raw = text.encode("gbk")
+        path = tmp_path / "gbk-native.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        result = await read_file_native(str(path), max_bytes=len(raw) - 1)
+        decoded, encoding, lossy = await read_file_native_with_encoding(
+            str(path),
+            max_bytes=len(raw) - 1,
+        )
+
+        assert result == "行\r\n姓名: 张"
+        assert decoded == "行\r\n姓名: 张"
+        assert encoding == "gbk"
+        assert lossy is False
+        assert "\r\n" in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("prefix", [b"\xef", b"\xef\xbb"])
+    async def test_safe_read_incomplete_bom_matches_shared_helper(
+        self,
+        tmp_path,
+        prefix,
+    ):
+        """Full incomplete BOM follows the ladder; capped keeps empty prefix."""
+        expected = decode_text_bytes_with_encoding_fallback(prefix)
+
+        whole = tmp_path / "whole.txt"
+        whole.write_bytes(prefix)
+        assert await read_file_safe(str(whole)) == expected
+
+        # Cap inside the BOM / first multibyte must not fall through to GBK.
+        capped = tmp_path / "capped.txt"
+        capped.write_bytes(prefix + b"TAIL")
+        assert await read_file_safe(str(capped), max_bytes=len(prefix)) == ""
+
+    @pytest.mark.asyncio
+    async def test_safe_read_dirty_utf8_does_not_insert_replacement(
+        self,
+        tmp_path,
+    ):
+        """Dirty UTF-8 falls through the strict ladder without U+FFFD."""
+        path = tmp_path / "dirty.txt"
+        raw = "姓名: 张三\n".encode("utf-8") + b"\xff"
+        path.write_bytes(raw)
+
+        result = await read_file_safe(str(path))
+
+        decoded = decode_text_bytes(raw)
+        assert result == decoded.text
+        assert decoded.lossy is False
+        assert "\ufffd" not in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("partial", [0, 1, 2])
+    async def test_safe_read_capped_utf8_keeps_prefix(
+        self,
+        tmp_path,
+        partial,
+    ):
+        """Cap inside a trailing UTF-8 character keeps the 张三 prefix."""
+        base = "姓名: 张三\n".encode("utf-8")
+        content = base + "行".encode("utf-8")[:partial]
+        path = tmp_path / "capped-utf8.txt"
+        path.write_bytes(content + b"TAIL")
+
+        result = await read_file_safe(str(path), max_bytes=len(content))
+
+        assert "张三" in result
+        assert not result.startswith("å")
+
+    async def test_safe_read_short_gbk_keeps_character(self, tmp_path):
+        """Short GBK falls through instead of a lossy UTF-8 decode."""
+        path = tmp_path / "short-gbk.txt"
+        path.write_bytes("A张".encode("gbk"))
+
+        result = await read_file_safe(str(path))
+
+        assert "张" in result
+
+    @pytest.mark.asyncio
+    async def test_safe_read_short_cp1252_keeps_accent(self, tmp_path):
+        """Short CP1252 keeps the accented character."""
+        path = tmp_path / "cafe.txt"
+        path.write_bytes("Café".encode("cp1252"))
+
+        result = await read_file_safe(str(path))
+
+        assert result == "Café"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_longer_gbk_keeps_character(self, tmp_path):
+        """GBK ``name=锘`` must not collapse to a lossy UTF-8 replacement."""
+        path = tmp_path / "name.txt"
+        path.write_bytes("name=锘".encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "name=锘"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_gbk_qiao_not_lossy(self, tmp_path):
+        """GBK ``name=丂`` must not become lossy UTF-8 ``name=\ufffd@``."""
+        path = tmp_path / "qiao.txt"
+        path.write_bytes("name=丂".encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "name=丂"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_gbk_shang_not_lossy(self, tmp_path):
+        """GBK ``name=丄`` must not become lossy UTF-8 ``name=\ufffdA``."""
+        path = tmp_path / "shang.txt"
+        path.write_bytes("name=丄".encode("gbk"))
+
+        assert await read_file_safe(str(path)) == "name=丄"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_capped_gbk_shang_not_lossy(self, tmp_path):
+        """A capped read of GBK ``name=丄`` must keep the ideograph."""
+        raw = "name=丄".encode("gbk")
+        path = tmp_path / "shang-capped.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        assert await read_file_safe(str(path), max_bytes=len(raw)) == "name=丄"
+        assert _read_file_safe_sync(str(path), len(raw)) == "name=丄"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_cp1252_cafe_with_space_keeps_accent(
+        self,
+        tmp_path,
+    ):
+        """CP1252 ``Café au lait`` is not valid GBK, so the accent is kept."""
+        path = tmp_path / "cafe.txt"
+        path.write_bytes("Café au lait".encode("cp1252"))
+
+        assert await read_file_safe(str(path)) == "Café au lait"
+
+    async def test_safe_read_gbk_letter_trails_without_unpaired_ascii(
+        self,
+        tmp_path,
+    ):
+        """GBK pairs whose trails are ASCII letters stay GBK, not CP1252."""
+        raw = bytes.fromhex("99748c48")
+        path = tmp_path / "pairs.txt"
+        path.write_bytes(raw)
+
+        assert await read_file_safe(str(path)) == "\u6a9b\u5b52"
+        assert _read_file_safe_sync(str(path), 64) == "\u6a9b\u5b52"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_bom_and_dirty_byte_uses_strict_ladder(
+        self,
+        tmp_path,
+    ):
+        """A BOM plus one invalid byte is not rewritten with U+FFFD."""
+        path = tmp_path / "bom.txt"
+        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+
+        result = await read_file_safe(str(path))
+
+        assert result == "ï»¿helloÿ"
+        assert "\ufffd" not in result
+
+    async def test_safe_read_dirty_utf8_falls_through_without_fffd(
+        self,
+        tmp_path,
+    ):
+        """Dirty UTF-8 is not recovered with U+FFFD on the strict ladder."""
+        path = tmp_path / "nihao.txt"
+        path.write_bytes("你好世界\n".encode("utf-8") + b"\xff")
+
+        result = await read_file_safe(str(path))
+
+        assert "\ufffd" not in result
+        decoded = decode_text_bytes(
+            "你好世界\n".encode("utf-8") + b"\xff",
+        )
+        assert decoded.lossy is False
+        assert result == decoded.text
+
+    async def test_safe_read_cap_inside_first_multibyte_is_empty(
+        self,
+        tmp_path,
+    ):
+        """max_bytes inside the first UTF-8 character yields an empty prefix."""
+        raw = "张三".encode("utf-8")
+        path = tmp_path / "first.txt"
+        path.write_bytes(raw + b"TAIL")
+
+        assert await read_file_safe(str(path), max_bytes=1) == ""
+        assert await read_file_safe(str(path), max_bytes=2) == ""
+        assert await read_file_safe(str(path), max_bytes=3) == "张"
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
@@ -209,6 +491,126 @@ class TestReadFile:
         assert "start_line" in result.content[0].text
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("name=锘".encode("gbk"), "name=锘"),
+        ("name=锘 and more".encode("gbk"), "name=锘 and more"),
+        ("Café au lait".encode("cp1252"), "Café au lait"),
+    ],
+)
+def test_decode_longer_legacy_strings(raw, expected):
+    """Longer GBK/CP1252 stay on the strict ladder."""
+    assert decode_text_bytes_with_encoding_fallback(raw) == expected
+
+
+def test_decode_gbk_letter_trails_without_unpaired_ascii():
+    """Pure GBK with letter trails must not be decoded as CP1252."""
+    raw = bytes.fromhex("99748c48")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "\u6a9b\u5b52"
+
+
+def test_strict_ladder_does_not_use_replacement_characters():
+    """A dirty tail falls through the strict ladder instead of U+FFFD."""
+    raw = b"\xef\xbb\xbfhello\xff"
+    decoded = decode_text_bytes(raw)
+    assert decoded.encoding == "cp1252"
+    assert decoded.lossy is False
+    assert "\ufffd" not in decoded.text
+    assert decode_text_bytes_with_encoding_fallback(raw) == "ï»¿helloÿ"
+
+    dirty_lead = decode_text_bytes(b"hello\x81world")
+    assert dirty_lead.encoding == "gbk"
+    assert dirty_lead.text == "hello亀orld"
+    assert "\ufffd" not in dirty_lead.text
+
+
+def test_decode_gbk_ascii_prefix_not_cp1252():
+    """GBK ``name=檔`` must not become CP1252 ``name=™n``."""
+    raw = "name=檔".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=檔"
+
+
+def test_decode_gbk_not_overridden_by_accidental_utf8():
+    """GBK ``name=一锘`` must not keep a lossy UTF-8 decode of ``一``."""
+    raw = "name=一锘".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=一锘"
+
+
+def test_decode_gbk_zhebu_not_lossy_utf8():
+    """GBK ``name=这不`` must not keep incidental three-byte lossy UTF-8."""
+    raw = "name=这不".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=这不"
+
+
+def test_decode_gbk_rubu_not_lossy_utf8():
+    """GBK ``name=如不`` must not keep incidental CJK lossy UTF-8."""
+    raw = "name=如不\n".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=如不\n"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
+def test_decode_gbk_qijing_not_lossy_utf8():
+    """GBK ``name=其经`` must not keep incidental CJK lossy UTF-8."""
+    raw = "name=其经\n".encode("gbk")
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=其经\n"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
+def test_decode_gbk_qiao_not_lossy_utf8():
+    """Strict GBK must win for ``name=丂`` instead of ``name=\ufffd@``."""
+    raw = "name=丂".encode("gbk")
+    assert raw == b"name=\x81@"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=丂"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
+def test_decode_gbk_shang_not_lossy_utf8():
+    """Strict GBK must win for ``name=丄`` instead of ``name=\ufffdA``."""
+    raw = "name=丄".encode("gbk")
+    assert raw == b"name=\x81A"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "name=丄"
+    assert "\ufffd" not in decode_text_bytes_with_encoding_fallback(raw)
+
+
+def test_decode_gbk_axc0a_not_cp1252():
+    """Ambiguous ``A\\xc0A`` is valid GBK ``A繟``, not CP1252 ``AÀA``."""
+    raw = b"A\xc0A"
+    assert decode_text_bytes_with_encoding_fallback(raw) == "A繟"
+    assert decode_text_bytes_with_encoding_fallback(raw) != "AÀA"
+
+
+def test_decode_capped_utf8_partial_char_keeps_prefix():
+    """A max_bytes cut mid-character keeps the valid UTF-8 prefix."""
+    base = "姓名: 张三\n".encode("utf-8")
+    for n in (0, 1, 2):
+        content = base + "行".encode("utf-8")[:n]
+        text = _decode_capped_text_snapshot(
+            content,
+            file_name="note.txt",
+            truncated=True,
+        )
+        assert "张三" in text
+        assert not text.startswith("å")
+
+
+def test_truncated_decode_respects_normalize_newlines():
+    """A capped prefix keeps CR/LF unless newline folding is requested."""
+    data = b"A\r\nB\r\xe5"
+    kept = decode_text_bytes(
+        data,
+        normalize_newlines=False,
+        truncated=True,
+    )
+    assert kept.text == "A\r\nB\r"
+    folded = decode_text_bytes(
+        data,
+        normalize_newlines=True,
+        truncated=True,
+    )
+    assert folded.text == "A\nB\n"
+
+
 # ---------------------------------------------------------------------------
 # write_file
 # ---------------------------------------------------------------------------
@@ -269,6 +671,157 @@ class TestEditFile:
     """Tests for edit_file."""
 
     @pytest.mark.asyncio
+    async def test_edit_preserves_gbk_text(self, tmp_path):
+        """edit_file must not persist a lossy UTF-8 decode of a GBK file."""
+        f = tmp_path / "note.txt"
+        f.write_bytes(("姓名: 张三" + chr(10)).encode("gbk"))
+        result = await edit_file(str(f), "张三", "李四")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == ("姓名: 李四" + chr(10)).encode("gbk")
+        assert f.read_text(encoding="gbk") == "姓名: 李四" + chr(10)
+
+    @pytest.mark.asyncio
+    async def test_edit_rubu_gbk_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``如不`` instead of lossy CJK leftovers."""
+        f = tmp_path / "rubu.txt"
+        f.write_bytes("name=如不\n".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == "title=如不\n".encode("gbk")
+        assert "\ufffd" not in f.read_text(encoding="gbk")
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_qiao_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``丂`` instead of persisting ``\ufffd@``."""
+        f = tmp_path / "qiao.txt"
+        f.write_bytes("name=丂".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == "title=丂".encode("gbk")
+        assert "\ufffd" not in f.read_text(encoding="gbk")
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_shang_not_lossy(self, tmp_path):
+        """edit_file must keep GBK ``丄`` instead of persisting ``\ufffdA``."""
+        f = tmp_path / "shang.txt"
+        f.write_bytes("name=丄".encode("gbk"))
+        result = await edit_file(str(f), "name=", "title=")
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == "title=丄".encode("gbk")
+        assert "\ufffd" not in f.read_text(encoding="gbk")
+
+    @pytest.mark.asyncio
+    async def test_edit_short_gbk_writes_gbk(self, tmp_path):
+        """Short GBK ``A张`` is replaced and written back as GBK."""
+        f = tmp_path / "short-gbk.txt"
+        f.write_bytes("A张".encode("gbk"))
+
+        result = await edit_file(str(f), "张", "李")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == "A李".encode("gbk")
+        assert "\ufffd" not in f.read_text(encoding="gbk")
+
+    @pytest.mark.asyncio
+    async def test_edit_short_cp1252_does_not_truncate(self, tmp_path):
+        """Short CP1252 ``Café`` is replaced, not saved truncated."""
+        f = tmp_path / "cafe.txt"
+        f.write_bytes("Café".encode("cp1252"))
+
+        result = await edit_file(str(f), "Café", "Cafe")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="cp1252")
+        assert written == "Cafe"
+        assert f.read_bytes() == b"Cafe"
+        assert "\ufffd" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_longer_gbk_writes_gbk(self, tmp_path):
+        """GBK ``name=锘`` is found and written back as GBK."""
+        f = tmp_path / "name.txt"
+        f.write_bytes("name=锘".encode("gbk"))
+
+        result = await edit_file(str(f), "锘", "锁")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="gbk")
+        assert written == "name=锁"
+        assert "\ufffd" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_longer_cp1252_keeps_accent(self, tmp_path):
+        """CP1252 ``Café au lait`` is replaced and written back as CP1252."""
+        f = tmp_path / "cafes.txt"
+        f.write_bytes("Café au lait".encode("cp1252"))
+
+        result = await edit_file(str(f), "Café", "Cafe")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="cp1252")
+        assert written == "Cafe au lait"
+        assert f.read_bytes() == "Cafe au lait".encode("cp1252")
+        assert "\ufffd" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_letter_trails_not_saved_as_cp1252(self, tmp_path):
+        """Editing GBK letter-trail pairs must not persist CP1252 mojibake."""
+        f = tmp_path / "pairs.txt"
+        f.write_bytes(bytes.fromhex("99748c48"))
+
+        result = await edit_file(str(f), "\u6a9b", "A")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="gbk")
+        assert written == "A\u5b52"
+        assert "\u2122" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_name_dang_not_cp1252(self, tmp_path):
+        """Editing GBK ``name=檔`` must not persist ``title=™n``."""
+        f = tmp_path / "dang.txt"
+        f.write_bytes("name=檔".encode("gbk"))
+
+        result = await edit_file(str(f), "name=", "title=")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="gbk")
+        assert written == "title=檔"
+        assert "\u2122" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_gbk_yi_nuo_keeps_characters(self, tmp_path):
+        """Editing GBK ``name=一锘`` must find the real characters."""
+        f = tmp_path / "yi.txt"
+        f.write_bytes("name=一锘".encode("gbk"))
+
+        result = await edit_file(str(f), "一锘", "锁")
+
+        assert "Successfully replaced" in result.content[0].text
+        written = f.read_text(encoding="gbk")
+        assert written == "name=锁"
+        assert "\ufffd" not in written
+
+    @pytest.mark.asyncio
+    async def test_edit_bom_and_dirty_byte_preserves_dirty_byte(
+        self,
+        tmp_path,
+    ):
+        """Editing BOM + invalid byte must not persist U+FFFD."""
+        f = tmp_path / "bom.txt"
+        f.write_bytes(b"\xef\xbb\xbfhello\xff")
+
+        result = await edit_file(str(f), "hello", "hi")
+
+        assert "Successfully replaced" in result.content[0].text
+        raw = f.read_bytes()
+        assert raw.startswith(b"\xef\xbb\xbf")
+        assert not raw.startswith(b"\xef\xbb\xbf\xef\xbb\xbf")
+        assert b"hi" in raw
+        assert b"hello" not in raw
+        assert b"\xff" in raw
+        assert b"\xef\xbf\xbd" not in raw
+
     @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
     @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
     async def test_edit_replaces_text(self, tmp_path, ext, encoding):
@@ -584,3 +1137,98 @@ class TestAppendFile:
 
         assert max_active == 1
         assert len(f.read_text(encoding="utf-8-sig").splitlines()) == 8
+
+
+def test_decode_gbk_shuo_she_zi_followed_by_ascii():
+    """Valid GBK 說/設/資 + ASCII must not be decoded as CP1252."""
+    for text in ("說 hello\n", "設 hello\n", "資 hello\n"):
+        raw = text.encode("gbk")
+        decoded = decode_text_bytes(raw)
+        assert decoded.encoding == "gbk"
+        assert decoded.lossy is False
+        assert decoded.text == text
+        assert decode_text_bytes_with_encoding_fallback(raw) == text
+        assert raw.decode("cp1252") != text
+
+
+def test_valid_gbk_that_is_not_utf8_matches_bytes_decode():
+    """Property-style check over several GBK documents."""
+    samples = [
+        "說 hello\n",
+        "設 hello\n",
+        "資 hello\n",
+        "姓名: 张三\n地址: 上海\n",
+        "name=如不\n",
+        "name=其经\n",
+        "name=丄",
+        "A张",
+        "name=檔",
+    ]
+    for text in samples:
+        raw = text.encode("gbk")
+        try:
+            raw.decode("utf-8")
+            continue
+        except UnicodeDecodeError:
+            pass
+        decoded = decode_text_bytes(raw, normalize_newlines=False)
+        assert decoded.encoding == "gbk"
+        assert decoded.text == raw.decode("gbk")
+
+
+def test_incremental_decoder_matches_full_buffer_chunks():
+    """Streaming decode equals a single full-buffer decode."""
+    payloads = [
+        "hello 张三\n".encode("utf-8"),
+        b"\xef\xbb\xbf" + "hello 张三\n".encode("utf-8"),
+        "說 hello\n設 hello\n資 hello\n".encode("gbk"),
+        "Cafés au lait\n".encode("cp1252"),
+        b"hello\xff",
+        b"",
+        "line1\r\nline2\r\n".encode("utf-8"),
+    ]
+    for data in payloads:
+        for chunk_size in (1, 2, 3, 7, 64, max(len(data), 1)):
+            expected = decode_text_bytes(data)
+            decoder = IncrementalTextDecoder()
+            for index in range(0, len(data), chunk_size):
+                decoder.feed(data[index : index + chunk_size], final=False)
+            got = decoder.feed(b"", final=True)
+            assert got == expected
+
+
+try:
+    from hypothesis import given, settings, strategies as st
+except ImportError:  # pragma: no cover
+    pass
+else:
+
+    @settings(max_examples=80)
+    @given(st.binary(min_size=1, max_size=64))
+    def test_property_valid_gbk_not_utf8_decodes_as_gbk(data):
+        try:
+            data.decode("utf-8")
+            return
+        except UnicodeDecodeError:
+            pass
+        try:
+            expected = data.decode("gbk")
+        except UnicodeDecodeError:
+            return
+        decoded = decode_text_bytes(data, normalize_newlines=False)
+        assert decoded.encoding == "gbk"
+        assert decoded.lossy is False
+        assert decoded.text == expected
+
+    @settings(max_examples=80)
+    @given(
+        st.binary(max_size=128),
+        st.integers(min_value=1, max_value=32),
+    )
+    def test_property_incremental_matches_full_buffer(data, chunk_size):
+        expected = decode_text_bytes(data)
+        decoder = IncrementalTextDecoder()
+        for index in range(0, len(data), chunk_size):
+            decoder.feed(data[index : index + chunk_size], final=False)
+        got = decoder.feed(b"", final=True)
+        assert got == expected
