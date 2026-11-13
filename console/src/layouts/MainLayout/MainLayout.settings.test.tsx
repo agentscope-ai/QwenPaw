@@ -242,7 +242,12 @@ describe("browser document titles", () => {
     };
     list.mockResolvedValue([completed]);
     await act(() => vi.advanceTimersByTimeAsync(30000));
-    expect(document.title).toBe("• Project plan · QwenPaw");
+    expect(document.title).toBe("Project plan · QwenPaw");
+    expect(
+      decodeURIComponent(
+        document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href,
+      ),
+    ).toContain("#52c41a");
     expect(list).toHaveBeenCalledTimes(2);
 
     hidden.mockReturnValue(false);
