@@ -36,7 +36,35 @@ function openBlobHtml(content: string): void {
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export function openHtmlFile(options: OpenHtmlFileOptions): void {
+/** Which surface actually ended up showing the HTML. */
+export type OpenHtmlFileMode = "native" | "blob";
+
+export interface OpenHtmlFileResult {
+  /** Whether the HTML ended up visible to the user. */
+  opened: boolean;
+  /**
+   * ``native`` — the OS browser opened the real file (full fidelity).
+   * ``blob`` — rendered from the in-memory copy, because the native shell
+   * refused it (for example a file that lives outside the workspace).
+   */
+  mode: OpenHtmlFileMode;
+}
+
+function nativeResult(): OpenHtmlFileResult {
+  return { opened: true, mode: "native" };
+}
+
+// The native shell only opens HTML that resolves *inside* the workspace; it
+// answers `false` — not an error — for anything else. Render the copy we
+// already hold instead of leaving the click a silent no-op.
+function fallbackResult(content: string): OpenHtmlFileResult {
+  openBlobHtml(content);
+  return { opened: true, mode: "blob" };
+}
+
+export function openHtmlFile(
+  options: OpenHtmlFileOptions,
+): Promise<OpenHtmlFileResult> {
   const {
     content,
     filePath,
@@ -50,20 +78,27 @@ export function openHtmlFile(options: OpenHtmlFileOptions): void {
   const pywebviewApi = getPyWebViewApi();
 
   if (workspaceBacked && pywebviewApi?.open_workspace_html) {
-    void pywebviewApi
+    return pywebviewApi
       .open_workspace_html(resolverUrl, headers)
-      .catch((error) =>
-        console.warn("[html-preview] Native open failed", error),
-      );
-    return;
+      .catch((error) => {
+        console.warn("[html-preview] Native open failed", error);
+        return false; // treat as declined → fall back below
+      })
+      .then((opened) => (opened ? nativeResult() : fallbackResult(content)));
   }
 
   if (workspaceBacked && isDesktopTauriRuntime()) {
-    void invoke("open_workspace_html", { url: resolverUrl, headers }).catch(
-      (error) => console.warn("[html-preview] Tauri open failed", error),
-    );
-    return;
+    return invoke<boolean>("open_workspace_html", {
+      url: resolverUrl,
+      headers,
+    })
+      .catch((error) => {
+        console.warn("[html-preview] Tauri open failed", error);
+        return false; // treat as declined → fall back below
+      })
+      .then((opened) => (opened ? nativeResult() : fallbackResult(content)));
   }
 
   openBlobHtml(content);
+  return Promise.resolve({ opened: true, mode: "blob" });
 }

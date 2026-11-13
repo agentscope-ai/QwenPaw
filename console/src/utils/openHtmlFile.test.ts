@@ -140,4 +140,58 @@ describe("openHtmlFile", () => {
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
   });
+
+  it("renders the in-memory copy when the native opener declines", async () => {
+    // The desktop shell answers `false` — not an error — for HTML that does
+    // not resolve inside the workspace. The click must still show something.
+    const openWorkspaceHtml = vi.fn(() => Promise.resolve(false));
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
+
+    const result = await openHtmlFile({
+      ...baseOptions,
+      workspaceBacked: true,
+    });
+
+    expect(openWorkspaceHtml).toHaveBeenCalled();
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(openSpy).toHaveBeenCalledWith(
+      "blob:preview",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(result).toEqual({ opened: true, mode: "blob" });
+  });
+
+  it("reports the native mode when the opener succeeds", async () => {
+    const openWorkspaceHtml = vi.fn(() => Promise.resolve(true));
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
+
+    const result = await openHtmlFile({
+      ...baseOptions,
+      workspaceBacked: true,
+    });
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(result).toEqual({ opened: true, mode: "native" });
+  });
+
+  it("reports the blob mode when the opener rejects", async () => {
+    const openWorkspaceHtml = vi.fn(() => Promise.reject(new Error("nope")));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockGetPyWebViewApi.mockReturnValue({
+      open_workspace_html: openWorkspaceHtml,
+    } as any);
+
+    const result = await openHtmlFile({
+      ...baseOptions,
+      workspaceBacked: true,
+    });
+
+    expect(URL.createObjectURL).toHaveBeenCalled();
+    expect(result).toEqual({ opened: true, mode: "blob" });
+  });
 });
