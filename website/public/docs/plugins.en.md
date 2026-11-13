@@ -387,6 +387,13 @@ my-plugin/
 
 \* At least one of `entry.backend` / `entry.frontend` (or legacy `entry_point`) must be provided.
 
+Local Whisper has a one-time migration for existing users. On first startup,
+if the saved transcription provider is `local_whisper`, the plugin is absent,
+and its configuration allows it, QwenPaw starts a background installation that
+can install missing Python dependencies. A failed or interrupted migration
+requires an explicit retry in Voice Transcription settings. Later startups
+do not reinstall an uninstalled plugin.
+
 ##### `type` values
 
 | Value      | When to use                                                            |

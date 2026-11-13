@@ -1,7 +1,7 @@
 import { Alert, Button, Descriptions, Space, Typography } from "antd";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import type { LocalWhisperStatus } from "../useVoiceTranscription";
+import type { LocalWhisperStatus } from "../../../../api/modules/agent";
 
 export function LocalWhisperCard({
   status,
@@ -42,7 +42,11 @@ export function LocalWhisperCard({
             ? "error"
             : "warning"
         }
-        message={t(`voiceTranscription.localWhisperState_${status.state}`)}
+        message={t(
+          status.state === "ready" && !status.available
+            ? "voiceTranscription.localWhisperImportFailed"
+            : `voiceTranscription.localWhisperState_${status.state}`,
+        )}
         description={
           status.error ||
           (status.available

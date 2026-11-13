@@ -15,6 +15,7 @@ class Plugin:
     def __init__(self):
         self._model = None
         self._lock = threading.Lock()
+        self._import_status = TranscriptionStatus(True)
 
     def register(self, context):
         context.on_activate(self.activate)
@@ -36,27 +37,33 @@ class Plugin:
     def status(self, _context):
         if shutil.which("ffmpeg") is None:
             return TranscriptionStatus(False, "ffmpeg is not installed")
-        try:
-            import whisper  # noqa: F401 pylint: disable=unused-import
-        except ImportError as exc:
-            return TranscriptionStatus(False, str(exc))
-        return TranscriptionStatus(True)
+        # Read the last import result; status queries never load dependencies.
+        return self._import_status
 
     def transcribe(self, context, file_path):
         # The SDK runs synchronous callbacks in a tracked worker thread.
         # Serialise inference as well as model creation: Whisper mutates hooks.
         with self._lock:
             context.check_cancelled()
-            status = self.status(context)
-            if not status.available:
+            if shutil.which("ffmpeg") is None:
                 return TranscriptionResult(
                     error="unavailable",
-                    message=status.reason,
+                    message="ffmpeg is not installed",
                 )
             try:
+                import whisper
+            except Exception as exc:
+                self._import_status = TranscriptionStatus(
+                    False,
+                    str(exc) or type(exc).__name__,
+                )
+                return TranscriptionResult(
+                    error="unavailable",
+                    message=self._import_status.reason,
+                )
+            self._import_status = TranscriptionStatus(True)
+            try:
                 if self._model is None:
-                    import whisper
-
                     self._model = whisper.load_model("base")
                 text = (
                     self._model.transcribe(file_path).get("text") or ""

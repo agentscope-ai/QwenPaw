@@ -4,7 +4,7 @@ import { MicOff, Cloud, Monitor } from "lucide-react";
 import { Card } from "antd";
 import { LocalWhisperCard } from "./LocalWhisperCard";
 import { useTranslation } from "react-i18next";
-import type { LocalWhisperStatus } from "../useVoiceTranscription";
+import type { LocalWhisperStatus } from "../../../../api/modules/agent";
 import styles from "../index.module.less";
 
 interface ProviderTypeCardProps {

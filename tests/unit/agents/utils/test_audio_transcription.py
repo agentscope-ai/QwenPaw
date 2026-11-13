@@ -14,7 +14,6 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
-from importlib.metadata import PackageNotFoundError
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -240,8 +239,8 @@ class TestCheckLocalWhisperAvailable:
     def test_neither_available(self, mock_shutil):
         mock_shutil.which.return_value = None
         with patch(
-            f"{_LOCAL}.metadata.version",
-            side_effect=PackageNotFoundError,
+            f"{_LOCAL}.is_requirement_satisfied",
+            return_value=False,
         ):
             result = check_local_whisper_available()
             assert result["available"] is False
@@ -251,8 +250,8 @@ class TestCheckLocalWhisperAvailable:
     def test_ffmpeg_but_no_whisper(self, mock_shutil):
         mock_shutil.which.return_value = "/usr/bin/ffmpeg"
         with patch(
-            f"{_LOCAL}.metadata.version",
-            side_effect=PackageNotFoundError,
+            f"{_LOCAL}.is_requirement_satisfied",
+            return_value=False,
         ):
             result = check_local_whisper_available()
             assert result["ffmpeg_installed"] is True
@@ -373,14 +372,17 @@ class TestTranscribeLocalWhisper:
     """Tests for _transcribe_local_whisper."""
 
     @pytest.mark.asyncio
-    async def test_unavailable_returns_none(self):
+    @pytest.mark.parametrize("registered", [False, True])
+    async def test_unavailable_returns_none(self, registered):
+        from qwenpaw.plugins.transcription import TranscriptionResult
+
+        backend = MagicMock()
+        backend.call = AsyncMock(
+            return_value=TranscriptionResult(error="unavailable"),
+        )
         with patch(
-            f"{_MOD}.check_local_whisper_available",
-            return_value={
-                "available": False,
-                "ffmpeg_installed": False,
-                "whisper_installed": False,
-            },
+            "qwenpaw.plugins.registry.PluginRegistry.get_transcription_backend",
+            return_value=backend if registered else None,
         ):
             from qwenpaw.agents.utils.audio_transcription import (
                 _transcribe_local_whisper,
@@ -388,6 +390,10 @@ class TestTranscribeLocalWhisper:
 
             result = await _transcribe_local_whisper("/tmp/audio.wav")
             assert result is None
+        if registered:
+            backend.call.assert_awaited_once()
+        else:
+            backend.call.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

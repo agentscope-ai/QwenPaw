@@ -253,7 +253,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Optional Harness runtimes belong to independently installed plugins.
+    # Keep optional audio, Harness and external Channel modules out of the backend.
     excludes=[
         "whisper",
         "torch",
@@ -288,7 +288,9 @@ _bundled_packages = {
 for _pkg in sorted(_bundled_packages):
     a.datas += [
         (destination, source, "DATA")
-        for destination, source in format_binaries_and_datas(copy_metadata(_pkg))
+        for destination, source in format_binaries_and_datas(
+            copy_metadata(_pkg)
+        )
     ]
 
 pyz = PYZ(a.pure)

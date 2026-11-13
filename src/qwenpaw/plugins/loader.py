@@ -2647,12 +2647,12 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
     @staticmethod
     def _run_subprocess_with_streaming_log(
-        cmd,
+        cmd: list[str],
         *,
-        timeout,
-        plugin_id,
-        cancel=None,
-    ):
+        timeout: int,
+        plugin_id: str,
+        cancel: threading.Event | None = None,
+    ) -> subprocess.CompletedProcess:
         try:
             result = run_install_command(
                 cmd,

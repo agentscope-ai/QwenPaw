@@ -45,6 +45,22 @@ function show(status: Partial<LocalWhisperStatus> = {}) {
 }
 
 describe("Local Whisper plugin and dependency status", () => {
+  it("shows the last import failure without offering installation again", () => {
+    show({ available: false, error: "Torch could not be loaded" });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "voiceTranscription.localWhisperImportFailed",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Torch could not be loaded",
+    );
+    expect(screen.queryByRole("button", { name: "common.retry" })).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "voiceTranscription.localWhisperInstall",
+      }),
+    ).toBeNull();
+  });
+
   it("offers dependency review even when the old plugin remains installed", () => {
     const { onInstall } = show({
       available: false,

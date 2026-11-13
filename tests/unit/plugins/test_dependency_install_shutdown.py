@@ -30,6 +30,132 @@ def environment_lock_path():
     )
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    ["ok", "job_error", "resume_error", "cancel"],
+)
+def test_windows_installer_owns_job_before_resuming(monkeypatch, outcome):
+    """Check Windows launch ordering and startup cleanup without OS workers."""
+    import io
+    from qwenpaw.plugins import dependency_process as installer
+
+    events = []
+    cancel = threading.Event()
+
+    class Process:
+        pid = 123
+        returncode = None
+        stdout = io.StringIO("installer output\n")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            self.stdout.close()
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, **_kwargs):
+            self.returncode = 0
+            return self.returncode
+
+        def children(self, **_kwargs):
+            return []
+
+        def terminate(self):
+            events.append("terminate")
+            self.returncode = -1
+
+        kill = terminate
+
+        def resume(self):
+            assert events == ["spawn_suspended", "job"]
+            if outcome == "resume_error":
+                raise OSError("resume failed")
+            events.append("resume")
+
+    process = Process()
+
+    def spawn(_cmd, **kwargs):
+        assert kwargs["creationflags"] & installer._CREATE_SUSPENDED
+        events.append("spawn_suspended")
+        return process
+
+    class Job:
+        running = True
+
+        def __init__(self, pid):
+            assert pid == process.pid
+            if outcome == "job_error":
+                raise OSError("job unavailable")
+            events.append("job")
+            if outcome == "cancel":
+                cancel.set()
+
+        def signal(self, *, force):
+            assert force
+            events.append("stop_job")
+            self.running = False
+
+        def alive(self):
+            return self.running
+
+        def close(self):
+            assert not self.running
+            events.append("close_job")
+
+    monkeypatch.setattr(installer, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(
+        installer,
+        "subprocess",
+        SimpleNamespace(
+            Popen=spawn,
+            PIPE=subprocess.PIPE,
+            STDOUT=subprocess.STDOUT,
+            TimeoutExpired=subprocess.TimeoutExpired,
+            CompletedProcess=subprocess.CompletedProcess,
+        ),
+    )
+    monkeypatch.setattr(
+        installer,
+        "psutil",
+        SimpleNamespace(
+            Process=lambda _: process,
+            wait_procs=lambda *args, **kwargs: ([], []),
+            NoSuchProcess=psutil.NoSuchProcess,
+            AccessDenied=psutil.AccessDenied,
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.plugins.execution.process_tree.ProcessTree",
+        Job,
+    )
+    if outcome == "ok":
+        result = installer.run_install_command(
+            ["python", "-m", "pip"],
+            timeout=1,
+            plugin_id="test",
+            cancel=cancel,
+        )
+        assert result.stdout == "installer output"
+    else:
+        expected = asyncio.CancelledError if outcome == "cancel" else OSError
+        with pytest.raises(expected):
+            installer.run_install_command(
+                ["python", "-m", "pip"],
+                timeout=1,
+                plugin_id="test",
+                cancel=cancel,
+            )
+    if outcome == "job_error":
+        assert "resume" not in events
+        assert "terminate" in events
+    else:
+        assert events[-2:] == ["stop_job", "close_job"]
+        assert ("resume" in events) == (outcome == "ok")
+
+
 @pytest.mark.parametrize("kind", ["sdk", "legacy", "whisper"])
 @pytest.mark.parametrize("stage", ["installing", "waiting_lock"])
 @pytest.mark.parametrize("operation", ["install", "repair"])
@@ -235,8 +361,18 @@ async def test_installer_reaps_stubborn_child_after_parent_exits(
         "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))\n"
         f"Path({str(parent_pid)!r}).write_text(str(os.getpid()))\n"
         f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
-        "while True: time.sleep(1)\n"
     )
+    if enumeration_error:
+        parent_code += "while True: time.sleep(1)\n"
+    spawned = []
+    popen = subprocess.Popen
+
+    def observe(*args, **kwargs):
+        proc = popen(*args, **kwargs)
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(subprocess, "Popen", observe)
     cancel = threading.Event()
     worker = asyncio.create_task(
         asyncio.to_thread(
@@ -251,6 +387,9 @@ async def test_installer_reaps_stubborn_child_after_parent_exits(
         async with asyncio.timeout(5):
             while not child_pid.exists():
                 await asyncio.sleep(0.01)
+            if not enumeration_error:
+                while not spawned or spawned[0].poll() is None:
+                    await asyncio.sleep(0.01)
         child = psutil.Process(int(child_pid.read_text()))
         if stop == "cancel":
             cancel.set()
@@ -262,7 +401,7 @@ async def test_installer_reaps_stubborn_child_after_parent_exits(
         with pytest.raises(expected):
             await asyncio.wait_for(asyncio.shield(worker), timeout=6)
         assert not child.is_running() or child.status() == psutil.STATUS_ZOMBIE
-        assert not psutil.pid_exists(int(parent_pid.read_text()))
+        assert spawned[0].poll() is not None
     finally:
         # Kill only this test's processes if an assertion/regression fails.
         if os.name == "nt":

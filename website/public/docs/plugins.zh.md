@@ -758,6 +758,11 @@ my-plugin/
 
 \* `entry.backend`、`entry.frontend`（或遗留 `entry_point`）至少需要提供其中之一。
 
+Local Whisper 为旧用户提供一次性迁移。首次启动时，如果保存的转写提供者是
+`local_whisper`、插件尚未安装且配置允许启用，QwenPaw 会在后台安装插件，
+并安装缺失的 Python 依赖。迁移失败或中断后，需要在语音转写设置中手动重试。
+后续启动不会自动重装已卸载的插件。
+
 ##### `type` 取值
 
 | 取值       | 适用场景                                             |

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field, replace
 import hashlib
 import json
@@ -26,7 +27,7 @@ from .dependency_gate import (
 )
 from .execution.dependencies import DependencySnapshot, _dependency_closure
 from .dependency_transaction import _hash
-from .wheel_additions import WheelAddition, validate_additions
+from .wheel_additions import WheelAddition, WheelFiles, validate_additions
 
 
 def _core_requirements(installed, markers) -> tuple[str, ...]:
@@ -1519,114 +1520,120 @@ class DependencyUpgradeManager:
                 if name not in changed
             },
         )
-        files, proposed = validate_additions(
-            tuple(wheels),
-            clean,
-            Path(target),
-        )
-        # A hard-only resolver retry may select newer compatible packages.
-        # Keep an installed provider whenever the whole requested closure still
-        # works with its own metadata; downloading a wheel does not mandate a write.
-        retained = set()
-        for name, old in changed.items():
-            if old is None:
-                continue
-            candidate = {**proposed.distributions, name: old}
-            try:
-                cls._compatible(
-                    requirements,
-                    candidate,
-                    snapshot.marker_environment,
-                )
-            except SharedDependencyError:
-                continue
-            proposed = replace(proposed, distributions=candidate)
-            retained.add(name)
-        if retained:
-            changed = {
-                name: old
-                for name, old in changed.items()
-                if name not in retained
-            }
-            wheels = [
-                wheel
-                for wheel in wheels
-                if str(parse_wheel_filename(wheel.path.name)[0])
-                not in retained
-            ]
+        with ExitStack() as buffers:
+            files = buffers.enter_context(WheelFiles())
             files, proposed = validate_additions(
                 tuple(wheels),
-                replace(
-                    clean,
-                    distributions={
-                        name: row
-                        for name, row in snapshot.distributions.items()
-                        if name not in changed
-                    },
-                ),
+                clean,
                 Path(target),
+                files=files,
             )
-        if not changed:
-            _refuse(
-                "DEPENDENCY_PLAN_UNVERIFIED",
-                "No dependency replacement was resolved.",
-            )
-        for name in changed.keys() & invalid.keys():
-            _refuse(
-                invalid[name],
-                f"Cannot safely replace ambiguous provider: {name}.",
-            )
-        destinations = {}
-        changes = []
-        for name in changed:
-            old, row = changed[name], proposed.distributions[name]
-            site = canonical(
-                Path(old["metadata_path"]).parent if old else target,
-            )
-            if context is not None and context.protected(site):
+            # A hard-only resolver retry may select newer compatible packages.
+            # Keep an installed provider whenever the whole requested closure still
+            # works with its own metadata; downloading a wheel does not mandate a write.
+            retained = set()
+            for name, old in changed.items():
+                if old is None:
+                    continue
+                candidate = {**proposed.distributions, name: old}
+                try:
+                    cls._compatible(
+                        requirements,
+                        candidate,
+                        snapshot.marker_environment,
+                    )
+                except SharedDependencyError:
+                    continue
+                proposed = replace(proposed, distributions=candidate)
+                retained.add(name)
+            if retained:
+                changed = {
+                    name: old
+                    for name, old in changed.items()
+                    if name not in retained
+                }
+                wheels = [
+                    wheel
+                    for wheel in wheels
+                    if str(parse_wheel_filename(wheel.path.name)[0])
+                    not in retained
+                ]
+                files.close()
+                files = buffers.enter_context(WheelFiles())
+                files, proposed = validate_additions(
+                    tuple(wheels),
+                    replace(
+                        clean,
+                        distributions={
+                            name: row
+                            for name, row in snapshot.distributions.items()
+                            if name not in changed
+                        },
+                    ),
+                    Path(target),
+                    files=files,
+                )
+            if not changed:
                 _refuse(
-                    "DEPENDENCY_ENVIRONMENT_PROTECTED",
-                    "Bundled dependencies cannot be replaced; update the desktop app.",
+                    "DEPENDENCY_PLAN_UNVERIFIED",
+                    "No dependency replacement was resolved.",
                 )
-            destinations[name] = str(site)
-            proposed.distributions[name]["metadata_path"] = str(
-                site / Path(row["metadata_path"]).name,
+            for name in changed.keys() & invalid.keys():
+                _refuse(
+                    invalid[name],
+                    f"Cannot safely replace ambiguous provider: {name}.",
+                )
+            destinations = {}
+            changes = []
+            for name in changed:
+                old, row = changed[name], proposed.distributions[name]
+                site = canonical(
+                    Path(old["metadata_path"]).parent if old else target,
+                )
+                if context is not None and context.protected(site):
+                    _refuse(
+                        "DEPENDENCY_ENVIRONMENT_PROTECTED",
+                        "Bundled dependencies cannot be replaced; update the desktop app.",
+                    )
+                destinations[name] = str(site)
+                proposed.distributions[name]["metadata_path"] = str(
+                    site / Path(row["metadata_path"]).name,
+                )
+                changes.append(
+                    {
+                        "name": name,
+                        "current_version": old["version"] if old else None,
+                        "target_version": row["version"],
+                    },
+                )
+            inventory = dict(proposed.distributions)
+            cls._compatible(
+                requirements,
+                inventory,
+                snapshot.marker_environment,
             )
-            changes.append(
-                {
-                    "name": name,
-                    "current_version": old["version"] if old else None,
-                    "target_version": row["version"],
-                },
-            )
-        inventory = dict(proposed.distributions)
-        cls._compatible(
-            requirements,
-            inventory,
-            snapshot.marker_environment,
-        )
-        from .dependency_transaction import prepare_payload
+            from .dependency_transaction import prepare_payload
 
-        payload = prepare_payload(
-            directory,
-            snapshot.to_mapping(),
-            changed,
-            destinations,
-            files,
-            [
-                (
-                    item.to_mapping()
-                    if hasattr(item, "to_mapping")
-                    else {
-                        "path": str(item.path),
-                        "sha256": item.sha256,
-                    }
-                )
-                for item in wheels
-            ],
-            context.to_mapping() if context is not None else None,
-        )
-        return changed, changes, inventory, payload
+            payload = prepare_payload(
+                directory,
+                snapshot.to_mapping(),
+                changed,
+                destinations,
+                files,
+                [
+                    (
+                        item.to_mapping()
+                        if hasattr(item, "to_mapping")
+                        else {
+                            "path": str(item.path),
+                            "sha256": item.sha256,
+                        }
+                    )
+                    for item in wheels
+                ],
+                context.to_mapping() if context is not None else None,
+            )
+            return changed, changes, inventory, payload
 
     @classmethod
     def _seal_operation(cls, directory, operation):

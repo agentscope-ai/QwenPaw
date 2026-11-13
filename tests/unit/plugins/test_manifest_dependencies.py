@@ -290,7 +290,6 @@ def test_large_wheel_payload_stays_private_and_file_backed(
     monkeypatch,
 ):
     import hashlib
-    import mmap
     import sys
     from pathlib import Path
     from packaging.markers import default_environment
@@ -326,14 +325,134 @@ def test_large_wheel_payload_stays_private_and_file_backed(
     files, _ = wheels.validate_additions((addition,), snapshot, target)
     content = files[binary]
     try:
-        assert isinstance(content, mmap.mmap)
+        assert isinstance(content, memoryview)
+        assert content.readonly
         with pytest.raises(TypeError):
             content[0] = 0
         wheel.write_bytes(b"changed after validation")
         dependency_gate._write_additions(target, files)
         assert (target / binary).read_bytes() == payload
     finally:
-        content.close()
+        files.close()
+    with pytest.raises(ValueError):
+        len(content)
+
+
+def test_invalid_record_closes_mapping_while_exception_is_retained(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+    import mmap
+    import sys
+    import zipfile
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        payload={"b01_probe/library.so": b"x" * 8192},
+    )
+    with zipfile.ZipFile(wheel) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    record = "b01_probe-1.0.dist-info/RECORD"
+    entries[record] = entries[record].replace(b"sha256=", b"sha256=invalid", 1)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, value in entries.items():
+            archive.writestr(name, value)
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    with pytest.raises(ProtocolValidationError) as failure:
+        wheels.validate_additions(
+            (
+                wheels.WheelAddition(
+                    wheel,
+                    hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                ),
+            ),
+            snapshot,
+            target,
+        )
+    assert failure.value.__traceback__ is not None
+    assert mappings and all(value.closed for value in mappings)
+
+
+def test_large_members_use_bounded_mapping_resources(tmp_path, monkeypatch):
+    import hashlib
+    import mmap
+    import sys
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        payload={f"b01_probe/member_{n}.bin": b"x" * 4097 for n in range(96)},
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    files, _ = wheels.validate_additions(
+        (
+            wheels.WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+        snapshot,
+        target,
+    )
+    try:
+        assert all(
+            bytes(files[f"b01_probe/member_{n}.bin"]) == b"x" * 4097
+            for n in range(96)
+        )
+        # Resource usage must stay bounded as the member count grows.
+        assert 0 < len(mappings) <= 2
+    finally:
+        files.close()
+    assert all(value.closed for value in mappings)
 
 
 @pytest.mark.parametrize(
@@ -567,7 +686,13 @@ def observe(args, *values, **kwargs):
     return spawn(args, *values, **kwargs)
 
 subprocess.Popen = observe
-before = {p.name:p.read_bytes() for p in source.iterdir()}
+def source_files():
+    return {
+        p.relative_to(source).as_posix(): p.read_bytes()
+        for p in source.rglob('*')
+        if p.is_file() and '__pycache__' not in p.relative_to(source).parts
+    }
+before = source_files()
 async def main():
     async with PluginTestHost(root) as host:
         if sys.argv[6] == 'tool':
@@ -663,7 +788,7 @@ async def main():
         assert (source / 'requirements.txt').is_file()
         assert (source / 'requirements.txt').read_bytes() == before['requirements.txt']
     if sys.argv[5] != 'repair':
-        assert {p.name:p.read_bytes() for p in source.iterdir()} == before
+        assert source_files() == before
     print(json.dumps({'commands':commands,'installed':sorted(expected)}))
 asyncio.run(main())
 """
@@ -1073,6 +1198,8 @@ def test_enabled_local_whisper_migrates_through_shared_installer(tmp_path):
 
     source = tmp_path / "local-whisper"
     shutil.copytree(SOURCE, source)
+    (source / "__pycache__").mkdir(exist_ok=True)
+    (source / "__pycache__/cached.pyc").write_bytes(b"cached bytecode")
     manifest_path = source / "plugin.json"
     manifest = json.loads(manifest_path.read_text())
     # Only replace the heavyweight inference dependencies; keep the shipped

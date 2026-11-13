@@ -8,6 +8,7 @@ import {
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import { reviewDependencyUpgrade } from "../PluginManager/dependencyUpgrade";
+import type { LocalWhisperStatus } from "../../../api/modules/agent";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -17,7 +18,6 @@ export interface TranscriptionProvider {
   available: boolean;
 }
 
-import type { LocalWhisperStatus } from "../../../api/modules/agent";
 export type { LocalWhisperStatus } from "../../../api/modules/agent";
 
 // ─── Hook ───────────────────────────────────────────────────────────────────
@@ -108,14 +108,17 @@ export function useVoiceTranscription() {
     )
       return;
     let cancelled = false;
+    let requestSequence = 0;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
+      const sequence = ++requestSequence;
+      const isCurrentRequest = () => !cancelled && sequence === requestSequence;
       try {
         const status = await api.getLocalWhisperStatus();
-        if (!cancelled) setLocalWhisperStatus(status);
+        if (isCurrentRequest()) setLocalWhisperStatus(status);
       } catch {
         // Do not leave a previously green status after losing the connection.
-        if (!cancelled)
+        if (isCurrentRequest())
           setLocalWhisperStatus(
             (status) =>
               status && {

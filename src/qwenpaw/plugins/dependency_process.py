@@ -16,6 +16,7 @@ import psutil
 from ..utils.command_runner import windows_hidden_subprocess_kwargs
 
 logger = logging.getLogger(__name__)
+_CREATE_SUSPENDED = 0x00000004
 
 # Thread offloads inherit these values; unrelated tasks retain their defaults.
 install_cancel: ContextVar[threading.Event | None] = ContextVar(
@@ -34,8 +35,14 @@ def check_cancelled(cancel: threading.Event | None) -> None:
         raise asyncio.CancelledError
 
 
-def _stop_process_tree(proc: subprocess.Popen) -> None:
+def _stop_process_tree(proc: subprocess.Popen, tree=None) -> None:
     """Stop owned installer children before releasing the install lock."""
+    if tree is not None:
+        tree.signal(force=True)
+        proc.wait()
+        while tree.alive():
+            time.sleep(0.01)
+        return
     try:
         children = psutil.Process(proc.pid).children(recursive=True)
     except psutil.NoSuchProcess:
@@ -97,6 +104,12 @@ def run_install_command(
     check_cancelled(cancel)
     logger.debug("Running install command for '%s': %s", plugin_id, cmd)
     output: list[str] = []
+    options = windows_hidden_subprocess_kwargs()
+    if os.name == "nt":
+        # Bind the Job before the installer can create children or exit.
+        options["creationflags"] = (
+            options.get("creationflags", 0) | _CREATE_SUSPENDED
+        )
     with subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -105,7 +118,7 @@ def run_install_command(
         errors="replace",
         bufsize=1,
         start_new_session=os.name != "nt",
-        **windows_hidden_subprocess_kwargs(),
+        **options,
     ) as proc:
 
         def read_output() -> None:
@@ -116,10 +129,18 @@ def run_install_command(
                     output.append(stripped)
                     logger.debug("[%s] %s", plugin_id, stripped)
 
-        reader = threading.Thread(target=read_output, daemon=True)
-        reader.start()
-        deadline = time.monotonic() + timeout
+        tree, reader, failure = None, None, None
         try:
+            if os.name == "nt":
+                from .execution.process_tree import ProcessTree
+
+                tree = ProcessTree(proc.pid)
+                check_cancelled(cancel)
+                psutil.Process(proc.pid).resume()
+            thread = threading.Thread(target=read_output, daemon=True)
+            thread.start()
+            reader = thread
+            deadline = time.monotonic() + timeout
             while True:
                 check_cancelled(cancel)
                 remaining = deadline - time.monotonic()
@@ -137,13 +158,18 @@ def run_install_command(
                 reader.join(timeout=0.1)
             check_cancelled(cancel)
         except BaseException as exc:
-            _stop_process_tree(proc)
-            if isinstance(exc, subprocess.TimeoutExpired):
-                exc.output = "\n".join(output)
+            failure = exc
             raise
         finally:
+            if failure is not None or tree is not None:
+                _stop_process_tree(proc, tree)
             # Keep draining while stopping: closing a pipe from another
             # thread can block behind readline's lock. Exit delivers EOF.
-            reader.join()
+            if reader is not None:
+                reader.join()
+            if tree is not None:
+                tree.close()
+            if isinstance(failure, subprocess.TimeoutExpired):
+                failure.output = "\n".join(output)
 
     return subprocess.CompletedProcess(cmd, returncode, "\n".join(output), "")

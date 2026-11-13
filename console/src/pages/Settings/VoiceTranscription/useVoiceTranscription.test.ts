@@ -655,3 +655,40 @@ it("enables through the framework API and refreshes availability", async () => {
   expect(h.installLocalWhisper).not.toHaveBeenCalled();
   expect(result.current.localWhisperStatus).toEqual(ready);
 });
+
+it.each(["ready", "error"])(
+  "keeps the latest status when an older refresh returns %s",
+  async (olderResult) => {
+    const ready = {
+      ...WHISPER_STATUS,
+      available: true,
+      state: "ready",
+      plugin_installed: true,
+      plugin_enabled: true,
+      plugin_status: "active",
+      whisper_installed: true,
+    };
+    mockFetchOnce({
+      getTranscriptionProviderType: {
+        transcription_provider_type: "local_whisper",
+      },
+      getLocalWhisperStatus: ready,
+    });
+    const { result } = renderHook(() => useVoiceTranscription());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const older = deferred<typeof WHISPER_STATUS>();
+    h.getLocalWhisperStatus
+      .mockReturnValueOnce(older.promise)
+      .mockResolvedValueOnce(WHISPER_STATUS);
+    await act(async () => window.dispatchEvent(new Event("focus")));
+    await act(async () =>
+      window.dispatchEvent(new Event("qwenpaw:plugins-changed")),
+    );
+    expect(result.current.localWhisperStatus).toEqual(WHISPER_STATUS);
+    await act(async () => {
+      if (olderResult === "error") older.reject(new Error("old request"));
+      else older.resolve(ready);
+    });
+    expect(result.current.localWhisperStatus).toEqual(WHISPER_STATUS);
+  },
+);

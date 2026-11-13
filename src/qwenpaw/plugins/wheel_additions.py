@@ -61,12 +61,78 @@ class WheelAddition:
     sha256: str
 
 
-class WheelFiles(dict[str, bytes | mmap.mmap]):
-    """Validated target-relative files and their executable script paths."""
+class _PayloadStore:
+    """One transaction file and mapping shared by all large wheel members."""
 
     def __init__(self):
+        self.file = None
+        self.mapping = None
+        self.pending = []
+        self.views = []
+
+    def stage(self, source, info, members):
+        if self.file is None:
+            self.file = tempfile.TemporaryFile()
+        offset = self.file.seek(0, os.SEEK_END)
+        _copy_bounded(source, self.file, info.file_size)
+        self.pending.append((members, info.filename, offset, info.file_size))
+
+    def seal(self):
+        if self.file is None:
+            return
+        self.mapping = mmap.mmap(
+            self.file.fileno(),
+            0,
+            access=mmap.ACCESS_READ,
+        )
+        for members, name, offset, size in self.pending:
+            view = memoryview(self.mapping)[offset : offset + size]
+            self.views.append(view)
+            members[name] = view
+        self.pending.clear()
+
+    def close(self):
+        for view in self.views:
+            view.release()
+        self.views.clear()
+        self.pending.clear()
+        if self.mapping is not None:
+            self.mapping.close()
+            self.mapping = None
+        if self.file is not None:
+            self.file.close()
+            self.file = None
+
+
+class WheelFiles(dict[str, bytes | memoryview]):
+    """Validated files whose backing storage lives until the owner closes it.
+
+    Small files are bytes. Large files are read-only views of one private
+    transaction mapping. Callers must retain this owner through publication
+    and close it on success, failure or cancellation.
+    """
+
+    def __init__(self, store=None):
         super().__init__()
         self.executable_paths: set[str] = set()
+        self._store = store if store is not None else _PayloadStore()
+
+    def close(self):
+        self._store.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_):
+        from ..utils.io_utils import run_sync_io
+
+        await run_sync_io(self.close)
 
 
 def _copy_bounded(source, target, limit):
@@ -84,8 +150,8 @@ def _copy_bounded(source, target, limit):
     return digest.hexdigest()
 
 
-def _member_content(archive, info):
-    """Keep large payloads in private, read-only file mappings until publish."""
+def _member_content(archive, info, members):
+    """Stage large members; seal replaces their placeholders with views."""
     parts = PurePosixPath(info.filename).parts
     structured = parts[0].endswith(".dist-info") or (
         len(parts) > 1 and parts[0].endswith(".data") and parts[1] == "scripts"
@@ -94,13 +160,13 @@ def _member_content(archive, info):
         raise _reject("metadata or script size limit exceeded")
     if structured or info.file_size <= _IN_MEMORY_BYTES:
         return archive.read(info)
-    with archive.open(info) as source, tempfile.TemporaryFile() as staged:
-        _copy_bounded(source, staged, info.file_size)
-        return mmap.mmap(staged.fileno(), 0, access=mmap.ACCESS_READ)
+    with archive.open(info) as source:
+        members._store.stage(source, info, members)
+    return b""
 
 
 # lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
-def _members(addition: WheelAddition) -> WheelFiles:
+def _members(addition: WheelAddition, store=None) -> WheelFiles:
     path = Path(addition.path)
     if (
         path.is_symlink()
@@ -108,24 +174,31 @@ def _members(addition: WheelAddition) -> WheelFiles:
         or path.stat().st_size > _MAX_WHEEL_BYTES
     ):
         raise _reject("wheel file invalid")
-    result = WheelFiles()
-    normalized = set()
-    # Parse a private snapshot; never reopen the caller's path after hashing.
-    with tempfile.TemporaryFile() as content:
-        with path.open("rb") as source:
-            digest = _copy_bounded(source, content, _MAX_WHEEL_BYTES)
-        if digest != addition.sha256:
-            raise _reject("wheel hash mismatch")
-        with zipfile.ZipFile(content) as archive:
-            _read_members(archive, path, result, normalized)
-    if any(
-        str(parent) in result
-        for name in result
-        for parent in PurePosixPath(name).parents
-        if str(parent) != "."
-    ):
-        raise _reject("archive paths overlap")
-    return result
+    result = WheelFiles(store)
+    try:
+        normalized = set()
+        # Parse a private snapshot; never reopen the caller's path after hashing.
+        with tempfile.TemporaryFile() as content:
+            with path.open("rb") as source:
+                digest = _copy_bounded(source, content, _MAX_WHEEL_BYTES)
+            if digest != addition.sha256:
+                raise _reject("wheel hash mismatch")
+            with zipfile.ZipFile(content) as archive:
+                _read_members(archive, path, result, normalized)
+        if any(
+            str(parent) in result
+            for name in result
+            for parent in PurePosixPath(name).parents
+            if str(parent) != "."
+        ):
+            raise _reject("archive paths overlap")
+        if store is None:
+            result._store.seal()
+        return result
+    except BaseException:
+        if store is None:
+            result.close()
+        raise
 
 
 def _read_members(archive, path, result, normalized):
@@ -170,13 +243,13 @@ def _read_members(archive, path, result, normalized):
         if key in normalized or name.endswith(".pth"):
             raise _reject("duplicate archive path or pth payload")
         normalized.add(key)
-        result[name] = _member_content(archive, info)
+        result[name] = _member_content(archive, info, result)
         if info.external_attr >> 16 & 0o111:
             result.executable_paths.add(name)
 
 
 def _validate_record(
-    files: Mapping[str, bytes | mmap.mmap],
+    files: Mapping[str, bytes | memoryview],
     record: str,
 ) -> None:
     rows = list(csv.reader(io.StringIO(files[record].decode("utf-8"))))
@@ -269,7 +342,7 @@ def _install_data(members, info, snapshot):
         else "bin"
     )
     data = info.removesuffix(".dist-info") + ".data"
-    installed = WheelFiles()
+    installed = WheelFiles(members._store)
     scripts = set()
     destinations = set()
     relocated = False
@@ -504,31 +577,42 @@ def validate_additions(
     additions: tuple[WheelAddition, ...],
     snapshot: DependencySnapshot,
     target: Path,
+    *,
+    files: WheelFiles | None = None,
 ) -> tuple[WheelFiles, DependencySnapshot]:
-    """Return verified bytes and proposed metadata for closure checks."""
-    files = WheelFiles()
+    """Return verified buffers and proposed metadata for closure checks."""
+    owns_files = files is None
+    if files is None:
+        files = WheelFiles()
+    validated = False
     distributions = dict(snapshot.distributions)
     occupied = set()
     script_directories = set()
     script_paths = set()
     artifact, stage = "<unknown>", "wheel filename"
     try:
+        staged = []
+        names = set(distributions)
         for addition in additions:
             artifact, stage = "<unknown>", "wheel filename"
             artifact = Path(addition.path).name
             name, version, _, tags = parse_wheel_filename(artifact)
             name = str(name)
-            if name in distributions:
+            if name in names:
                 raise _reject(
                     "distribution already installed",
                     "DEPENDENCY_RESTART_REQUIRED",
                 )
+            names.add(name)
             if not {str(tag) for tag in tags}.intersection(
                 snapshot.supported_tags,
             ):
                 raise _reject("wheel tags incompatible")
             stage = "archive"
-            members = _members(addition)
+            members = _members(addition, files._store)
+            staged.append((artifact, name, version, tags, members))
+        files._store.seal()
+        for artifact, name, version, tags, members in staged:
             stage = "metadata"
             infos = {
                 path.split("/", 1)[0]
@@ -665,6 +749,7 @@ def validate_additions(
                 "requires_dist": tuple(metadata.get_all("Requires-Dist", [])),
                 "top_level": tuple(sorted(provider_tops)),
             }
+        validated = True
     except (
         KeyError,
         TypeError,
@@ -684,6 +769,9 @@ def validate_additions(
         if hasattr(exc, "reason_code"):
             raise
         raise dependency_error("DEPENDENCY_PLAN_UNVERIFIED") from None
+    finally:
+        if not validated and owns_files:
+            files.close()
     return files, DependencySnapshot(
         snapshot.executable,
         snapshot.prefix,

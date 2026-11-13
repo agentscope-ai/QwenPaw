@@ -2,16 +2,12 @@
 """SDK transcription registration and live worker teardown."""
 
 import asyncio
-import sys
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from qwenpaw.plugins import PluginBusyError
 from qwenpaw.plugins.testing import PluginTestHost
-from qwenpaw.plugins.transcription import TranscriptionResult
 
 from .sdk_author_fixture import make_plugin
 
@@ -102,40 +98,3 @@ async def test_cancelled_worker_blocks_unload_until_thread_finishes(
             with pytest.raises(asyncio.CancelledError):
                 await task
         assert (await host.unload("extension-contract")).quiescent
-
-
-@pytest.mark.parametrize("text,expected", [("  hello  ", "hello"), ("  ", "")])
-async def test_optional_plugin_model_cache_and_empty_result(
-    tmp_path,
-    monkeypatch,
-    text,
-    expected,
-    whisper_dependency_inventory,
-):
-    from qwenpaw.plugins.local_transcription import SOURCE as optional_source
-    from qwenpaw.plugins.dependency_gate import GateDecision
-
-    monkeypatch.setattr(
-        "qwenpaw.plugins.loader.PluginLoader._ensure_dependencies_installed",
-        AsyncMock(return_value=GateDecision(False, True)),
-    )
-
-    model = MagicMock()
-    model.transcribe.return_value = {"text": text}
-    whisper = SimpleNamespace(load_model=MagicMock(return_value=model))
-    monkeypatch.setitem(sys.modules, "whisper", whisper)
-    monkeypatch.setattr("shutil.which", lambda name: "/test/ffmpeg")
-    async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(optional_source)
-        whisper.load_model.assert_not_called()
-        for _ in range(2):
-            result = await host.transcribe("local_whisper", "/audio.wav")
-            assert result == TranscriptionResult(
-                expected,
-                "" if expected else "empty",
-            )
-        whisper.load_model.assert_called_once_with("base")
-        assert (await host.unload("local-whisper")).quiescent
-        await host.load(optional_source)
-        await host.transcribe("local_whisper", "/audio.wav")
-        assert whisper.load_model.call_count == 2

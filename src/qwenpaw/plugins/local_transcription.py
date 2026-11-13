@@ -1,15 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Voice-settings entry to the framework's optional-plugin installer.
+"""Voice-settings access to optional transcription status and installation.
 
-Only installation progress and one-time migration live here. The ordinary
+Readiness, installation progress and one-time migration live here. Runtime
+results belong to the plugin and are read through the SDK. The ordinary
 plugin directory, loader and SDK own discovery, activation and cleanup.
 """
 
 import asyncio
 import logging
 import shutil
-from importlib import metadata
+import threading
 from pathlib import Path
+
+from packaging.requirements import Requirement
 
 from ..config import load_config
 from ..utils.io_utils import (
@@ -17,6 +20,7 @@ from ..utils.io_utils import (
     run_sync_io,
     write_json_atomic_async,
 )
+from .dependency_gate import is_requirement_satisfied
 from .dependency_upgrade import (
     DependencyUpgradeRequired,
     dependency_upgrades,
@@ -32,13 +36,10 @@ _service = None
 
 def dependency_status() -> dict:
     """Inspect dependencies without importing Torch or loading a model."""
-    # The framework publishes the validated dependency path during loading.
-    try:
-        metadata.version("openai-whisper")
-        metadata.version("torch")
-        installed = True
-    except metadata.PackageNotFoundError:
-        installed = False
+    installed = all(
+        is_requirement_satisfied(Requirement(name))
+        for name in ("openai-whisper", "torch")
+    )
     ffmpeg = shutil.which("ffmpeg") is not None
     return {
         "available": installed and ffmpeg,
@@ -116,8 +117,36 @@ def get_service():
     return _service
 
 
+async def get_runtime_status() -> dict:
+    """Read readiness and the plugin's last dependency import result."""
+    from ._workspace import current_workspace_id
+    from .activity import PluginBusyError
+    from .errors import StaleContextError
+
+    service = _service
+    status = await run_sync_io(get_status)
+    if not status["available"] or service is None:
+        return status
+    backend = service.loader.registry.get_transcription_backend(
+        "local_whisper",
+    )
+    if backend is None:
+        return await run_sync_io(get_status)
+    try:
+        runtime = await backend.call(workspace_id=current_workspace_id())
+    except (PluginBusyError, StaleContextError):
+        return await run_sync_io(get_status)
+    if not runtime.available:
+        status.update(available=False, error=runtime.reason)
+    return status
+
+
 class LocalTranscriptionService:
-    """A background install job, not an alternate plugin lifecycle."""
+    """Track one install job and its current dependency upgrade.
+
+    Disk status reads run outside the operation lock. Only results for the
+    current upgrade may update shared state.
+    """
 
     def __init__(self, loader, state_path):
         self.loader = loader
@@ -125,31 +154,40 @@ class LocalTranscriptionService:
         self.task = None
         self.error = ""
         self.operation_id = None
+        self._operation_lock = threading.Lock()
 
     def pending_upgrade(self):
         """Expose the common manager's operation; it owns approval and apply."""
-        if not self.operation_id:
+        with self._operation_lock:
+            operation_id = self.operation_id
+        if not operation_id:
             return None
         try:
             operation = dependency_upgrades(self.loader).status(
-                self.operation_id,
+                operation_id,
             )
         except (OSError, ValueError, RuntimeError) as exc:
-            self.error = str(exc)
+            with self._operation_lock:
+                if self.operation_id == operation_id:
+                    self.error = str(exc)
             return None
-        if operation["status"] == "failed":
-            self.error = (operation.get("error") or {}).get("message", "")
-        if operation["status"] in {"succeeded", "cancelled", "failed"}:
-            self.operation_id = None
-            return None
-        return operation
+        with self._operation_lock:
+            if self.operation_id != operation_id:
+                return None
+            if operation["status"] == "failed":
+                self.error = (operation.get("error") or {}).get("message", "")
+            if operation["status"] in {"succeeded", "cancelled", "failed"}:
+                self.operation_id = None
+                return None
+            return operation
 
     async def start(self):
         global _service
         _service = self
         try:
             state = await read_json_async(self.state_path)
-            self.operation_id = state.get("dependency_operation_id")
+            with self._operation_lock:
+                self.operation_id = state.get("dependency_operation_id")
         except FileNotFoundError:
             pass
         except (OSError, ValueError) as exc:
@@ -215,12 +253,17 @@ class LocalTranscriptionService:
                         "; ".join(record.diagnostics or [])
                         or "Plugin activation failed",
                     )
-                self.error = ""
+                with self._operation_lock:
+                    self.operation_id = None
+                    self.error = ""
         except DependencyUpgradeRequired as exc:
-            self.operation_id = exc.operation["id"]
+            operation_id = exc.operation["id"]
+            with self._operation_lock:
+                self.operation_id = operation_id
+                self.error = ""
             try:
                 state = await read_json_async(self.state_path)
-                state["dependency_operation_id"] = self.operation_id
+                state["dependency_operation_id"] = operation_id
                 await write_json_atomic_async(self.state_path, state)
             except (OSError, ValueError) as error:
                 self.error = str(error)
@@ -230,13 +273,14 @@ class LocalTranscriptionService:
 
     async def close(self):
         global _service
+        from ..utils.io_utils import run_async_to_completion
+
         try:
             if self.task is not None and not self.task.done():
                 self.task.cancel()
-                try:
-                    await self.task
-                except asyncio.CancelledError:
-                    pass
+                await run_async_to_completion(
+                    asyncio.gather(self.task, return_exceptions=True),
+                )
         finally:
             if _service is self:
                 _service = None

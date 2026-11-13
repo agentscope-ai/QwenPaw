@@ -1410,19 +1410,17 @@ async def put_transcription_provider_type(
 
 @router.get(
     "/local-whisper-status",
-    summary="Check local whisper availability",
+    summary="Read local whisper status",
     description=(
-        "Check whether the local whisper provider can be used. "
-        "Returns availability of ffmpeg and openai-whisper."
+        "Read plugin and dependency readiness and the last dependency import "
+        "result without importing Whisper or loading a model."
     ),
 )
 async def get_local_whisper_status() -> dict:
-    """Check local whisper dependencies."""
-    from ...agents.utils.audio_transcription import (
-        check_local_whisper_available,
-    )
+    """Read installation readiness and the last dependency import result."""
+    from ...plugins.local_transcription import get_runtime_status
 
-    return await run_sync_io(check_local_whisper_available)
+    return await get_runtime_status()
 
 
 @router.post("/local-whisper-install", status_code=202)
