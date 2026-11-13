@@ -113,6 +113,40 @@ class CronExecutor:
         async with delivery(self._workspace.agent_id) as channels:
             await getattr(channels, method)(**kwargs)
 
+    async def _commit_run_usage(self, req: Dict[str, Any]) -> None:
+        """Persist per-run token usage into the session's turn records.
+
+        Cron drives ``workspace.stream_query`` directly instead of going
+        through ``Channel.consume_one``, so nothing else commits usage
+        for these runs.
+        """
+        import importlib
+
+        commit_turn_usage = importlib.import_module(
+            "qwenpaw.token_usage.turn_usage",
+        ).commit_turn_usage
+        await commit_turn_usage(
+            workspace=self._workspace,
+            session_id=req.get("session_id", "") or "",
+            user_id=req.get("user_id", "") or "",
+            channel=req.get("channel", "") or "",
+        )
+
+    @staticmethod
+    def _discard_run_usage(req: Dict[str, Any]) -> None:
+        """Drop staged usage when a cron run does not finish normally.
+
+        Sessions are reused across runs (dedicated per-job or shared
+        target session), so a failed run must not leak stale usage into
+        a later turn on the same session.
+        """
+        import importlib
+
+        discard_turn_usage = importlib.import_module(
+            "qwenpaw.token_usage.turn_usage",
+        ).discard_turn_usage
+        discard_turn_usage(req.get("session_id", "") or "")
+
     # pylint: disable=too-many-statements,too-many-branches
     async def execute(self, job: CronJobSpec) -> dict[str, Any]:
         """Execute one job once.
@@ -331,6 +365,7 @@ class CronExecutor:
                 _run(),
                 timeout=job.runtime.timeout_seconds,
             )
+            await self._commit_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -361,6 +396,7 @@ class CronExecutor:
                 job.id,
                 job.runtime.timeout_seconds,
             )
+            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -380,6 +416,7 @@ class CronExecutor:
             ) from None
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
+            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,
@@ -395,6 +432,7 @@ class CronExecutor:
             )
             raise
         except Exception as e:  # pylint: disable=broad-except
+            self._discard_run_usage(req)
             await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=self._workspace,

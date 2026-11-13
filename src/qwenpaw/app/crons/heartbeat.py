@@ -4,6 +4,7 @@ Heartbeat: run agent with HEARTBEAT.md as query at interval.
 Uses config functions (get_heartbeat_config, get_heartbeat_query_path,
 load_config) for paths and settings.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -185,6 +186,43 @@ def _last_preview_from_delta(delta: list[dict[str, Any]]) -> str | None:
     return None
 
 
+async def _commit_run_usage(
+    workspace: Any,
+    req: Dict[str, Any],
+) -> None:
+    """Persist per-run token usage into the session's turn records.
+
+    Heartbeat drives ``workspace.stream_query`` directly instead of
+    going through ``Channel.consume_one``, so nothing else commits
+    usage for these runs.
+    """
+    import importlib
+
+    commit_turn_usage = importlib.import_module(
+        "qwenpaw.token_usage.turn_usage",
+    ).commit_turn_usage
+    await commit_turn_usage(
+        workspace=workspace,
+        session_id=req.get("session_id", "") or "",
+        user_id=req.get("user_id", "") or "",
+        channel=req.get("channel", "") or "",
+    )
+
+
+def _discard_run_usage(req: Dict[str, Any]) -> None:
+    """Drop staged usage when a heartbeat run does not finish normally.
+
+    Heartbeat reuses the same session across runs, so a failed run must
+    not leak stale usage into a later turn on that session.
+    """
+    import importlib
+
+    discard_turn_usage = importlib.import_module(
+        "qwenpaw.token_usage.turn_usage",
+    ).discard_turn_usage
+    discard_turn_usage(req.get("session_id", "") or "")
+
+
 # pylint: disable=too-many-branches,too-many-statements
 async def run_heartbeat_once(
     *,
@@ -262,7 +300,9 @@ async def run_heartbeat_once(
                     _run_and_dispatch(),
                     timeout=timeout_seconds,
                 )
+                await _commit_run_usage(workspace, req)
             except asyncio.TimeoutError:
+                _discard_run_usage(req)
                 logger.warning(
                     "heartbeat run timed out after %ss",
                     timeout_seconds,
@@ -298,6 +338,7 @@ async def run_heartbeat_once(
 
         try:
             await asyncio.wait_for(_run_only(), timeout=timeout_seconds)
+            await _commit_run_usage(workspace, req)
             delta = await append_trace_from_session_delta(
                 run_id=run_id,
                 runner=workspace,
@@ -326,6 +367,7 @@ async def run_heartbeat_once(
                 },
             )
         except asyncio.TimeoutError:
+            _discard_run_usage(req)
             logger.warning(
                 "heartbeat run timed out after %ss",
                 timeout_seconds,
@@ -359,6 +401,7 @@ async def run_heartbeat_once(
                 },
             )
         except Exception as e:  # pylint: disable=broad-except
+            _discard_run_usage(req)
             logger.exception("heartbeat run failed (inbox target)")
             await append_trace_from_session_delta(
                 run_id=run_id,
@@ -397,7 +440,9 @@ async def run_heartbeat_once(
             _run_without_dispatch(),
             timeout=timeout_seconds,
         )
+        await _commit_run_usage(workspace, req)
     except asyncio.TimeoutError:
+        _discard_run_usage(req)
         logger.warning(
             "heartbeat run timed out after %ss",
             timeout_seconds,

@@ -12,6 +12,8 @@ from .manager import (
 from .model_wrapper import TokenRecordingModelWrapper
 from .turn_usage import (
     TURN_USAGE_META_KEY,
+    commit_turn_usage,
+    discard_turn_usage,
     fmt_tokens,
     persist_turn_usage,
 )
@@ -27,4 +29,6 @@ __all__ = [
     "fmt_tokens",
     "TURN_USAGE_META_KEY",
     "persist_turn_usage",
+    "commit_turn_usage",
+    "discard_turn_usage",
 ]

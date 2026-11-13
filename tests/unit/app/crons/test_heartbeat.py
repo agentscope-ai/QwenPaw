@@ -1,12 +1,19 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from qwenpaw.app.channels.schema import DEFAULT_CHANNEL
 from qwenpaw.app.crons.heartbeat import (
     _extract_message_preview,
     is_cron_expression,
     parse_heartbeat_every,
+    run_heartbeat_once,
 )
-
 
 # ---------------------------------------------------------------------------
 # is_cron_expression
@@ -107,3 +114,105 @@ def test_extract_message_preview_truncates_long_text():
     msg = {"content": [{"type": "text", "text": long_text}]}
     result = _extract_message_preview(msg)
     assert result == long_text
+
+
+# ---------------------------------------------------------------------------
+# run_heartbeat_once turn usage
+# ---------------------------------------------------------------------------
+
+
+class _FakePath:
+    def is_file(self):
+        return True
+
+
+async def _run_sync_directly(fn, *args, **kwargs):
+    result = fn(*args, **kwargs)
+    if asyncio.iscoroutine(result):
+        return await result
+    return result
+
+
+def _patch_heartbeat_env(monkeypatch, *, stream):
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.get_heartbeat_config",
+        lambda agent_id: SimpleNamespace(
+            active_hours=None,
+            timeout_seconds=0.5,
+            target="",
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.get_heartbeat_query_path",
+        lambda: _FakePath(),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.read_text_file_with_encoding_fallback",
+        lambda path: "hello",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.load_config",
+        lambda: SimpleNamespace(last_dispatch=None),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.run_sync_io",
+        _run_sync_directly,
+    )
+    workspace = SimpleNamespace(stream_query=stream)
+    commit = AsyncMock(return_value=(None, None))
+    monkeypatch.setattr(
+        "qwenpaw.token_usage.turn_usage.commit_turn_usage",
+        commit,
+    )
+    discard = Mock()
+    monkeypatch.setattr(
+        "qwenpaw.token_usage.turn_usage.discard_turn_usage",
+        discard,
+    )
+    return workspace, commit, discard
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_success_commits_turn_usage(monkeypatch):
+    async def stream(req):
+        yield "event"
+
+    workspace, commit, discard = _patch_heartbeat_env(
+        monkeypatch,
+        stream=stream,
+    )
+
+    await run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock())
+
+    commit.assert_awaited_once()
+    kwargs = commit.await_args.kwargs
+    assert kwargs["workspace"] is workspace
+    assert kwargs["session_id"] == "main"
+    assert kwargs["user_id"] == "main"
+    assert kwargs["channel"] == DEFAULT_CHANNEL
+    discard.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_timeout_discards_staged_usage(monkeypatch):
+    async def hanging_stream(req):
+        await asyncio.Event().wait()
+        yield
+
+    workspace, commit, discard = _patch_heartbeat_env(
+        monkeypatch,
+        stream=hanging_stream,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.heartbeat.get_heartbeat_config",
+        lambda agent_id: SimpleNamespace(
+            active_hours=None,
+            timeout_seconds=0.01,
+            target="",
+        ),
+    )
+
+    await run_heartbeat_once(workspace=workspace, channel_manager=AsyncMock())
+
+    commit.assert_not_awaited()
+    discard.assert_called_once_with("main")
