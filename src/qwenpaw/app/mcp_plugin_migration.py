@@ -371,10 +371,14 @@ def _card_status(value: Any) -> str:
         ),
     ):
         return "needs_review"
-    if not isinstance(endpoint, Mapping) or not _endpoint(
-        endpoint,
-        credentials,
-    ):
+    if not isinstance(endpoint, Mapping):
+        return "needs_review"
+    # DriverCard nullable defaults differ from the strict legacy client model.
+    endpoint = dict(endpoint)
+    for key in ("args", "cwd", "transport"):
+        if endpoint.get(key) is None:
+            endpoint.pop(key, None)
+    if not _endpoint(endpoint, credentials):
         return "needs_review"
     for alias, ref in credentials.items():
         if (
@@ -389,6 +393,7 @@ def _card_status(value: Any) -> str:
         "credentials": {},
         "config": {},
         **value,
+        "endpoint": endpoint,
         "policy": policy,
     }
     if normalized == _DEFAULT_CARD:
