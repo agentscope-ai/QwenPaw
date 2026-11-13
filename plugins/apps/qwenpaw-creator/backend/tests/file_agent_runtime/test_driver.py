@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import io
 import json
@@ -33,6 +34,8 @@ from services.file_agent_runtime.driver import (
     _tool_call_transport_metadata,
 )
 from services.file_agent_runtime import driver as driver_module
+from services.file_agent_runtime import media_vault
+from services.file_agent_runtime.model_client import ModelContextUnfitError
 from services.file_agent_runtime.prompts import render_creator_system_prompt
 from services.file_agent_runtime.work_graph import (
     WorkGraph,
@@ -64,6 +67,7 @@ from services.runtime_files.execution_models import (
     ExecutionAuthorizationStatus,
 )
 from services.specialist_tools import SpecialistToolResult
+from services.workspace.content_store import ContentStore
 
 pytestmark = pytest.mark.unit
 
@@ -609,6 +613,8 @@ def _edit_client(*, description: str):
             "patch_project",
             "ground_prompt_context",
             "ground_image_objects",
+            "recall_media",
+            "recall_history",
             "browser_use",
             "elements_at",
             "import_script_asset",
@@ -936,6 +942,73 @@ def test_specialist_model_turn_has_a_wall_clock_timeout(tmp_path) -> None:
     specialist = asyncio.run(scenario())
     assert specialist.status.value == "FAILED"
     assert f"model turn exceeded {turn_timeout:g} seconds" in (
+        specialist.final_summary_text or ""
+    )
+
+
+def test_specialist_multi_tool_turn_is_rejected_before_any_dispatch(
+    tmp_path,
+) -> None:
+    """The delegate loop refuses two tool calls in one turn.
+
+    This guard is what keeps a recall_media user row from ever splitting
+    an assistant/tool group: with at most one call per turn, the row can
+    only follow the pair, never sit between two tool results. The source
+    anchors in test_media_vault.py cannot see that timing, so drive the
+    real delegate loop and pin the guard's behavior.
+    """
+    parent_turn = 0
+
+    async def callback(_messages, tools):
+        nonlocal parent_turn
+        names = {item["function"]["name"] for item in tools}
+        if "delegate_to_agent" not in names:
+            # Specialist turn: two calls in one turn. The guard fires before
+            # dispatch, so the names only need to be on the manifest.
+            picked = [item["function"]["name"] for item in tools][:2]
+            return AgentModelTurn(
+                tool_calls=tuple(
+                    AgentToolCall(
+                        call_id=f"multi-{index}",
+                        name=name,
+                        arguments={},
+                    )
+                    for index, name in enumerate(picked, start=1)
+                ),
+            )
+        parent_turn += 1
+        if parent_turn == 1:
+            return _delegate_call(
+                "delegate-multi-tool",
+                role="ai_editing_director",
+                target_refs=["timeline:timeline:main"],
+                task="编排 Timeline 选段",
+            )
+        return AgentModelTurn(content="专员回合被拒绝，当前运行已结束。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="生成角色图",
+        )
+        driver = _driver(services, callback)
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await _wait_for(
+            lambda: (
+                (runs := driver.executions.list_specialist_runs(PROJECT_ID))
+                and runs[0].status.value == "FAILED"
+            ),
+        )
+        await _wait_consumed(services)
+        await driver.wait_until_idle(PROJECT_ID)
+        specialist = driver.executions.list_specialist_runs(PROJECT_ID)[0]
+        await driver.stop()
+        return specialist
+
+    specialist = asyncio.run(scenario())
+    assert specialist.status.value == "FAILED"
+    assert "returned more than one tool call in one turn" in (
         specialist.final_summary_text or ""
     )
 
@@ -1306,6 +1379,57 @@ def test_repeated_malformed_jq_project_arguments_stop_after_two_retries(
         True,
     ]
     assert "Do not resend it" in errors[-1]["recovery"]
+
+
+def test_a_proven_unfittable_input_is_not_resumed_automatically(
+    tmp_path,
+) -> None:
+    """An input the client proved it cannot shrink waits for a human.
+
+    The resume fuse bounds how often a parked run is re-entered, not whether
+    it is worth trying: re-sending bytes the same window already refused buys
+    a second copy of one error message at the price of a full model call, at
+    3am, unattended. Every other model fault keeps the retry a transient fault
+    can still profit from.
+    """
+    calls: list[int] = []
+
+    async def callback(_messages, _tools):
+        calls.append(1)
+        raise ModelContextUnfitError(
+            "模型必要输入仍超过单次上下文预算；真人附件未移动。",
+        )
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="Create the project plan",
+        )
+        driver = _driver(services, callback)
+        resumes: list[bool] = []
+        original_resume = driver._queue_yolo_completion_resume
+
+        async def record_resume(*args, **kwargs):
+            resumes.append(bool(kwargs.get("after_failure")))
+            return await original_resume(*args, **kwargs)
+
+        driver._queue_yolo_completion_resume = record_resume
+        await _run_to_idle(driver, services, error=True)
+        session = services.sessions.get_project_session(PROJECT_ID)
+        runs = driver.runs.list(PROJECT_ID)
+        await driver.stop()
+        return session, runs, resumes
+
+    session, runs, resumes = asyncio.run(scenario())
+
+    assert calls == [1]
+    assert session.error is not None
+    assert session.error["code"] == "MODEL_CONTEXT_UNFIT"
+    assert session.error["retryable"] is False
+    assert "真人附件未移动" in session.error["message"]
+    # The failure path never asked for a resume, so nothing re-enters the run.
+    assert resumes == []
+    assert [run.status.value for run in runs] == ["FAILED"]
 
 
 def test_initial_creation_runs_auto_fix_tool_loop_without_review(
@@ -5388,3 +5512,209 @@ def test_upload_joining_a_live_run_starts_understanding(
         "本轮上传素材的理解已启动" in str(entry.get("content") or "")
         for entry in joined_turn
     )
+
+
+def test_recalled_media_arrives_after_its_own_tool_group(
+    tmp_path,
+    monkeypatch,
+):
+    """The recalled bytes ride behind the tool result, never inside its group.
+
+    ``recall_media`` answers with JSON text, so the restored payload has to
+    reach the provider as native media on a user turn. The loop publishes that
+    turn after the whole assistant turn has been answered: a user row placed
+    before a tool result leaves the provider an unanswered tool_calls message,
+    and compaction can then never pair the group up to drop it again.
+    """
+    monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
+    payload = _png_bytes_for_grounding()
+    digest = media_vault.store_data_url(
+        "data:image/png;base64," + base64.b64encode(payload).decode(),
+        store=ContentStore(tmp_path.resolve()),
+    )
+
+    seen: list[list[dict]] = []
+    turn = 0
+
+    async def callback(messages, tools):
+        del tools
+        nonlocal turn
+        turn += 1
+        seen.append([dict(item) for item in messages])
+        if turn == 1:
+            return _tool_turn(
+                call_id="recall-1",
+                name="recall_media",
+                arguments={"handles": [digest]},
+            )
+        if turn == 2:
+            return _read_call("read-1")
+        return AgentModelTurn(content="已取回参考图，继续。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="取回之前移出的参考图，然后继续。",
+        )
+        driver = _driver(services, CallbackAgentChatClient(callback))
+        await _run_to_idle(driver, services)
+        await driver.stop()
+
+    asyncio.run(scenario())
+
+    assert turn == 3
+    # The recalled user row follows the tool result it belongs to; it is never
+    # published before that result, and never held back past the next turn.
+    assert [item["role"] for item in seen[1]][-3:] == [
+        "assistant",
+        "tool",
+        "user",
+    ]
+    assert [item["role"] for item in seen[2]][-5:] == [
+        "assistant",
+        "tool",
+        "user",
+        "assistant",
+        "tool",
+    ]
+    recalled = seen[1][-1]
+    assert recalled["source"] == driver_module.MEDIA_RECALL_SOURCE
+    assert [part["type"] for part in recalled["content"]][-1] == "image_url"
+    restored = recalled["content"][-1]["image_url"]["url"]
+    assert base64.b64decode(restored.split(";base64,", 1)[1]) == payload
+
+
+def test_the_next_turn_resumes_from_the_shape_that_was_sent(tmp_path):
+    """A recovery rewrites the request, and the run has to remember that.
+
+    The demotion ladder moves media out of the message list it was handed and
+    answers from the rewritten one. Left holding the original, the next turn of
+    the same run puts the refused bytes straight back and pays for the refusal
+    again, which is how one oversized upload turned into a loop of them.
+
+    The durable record is deliberately not what is asserted here: a person's
+    upload stays on disk exactly as sent, and only the ephemeral wire context
+    follows what the model actually read.
+    """
+    seen: list[list[dict]] = []
+    turn = 0
+    sent_shape = [
+        {"role": "system", "content": "本轮实际发送的上下文"},
+        {
+            "role": "user",
+            "source": "user",
+            "messageSeq": 3,
+            "content": [{"type": "text", "text": "句柄取代了内联图片"}],
+        },
+    ]
+
+    async def callback(messages, tools):
+        del tools
+        nonlocal turn
+        turn += 1
+        seen.append([dict(item) for item in messages])
+        if turn == 1:
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="read-1",
+                        name="read_project",
+                        arguments={"projectId": PROJECT_ID},
+                    ),
+                ),
+                sent_messages=list(sent_shape),
+            )
+        return AgentModelTurn(content="已按降级后的上下文继续。")
+
+    async def scenario():
+        services, _snapshot = _create_project(
+            tmp_path,
+            initial_goal="按这张参考图改分镜。",
+        )
+        driver = _driver(services, CallbackAgentChatClient(callback))
+        await _run_to_idle(driver, services)
+        await driver.stop()
+
+    asyncio.run(scenario())
+
+    assert turn == 2
+    # The second turn starts from the request the client answered, not from the
+    # one the run assembled before the refusal.
+    assert [item["content"] for item in seen[1]][:2] == [
+        sent_shape[0]["content"],
+        sent_shape[1]["content"],
+    ]
+    # and it still carries the tool exchange this turn produced.
+    assert [item["role"] for item in seen[1]][-2:] == ["assistant", "tool"]
+
+
+def test_plan_continuation_summary_round_trips_and_fails_closed(
+    monkeypatch,
+) -> None:
+    """The summary is really produced from the archived slice, not a no-op.
+
+    Wiring checks only prove the call exists; this drives the real host
+    library end to end (build prompt -> model -> parse -> validate) so a
+    regression that quietly made the planner always return "" would surface,
+    and confirms an unusable reply is dropped rather than injected.
+    """
+    if not driver_module._HOST_CONTINUATION_SUMMARY_AVAILABLE:
+        pytest.skip("host continuation_summary library not importable")
+    monkeypatch.delenv("CREATOR_CONTINUATION_SUMMARY_ENABLED", raising=False)
+
+    # Enough droppable runtime history to force real archival (over the
+    # 128KB default history budget).
+    prior_context = [
+        _record(
+            seq,
+            role="tool",
+            source="runtime_action_result",
+            text=f"review marker {seq} " + "z" * 3000,
+        )
+        for seq in range(1, 60)
+    ]
+
+    class _Harness:
+        _plan_continuation_summary = (
+            FileCreatorAgentRuntime._plan_continuation_summary
+        )
+        _complete_model_turn = FileCreatorAgentRuntime._complete_model_turn
+        model_turn_timeout_seconds = 30
+
+        def __init__(self, client) -> None:
+            self.model_client = client
+
+    markdown = (
+        "## Active Task\nContinue the episode plan.\nStatus: in_progress\n\n"
+        "## Current State\n- Six episodes are locked.\n\n"
+        "## Constraints\n- Keep all dialogue.\n\n"
+        "## Decisions\n- Use the vertical format.\n\n"
+        "## Open Work\n- Render the title card.\n"
+    )
+
+    async def _scenario() -> tuple[str, list]:
+        seen_tools: list[list] = []
+
+        async def summarize(messages, tools):
+            seen_tools.append(tools)
+            return AgentModelTurn(content=markdown)
+
+        good = await _Harness(
+            CallbackAgentChatClient(summarize),
+        )._plan_continuation_summary(prior_context)
+        return good, seen_tools[0]
+
+    summary, tools = asyncio.run(_scenario())
+    assert tools == [], "the summary turn must not offer tools"
+    assert "archived task state" in summary
+    assert "Continue the episode plan." in summary
+
+    async def _fail_closed() -> str:
+        async def junk(messages, tools):
+            return AgentModelTurn(content="this is not a summary")
+
+        return await _Harness(
+            CallbackAgentChatClient(junk),
+        )._plan_continuation_summary(prior_context)
+
+    assert asyncio.run(_fail_closed()) == ""

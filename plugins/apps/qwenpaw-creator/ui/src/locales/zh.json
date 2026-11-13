@@ -1125,6 +1125,7 @@
     "rateLimitExhausted": "模型遭遇限流，已重试 {{retries}} 次仍无法访问",
     "rateLimitContinue": "继续",
     "rateLimitResumeMessage": "继续执行之前因模型限流中断的任务",
+    "contextUnfit": "输入已超出模型上下文窗口，可让出的内容已全部让出；请减少本次附图数量或精简文字后重新发送。",
     "mentionHint": "输入 @ 可引用分镜、素材等对象作为上下文；当前选中的对象也会自动带入对话。",
     "clearAll": "清空全部引用、划选文本与输入框内的 @ 引用",
     "clear": "清空",
@@ -1924,7 +1925,9 @@
       "view_skill": "查阅创作指南",
       "ground_image_objects": "识别画面对象",
       "browser_use": "操作网页",
-      "computer_use": "操作桌面应用"
+      "computer_use": "操作桌面应用",
+      "recall_media": "取回已移出的媒体",
+      "recall_history": "回读归档历史"
     },
     "skillGuides": {
       "visualDesign": "查阅视觉设计指南",
@@ -1983,7 +1986,9 @@
       "view_skill": "正在查阅创作指南…",
       "ground_image_objects": "正在识别画面对象…",
       "browser_use": "正在操作网页…",
-      "computer_use": "正在操作桌面应用…"
+      "computer_use": "正在操作桌面应用…",
+      "recall_media": "正在取回已移出的媒体…",
+      "recall_history": "正在回读归档历史…"
     },
     "productionAssistant": "制作助手",
     "estimatedDurations": {

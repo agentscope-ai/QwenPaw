@@ -1125,6 +1125,7 @@
     "rateLimitExhausted": "Model rate-limited, still unavailable after {{retries}} retries",
     "rateLimitContinue": "Continue",
     "rateLimitResumeMessage": "Continue the task that was interrupted by model rate limiting",
+    "contextUnfit": "This input exceeded the model's context window and everything that could be given up has been. Send fewer attachments or shorten the request, then resend it.",
     "mentionHint": "Type @ to reference storyboards, assets etc. as context; currently selected objects are also auto-included.",
     "clearAll": "Clear all references, selected text and @ mentions",
     "clear": "Clear",
@@ -1924,7 +1925,9 @@
       "view_skill": "Read creative guide",
       "ground_image_objects": "Identify image objects",
       "browser_use": "Interact with webpage",
-      "computer_use": "Interact with desktop app"
+      "computer_use": "Interact with desktop app",
+      "recall_media": "Recall moved-out media",
+      "recall_history": "Recall archived history"
     },
     "skillGuides": {
       "visualDesign": "Read visual design guide",
@@ -1983,7 +1986,9 @@
       "view_skill": "Reading creative guide…",
       "ground_image_objects": "Identifying image objects…",
       "browser_use": "Interacting with webpage…",
-      "computer_use": "Interacting with desktop app…"
+      "computer_use": "Interacting with desktop app…",
+      "recall_media": "Recalling moved-out media…",
+      "recall_history": "Recalling archived history…"
     },
     "productionAssistant": "Production Assistant",
     "estimatedDurations": {

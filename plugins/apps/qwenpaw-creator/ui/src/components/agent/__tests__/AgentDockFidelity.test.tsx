@@ -1161,6 +1161,42 @@ describe("AgentDock public output and interactions", () => {
     }
     expect(row.textContent).toContain("随时可以继续创作");
   });
+
+  it("answers a proven-unfittable input without promising a resume", async () => {
+    // The runtime parked the run only after the demotion ladder had given up
+    // every byte it is allowed to move. Its text names handles and media
+    // counts nobody can act on, and the generic banner reads as "retry to
+    // continue" for a request that has nothing smaller left to become.
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+    act(() =>
+      useCreatorSessionStore.setState({
+        session: {
+          id: "session-1",
+          projectId: "p1",
+          status: "ERROR",
+          lastMessageSeq: 2,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 5,
+          error: {
+            code: "MODEL_CONTEXT_UNFIT",
+            message:
+              "Error code: 400: This model's maximum context length is " +
+              "32768 tokens.\n媒体降级记录：真人附件媒体 2 块（已存档 2 块）",
+            retryable: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/可让出的内容已全部让出/)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/maximum context length/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/媒体降级记录/)).not.toBeInTheDocument();
+  });
 });
 
 describe("safe provider failure messages", () => {

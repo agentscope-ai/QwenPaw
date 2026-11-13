@@ -2504,6 +2504,11 @@ export default function AgentDock({
                           {t("agent.rateLimitContinue")}
                         </Button>
                       </div>
+                    ) : session.error.code === "MODEL_CONTEXT_UNFIT" ? (
+                      // The backend proved nothing more can be given up and
+                      // parked the run, so the generic "you can retry to
+                      // continue" hint would promise a resume that never runs.
+                      <span>{t("agent.contextUnfit")}</span>
                     ) : (
                       simplifyErrorMessage(session.error.message)
                     )}
