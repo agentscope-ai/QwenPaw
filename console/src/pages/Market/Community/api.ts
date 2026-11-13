@@ -1,6 +1,7 @@
 import { request } from "@/api/request";
 import { getApiUrl } from "@/api/config";
 import { buildAuthHeaders } from "@/api/authHeaders";
+import { normalizeGithubLink } from "./githubLink";
 
 export interface IdentityBadge {
   code: string;
@@ -37,6 +38,7 @@ export interface Post {
   accepted_comment_id?: string;
   related_skill_ids?: string[];
   related_plugin_ids?: string[];
+  github_link?: string | null;
   identity_badge?: IdentityBadge | null;
   identity_badges?: IdentityBadge[] | null;
 }
@@ -85,10 +87,23 @@ export const communityPostsApi = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ account_id: accountId }),
     }),
-  update: (id: string, accountId: string, title: string, content: string) =>
+  update: (
+    id: string,
+    accountId: string,
+    title: string,
+    content: string,
+    githubLink?: string,
+  ) =>
     request<Post>(`/community/posts/${encodeURIComponent(id)}`, {
       method: "PUT",
-      body: JSON.stringify({ account_id: accountId, title, content }),
+      body: JSON.stringify({
+        account_id: accountId,
+        title,
+        content,
+        ...(githubLink !== undefined
+          ? { github_link: normalizeGithubLink(githubLink) }
+          : {}),
+      }),
     }),
   detail: (id: string, signal?: AbortSignal) =>
     request<Post>(`/community/posts/${encodeURIComponent(id)}`, { signal }),

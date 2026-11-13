@@ -169,6 +169,24 @@
   vertical-align: middle;
   margin: 4px;
 }
+// Animated (GIF) stickers render larger, mirroring platform-front's 150px size.
+.customAnimatedEmoji {
+  display: inline-block;
+  width: 150px;
+  height: 150px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin: 4px;
+}
+// Narrow screens: the 150px sticker dwarfs the composer and comment rows;
+// the same classes style the rich input imgs, so both shrink together.
+@media (max-width: 600px) {
+  .customAnimatedEmoji {
+    width: 90px;
+    height: 90px;
+    margin: 2px;
+  }
+}
 
 .headingActions {
   display: flex;
@@ -308,6 +326,25 @@
   > :global(:is(.ant-avatar, .qwenpaw-avatar)) {
     flex-shrink: 0;
   }
+}
+// "From GitHub" orange external link at the right end of the author row
+// (the line under the title), mirroring Platform's FromGithubLink.
+.fromGithubLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 14px;
+  color: #e48800;
+  text-decoration: none;
+  transition: color 0.2s;
+  &:hover {
+    color: #c77600;
+  }
+}
+.fromGithubIcon {
+  flex-shrink: 0;
 }
 .authorName {
   display: inline-flex;
@@ -561,7 +598,7 @@
     background: var(--app-accent-active);
   }
 }
-.helpfulChip {
+.favoriteChip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -858,6 +895,14 @@
 .relatedSpan {
   grid-column: 1 / -1;
 }
+// Two-up cards get cramped on phones (names wrap vertically); stack them
+// one per row under the mobile breakpoint. .relatedSpan still spans the
+// single track, so the 3-card layout degrades gracefully.
+@media (max-width: 600px) {
+  .relatedGridWide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .relatedCard {
   display: flex;
   align-items: flex-start;
@@ -966,6 +1011,33 @@
     border-color: var(--app-accent);
   }
 }
+// Contenteditable comment input (platform-front CommentRichInput): emojis
+// render as inline images while the value stays [emoji:<url>] shortcodes.
+.richInput {
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  font-size: 14px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  outline: none;
+  // Cap the growth like the old textarea autoSize maxRows; long pastes scroll
+  // inside the box instead of pushing the submit buttons out of the viewport.
+  overflow-y: auto;
+  scrollbar-width: thin;
+  &:empty::before {
+    content: attr(data-placeholder);
+    color: var(--app-text-secondary);
+    pointer-events: none;
+  }
+  &[aria-disabled="true"] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
 .composerActions {
   display: flex;
   justify-content: flex-end;
@@ -1006,6 +1078,48 @@
 }
 .emojiTriggerOpen {
   color: var(--app-accent-text);
+}
+// Quick emoji capsule: trigger + 5 one-tap picks grouped like platform-front.
+.emojiQuickGroup {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+}
+.emojiQuickBtn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.16s ease;
+  &:hover:not(:disabled) {
+    transform: scale(1.1);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  img {
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    // Sticker art ships with a white backdrop; round it into a chip.
+    border-radius: 6px;
+    // Same multiply trick as the animated tab icon (light mode only).
+    mix-blend-mode: multiply;
+  }
 }
 .emojiPopover {
   // Pin the popover chrome to the reference metrics (12/16 padding, 8px
@@ -1063,6 +1177,12 @@
   grid-template-columns: repeat(6, 66px);
   gap: 8px;
 }
+// Animated GIF art has more padding, so cells are larger (4x99px), mirroring
+// agentscope-platform-front's dedicated animated tab grid.
+.emojiAnimatedGrid {
+  grid-template-columns: repeat(4, 99px);
+  gap: 8px;
+}
 .emojiCustomCell {
   display: flex;
   align-items: center;
@@ -1110,10 +1230,31 @@
     width: 24px;
     height: 24px;
     object-fit: contain;
+    // Sticker assets ship with opaque white backgrounds; round the corners so
+    // the icon reads as a chip instead of a raw white square.
+    border-radius: 6px;
+    background: transparent;
+    // The GIF canvas pads the character more than the static PNGs, so platform
+    // renders it at 36px (vs 24px middle tab) to match the visible sticker
+    // size. Nested selector outranks the plain img rule above.
+    &.emojiTabGif {
+      width: 36px;
+      height: 36px;
+    }
   }
 }
+// Selected tab reads as a clearly tinted chip (stronger accent tint) so it is
+// distinguishable from both the gray bar and the white panel; no extra inset
+// indicator line, which would read as an underline beneath the emoji list.
 .emojiTabActive {
-  background: var(--app-surface);
+  background: var(--app-accent-soft-hover);
+}
+// GIF stickers bake an opaque white backdrop into the pixels; multiply melts
+// it into the bar tint so the icon reads transparent like the static PNGs
+// (same trick as platform-front). Dark mode keeps the rounded chip instead,
+// where multiply would darken the whole sticker into the surface.
+.emojiTabGif {
+  mix-blend-mode: multiply;
 }
 :global(.dark-mode) {
   .emojiCell:hover:not(:disabled),
@@ -1123,8 +1264,25 @@
   .emojiTabBar {
     background: var(--app-fill-subtle);
   }
+  .emojiTabGif,
+  .emojiQuickBtn img {
+    mix-blend-mode: normal;
+  }
 }
 @media (max-width: 600px) {
+  // Full-bleed sheet: span the whole overlay root instead of hugging the
+  // trigger, which clips the panel off-screen on narrow viewports.
+  .emojiPopover {
+    left: 0 !important;
+    width: 100%;
+    :global(:is(.qwenpaw-popover-arrow, .ant-popover-arrow)) {
+      display: none;
+    }
+  }
+  .emojiPanel {
+    width: 100%;
+    max-width: none;
+  }
   .emojiGrid {
     grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
     justify-content: stretch;
@@ -1134,18 +1292,23 @@
     grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
     gap: 4px;
   }
+  .emojiAnimatedGrid {
+    grid-template-columns: repeat(auto-fill, minmax(99px, 1fr));
+    gap: 4px;
+  }
 }
+// contents promotes the thumbnail list and upload chip into the footer
+// layout so desktop can place the list on its own row above the tools.
 .attachWrap {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
+  display: contents;
 }
 .attachList {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  // Thumbnails lead both layouts: above the emoji capsule on mobile and
+  // above the whole tools row on desktop.
+  order: -1;
 }
 .attachThumb {
   position: relative;
@@ -1210,9 +1373,65 @@
 .attachCount {
   color: var(--app-text-tertiary);
 }
+@media (min-width: 601px) {
+  // Thumbnails sit on a row of their own above the emoji capsule and the
+  // upload chip; actions stay bottom-right beside the second row.
+  .composerTools {
+    flex: 1;
+    flex-wrap: wrap;
+  }
+  .attachList {
+    flex-basis: 100%;
+  }
+}
 @media (max-width: 600px) {
   .attachLabel {
     display: none;
+  }
+  // Two-row grid: the quick-emoji capsule owns the first row, the upload
+  // chip drops down to share the second row with the action buttons instead
+  // of wrapping alone or overflowing the card.
+  .composerFooter {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 6px 8px;
+  }
+  .composerTools {
+    display: contents;
+  }
+  .composerTools > :first-child {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+  // Thumbnails own a full-width row (several per line, wrapping on overflow)
+  // while the upload chip keeps sharing the action row beneath them.
+  .attachList {
+    grid-column: 1 / -1;
+  }
+  // Touch screens have no hover: keep the remove affordance visible.
+  .attachRemove {
+    opacity: 1;
+  }
+  .composerActions {
+    justify-content: flex-end;
+  }
+  .emojiTrigger {
+    height: 28px;
+    padding: 0 6px;
+  }
+  .emojiQuickGroup {
+    gap: 2px;
+    padding: 2px 4px;
+  }
+  .emojiQuickBtn {
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
+    img {
+      width: 24px;
+      height: 24px;
+    }
   }
 }
 .loginHint {

@@ -77,6 +77,10 @@ import {
 } from "@/utils/communityAuthorization";
 import { communityErrorKey } from "@/utils/communityError";
 import { communityMediaApi } from "@/pages/Market/Community/api";
+import {
+  isGithubRepoLink,
+  normalizeGithubLink,
+} from "@/pages/Market/Community/githubLink";
 import type { InstallationOrigin } from "@/api/types/community";
 
 /** Mirror the platform body-video cap / acceptance list (uploadEditorImage). */
@@ -190,6 +194,9 @@ export function PostComposer({
   const [assistBusy, setAssistBusy] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [media, setMedia] = useState<{ url: string; media_id: string }[]>([]);
+  const [githubLink, setGithubLink] = useState("");
+  const githubLinkInvalid =
+    githubLink.trim() !== "" && !isGithubRepoLink(githubLink);
   const [assistWidth, setAssistWidth] = useState(35);
   const [mobilePane, setMobilePane] = useState("write");
   const [preview, setPreview] = useState(false);
@@ -265,6 +272,7 @@ export function PostComposer({
     setType(initialArticleType || initialType);
     setInstructions("");
     setMedia([]);
+    setGithubLink("");
     setResources(
       origin ? [{ origin, name: resourceName || origin.resource_id }] : [],
     );
@@ -294,6 +302,7 @@ export function PostComposer({
           setResources(saved.resources);
           setInstructions(saved.instructions || "");
           setMedia(saved.media || []);
+          setGithubLink(saved.githubLink || "");
           if (saved.id) setSavedKind(saved.type);
           if ((initialArticleType || saved.type) !== "question") {
             articleBoard.current = initialArticleType || saved.type;
@@ -342,6 +351,7 @@ export function PostComposer({
         resources,
         instructions,
         media,
+        githubLink,
         initialType,
         general: !origin,
         assisting,
@@ -363,6 +373,7 @@ export function PostComposer({
     resources,
     instructions,
     media,
+    githubLink,
     published,
     draftUnavailable,
     initialType,
@@ -440,6 +451,10 @@ export function PostComposer({
   };
   const saveDraft = async () => {
     if (!status?.account || locked) return;
+    if (githubLink.trim() && !isGithubRepoLink(githubLink)) {
+      setError("communityCompose.githubLinkInvalid");
+      return;
+    }
     const account = status.account.id;
     setBusy(true);
     setSaving(true);
@@ -453,6 +468,7 @@ export function PostComposer({
           resources,
           instructions: redactReportText(instructions),
           media,
+          githubLink,
         },
         savedId.current,
       );
@@ -482,7 +498,7 @@ export function PostComposer({
   };
   useEffect(() => {
     setSaveNotice("");
-  }, [title, content, type, resources, instructions, media]);
+  }, [title, content, type, resources, instructions, media, githubLink]);
   // Shared caret insertion for uploaded media snippets (video / image).
   const insertSnippetAtCaret = (snippet: string) => {
     const textarea = bodyEditor.current?.resizableTextArea?.textArea;
@@ -606,6 +622,10 @@ export function PostComposer({
       assistBusy
     )
       return;
+    if (githubLink.trim() && !isGithubRepoLink(githubLink)) {
+      setError("communityCompose.githubLinkInvalid");
+      return;
+    }
     setBusy(true);
     setError(undefined);
     try {
@@ -620,6 +640,7 @@ export function PostComposer({
             .map((item) => item.media_id),
           article_type: type,
           account_id: status.account.id,
+          github_link: normalizeGithubLink(githubLink),
           ...splitReportResources(resources),
         }),
       });
@@ -874,6 +895,29 @@ export function PostComposer({
                       />
                     </div>
                   )}
+                  <div className={styles.githubRow}>
+                    <label htmlFor="community-post-github">
+                      {t("communityCompose.githubLinkLabel")}
+                    </label>
+                    <Input
+                      id="community-post-github"
+                      value={githubLink}
+                      maxLength={1024}
+                      allowClear
+                      status={githubLinkInvalid ? "error" : undefined}
+                      placeholder={t("communityCompose.githubLinkPlaceholder")}
+                      disabled={locked}
+                      onChange={(event) => {
+                        setGithubLink(event.target.value);
+                        setConfirmed(false);
+                      }}
+                    />
+                    {githubLinkInvalid && (
+                      <span className={styles.githubError} role="alert">
+                        {t("communityCompose.githubLinkInvalid")}
+                      </span>
+                    )}
+                  </div>
                 </section>
                 <section
                   className={styles.writingSection}

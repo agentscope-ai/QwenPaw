@@ -10,6 +10,7 @@
  * gating, and the doc-link button (builtin EN/ZH + plugin schema doc_url).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import type { ReactNode } from "react";
 import {
   act,
   render,
@@ -82,6 +83,44 @@ vi.mock("../../../../hooks/useAppMessage", () => ({
     modal: { confirm: mockConfirm },
   }),
 }));
+
+// jsdom's matchMedia mock reports md=false, so SettingsDrawer mounts the
+// vaul-based BottomSheet. Vaul schedules transition timeouts that can fire
+// after the environment teardown (ReferenceError: window is not defined),
+// crashing the vitest worker. The drawer chrome is covered by the
+// SettingsDrawer suites; keep an inert shell exposing the [data-vaul-drawer]
+// container hook (useAutoSave parents its confirm dialog with it) and the
+// close button (vaul's Drawer.Close drives the whole save-on-close flow).
+vi.mock("@/components/interaction/BottomSheet", async () => {
+  const { useTranslation } = await import("react-i18next");
+  function MockBottomSheet({
+    open,
+    onOpenChange,
+    title,
+    children,
+    footer,
+  }: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    title: ReactNode;
+    children: ReactNode;
+    footer?: ReactNode;
+  }) {
+    const { t } = useTranslation();
+    return open ? (
+      <div data-vaul-drawer="">
+        <div>{title}</div>
+        <button
+          aria-label={t("common.close")}
+          onClick={() => onOpenChange(false)}
+        />
+        <div>{children}</div>
+        {footer ? <div>{footer}</div> : null}
+      </div>
+    ) : null;
+  }
+  return { default: MockBottomSheet };
+});
 
 // Capture QR-code auth callbacks so tests can drive success/error paths.
 vi.mock("./QrcodeAuthBlock", () => ({
