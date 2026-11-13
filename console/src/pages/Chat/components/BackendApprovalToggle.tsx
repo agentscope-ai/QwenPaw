@@ -85,8 +85,8 @@ export default function BackendApprovalToggle({
       <ShieldCheck size={13} />
       {!compact && (
         <>
-          {selected.name}
-          <ChevronDown size={12} />
+          <span data-composer-collapse-content>{selected.name}</span>
+          <ChevronDown data-composer-collapse-content size={12} />
         </>
       )}
     </button>

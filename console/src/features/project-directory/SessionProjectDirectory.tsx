@@ -1288,21 +1288,29 @@ export default function SessionProjectDirectory({
       {!compact && (
         <>
           {showFullPath ? (
-            <span className={styles.triggerIdentity}>
+            <span
+              className={styles.triggerIdentity}
+              data-composer-collapse-content
+            >
               <strong>{basename}</strong>
               <small>{info?.project_dir}</small>
             </span>
           ) : (
-            <span>{basename}</span>
+            <span data-composer-collapse-content>{basename}</span>
           )}
           {/* Extra roots are not listed here; the count signals that
               more than the primary is bound. Driven by the applied list
               so an abandoned edit never shows up as bound. */}
           {isListScope && appliedCount > 1 && (
-            <em title={t("projectDirectory.countTitle")}>·{appliedCount}</em>
+            <em
+              data-composer-collapse-content
+              title={t("projectDirectory.countTitle")}
+            >
+              ·{appliedCount}
+            </em>
           )}
           {!showFullPath && (
-            <em>
+            <em data-composer-collapse-content>
               {t(
                 info?.source === "session"
                   ? "projectDirectory.sessionSource"
@@ -1310,7 +1318,7 @@ export default function SessionProjectDirectory({
               )}
             </em>
           )}
-          <ChevronDown size={12} />
+          <ChevronDown data-composer-collapse-content size={12} />
         </>
       )}
     </button>

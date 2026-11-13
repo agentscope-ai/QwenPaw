@@ -24,6 +24,7 @@
     }
 
     [class$="-sender-content-bottom"] {
+      container-type: inline-size;
       align-items: center;
       flex-wrap: wrap;
       row-gap: 8px;
@@ -71,10 +72,11 @@
 
     [class$="-sender-actions-list"] {
       align-items: center;
+      justify-content: flex-end;
       column-gap: 6px;
       min-width: 0;
       max-width: 100%;
-      flex: 0 0 auto;
+      flex: 1 0 max-content;
       flex-wrap: nowrap;
       row-gap: 8px;
     }
@@ -82,8 +84,8 @@
     // Use the prefix's content width when deciding whether actions fit.
     [class$="-sender-prefix"] {
       width: auto;
-      flex: 1 1 max-content;
-      min-width: 0;
+      flex: 1 0 max-content;
+      min-width: max-content;
       max-width: 100%;
       overflow: visible;
 
@@ -142,45 +144,108 @@
   }
 }
 
-.filesWorkspaceOpen {
-  .chatMainArea {
-    :global {
-      [class$="-sender-content"] {
-        padding: 6px;
-      }
+.composerResponsiveItem {
+  --composer-compact-width: 32px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: var(--composer-compact-width);
+  align-items: center;
+  container: composer-control / inline-size;
+  button {
+    padding-inline: 5px !important;
+    justify-content: flex-start !important;
+    transition-property: color, background-color, border-color, opacity !important;
+    > * {
+      flex-shrink: 0 !important;
+    }
+  }
 
-      [class$="-sender-content-bottom"] {
-        min-width: 0;
-        align-items: center;
-        column-gap: 4px;
-      }
+  &[data-composer-resizing="true"] {
+    overflow: hidden;
 
-      [class$="-sender-prefix"] {
-        min-width: 0;
-        overflow: hidden;
-      }
+    > span {
+      width: 100%;
+      min-width: 0 !important;
+      max-width: 100%;
+      flex: none;
+    }
 
-      [class$="-sender-actions-list"] {
-        min-width: 0;
-        align-items: center;
-        column-gap: 4px;
-      }
+    button {
+      width: 100% !important;
+      min-width: 0 !important;
+      flex: none !important;
+      box-sizing: border-box;
+      overflow: hidden;
+      justify-content: flex-start !important;
+      white-space: nowrap;
+    }
+  }
 
-      [class$="-sender-actions-list-length"] {
-        display: none;
-      }
+  :global([data-composer-collapse-content]) {
+    max-width: none !important;
+    opacity: 1;
+    visibility: visible;
+    transition: none;
+    white-space: nowrap;
+  }
 
-      [class$="-sender-actions-list-presets"] {
-        flex: 0 0 auto;
-      }
+  @container composer-control (max-width: 32px) {
+    :global([data-composer-collapse-content]) {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
     }
   }
 }
 
-.compactSenderAffix {
-  min-width: 0;
-  flex: 0 1 auto;
-  gap: 4px;
+.chatMessagesArea :global {
+  [class*="-sender-actions-list-presets"] {
+    margin-left: 0;
+  }
+}
+
+.composerMeasurement {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+
+  :global {
+    [class$="-sender-content-bottom"] {
+      container-type: normal !important;
+      flex-wrap: nowrap !important;
+      width: max-content !important;
+      max-width: none !important;
+    }
+
+    [class$="-sender-prefix"],
+    [class$="-sender-actions-list"] {
+      flex-basis: auto !important;
+      width: auto !important;
+      max-width: none !important;
+    }
+  }
+
+  .composerResponsiveItem {
+    container-type: normal;
+  }
+
+  .composerResponsiveItem,
+  .composerResponsiveItem *,
+  .composerResponsiveItem :global(*) {
+    transition: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composerResponsiveItem,
+  .composerResponsiveItem *,
+  .composerResponsiveItem :global(*) {
+    transition: none !important;
+  }
 }
 
 .senderActionAffix {
@@ -194,6 +259,10 @@
     min-width: 0;
     flex: 0 1 auto;
   }
+}
+
+.senderActionAffix > .composerResponsiveItem {
+  flex: 0 0 auto;
 }
 
 .senderContextAffix {
@@ -214,31 +283,12 @@
 
 .senderProjectControl {
   min-width: 0;
-  max-width: min(220px, 24vw);
+  max-width: none;
   flex: 1 1 150px !important;
 }
 
 .senderApprovalControl {
   flex: 0 0 auto !important;
-}
-
-@media (min-width: 1000px) {
-  .chatMessagesArea.advisorComposer :global {
-    [class$="-sender-content-bottom"] {
-      flex-wrap: nowrap;
-    }
-
-    [class$="-sender-prefix"] {
-      flex: 1 1 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      scrollbar-width: none;
-
-      &::-webkit-scrollbar {
-        display: none;
-      }
-    }
-  }
 }
 
 @media (max-width: 1024px) {
@@ -426,7 +476,7 @@
     [class$="-sender-actions-list"] {
       min-width: 0;
       max-width: 100%;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
       column-gap: 4px;
     }
   }
@@ -457,8 +507,7 @@
     }
 
     [class$="-sender-content-bottom"] {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
+      display: flex;
       align-items: center;
       column-gap: 8px;
       row-gap: 4px;
@@ -468,7 +517,7 @@
     [class$="-sender-prefix"] {
       width: auto;
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 1 0 auto;
       overflow-x: auto;
       overflow-y: hidden;
       overscroll-behavior-x: contain;
@@ -481,15 +530,13 @@
     }
 
     [class$="-sender-prefix"] > [class*="flex"] {
-      width: 100%;
+      width: max-content;
       min-width: 0;
       gap: 4px !important;
       overflow: visible;
     }
 
     [class$="-sender-prefix"] button {
-      min-width: 44px;
-      min-height: 44px;
       flex: 0 0 auto;
     }
 
@@ -500,18 +547,11 @@
       flex-wrap: nowrap;
       align-items: center;
       column-gap: 4px;
-      margin-left: auto;
+      margin-left: 0;
     }
 
     [class$="-sender-actions-list-presets"] {
       flex: 0 0 auto;
-    }
-
-    [data-qwenpaw-composer-submit="true"] {
-      width: 44px !important;
-      min-width: 44px !important;
-      height: 44px !important;
-      border-radius: 12px !important;
     }
   }
 
@@ -519,11 +559,6 @@
     min-width: 0;
     max-width: 100%;
     gap: 4px;
-  }
-
-  .senderProjectControl,
-  .senderApprovalControl {
-    min-height: var(--app-icon-button) !important;
   }
 
   .senderActionAffix > button {
@@ -546,68 +581,6 @@
     [class$="-sender-actions-list-length"] {
       display: none;
     }
-  }
-
-  .senderContextAffix {
-    display: none;
-  }
-}
-
-/* Mobile composer controls share one quiet visual treatment. Their component
- * compact variants remove labels and chevrons from the rendered structure. */
-.mobileComposerControl {
-  width: 44px !important;
-  max-width: 44px !important;
-  min-width: 44px !important;
-  height: 44px !important;
-  flex: 0 0 44px;
-  padding: 0 !important;
-  margin-inline-end: 0 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 0 !important;
-  border: 0 !important;
-  border-radius: 10px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  line-height: 1 !important;
-  touch-action: manipulation;
-  transition:
-    background-color 160ms ease,
-    color 160ms ease !important;
-
-  > svg {
-    width: 18px;
-    height: 18px;
-    flex: 0 0 18px;
-  }
-
-  &:hover,
-  &:active,
-  &[aria-expanded="true"] {
-    background: var(--app-fill-subtle) !important;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--app-accent-border);
-    outline-offset: 1px;
-  }
-
-  &[data-state] {
-    pointer-events: none;
-  }
-
-  &[data-state="starting"] {
-    color: var(--app-accent) !important;
-  }
-
-  &[data-state="running"] {
-    color: var(--app-success) !important;
-  }
-
-  &[data-state="awaiting_user"] {
-    color: var(--app-warning) !important;
   }
 }
 

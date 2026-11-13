@@ -31,6 +31,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
@@ -298,6 +299,46 @@ import {
   supportsAgentAttachments,
   useBackendCapabilities,
 } from "../../utils/agentBackend";
+
+type ComposerControlId = "loop" | "model" | "project-directory" | "approval";
+
+const COMPOSER_ITEM_SELECTOR = "[data-composer-responsive-item]";
+
+function flexChildrenWidth(element: HTMLElement | null): number {
+  if (!element) return 0;
+  const children = Array.from(element.children).filter(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement &&
+      child.getBoundingClientRect().width > 0 &&
+      getComputedStyle(child).display !== "none",
+  );
+  if (children.length === 0) return 0;
+  const gap = Number.parseFloat(getComputedStyle(element).columnGap) || 0;
+  return (
+    children.reduce(
+      (total, child) => total + child.getBoundingClientRect().width,
+      0,
+    ) +
+    gap * (children.length - 1)
+  );
+}
+
+function ComposerResponsiveItem({
+  children,
+  id,
+}: {
+  children: ReactNode;
+  id: ComposerControlId;
+}) {
+  return (
+    <span
+      className={styles.composerResponsiveItem}
+      data-composer-responsive-item={id}
+    >
+      {children}
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -3554,8 +3595,147 @@ export default function ChatPage() {
     [multimodalCaps, t, usesQwenPawBackend],
   );
 
-  const compactSender = filesDrawerState.kind === "workspace";
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root) return;
+
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      const prefix = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-prefix"]',
+      );
+      const actions = bottom?.querySelector<HTMLElement>(
+        '[class$="-sender-actions-list"]',
+      );
+      if (!bottom || !prefix || !actions) return;
+
+      // Measure a non-interactive DOM copy, never the visible toolbar.
+      const measurement = document.createElement("div");
+      measurement.className = styles.composerMeasurement;
+      measurement.setAttribute("aria-hidden", "true");
+      measurement.inert = true;
+      const measuredBottom = bottom.cloneNode(true) as HTMLElement;
+      measurement.append(measuredBottom);
+      measuredBottom
+        .querySelectorAll("[id]")
+        .forEach((node) => node.removeAttribute("id"));
+      measuredBottom
+        .querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR)
+        .forEach((element) => {
+          element.style.removeProperty("width");
+          element.dataset.composerResizing = "false";
+        });
+      root.append(measurement);
+      try {
+        const items = Array.from(
+          measuredBottom.querySelectorAll<HTMLElement>(COMPOSER_ITEM_SELECTOR),
+        ).map((element, index) => {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = element.getBoundingClientRect().width;
+          return {
+            element,
+            id,
+            index,
+            left: element.getBoundingClientRect().left,
+            width,
+          };
+        });
+
+        const measuredPrefix = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-prefix"]',
+        );
+        const measuredActions = measuredBottom.querySelector<HTMLElement>(
+          '[class$="-sender-actions-list"]',
+        );
+        const prefixRow = measuredPrefix?.firstElementChild;
+        const prefixWidth = flexChildrenWidth(
+          prefixRow instanceof HTMLElement ? prefixRow : measuredPrefix,
+        );
+        const actionsWidth = flexChildrenWidth(measuredActions);
+        const bottomGap =
+          Number.parseFloat(getComputedStyle(bottom).columnGap) || 0;
+        const requiredWidth = prefixWidth + actionsWidth + bottomGap;
+
+        const nextWidths: Partial<Record<ComposerControlId, string>> = {};
+        const orderedItems = [...items].sort((left, right) => {
+          const horizontal = right.left - left.left;
+          return horizontal || right.index - left.index;
+        });
+
+        let reservedWidth = requiredWidth;
+        // Each control reserves full widths to its left and minimum widths
+        // to its right. CSS resolves the active control in the same layout
+        // pass as a container resize, without a frame of stale pixel widths.
+        for (const item of orderedItems) {
+          const compactWidth = Number.parseFloat(
+            getComputedStyle(item.element).getPropertyValue(
+              "--composer-compact-width",
+            ),
+          );
+          const resolvedCompactWidth = Number.isFinite(compactWidth)
+            ? compactWidth
+            : 32;
+          const minimum = Math.min(resolvedCompactWidth, item.width);
+          nextWidths[item.id] = `clamp(${minimum}px, calc(100cqw - ${
+            reservedWidth - item.width
+          }px), ${item.width}px)`;
+          reservedWidth -= item.width - minimum;
+        }
+
+        for (const element of bottom.querySelectorAll<HTMLElement>(
+          COMPOSER_ITEM_SELECTOR,
+        )) {
+          const id = element.dataset
+            .composerResponsiveItem as ComposerControlId;
+          const width = nextWidths[id];
+          element.style.width = width ?? "";
+          element.dataset.composerResizing = String(width !== undefined);
+        }
+      } finally {
+        measurement.remove();
+      }
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    const mutationObserver = new MutationObserver(measure);
+    let observedBottom: HTMLElement | null = null;
+    const bindBottom = () => {
+      if (!active) return;
+      const bottom = root.querySelector<HTMLElement>(
+        '[class$="-sender-content-bottom"]',
+      );
+      // Measurement copies and unrelated mutations do not change the target.
+      if (bottom === observedBottom) return;
+      if (observedBottom) observer.unobserve(observedBottom);
+      mutationObserver.disconnect();
+      observedBottom = bottom;
+      if (!bottom) return;
+      observer.observe(bottom);
+      mutationObserver.observe(bottom, {
+        characterData: true,
+        childList: true,
+        subtree: true,
+      });
+      measure();
+    };
+    const mountObserver = new MutationObserver(bindBottom);
+    mountObserver.observe(root, { childList: true, subtree: true });
+    bindBottom();
+
+    return () => {
+      active = false;
+      mountObserver.disconnect();
+      observer.disconnect();
+      mutationObserver.disconnect();
+    };
+  }, [i18n.language, isMobile]);
 
   useEffect(() => {
     const root = chatMessagesAreaRef.current;
@@ -4127,39 +4307,42 @@ export default function ChatPage() {
               />
             ) : null}
             {usesQwenPawBackend && (
-              <LoopModeSelector
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                chatId={backendChatId}
-                agentId={selectedAgent}
-              />
+              <ComposerResponsiveItem id="loop">
+                <LoopModeSelector
+                  compact={false}
+                  chatId={backendChatId}
+                  agentId={selectedAgent}
+                />
+              </ComposerResponsiveItem>
             )}
             {usesQwenPawBackend && !isSessionTransition ? (
-              advisorConversation ? (
-                <AdvisorModelsPill />
-              ) : (
-                <SessionThinking
-                  agentId={selectedAgent}
-                  sessionId={queueSessionId}
-                  chatId={backendChatId}
-                  onDecisionConfiguredChange={handleDecisionConfiguredChange}
-                />
-              )
+              <ComposerResponsiveItem id="model">
+                {advisorConversation ? (
+                  <AdvisorModelsPill compact={false} />
+                ) : (
+                  <SessionThinking
+                    agentId={selectedAgent}
+                    sessionId={queueSessionId}
+                    chatId={backendChatId}
+                    compact={false}
+                    onDecisionConfiguredChange={handleDecisionConfiguredChange}
+                  />
+                )}
+              </ComposerResponsiveItem>
             ) : backendCapabilities?.model_selection ? (
-              <BackendModelSelector
-                backendId={selectedAgentBackend}
-                capabilities={backendCapabilities}
-              />
+              <ComposerResponsiveItem id="model">
+                <BackendModelSelector
+                  backendId={selectedAgentBackend}
+                  capabilities={backendCapabilities}
+                  compact={false}
+                />
+              </ComposerResponsiveItem>
             ) : null}
             {pluginSenderPrefix}
           </>
         ),
         actionAffix: (
-          <span
-            className={`${styles.senderActionAffix} ${
-              compactSender ? styles.compactSenderAffix : ""
-            }`}
-          >
+          <span className={styles.senderActionAffix}>
             {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
               <span className={styles.senderContextAffix}>
                 <ContextUsageIndicator
@@ -4169,48 +4352,39 @@ export default function ChatPage() {
               </span>
             )}
             {usesQwenPawBackend && !isSessionTransition && (
-              <SessionProjectDirectory
-                scope={sessionScope}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderProjectControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-              />
+              <ComposerResponsiveItem id="project-directory">
+                <SessionProjectDirectory
+                  scope={sessionScope}
+                  compact={false}
+                  className={styles.senderProjectControl}
+                />
+              </ComposerResponsiveItem>
             )}
             {usesQwenPawBackend ? (
-              <ApprovalLevelToggle
-                sessionId={queueKey}
-                runningConfigApprovalLevel={runningConfigApprovalLevel}
-                decisionModelConfigured={decisionModelConfigured}
-                compact={isMobile || compactSender}
-                className={[
-                  !isMobile && !compactSender
-                    ? styles.senderApprovalControl
-                    : "",
-                  isMobile || compactSender ? styles.mobileComposerControl : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                onChange={(sessionOverride) => {
-                  sessionApprovalLevelRef.current = sessionOverride;
-                }}
-              />
+              <ComposerResponsiveItem id="approval">
+                <ApprovalLevelToggle
+                  sessionId={queueKey}
+                  runningConfigApprovalLevel={runningConfigApprovalLevel}
+                  decisionModelConfigured={decisionModelConfigured}
+                  compact={false}
+                  className={styles.senderApprovalControl}
+                  onChange={(sessionOverride) => {
+                    sessionApprovalLevelRef.current = sessionOverride;
+                  }}
+                />
+              </ComposerResponsiveItem>
             ) : approvalPresets.length > 0 ? (
-              <BackendApprovalToggle
-                backend={selectedAgentBackend}
-                sessionId={queueKey}
-                presets={approvalPresets}
-                className={isMobile ? styles.mobileComposerControl : undefined}
-                compact={isMobile}
-                onChange={(settings) => {
-                  backendControlsRef.current = settings;
-                }}
-              />
+              <ComposerResponsiveItem id="approval">
+                <BackendApprovalToggle
+                  backend={selectedAgentBackend}
+                  sessionId={queueKey}
+                  presets={approvalPresets}
+                  compact={false}
+                  onChange={(settings) => {
+                    backendControlsRef.current = settings;
+                  }}
+                />
+              </ComposerResponsiveItem>
             ) : null}
           </span>
         ),
@@ -4601,7 +4775,6 @@ export default function ChatPage() {
     handleCompactCommand,
     handleNewCommand,
     isMobile,
-    compactSender,
     sessionScope,
     filesWorkspaceOpen,
     toggleFilesWorkspace,
