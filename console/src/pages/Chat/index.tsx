@@ -788,6 +788,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const ACTIVE_RUN_POLL_INTERVAL_MS = 5000;
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -2069,6 +2070,132 @@ export default function ChatPage() {
   isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+  const activeRunSyncRef = useRef({
+    key: "",
+    sawRunning: false,
+    resumeAttempted: false,
+  });
+
+  useEffect(() => {
+    if (
+      !usesQwenPawBackend ||
+      !backendChatId ||
+      queueSessionId === "new" ||
+      isSessionTransition
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    let inFlight = false;
+    const syncKey = `${selectedAgent}:${queueSessionId}`;
+    if (activeRunSyncRef.current.key !== syncKey) {
+      activeRunSyncRef.current = {
+        key: syncKey,
+        sawRunning: false,
+        resumeAttempted: false,
+      };
+    }
+    const syncState = activeRunSyncRef.current;
+    const refreshMessages = async ({
+      requireIdle,
+    }: { requireIdle?: boolean } = {}) => {
+      const session = await sessionApi.refreshSession(
+        queueSessionId,
+        controller.signal,
+      );
+      if (
+        !session ||
+        (requireIdle && (session.generating || chatLoadingRef.current)) ||
+        controller.signal.aborted ||
+        queueSessionIdRef.current !== queueSessionId ||
+        !isChatActiveRef.current
+      ) {
+        return false;
+      }
+      chatRef.current?.messages.setSessionMessages(
+        queueSessionId,
+        session.messages,
+      );
+      return true;
+    };
+    const syncRun = async () => {
+      if (inFlight || controller.signal.aborted || !isChatActiveRef.current)
+        return;
+      inFlight = true;
+      try {
+        const runStatus = await chatApi.getChatStatus(backendChatId, {
+          agentId: selectedAgent,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        if (runStatus.status === "running") {
+          const firstRunningObservation = !syncState.sawRunning;
+          const execution = chatRef.current?.execution;
+          const activeRun = await execution?.getActiveRun(queueSessionId);
+          if (controller.signal.aborted) return;
+          if (activeRun && activeRun.getState() !== "disconnected") {
+            syncState.resumeAttempted = false;
+            return;
+          }
+          if (syncState.resumeAttempted) return;
+          if (!execution) return;
+          if (firstRunningObservation || !activeRun) {
+            if (!(await refreshMessages())) return;
+          }
+          syncState.sawRunning = true;
+          syncState.resumeAttempted = true;
+          try {
+            await execution.resume({
+              sessionId: queueSessionId,
+              source: "direct",
+            });
+          } catch (error) {
+            if (!controller.signal.aborted) {
+              syncState.resumeAttempted = false;
+            }
+            throw error;
+          }
+          return;
+        }
+
+        if (!syncState.sawRunning) return;
+        if (await refreshMessages({ requireIdle: true })) {
+          syncState.sawRunning = false;
+          syncState.resumeAttempted = false;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn("Failed to synchronize active chat run", error);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const retryWhenVisible = () => {
+      if (!document.hidden) void syncRun();
+    };
+    const retryTimer = window.setInterval(
+      retryWhenVisible,
+      ACTIVE_RUN_POLL_INTERVAL_MS,
+    );
+    window.addEventListener("online", retryWhenVisible);
+    document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      controller.abort();
+      window.clearInterval(retryTimer);
+      window.removeEventListener("online", retryWhenVisible);
+      document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [
+    backendChatId,
+    isSessionTransition,
+    queueSessionId,
+    selectedAgent,
+    usesQwenPawBackend,
+  ]);
 
   useLayoutEffect(() => {
     sessionApi.invalidateSessionCreation();
@@ -4438,15 +4565,28 @@ export default function ChatPage() {
             ...buildAuthHeaders(),
           };
 
-          const reconnectIdentity = sessionApi.getSessionIdentity(
-            data.chatSessionId || data.session_id,
-          );
+          const reconnectSessionId = data.chatSessionId || data.session_id;
+          const reconnectIdentity =
+            sessionApi.getSessionIdentity(reconnectSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             reconnectIdentity,
             {},
             selectedAgent,
           );
+          const syncKey = `${snapshot.agentId}:${reconnectSessionId}`;
+          if (queueSessionIdRef.current === reconnectSessionId) {
+            if (activeRunSyncRef.current.key !== syncKey) {
+              activeRunSyncRef.current = {
+                key: syncKey,
+                sawRunning: true,
+                resumeAttempted: true,
+              };
+            } else {
+              activeRunSyncRef.current.sawRunning = true;
+              activeRunSyncRef.current.resumeAttempted = true;
+            }
+          }
           // Attaching to a live turn only invalidates this session's stop.
           clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
@@ -4454,17 +4594,25 @@ export default function ChatPage() {
             .getState()
             .beginTurn(snapshot.agentId, snapshot.sessionId);
           headlineStreamFilterRef.current = createHeadlineFilterState();
-          const response = await fetch(getApiUrl("/console/chat"), {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: snapshot.sessionId,
-              user_id: snapshot.userId,
-              channel: snapshot.channel,
-            }),
-            signal: data.signal,
-          });
+          let response: Response;
+          try {
+            response = await fetch(getApiUrl("/console/chat"), {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                reconnect: true,
+                session_id: snapshot.sessionId,
+                user_id: snapshot.userId,
+                channel: snapshot.channel,
+              }),
+              signal: data.signal,
+            });
+          } catch (error) {
+            if (activeRunSyncRef.current.key === syncKey) {
+              activeRunSyncRef.current.resumeAttempted = false;
+            }
+            throw error;
+          }
 
           // Fast-forward the replayed section: render the already
           // generated part instantly instead of re-animating it.
