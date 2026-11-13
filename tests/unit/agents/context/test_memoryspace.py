@@ -875,6 +875,109 @@ def test_search_execution_timeout_is_enforced(history_db: Path):
         space.close()
 
 
+def _uninitialized_space(
+    conn: sqlite3.Connection,
+    seconds: float,
+) -> MemorySpace:
+    """Skeleton whose ``search`` uses ``conn`` and this time budget."""
+    space = object.__new__(MemorySpace)
+    space._conn = conn
+    space._search_turn_max_rows = 100
+    space._search_turn_max_bytes = 10_000
+    space._search_max_seconds = seconds
+    return space
+
+
+def _locked_reader(
+    tmp_path: Path,
+    busy_ms: int,
+) -> tuple[sqlite3.Connection, sqlite3.Connection]:
+    """A connection blocked by another connection's exclusive lock."""
+    db_path = tmp_path / "locked.db"
+    writer = sqlite3.connect(db_path)
+    writer.execute("CREATE TABLE t (x INTEGER)")
+    writer.execute("BEGIN EXCLUSIVE")
+    reader = sqlite3.connect(db_path)
+    reader.execute(f"PRAGMA busy_timeout={int(busy_ms)}")
+    return writer, reader
+
+
+def test_search_lock_after_deadline_stays_operational_error(
+    tmp_path: Path,
+):
+    """A lock wait that outlives the deadline is not a search timeout.
+
+    SQLite does not invoke the progress handler while ``busy_timeout``
+    waits, so ``timed_out`` stays false. Classifying that error from the
+    clock reported ``database is locked`` as an execution timeout.
+    """
+    writer, reader = _locked_reader(tmp_path, 100)
+    space = _uninitialized_space(reader, 0.02)
+
+    def locked_read(*_args, **_kwargs):
+        reader.execute("SELECT x FROM t")
+
+    space._search_impl = locked_read
+    try:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="database is locked",
+        ) as exc_info:
+            space.search("example")
+    finally:
+        reader.close()
+        writer.close()
+    assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+
+
+def test_search_lock_before_deadline_stays_operational_error(
+    tmp_path: Path,
+):
+    writer, reader = _locked_reader(tmp_path, 0)
+    space = _uninitialized_space(reader, 30.0)
+
+    def locked_read(*_args, **_kwargs):
+        reader.execute("SELECT x FROM t")
+
+    space._search_impl = locked_read
+    try:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="database is locked",
+        ) as exc_info:
+            space.search("example")
+    finally:
+        reader.close()
+        writer.close()
+    assert exc_info.value.sqlite_errorcode == sqlite3.SQLITE_BUSY
+
+
+def test_search_progress_interrupt_is_timeout():
+    """A statement aborted by the progress handler is still a timeout."""
+    conn = sqlite3.connect(":memory:")
+    space = _uninitialized_space(conn, 0.05)
+
+    def burn(*_args, **_kwargs):
+        conn.execute(
+            "WITH RECURSIVE c(x) AS ("
+            "SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 5000000"
+            ") SELECT sum(x) FROM c",
+        )
+
+    space._search_impl = burn
+    try:
+        with pytest.raises(
+            TimeoutError,
+            match="execution timeout",
+        ) as exc_info:
+            space.search("example")
+    finally:
+        conn.close()
+    cause = exc_info.value.__cause__
+    assert isinstance(cause, sqlite3.OperationalError)
+    assert cause.sqlite_errorcode == sqlite3.SQLITE_INTERRUPT
+
+
 def test_search_groups_imported_kind_by_user_role(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     user_seq = history.append(
