@@ -1,5 +1,6 @@
 import { useLayoutEffect, useMemo } from "react";
 import { useSessionAttention } from "../../hooks/useSessionAttention";
+import { useSessionFavicon } from "../../hooks/useSessionFavicon";
 import { useAgentStore } from "../../stores/agentStore";
 import {
   findSessionByReference,
@@ -27,21 +28,22 @@ export function RouteDocumentTitle({
   const unseenSessionIds = useSessionAttention(agentId, sessions, session?.id);
   const unread = !!session && unseenSessionIds.has(session.id);
   const sessionName = session?.name?.trim();
+  const running = session?.generating === true || session?.status === "running";
+  useSessionFavicon(running, unread);
 
   useLayoutEffect(() => {
-    const baseTitle = sessionName
+    const nextTitle = sessionName
       ? `${sessionName} · QwenPaw`
       : title === "QwenPaw"
       ? title
       : `${title} · QwenPaw`;
-    const nextTitle = unread ? `• ${baseTitle}` : baseTitle;
     document.title = nextTitle;
     document.dispatchEvent(
       new CustomEvent("qwenpaw:document-title-change", {
         detail: nextTitle,
       }),
     );
-  }, [title, sessionName, unread]);
+  }, [title, sessionName]);
 
   return null;
 }
