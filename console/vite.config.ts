@@ -54,6 +54,11 @@ export default defineConfig(({ command, mode }) => {
           }
         : undefined,
     define: {
+      "import.meta.env.BASE_URL": desktop
+        ? JSON.stringify("/")
+        : consoleBasename
+        ? JSON.stringify(`${normalizeConsoleBasename(consoleBasename)}/`)
+        : "window.__qpBaseUrl",
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
       MOBILE: false,
