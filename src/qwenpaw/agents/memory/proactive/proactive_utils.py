@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """Utility functions for proactive messaging features."""
 
+from copy import deepcopy
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional, Any
 
-from agentscope.agent import ReActAgent
-from agentscope.message import Msg
+from agentscope.agent import Agent
+from agentscope.message import Msg, TextBlock
+from ....utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from ....app.workspace import Workspace
@@ -38,7 +40,7 @@ def ensure_tz_aware(dt: datetime) -> datetime:
 
 async def build_proactive_memory_context(
     workspace: "Workspace",
-    agent: ReActAgent,
+    agent: Agent,
     max_session_messages: int = 100,
     max_session_chars: int = 50000,
 ) -> str:
@@ -49,7 +51,7 @@ async def build_proactive_memory_context(
     combined_context = ""
 
     # Capture screen if supported
-    if agent and get_active_model_supports_multimodal():
+    if agent and (await run_sync_io(get_active_model_supports_multimodal)):
         try:
             screen_analysis = await _analyze_screen_activity(agent)
             if screen_analysis:
@@ -121,10 +123,11 @@ async def _process_session_memory(
     channel: str = "",
 ) -> List[dict]:
     """Process a session's memory and return a list of messages."""
-    from agentscope.memory import InMemoryMemory
+    from agentscope.state import AgentState
+    from ....app.chats.utils import parse_legacy_memory_state
 
     try:
-        state = await workspace.runner.session.get_session_state_dict(
+        state = await workspace.session.get_session_state_dict(
             session_id,
             user_id,
             channel,
@@ -132,13 +135,24 @@ async def _process_session_memory(
         if not state:
             return []
 
-        memories_data = state.get("agent", {}).get("memory", [])
-        if not memories_data:
-            return []
+        agent_raw = state.get("agent", {})
+        messages = []
 
-        memory = InMemoryMemory()
-        memory.load_state_dict(memories_data)
-        messages = await memory.get_memory()
+        state_raw = agent_raw.get("state")
+        if isinstance(state_raw, dict):
+            try:
+                agent_state = AgentState.model_validate(state_raw)
+                messages = list(agent_state.context)
+            except Exception:
+                pass
+
+        if not messages:
+            memories_data = agent_raw.get("memory", [])
+            if memories_data:
+                messages, _summary = parse_legacy_memory_state(memories_data)
+
+        if not messages:
+            return []
 
         processed_messages = []
         default_time = datetime.now(timezone.utc)
@@ -234,7 +248,7 @@ def extract_content(content) -> str:
 
 
 async def _analyze_screen_activity(
-    agent: ReActAgent,
+    agent: Agent,
 ) -> Optional[str]:
     """Analyze user's screen activity using multimodal capabilities."""
     # Removed duplicate import: from agentscope.message import Msg
@@ -250,8 +264,17 @@ async def _analyze_screen_activity(
             return None
 
         content = screenshot_result.content
-        if isinstance(content, list) and len(content) > 0:
-            result_text = content[0].get("text", "")
+        image_block = None
+        if isinstance(content, list):
+            # content may be [DataBlock, TextBlock] - find the TextBlock
+            result_text = ""
+            for block in content:
+                if hasattr(block, "text"):
+                    result_text = block.text
+                source = getattr(block, "source", None)
+                media_type = getattr(source, "media_type", "") or ""
+                if media_type.startswith("image/"):
+                    image_block = block
         else:
             result_text = str(content)
 
@@ -264,8 +287,7 @@ async def _analyze_screen_activity(
                 )
                 return None
 
-            screenshot_path = result_json.get("path", "")
-            if not screenshot_path:
+            if image_block is None:
                 return None
 
             analysis_prompt = (
@@ -278,11 +300,8 @@ async def _analyze_screen_activity(
                 name="System",
                 role="user",
                 content=[
-                    {"type": "text", "text": analysis_prompt},
-                    {
-                        "type": "image",
-                        "source": {"type": "url", "url": screenshot_path},
-                    },
+                    TextBlock(type="text", text=analysis_prompt),
+                    deepcopy(image_block),
                 ],
             )
 

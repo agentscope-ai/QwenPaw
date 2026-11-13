@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import api from "../../../api";
 import type { InboxEvent } from "../../../api/modules/console";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -7,6 +8,13 @@ import {
   DEFAULT_AGENT_ID,
   getAgentDisplayName,
 } from "../../../utils/agentDisplayName";
+import {
+  INBOX_CHANGED_EVENT,
+  notifyInboxChanged,
+  type InboxChange,
+  PUSH_MESSAGE_SOURCES,
+  isPushMessageEvent,
+} from "../../../utils/inboxEvents";
 import type { HarvestInstance, InboxSummary, PushMessage } from "../types";
 
 const PUSH_POLLING_INTERVAL_MS = 6000;
@@ -23,71 +31,238 @@ const mapPriority = (text: string): "low" | "normal" | "high" | "urgent" => {
 const stripExecutionTimeText = (text: string): string =>
   text.replace(/\s*duration=\d+ms\.?/gi, "").trim();
 
-const getHeartbeatSummary = (status?: string): string => {
+const getHeartbeatSummary = (
+  status: string | undefined,
+  t: TFunction,
+): string => {
   const normalizedStatus = (status || "").toLowerCase();
   if (normalizedStatus === "success") {
-    return "Heartbeat 执行成功";
+    return t("inbox.heartbeatSuccess");
   }
   if (normalizedStatus === "timeout") {
-    return "Heartbeat 执行超时";
+    return t("inbox.heartbeatTimeout");
   }
   if (normalizedStatus === "cancelled") {
-    return "Heartbeat 已取消";
+    return t("inbox.heartbeatCancelled");
   }
-  return "Heartbeat 执行失败";
+  return t("inbox.heartbeatFailed");
 };
 
-const mapEventToPushMessage = (
+const getSkillAutoSyncSummary = (event: InboxEvent, t: TFunction): string => {
+  const payload = (event.payload || {}) as {
+    synced?: { skill?: string; agents?: string[] }[];
+    failed?: { skill?: string; agents?: string[] }[];
+  };
+  const parts: string[] = [];
+  for (const item of payload.synced || []) {
+    parts.push(
+      t("inbox.skillAutoSynced", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  for (const item of payload.failed || []) {
+    parts.push(
+      t("inbox.skillAutoSyncFailed", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  return parts.join("; ") || event.body;
+};
+
+const getBuiltinAutoUpdateSummary = (
+  event: InboxEvent,
+  t: TFunction,
+): string => {
+  const payload = (event.payload || {}) as {
+    pool_updated?: {
+      skill?: string;
+      from_version?: string;
+      to_version?: string;
+    }[];
+    pool_failed?: { skill?: string }[];
+    synced?: { skill?: string; agents?: string[] }[];
+    sync_failed?: { skill?: string; agents?: string[] }[];
+  };
+  const parts: string[] = [];
+  for (const item of payload.pool_updated || []) {
+    parts.push(
+      t("inbox.skillBuiltinUpdated", {
+        skill: item.skill,
+        from: item.from_version || "-",
+        to: item.to_version || "-",
+      }),
+    );
+  }
+  for (const item of payload.pool_failed || []) {
+    parts.push(t("inbox.skillBuiltinUpdateFailed", { skill: item.skill }));
+  }
+  for (const item of payload.synced || []) {
+    parts.push(
+      t("inbox.skillBuiltinSynced", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  for (const item of payload.sync_failed || []) {
+    parts.push(
+      t("inbox.skillBuiltinSyncFailed", {
+        skill: item.skill,
+        agents: (item.agents || []).join(", "),
+      }),
+    );
+  }
+  return parts.join("; ") || event.body;
+};
+
+const isBuiltinAutoUpdateEvent = (event: InboxEvent): boolean => {
+  if (event.event_type !== "auto_update") return false;
+  const payload = (event.payload || {}) as Record<string, unknown>;
+  // Before the naming split, Auto Sync events were also stored as
+  // `auto_update`. Their payload only had `synced` / `failed`, so keep those
+  // historical messages displayed as Auto Sync.
+  return (
+    "pool_updated" in payload ||
+    "pool_failed" in payload ||
+    "sync_failed" in payload
+  );
+};
+
+const getChannelType = (sourceType: string): PushMessage["channelType"] => {
+  switch (sourceType) {
+    case "heartbeat":
+      return "heartbeat";
+    case "memory":
+      return "memory";
+    case "cron":
+      return "wechat";
+    case "skill_autoupdate":
+      return "skill";
+    case "community":
+      return "community";
+    default:
+      return "email";
+  }
+};
+
+const getChannelName = (event: InboxEvent, t: TFunction): string => {
+  switch (event.source_type) {
+    case "heartbeat":
+      return "Heartbeat";
+    case "memory":
+      return "Memory";
+    case "cron":
+      return "Cron";
+    case "skill_autoupdate":
+      return isBuiltinAutoUpdateEvent(event)
+        ? t("skillPool.builtinAutoUpdate")
+        : t("skillPool.autoSync");
+    case "mail":
+      return "Mail";
+    case "community":
+      return t("communityFeedback.community");
+    default:
+      return "System";
+  }
+};
+
+export const mapEventToPushMessage = (
   event: InboxEvent,
   resolveAgentName: (agentId: string) => string,
-): PushMessage => ({
-  id: event.id,
-  channelType:
-    event.source_type === "heartbeat"
-      ? "heartbeat"
-      : event.source_type === "cron"
-      ? "wechat"
-      : "email",
-  channelName:
-    event.source_type === "heartbeat"
-      ? "Heartbeat"
-      : event.source_type === "cron"
-      ? "Cron"
-      : "System",
-  title: event.title,
-  content:
-    event.source_type === "heartbeat"
-      ? getHeartbeatSummary(event.status)
-      : stripExecutionTimeText(event.body),
-  sender: {
-    userId: event.agent_id || "default",
-    username: resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),
-  },
-  createdAt: new Date((event.created_at || Date.now() / 1000) * 1000),
-  read: Boolean(event.read),
-  metadata: {
-    priority:
-      event.severity === "error" || event.status === "error"
-        ? "high"
-        : mapPriority(event.body),
-    sourceType: event.source_type,
-    sourceId: event.source_id,
-    eventType: event.event_type,
-    status: event.status,
-    severity: event.severity,
-    trigger:
-      typeof event.payload?.trigger === "string"
-        ? (event.payload.trigger as string)
-        : undefined,
-    agentId: event.agent_id,
-    payload:
-      event.payload && typeof event.payload === "object"
-        ? event.payload
-        : undefined,
-  },
-});
+  t: TFunction,
+): PushMessage => {
+  const isCommunity = event.source_type === "community";
+  const communitySender =
+    isCommunity &&
+    event.payload?.sender &&
+    typeof event.payload.sender === "object"
+      ? (event.payload.sender as Record<string, unknown>)
+      : {};
+  const isSkillAutomation = event.source_type === "skill_autoupdate";
+  const isBuiltinUpdate = isSkillAutomation && isBuiltinAutoUpdateEvent(event);
+  let title = event.title;
+  let content = isCommunity ? event.body : stripExecutionTimeText(event.body);
+  if (event.source_type === "heartbeat") {
+    content = getHeartbeatSummary(event.status, t);
+  } else if (isBuiltinUpdate) {
+    title = t("inbox.skillBuiltinAutoUpdateTitle");
+    content = getBuiltinAutoUpdateSummary(event, t);
+  } else if (isSkillAutomation) {
+    title = t("inbox.skillAutoSyncTitle");
+    content = getSkillAutoSyncSummary(event, t);
+  }
 
-export const useInboxData = () => {
+  return {
+    id: event.id,
+    channelType: getChannelType(event.source_type),
+    channelName: getChannelName(event, t),
+    title,
+    content,
+    sender: {
+      userId: isCommunity
+        ? typeof communitySender.id === "string"
+          ? communitySender.id
+          : ""
+        : event.agent_id || "default",
+      username: isCommunity
+        ? typeof communitySender.name === "string" &&
+          communitySender.name.trim()
+          ? communitySender.name
+          : t("communityInbox.unknownSender")
+        : isSkillAutomation
+        ? t("inbox.skillPoolSender")
+        : resolveAgentName(event.agent_id || DEFAULT_AGENT_ID),
+      avatarUrl:
+        isCommunity &&
+        typeof communitySender.avatar_url === "string" &&
+        /^https:\/\//.test(communitySender.avatar_url)
+          ? communitySender.avatar_url
+          : undefined,
+    },
+    createdAt: new Date((event.created_at || Date.now() / 1000) * 1000),
+    read: Boolean(event.read),
+    metadata: {
+      priority:
+        event.severity === "error" || event.status === "error"
+          ? "high"
+          : mapPriority(event.body),
+      sourceType: event.source_type,
+      sourceId: event.source_id,
+      eventType: event.event_type,
+      status: event.status,
+      severity: event.severity,
+      trigger:
+        typeof event.payload?.trigger === "string"
+          ? (event.payload.trigger as string)
+          : undefined,
+      agentId: isCommunity ? undefined : event.agent_id,
+      payload:
+        event.payload && typeof event.payload === "object"
+          ? event.payload
+          : undefined,
+    },
+  };
+};
+
+export interface InboxDataOptions {
+  sourceType?: string;
+  agentId?: string;
+  page?: number;
+  pageSize?: number;
+  unreadOnly?: boolean;
+}
+
+export const useInboxData = ({
+  sourceType,
+  agentId,
+  page = 1,
+  pageSize = 20,
+  unreadOnly = false,
+}: InboxDataOptions = {}) => {
   const { t } = useTranslation();
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
@@ -110,6 +285,8 @@ export const useInboxData = () => {
   );
   const resolveAgentNameRef = useRef(resolveAgentName);
   resolveAgentNameRef.current = resolveAgentName;
+  const tRef = useRef(t);
+  tRef.current = t;
   const [summary, setSummary] = useState<InboxSummary>({
     approvals: { total: 0, urgent: 0 },
     pushMessages: { total: 0, unread: 0 },
@@ -119,140 +296,256 @@ export const useInboxData = () => {
     },
   });
   const [pushMessages, setPushMessages] = useState<PushMessage[]>([]);
+  const [pushMessagesLoading, setPushMessagesLoading] = useState(true);
+  const [pushMessagesError, setPushMessagesError] = useState<Error | null>(
+    null,
+  );
+  const pushMessagesRequestIdRef = useRef(0);
+  const pushMessagesRequestRef = useRef<Promise<void> | null>(null);
   const pushMessagesRef = useRef(pushMessages);
   pushMessagesRef.current = pushMessages;
   const [harvests] = useState<HarvestInstance[]>(MOCK_HARVESTS);
 
-  const loadPushMessages = useCallback(async () => {
-    try {
-      const res = await api.getInboxEvents({ limit: 200 });
-      const events = [...(res?.events || [])].filter((event) =>
-        ["cron", "heartbeat"].includes(event.source_type),
-      );
-      events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-      const nextItems: PushMessage[] = events.map((event) =>
-        mapEventToPushMessage(event, resolveAgentNameRef.current),
-      );
-      setPushMessages(nextItems);
-      setSummary((prev) => ({
-        ...prev,
-        pushMessages: {
-          total: nextItems.length,
-          unread: nextItems.filter((m) => !m.read).length,
-        },
-      }));
-    } catch (error) {
-      console.error("Failed to fetch push inbox data", error);
-    }
-  }, []);
+  const requestRef = useRef<AbortController | null>(null);
+  const readingIds = useRef(new Set<string>());
+  const effectiveAgentId = sourceType === "community" ? undefined : agentId;
+  const queryKey = JSON.stringify([
+    sourceType,
+    effectiveAgentId,
+    page,
+    pageSize,
+    unreadOnly,
+  ]);
+  const queryKeyRef = useRef(queryKey);
+  queryKeyRef.current = queryKey;
+
+  const loadPushMessages = useCallback(
+    (force = false): Promise<void> => {
+      if (!force && pushMessagesRequestRef.current) {
+        return pushMessagesRequestRef.current;
+      }
+      requestRef.current?.abort();
+      const controller = new AbortController();
+      requestRef.current = controller;
+      const requestId = ++pushMessagesRequestIdRef.current;
+      const isLatestRequest = () =>
+        !controller.signal.aborted &&
+        pushMessagesRequestIdRef.current === requestId;
+      setPushMessagesLoading(true);
+      const request = (async () => {
+        try {
+          const res = await api.getInboxEvents({
+            limit: pageSize,
+            offset: (Math.max(1, page) - 1) * pageSize,
+            source_types: sourceType ? [sourceType] : [...PUSH_MESSAGE_SOURCES],
+            agent_id: effectiveAgentId,
+            exclude_acl_pending: true,
+            unread_only: unreadOnly,
+            signal: controller.signal,
+          });
+          const events = [...(res?.events || [])].filter(
+            (event) =>
+              isPushMessageEvent(event) &&
+              // Pending-approval mail events are handled in the mail access
+              // control drawer; keep them out of the push message list.
+              (event.payload as Record<string, unknown> | undefined)
+                ?.acl_status !== "pending",
+          );
+          events.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+          const nextItems: PushMessage[] = events.map((event) =>
+            mapEventToPushMessage(
+              event,
+              resolveAgentNameRef.current,
+              tRef.current,
+            ),
+          );
+          if (!isLatestRequest()) return;
+          setPushMessages(nextItems);
+          setSummary((prev) => ({
+            ...prev,
+            pushMessages: {
+              total: res?.total ?? nextItems.length,
+              unread:
+                res?.unread_count ?? nextItems.filter((m) => !m.read).length,
+            },
+          }));
+          setPushMessagesError(
+            res?.source_errors?.community
+              ? new Error(res.source_errors.community)
+              : null,
+          );
+        } catch (error) {
+          if (!isLatestRequest()) return;
+          console.error("Failed to fetch push inbox data", error);
+          setPushMessagesError(
+            error instanceof Error
+              ? error
+              : new Error("Failed to fetch push inbox data"),
+          );
+        } finally {
+          if (isLatestRequest()) setPushMessagesLoading(false);
+        }
+      })();
+      pushMessagesRequestRef.current = request;
+      return request.finally(() => {
+        if (pushMessagesRequestRef.current === request) {
+          pushMessagesRequestRef.current = null;
+        }
+      });
+    },
+    [sourceType, effectiveAgentId, page, pageSize, unreadOnly],
+  );
+
+  const refreshPushMessages = useCallback(
+    () => loadPushMessages(true),
+    [loadPushMessages],
+  );
 
   useEffect(() => {
-    void loadPushMessages();
-
+    // A different query must not display messages from the previous account or
+    // source while it is loading. Poll failures retain the current query's data.
+    setPushMessages([]);
+    setPushMessagesError(null);
+    void loadPushMessages(true);
     let timer: number | null = null;
-
     const startPolling = () => {
-      if (timer) return;
-      timer = window.setInterval(() => {
-        void loadPushMessages();
-      }, PUSH_POLLING_INTERVAL_MS);
+      if (timer == null)
+        timer = window.setInterval(
+          () => void loadPushMessages(),
+          PUSH_POLLING_INTERVAL_MS,
+        );
     };
-
     const stopPolling = () => {
-      if (timer) {
+      if (timer != null) {
         window.clearInterval(timer);
         timer = null;
       }
     };
-
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         void loadPushMessages();
         startPolling();
-      } else {
-        stopPolling();
-      }
+      } else stopPolling();
     };
-
-    if (document.visibilityState === "visible") {
-      startPolling();
-    }
-
+    const onInboxChanged = (event: Event) => {
+      const change = (event as CustomEvent<InboxChange>).detail;
+      if (change?.clearSources?.length) {
+        setPushMessages((items) =>
+          items.filter(
+            (item) =>
+              !change.clearSources!.includes(item.metadata?.sourceType || ""),
+          ),
+        );
+        if (sourceType && change.clearSources.includes(sourceType))
+          setSummary((prev) => ({
+            ...prev,
+            pushMessages: { total: 0, unread: 0 },
+          }));
+      }
+      void loadPushMessages(true);
+    };
+    if (document.visibilityState === "visible") startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     return () => {
+      requestRef.current?.abort();
       stopPolling();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener(INBOX_CHANGED_EVENT, onInboxChanged);
     };
-  }, [loadPushMessages]);
+  }, [loadPushMessages, sourceType]);
 
   const markMessageAsRead = useCallback((messageId: string) => {
-    void api.markInboxRead({ event_ids: [messageId] });
-    setPushMessages((prev) =>
-      prev.map((message) =>
-        message.id === messageId ? { ...message, read: true } : message,
-      ),
+    const item = pushMessagesRef.current.find(
+      (message) => message.id === messageId,
     );
-    setSummary((prev) => ({
-      ...prev,
-      pushMessages: {
-        ...prev.pushMessages,
-        unread: Math.max(prev.pushMessages.unread - 1, 0),
-      },
-    }));
+    if (!item || item.read || readingIds.current.has(messageId)) return;
+    const targetQuery = queryKeyRef.current;
+    readingIds.current.add(messageId);
+    void api
+      .markInboxRead({ event_ids: [messageId] })
+      .then(() => {
+        if (queryKeyRef.current === targetQuery) {
+          setPushMessages((prev) =>
+            prev.map((message) =>
+              message.id === messageId ? { ...message, read: true } : message,
+            ),
+          );
+          setSummary((prev) => ({
+            ...prev,
+            pushMessages: {
+              ...prev.pushMessages,
+              unread: Math.max(0, prev.pushMessages.unread - 1),
+            },
+          }));
+        }
+        notifyInboxChanged({ readIds: [messageId] });
+      })
+      .catch((error) => {
+        setPushMessagesError(
+          error instanceof Error ? error : new Error(String(error)),
+        );
+      })
+      .finally(() => readingIds.current.delete(messageId));
   }, []);
 
   const markAllMessagesAsRead = useCallback(async (): Promise<number> => {
-    const unreadIds = pushMessagesRef.current
-      .filter((message) => !message.read)
-      .map((m) => m.id);
-    if (!unreadIds.length) {
-      return 0;
+    const targetQuery = queryKeyRef.current;
+    const unreadCount = summary.pushMessages.unread;
+    const result = await api.markInboxRead({
+      all: true,
+      ...(sourceType ? { source_types: [sourceType] } : {}),
+      ...(effectiveAgentId ? { agent_id: effectiveAgentId } : {}),
+    });
+    if (queryKeyRef.current === targetQuery) {
+      setPushMessages((prev) =>
+        prev.map((message) => ({ ...message, read: true })),
+      );
+      setSummary((prev) => ({
+        ...prev,
+        pushMessages: { ...prev.pushMessages, unread: 0 },
+      }));
     }
-    await api.markInboxRead({ all: true });
-    setPushMessages((prev) =>
-      prev.map((message) =>
-        message.read ? message : { ...message, read: true },
-      ),
-    );
-    setSummary((prev) => ({
-      ...prev,
-      pushMessages: {
-        ...prev.pushMessages,
-        unread: 0,
-      },
-    }));
-    return unreadIds.length;
-  }, []);
+    notifyInboxChanged({
+      readAll: true,
+      sourceTypes: sourceType ? [sourceType] : undefined,
+      agentId: effectiveAgentId,
+    });
+    return result?.updated ?? unreadCount;
+  }, [sourceType, effectiveAgentId, summary.pushMessages.unread]);
 
   const deleteMessages = useCallback(async (messageIds: string[]) => {
-    const ids = Array.from(
-      new Set(messageIds.map((id) => id.trim()).filter(Boolean)),
-    );
+    const targetQuery = queryKeyRef.current;
+    const ids = [...new Set(messageIds.map((id) => id.trim()).filter(Boolean))];
     if (!ids.length) return 0;
-    const idSet = new Set(ids);
-    await Promise.allSettled(ids.map((id) => api.deleteInboxEvent(id)));
-    let deleted = 0;
-    let unreadDeleted = 0;
-    setPushMessages((prev) => {
-      const remaining: PushMessage[] = [];
-      for (const message of prev) {
-        if (idSet.has(message.id)) {
-          deleted += 1;
-          if (!message.read) unreadDeleted += 1;
-          continue;
-        }
-        remaining.push(message);
-      }
-      return remaining;
-    });
-    setSummary((prev) => ({
-      ...prev,
-      pushMessages: {
-        total: Math.max(prev.pushMessages.total - deleted, 0),
-        unread: Math.max(prev.pushMessages.unread - unreadDeleted, 0),
-      },
-    }));
-    return deleted;
+    const results = await Promise.allSettled(
+      ids.map((id) => api.deleteInboxEvent(id)),
+    );
+    const deletedIds = ids.filter(
+      (_, index) => results[index].status === "fulfilled",
+    );
+    const idSet = new Set(deletedIds);
+    const unreadDeleted = pushMessagesRef.current.filter(
+      (message) => idSet.has(message.id) && !message.read,
+    ).length;
+    if (queryKeyRef.current === targetQuery) {
+      setPushMessages((prev) =>
+        prev.filter((message) => !idSet.has(message.id)),
+      );
+      setSummary((prev) => ({
+        ...prev,
+        pushMessages: {
+          total: Math.max(0, prev.pushMessages.total - deletedIds.length),
+          unread: Math.max(0, prev.pushMessages.unread - unreadDeleted),
+        },
+      }));
+    }
+    if (deletedIds.length !== ids.length)
+      setPushMessagesError(
+        new Error(tRef.current("communityInbox.deleteFailed")),
+      );
+    if (deletedIds.length) notifyInboxChanged({ deletedIds });
+    return deletedIds.length;
   }, []);
 
   const deleteMessage = useCallback(
@@ -268,13 +561,17 @@ export const useInboxData = () => {
 
   return {
     summary,
+    loading: pushMessagesLoading,
+    error: pushMessagesError?.message ?? null,
     pushMessages,
+    pushMessagesLoading,
+    pushMessagesError,
     harvests,
     markMessageAsRead,
     markAllMessagesAsRead,
     deleteMessage,
     deleteMessages,
     triggerHarvest,
-    refreshPushMessages: loadPushMessages,
+    refreshPushMessages,
   };
 };

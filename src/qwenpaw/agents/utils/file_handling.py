@@ -18,14 +18,62 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AgentRuntimeErrorException,
 )
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...utils.io_utils import (
+    get_path_lock,
+    make_dirs_async,
+    run_sync_io,
+    write_bytes_async,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def single_line_log_value(value: object) -> str:
+    """Render an external value without allowing forged log lines."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
+def decode_text_bytes_with_encoding_fallback(
+    data: bytes,
+    *,
+    file_name: object = "<bytes>",
+) -> str:
+    """Decode bytes with the historical fallback and newline behavior."""
+    encodings_to_try = [
+        "utf-8-sig",
+        "utf-8",
+        "gbk",
+        "cp936",
+        "cp1252",
+        "latin-1",
+    ]
+    for encoding in encodings_to_try:
+        try:
+            content = data.decode(encoding)
+            if encoding not in ("utf-8", "utf-8-sig"):
+                logger.debug(
+                    "File %s read with encoding: %s",
+                    single_line_log_value(file_name),
+                    encoding,
+                )
+            return content.replace("\r\n", "\n").replace("\r", "\n")
+        except (UnicodeDecodeError, LookupError):
+            continue
+
+    # latin-1 can decode every byte sequence, so this is defensive only.
+    content = data.decode("utf-8", errors="replace")
+    logger.warning(
+        "File %s read with UTF-8 errors='replace' fallback, "
+        "some characters may be corrupted",
+        single_line_log_value(file_name),
+    )
+    return content.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
@@ -58,48 +106,10 @@ def read_text_file_with_encoding_fallback(file_path: Path | str) -> str:
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
-    encodings_to_try = [
-        "utf-8-sig",  # UTF-8 with BOM - try first
-        "utf-8",
-        "gbk",  # Windows Chinese default
-        "cp936",  # Alias for GBK
-        "cp1252",  # Windows Western default
-        "latin-1",  # Fallback for Western text
-    ]
-
-    for encoding in encodings_to_try:
-        try:
-            with open(file_path, "r", encoding=encoding) as f:
-                content = f.read()
-                if encoding not in ("utf-8", "utf-8-sig"):
-                    logger.debug(
-                        "File %s read with encoding: %s",
-                        file_path.name,
-                        encoding,
-                    )
-                return content
-        except (UnicodeDecodeError, LookupError):
-            continue
-
-    # Final fallback: UTF-8 with error replacement
-    try:
-        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-            content = f.read()
-            logger.warning(
-                "File %s read with UTF-8 errors='replace' fallback, "
-                "some characters may be corrupted",
-                file_path.name,
-            )
-            return content
-    except Exception as e:
-        logger.error(
-            "File %s cannot be read even with fallback: %s",
-            file_path.name,
-            e,
-        )
-        raise IOError(
-            f"File {file_path.name} cannot be read even with fallback: {e}",
-        ) from e
+    return decode_text_bytes_with_encoding_fallback(
+        file_path.read_bytes(),
+        file_name=file_path.name,
+    )
 
 
 def _default_download_dir() -> str:
@@ -166,7 +176,11 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         )
         logger.debug("Downloaded file via wget to: %s", local_file_path)
         return
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as e:
         logger.debug("wget failed, trying curl: %s", e)
     try:
         subprocess.run(
@@ -177,7 +191,11 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         )
         logger.debug("Downloaded file via curl to: %s", local_file_path)
         return
-    except (subprocess.CalledProcessError, FileNotFoundError) as curl_err:
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ) as curl_err:
         logger.debug("curl failed, trying urllib: %s", curl_err)
     try:
         urllib.request.urlretrieve(url, str(local_file_path))
@@ -191,6 +209,52 @@ def _download_remote_to_path(url: str, local_file_path: Path) -> None:
         raise RuntimeError(
             "Failed to download file: wget, curl and urllib all failed",
         ) from urllib_err
+
+
+def _finish_remote_download(url: str, local_file_path: Path) -> Path:
+    """Download and validate one remote file in a worker thread."""
+    created = False
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    try:
+        fd = os.open(local_file_path, flags, 0o600)
+    except FileExistsError:
+        pass
+    else:
+        os.close(fd)
+        created = True
+
+    _download_remote_to_path(url, local_file_path)
+    if not local_file_path.exists():
+        raise FileNotFoundError("Downloaded file does not exist")
+    if local_file_path.stat().st_size == 0:
+        raise AgentRuntimeErrorException(
+            code="FILE_EMPTY",
+            message="Downloaded file is empty",
+        )
+    result_path = local_file_path
+    if local_file_path.suffix == ".file":
+        real_suffix = _guess_suffix_from_url_headers(url)
+        if not real_suffix:
+            real_suffix = _guess_suffix_from_file_content(local_file_path)
+        if real_suffix:
+            result_path = local_file_path.with_suffix(real_suffix)
+            local_file_path.rename(result_path)
+            logger.debug(
+                "Replaced .file with %s for %s",
+                real_suffix,
+                result_path,
+            )
+    if created:
+        result_path.chmod(0o644)
+    return result_path
+
+
+def _decode_base64(base64_data: str) -> tuple[bytes, str]:
+    """Decode base64 and calculate its fallback filename hash."""
+    content = base64.b64decode(base64_data)
+    return content, hashlib.md5(content).hexdigest()
 
 
 def _guess_suffix_from_url_headers(url: str) -> Optional[str]:
@@ -261,20 +325,25 @@ async def download_file_from_base64(
         The local file path.
     """
     try:
-        file_content = base64.b64decode(base64_data)
+        file_content, file_hash = await run_sync_io(
+            _decode_base64,
+            base64_data,
+        )
 
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        download_path.mkdir(parents=True, exist_ok=True)
+        await make_dirs_async(download_path)
 
         if not filename:
-            file_hash = hashlib.md5(file_content).hexdigest()
             filename = f"file_{file_hash}"
 
         local_file_path = download_path / filename
-        with open(local_file_path, "wb") as f:
-            f.write(file_content)
+        await write_bytes_async(
+            local_file_path,
+            file_content,
+            new_file_mode=0o644,
+        )
 
         logger.debug("Downloaded file to: %s", local_file_path)
         return str(local_file_path.absolute())
@@ -308,14 +377,14 @@ async def download_file_from_url(
     """
     try:
         parsed = urllib.parse.urlparse(url)
-        local = _resolve_local_path(url, parsed)
+        local = await run_sync_io(_resolve_local_path, url, parsed)
         if local is not None:
             return local
 
         download_path = Path(
             download_dir if download_dir else _default_download_dir(),
         )
-        download_path.mkdir(parents=True, exist_ok=True)
+        await make_dirs_async(download_path)
         if not filename:
             url_filename = os.path.basename(parsed.path)
             filename = (
@@ -324,29 +393,12 @@ async def download_file_from_url(
                 else f"file_{hashlib.md5(url.encode()).hexdigest()}"
             )
         local_file_path = download_path / filename
-        _download_remote_to_path(url, local_file_path)
-        if not local_file_path.exists():
-            raise FileNotFoundError("Downloaded file does not exist")
-        if local_file_path.stat().st_size == 0:
-            raise AgentRuntimeErrorException(
-                code="FILE_EMPTY",
-                message="Downloaded file is empty",
+        async with get_path_lock(local_file_path):
+            local_file_path = await run_sync_io(
+                _finish_remote_download,
+                url,
+                local_file_path,
             )
-        # DingTalk (and similar) return URLs that save as .file; replace with
-        # real extension. Try HEAD first; if that fails (e.g. OSS), use magic.
-        if local_file_path.suffix == ".file":
-            real_suffix = _guess_suffix_from_url_headers(url)
-            if not real_suffix:
-                real_suffix = _guess_suffix_from_file_content(local_file_path)
-            if real_suffix:
-                new_path = local_file_path.with_suffix(real_suffix)
-                local_file_path.rename(new_path)
-                local_file_path = new_path
-                logger.debug(
-                    "Replaced .file with %s for %s",
-                    real_suffix,
-                    local_file_path,
-                )
         return str(local_file_path.absolute())
     except subprocess.TimeoutExpired as e:
         logger.error("Download timeout for URL: %s", url)

@@ -11,6 +11,7 @@ export interface MarketProviderInfo {
 
 export interface MarketResult {
   source: string;
+  source_label?: string | null;
   slug: string;
   name: string;
   description: string | null;
@@ -58,9 +59,13 @@ export const marketApi = {
       `/market/categories?lang=${encodeURIComponent(lang)}`,
     ),
 
-  searchMarket: (payload: MarketSearchPayload) =>
+  searchMarket: (
+    payload: MarketSearchPayload,
+    options: { signal?: AbortSignal } = {},
+  ) =>
     request<MarketSearchResponse>("/market/search", {
       method: "POST",
       body: JSON.stringify(payload),
+      signal: options.signal,
     }),
 };

@@ -1,11 +1,11 @@
 import { memo } from "react";
 import { Button } from "@agentscope-ai/design";
 import {
-  DeleteOutlined,
-  DownloadOutlined,
-  PlayCircleOutlined,
-  StopOutlined,
-} from "@ant-design/icons";
+  Trash2 as DeleteOutlined,
+  Download as DownloadOutlined,
+  CirclePlay as PlayCircleOutlined,
+  Ban as StopOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { LocalModelInfo } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
@@ -43,10 +43,15 @@ export const LocalModelRow = memo(function LocalModelRow({
   const isStarting = startingModelName === model.id;
   const isDeleting = deletingModelName === model.id;
 
+  const displayName =
+    model.name === model.id
+      ? model.id.split("/").pop() || model.name
+      : model.name;
+
   return (
     <div className={styles.modelListItem}>
       <div className={styles.modelListItemInfo}>
-        <span className={styles.modelListItemName}>{model.name}</span>
+        <span className={styles.modelListItemName}>{displayName}</span>
         <span className={styles.modelListItemId}>
           {model.id} · {prettyBytes(model.size_bytes)}
         </span>
@@ -56,7 +61,7 @@ export const LocalModelRow = memo(function LocalModelRow({
           <Button
             type="primary"
             size="small"
-            icon={<DownloadOutlined />}
+            icon={<DownloadOutlined size="1em" />}
             onClick={() => onStartDownload(model)}
             disabled={isModelDownloading || isServerBusy}
           >
@@ -67,7 +72,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<StopOutlined />}
+              icon={<StopOutlined size="1em" />}
               loading={stoppingServer}
               onClick={onStopServer}
             >
@@ -76,7 +81,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               loading={isDeleting}
               disabled
               onClick={() => onDeleteModel(model)}
@@ -89,7 +94,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               type="primary"
               size="small"
-              icon={<PlayCircleOutlined />}
+              icon={<PlayCircleOutlined size="1em" />}
               loading={isStarting}
               onClick={() => onStartServer(model)}
               disabled={isServerBusy || isDeleting}
@@ -99,7 +104,7 @@ export const LocalModelRow = memo(function LocalModelRow({
             <Button
               danger
               size="small"
-              icon={<DeleteOutlined />}
+              icon={<DeleteOutlined size="1em" />}
               loading={isDeleting}
               onClick={() => onDeleteModel(model)}
               disabled={isDeleting || isServerBusy}

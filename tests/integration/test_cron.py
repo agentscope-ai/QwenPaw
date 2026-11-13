@@ -5,8 +5,9 @@ from __future__ import annotations
 import copy
 
 import pytest
+from helpers import default_http_timeout
 
-_CRON_HTTP_TIMEOUT = 30.0
+_CRON_HTTP_TIMEOUT = default_http_timeout(30.0)
 
 
 def _minimal_text_cron_spec(*, name: str) -> dict:

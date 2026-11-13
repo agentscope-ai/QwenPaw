@@ -2,28 +2,81 @@
 # flake8: noqa: E501
 # pylint: disable=line-too-long
 import os
+from codecs import BOM_UTF8
+from io import FileIO
 from pathlib import Path
 from typing import Optional
 
-import aiofiles
-from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import ToolChunk
 
 from .utils import (
-    truncate_text_output,
+    build_truncation_metadata,
+    read_file_native,
     read_file_safe,
+    replace_text_preserving_newlines,
+    truncate_text_output,
     DEFAULT_MAX_BYTES,
+    TRUNCATION_METADATA_KEY,
 )
 from ...config.context import (
-    get_current_workspace_dir,
+    get_all_project_dir_paths,
     get_current_recent_max_bytes,
+    get_tool_base_dir,
 )
-from ...constant import WORKING_DIR, TRUNCATION_NOTICE_MARKER
+from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import (
+    get_path_lock,
+    run_sync_io,
+    write_text_atomic_async,
+)
+
+_USER_FILE_MODE = 0o644
+
+
+def _path_to_file_url(path: str) -> str:
+    """Convert a local file path to a ``file://`` URL.
+
+    Does NOT percent-encode non-ASCII characters because agentscope's
+    DashScope formatter extracts the local path from the URL without
+    ``unquote()``, causing ``FileNotFoundError`` for files with
+    non-ASCII names (e.g. Chinese characters).
+    """
+    abs_path = os.path.abspath(path)
+    if os.name == "nt":
+        abs_path = abs_path.replace("\\", "/")
+
+    if os.name == "nt":
+        if abs_path.startswith("//"):
+            return f"file:{abs_path}"
+        return f"file:///{abs_path}"
+    return f"file://{abs_path}"
+
+
+def _effective_project_roots() -> list[Path]:
+    """Return the granted project roots for this turn, primary first.
+
+    Falls back to the tool base dir (project → workspace → WORKING_DIR)
+    when the per-turn list was never populated.
+    """
+    roots = get_all_project_dir_paths()
+    if roots:
+        return roots
+    return [get_tool_base_dir()]
 
 
 def _resolve_file_path(file_path: str) -> str:
-    """Resolve file path: use absolute path as-is,
-    resolve relative path from current workspace or WORKING_DIR.
+    """Resolve a tool-supplied file path against the project roots.
+
+    Relative paths resolve from the PRIMARY project directory (never an
+    extra root). Absolute paths are used as given.
+
+    Deliberately NOT a permission boundary: the tool layer only decides
+    what a path *means*, and a path outside the bound directories is not
+    an error here. Access is gated by the governance rules and the guard
+    chain (and, when enabled, the OS sandbox), which is where the user's
+    approval prompts come from. Enforcing containment here as well made
+    ordinary absolute-path edits fail that had always worked.
 
     Args:
         file_path: The input file path (absolute or relative).
@@ -34,53 +87,66 @@ def _resolve_file_path(file_path: str) -> str:
     path = Path(file_path).expanduser()
     if path.is_absolute():
         return str(path)
-    else:
-        # Use current workspace_dir from context, fallback to WORKING_DIR
-        workspace_dir = get_current_workspace_dir() or WORKING_DIR
-        return str(workspace_dir / file_path)
+    return str(_effective_project_roots()[0] / file_path)
 
 
 def _get_encoding_for_file(file_path: str) -> str:
-    """Determine the appropriate encoding for a file based on its type.
-
-    For cross-platform compatibility, especially with Windows Excel/Notepad:
-    - CSV/TSV/TXT files: Use UTF-8-BOM (Windows Excel needs BOM to detect UTF-8)
-    - All other files: Use UTF-8 (safer default, no BOM)
-
-    Args:
-        file_path: Path to the file
-
-    Returns:
-        Encoding string: "utf-8-sig" or "utf-8"
-    """
-    suffix = Path(file_path).suffix.lower()
-
-    # Files that need BOM for Windows compatibility
-    if suffix in {".csv", ".tsv", ".tab", ".txt", ".log"}:
-        return "utf-8-sig"
-
-    # Default: UTF-8 without BOM (safe for all other files)
-    # This includes: .sh, .yaml, .json, .py, .js, .md, etc.
-    return "utf-8"
+    """Preserve an existing BOM; default only new tabular files to BOM."""
+    try:
+        with FileIO(file_path) as handle:
+            has_bom = handle.read(len(BOM_UTF8)) == BOM_UTF8
+    except FileNotFoundError:
+        has_bom = Path(file_path).suffix.lower() in {
+            f".csv",
+            f".tsv",
+            f".tab",
+        }
+    return f"utf-8-sig" if has_bom else f"utf-8"
 
 
+def _append_file(file_path: str, content: str) -> None:
+    """Select encoding and append within one offloaded transaction."""
+    encoding = _get_encoding_for_file(file_path)
+    with open(file_path, f"a", encoding=encoding) as handle:
+        handle.write(content)
+
+
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="file_path",
+    policy_name="Read",
+    default_policy="allow",
+    policy_reason="Read-only file access (global)",
+    decision_model_local_read=True,
+    ui_description="Read file contents",
+    ui_icon="📄",
+)
+# Keep numeric strings in the public type: AgentScope validates the generated
+# schema before entering this function, where they are normalized to integers.
 async def read_file(  # pylint: disable=too-many-return-statements
     file_path: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
-) -> ToolResponse:
-    """Read a file. Relative paths resolve from WORKING_DIR.
+    start_line: Optional[int | str] = None,
+    end_line: Optional[int | str] = None,
+) -> ToolChunk:
+    """Read a text file. Relative paths resolve from the project directory.
 
     Use start_line/end_line to read a specific line range (output includes
-    line numbers). Omit both to read the full file.
+    line numbers). Omit both to read from the start. If output is truncated,
+    the tail says which start_line to resume from. Images, PDFs and other
+    binaries come back as unusable bytes rather than an error. Use view_image
+    for images.
 
     Args:
         file_path (`str`):
             Path to the file.
-        start_line (`int`, optional):
-            First line to read (1-based, inclusive).
-        end_line (`int`, optional):
-            Last line to read (1-based, inclusive).
+        start_line (`int | str`, optional):
+            First line to read (1-based, inclusive). Decimal strings are
+            accepted for tool-call compatibility.
+        end_line (`int | str`, optional):
+            Last line to read (1-based, inclusive). Decimal strings are
+            accepted for tool-call compatibility.
     """
 
     # Convert start_line/end_line to int if they are strings
@@ -88,7 +154,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         try:
             start_line = int(start_line)
         except (ValueError, TypeError):
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -101,7 +169,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         try:
             end_line = int(end_line)
         except (ValueError, TypeError):
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -111,26 +181,6 @@ async def read_file(  # pylint: disable=too-many-return-statements
             )
 
     file_path = _resolve_file_path(file_path)
-
-    if not os.path.exists(file_path):
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {file_path} does not exist.",
-                ),
-            ],
-        )
-
-    if not os.path.isfile(file_path):
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {file_path} is not a file.",
-                ),
-            ],
-        )
 
     try:
         content = await read_file_safe(file_path)
@@ -142,7 +192,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
         e = min(total, end_line if end_line is not None else total)
 
         if s > total:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -152,7 +204,9 @@ async def read_file(  # pylint: disable=too-many-return-statements
             )
 
         if s > e:
-            return ToolResponse(
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
                 content=[
                     TextBlock(
                         type="text",
@@ -166,37 +220,64 @@ async def read_file(  # pylint: disable=too-many-return-statements
 
         # Apply smart truncation (consistent with shell output format)
         max_bytes = get_current_recent_max_bytes() or DEFAULT_MAX_BYTES
-        text = truncate_text_output(
+        text, metadata = truncate_text_output(
             selected_content,
             start_line=s,
             total_lines=total,
             file_path=file_path,
+            file_size_bytes=len(content.encode("utf-8")),
             max_bytes=max_bytes,
         )
 
         # Add continuation hint if partial read without truncation.
-        # Use TRUNCATION_NOTICE_MARKER format so ToolResultCompactor can
-        # re-truncate with the correct start_line when compacting old messages.
+        # Use TRUNCATION_NOTICE_MARKER format so ToolResultPruningMiddleware can
+        # re-truncate with the correct start_line when pruning old messages.
         if text == selected_content and e < total:
             content_bytes = len(text.encode("utf-8"))
-            notice = (
-                TRUNCATION_NOTICE_MARKER + f"\nThe output above was truncated."
-                f"\nThe full content is saved to the file "
-                f"and contains {total} lines in total."
-                f"\nThis excerpt starts at line {s} and "
-                f"covers the next {content_bytes} bytes."
-                "\nIf the current content is not enough, "
-                f"call `read_file` with file_path={file_path} "
-                f"start_line={e + 1} to read more."
+            metadata = build_truncation_metadata(
+                file_path=file_path,
+                file_size_bytes=len(content.encode("utf-8")),
+                total_lines=total,
+                start_line=s,
+                max_bytes=content_bytes,
+                excerpt_bytes=content_bytes,
+                read_from=e + 1,
             )
-            text = text + notice
+            text += metadata[TRUNCATION_METADATA_KEY]["0"]["notice"]
 
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[TextBlock(type="text", text=text)],
+            metadata=metadata,
         )
 
+    except FileNotFoundError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The file {file_path} does not exist.",
+                ),
+            ],
+        )
+    except IsADirectoryError:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=f"Error: The path {file_path} is not a file.",
+                ),
+            ],
+        )
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -206,11 +287,22 @@ async def read_file(  # pylint: disable=too-many-return-statements
         )
 
 
+@tool_descriptor(
+    requires_sandbox=("file_write",),
+    async_execution=True,
+    tool_type="file",
+    target_param="file_path",
+    policy_name="Write",
+    ui_description="Write content to file",
+    ui_icon="✍️",
+)
 async def write_file(
     file_path: str,
     content: str,
-) -> ToolResponse:
-    """Create or overwrite a file. Relative paths resolve from WORKING_DIR.
+) -> ToolChunk:
+    """Create or overwrite a file. Relative paths resolve from the
+    project directory. New text files use UTF-8 without a BOM; new
+    CSV/TSV/TAB files use a BOM. Existing files retain their BOM state.
 
     Args:
         file_path (`str`):
@@ -220,7 +312,9 @@ async def write_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -230,12 +324,18 @@ async def write_file(
         )
 
     file_path = _resolve_file_path(file_path)
-    encoding = _get_encoding_for_file(file_path)
-
     try:
-        async with aiofiles.open(file_path, "w", encoding=encoding) as file:
-            await file.write(content)
-        return ToolResponse(
+        async with get_path_lock(file_path):
+            encoding = await run_sync_io(_get_encoding_for_file, file_path)
+            await write_text_atomic_async(
+                file_path,
+                content,
+                encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
+            )
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -244,7 +344,9 @@ async def write_file(
             ],
         )
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -255,13 +357,23 @@ async def write_file(
 
 
 # pylint: disable=too-many-return-statements
+@tool_descriptor(
+    requires_sandbox=("file_write",),
+    async_execution=True,
+    tool_type="file",
+    target_param="file_path",
+    policy_name="Edit",
+    ui_description="Edit file using find-and-replace",
+    ui_icon="🖊️",
+)
 async def edit_file(
     file_path: str,
     old_text: str,
     new_text: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Find-and-replace text in a file. All occurrences of old_text are
-    replaced with new_text. Relative paths resolve from WORKING_DIR.
+    replaced with new_text. Relative paths resolve from the project
+    directory.
 
     Args:
         file_path (`str`):
@@ -273,7 +385,9 @@ async def edit_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -284,60 +398,97 @@ async def edit_file(
 
     resolved_path = _resolve_file_path(file_path)
 
-    if not os.path.exists(resolved_path):
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The file {resolved_path} does not exist.",
-                ),
-            ],
-        )
+    async with get_path_lock(resolved_path):
+        try:
+            encoding = await run_sync_io(
+                _get_encoding_for_file,
+                resolved_path,
+            )
+            original = await read_file_native(resolved_path)
+        except FileNotFoundError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The file {resolved_path} "
+                            f"does not exist."
+                        ),
+                    ),
+                ],
+            )
+        except IsADirectoryError:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=(
+                            f"Error: The path {resolved_path} "
+                            f"is not a file."
+                        ),
+                    ),
+                ],
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Read file failed due to \n{e}",
+                    ),
+                ],
+            )
 
-    if not os.path.isfile(resolved_path):
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The path {resolved_path} is not a file.",
-                ),
-            ],
-        )
+        try:
+            # Match and per-line newline preservation are CPU-heavy.
+            # write_text_atomic_async already runs through run_sync_io.
+            new_content = await run_sync_io(
+                replace_text_preserving_newlines,
+                original,
+                old_text,
+                new_text,
+            )
+            if new_content is None:
+                return ToolChunk(
+                    is_last=True,
+                    state=ToolResultState.ERROR,
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=(
+                                "Error: The text to replace was "
+                                f"not found in {file_path}."
+                            ),
+                        ),
+                    ],
+                )
+            await write_text_atomic_async(
+                resolved_path,
+                new_content,
+                encoding=encoding,
+                new_file_mode=_USER_FILE_MODE,
+            )
+        except Exception as e:
+            return ToolChunk(
+                is_last=True,
+                state=ToolResultState.ERROR,
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=f"Error: Write file failed due to \n{e}",
+                    ),
+                ],
+            )
 
-    try:
-        content = await read_file_safe(resolved_path)
-    except Exception as e:
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: Read file failed due to \n{e}",
-                ),
-            ],
-        )
-
-    if old_text not in content:
-        return ToolResponse(
-            content=[
-                TextBlock(
-                    type="text",
-                    text=f"Error: The text to replace was not found in {file_path}.",
-                ),
-            ],
-        )
-
-    new_content = content.replace(old_text, new_text)
-    write_response = await write_file(
-        file_path=resolved_path,
-        content=new_content,
-    )
-
-    if write_response.content and len(write_response.content) > 0:
-        write_text = write_response.content[0].get("text", "")
-        if write_text.startswith("Error:"):
-            return write_response
-
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -347,10 +498,20 @@ async def edit_file(
     )
 
 
+@tool_descriptor(
+    requires_sandbox=("file_write",),
+    async_execution=True,
+    enabled_by_default=False,
+    tool_type="file",
+    target_param="file_path",
+    policy_name="Append",
+    ui_description="Append content to a file",
+    ui_icon="📎",
+)
 async def append_file(
     file_path: str,
     content: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Append content to the end of a file. Relative paths resolve from
     WORKING_DIR.
 
@@ -362,7 +523,9 @@ async def append_file(
     """
 
     if not file_path:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",
@@ -372,12 +535,12 @@ async def append_file(
         )
 
     file_path = _resolve_file_path(file_path)
-    encoding = _get_encoding_for_file(file_path)
-
     try:
-        async with aiofiles.open(file_path, "a", encoding=encoding) as file:
-            await file.write(content)
-        return ToolResponse(
+        async with get_path_lock(file_path):
+            await run_sync_io(_append_file, file_path, content)
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -386,7 +549,9 @@ async def append_file(
             ],
         )
     except Exception as e:
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.ERROR,
             content=[
                 TextBlock(
                     type="text",

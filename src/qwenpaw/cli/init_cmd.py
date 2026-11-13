@@ -3,6 +3,8 @@
 """CLI init: interactively create working_dir config.json and HEARTBEAT.md."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 from rich.console import Console
 from rich.panel import Panel
@@ -12,6 +14,8 @@ from .env_cmd import configure_env_interactive
 from .providers_cmd import configure_providers_interactive
 from .skills_cmd import configure_skills_interactive
 from .utils import prompt_confirm, prompt_choice
+from ..agents.skill_system import ensure_skill_pool_initialized
+from ..agents.utils import copy_md_files
 from ..config import (
     get_config_path,
     get_heartbeat_query_path,
@@ -67,6 +71,10 @@ We collect only:
 
 No personal data collected! No files, no credentials, no identifiable information.
 This helps us understand QwenPaw's usage environment and prioritize improvements.
+When an Agent executes (including scheduled tasks), daily telemetry sends
+these system fields, a persistent random Runtime UUID and the UTC date.
+Each Runtime counts once per active day. This uses the same telemetry choice;
+QWENPAW_TELEMETRY_DISABLED disables both installation and daily telemetry.
 """
 
 
@@ -116,6 +124,76 @@ DEFAULT_HEARTBEAT_MDS = {
 }
 
 
+def _sync_default_workspace_skills(
+    default_workspace: Path,
+    *,
+    enable_all: bool = False,
+) -> int:
+    """Download pool skills into the default workspace and enable some of them.
+
+    Returns the number of skills enabled.
+    """
+    from ..agents.skill_system import SkillPoolService, SkillService
+
+    pool = SkillPoolService()
+    service = SkillService(default_workspace)
+    prior_names = {skill.name for skill in service.list_all_skills()}
+    for skill in pool.list_all_skills():
+        pool.download_to_workspace(
+            skill.name,
+            default_workspace,
+            overwrite=False,
+        )
+    enabled = 0
+    for skill in service.list_all_skills():
+        if not enable_all and skill.name in prior_names:
+            # Preserve the user's existing enable/disable choice.
+            continue
+        result = service.enable_skill(skill.name)
+        if result.get("success"):
+            enabled += 1
+    return enabled
+
+
+def ensure_local_runtime_initialized() -> None:
+    """Initialize a Local Hub runtime once without resetting existing data."""
+    working_dir = get_config_path().parent
+    marker = working_dir / ".hub-initialized"
+    if marker.is_file():
+        return
+    if not get_config_path().is_file():
+        with click.Context(init_cmd) as context:
+            context.invoke(
+                init_cmd,
+                force=False,
+                use_defaults=True,
+                accept_security=True,
+            )
+    else:
+        config = load_config()
+        profile = config.agents.profiles.get("default")
+        workspace = (
+            Path(profile.workspace_dir).expanduser()
+            if profile is not None
+            else working_dir / "workspaces" / "default"
+        )
+        workspace.mkdir(parents=True, exist_ok=True)
+        ensure_skill_pool_initialized()
+        _sync_default_workspace_skills(workspace)
+        language = config.agents.language or "zh"
+        copy_md_files(language, skip_existing=True, workspace_dir=workspace)
+        heartbeat_path = get_heartbeat_query_path()
+        if not heartbeat_path.exists():
+            heartbeat_path.write_text(
+                DEFAULT_HEARTBEAT_MDS.get(
+                    language,
+                    DEFAULT_HEARTBEAT_MDS["zh"],
+                ).strip(),
+                encoding="utf-8",
+            )
+    marker.touch()
+
+
 @click.command("init")
 @click.option(
     "--force",
@@ -141,7 +219,6 @@ def init_cmd(
     accept_security: bool,
 ) -> None:
     """Create working dir with config.json and HEARTBEAT.md (interactive)."""
-    from pathlib import Path
     from ..app.migration import (
         ensure_default_agent_exists,
         ensure_qa_agent_exists,
@@ -204,8 +281,6 @@ def init_cmd(
     click.echo("✓ Builtin QA agent workspace ensured")
 
     # --- Ensure local skill hub exists ---
-    from ..agents.skill_system import ensure_skill_pool_initialized
-
     if ensure_skill_pool_initialized():
         click.echo("✓ Skill pool initialized")
 
@@ -360,28 +435,18 @@ def init_cmd(
 
     # --- skills (prompt if needed) ---
     if use_defaults:
-        # Using --defaults: download all pool skills into workspace, then enable
-        from ..agents.skill_system import (
-            SkillPoolService,
-            SkillService,
-        )
-
-        pool = SkillPoolService()
-        service = SkillService(default_workspace)
-        click.echo("Downloading pool skills into workspace...")
-        for skill in pool.list_all_skills():
-            pool.download_to_workspace(
-                skill.name,
-                default_workspace,
-                overwrite=False,
+        # Using --defaults: download all pool skills into workspace; enable only
+        # newly-added skills so re-running init never re-enables ones the user
+        # has disabled.
+        click.echo("Syncing pool skills into workspace...")
+        synced = _sync_default_workspace_skills(default_workspace)
+        if synced:
+            click.echo(f"✓ {synced} new skill(s) enabled.")
+        else:
+            click.echo(
+                "✓ Skills already up to date "
+                "(kept your enable/disable choices).",
             )
-        click.echo("Enabling all skills by default...")
-        synced = 0
-        for skill in service.list_all_skills():
-            result = service.enable_skill(skill.name)
-            if result.get("success"):
-                synced += 1
-        click.echo(f"✓ All {synced} skills enabled.")
     elif write_config:
         # Interactive mode and config was written: prompt user
         skills_choice = prompt_choice(
@@ -391,27 +456,13 @@ def init_cmd(
         )
 
         if skills_choice == "all":
-            from ..agents.skill_system import (
-                SkillPoolService,
-                SkillService,
+            # Explicit "all": honor it and enable every skill.
+            click.echo("Syncing pool skills into workspace...")
+            synced = _sync_default_workspace_skills(
+                default_workspace,
+                enable_all=True,
             )
-
-            pool = SkillPoolService()
-            service = SkillService(default_workspace)
-            click.echo("Downloading pool skills into workspace...")
-            for skill in pool.list_all_skills():
-                pool.download_to_workspace(
-                    skill.name,
-                    default_workspace,
-                    overwrite=False,
-                )
-            click.echo("Enabling all skills...")
-            synced = 0
-            for skill in service.list_all_skills():
-                result = service.enable_skill(skill.name)
-                if result.get("success"):
-                    synced += 1
-            click.echo(f"✓ Skills synced: {synced}")
+            click.echo(f"✓ {synced} skill(s) enabled.")
         elif skills_choice == "custom":
             configure_skills_interactive(
                 agent_id="default",
@@ -432,8 +483,6 @@ def init_cmd(
             click.echo("Skipped environment variable configuration.")
 
     # --- md files (check language change) ---
-    from ..agents.utils import copy_md_files
-
     config = load_config(config_path) if config_path.is_file() else Config()
     current_language = (
         config.agents.language or "zh"

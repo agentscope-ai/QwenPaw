@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from click.testing import CliRunner
@@ -62,6 +62,42 @@ def test_task_rejects_empty_instruction(monkeypatch) -> None:
         "empty" in result.output.lower()
         or "empty" in (result.stderr_bytes or b"").decode().lower()
     )
+
+
+def test_task_reports_missing_agent_without_traceback(monkeypatch) -> None:
+    from qwenpaw.exceptions import ConfigurationException
+
+    missing_agent = "missing-agent"
+
+    def _raise_missing_agent(agent_id: str) -> None:
+        raise ConfigurationException(
+            config_key="agent",
+            message=f"Agent '{agent_id}' not found in config",
+        )
+
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config",
+        _raise_missing_agent,
+    )
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "task",
+            "-i",
+            "hello",
+            "--agent-id",
+            missing_agent,
+        ],
+    )
+    output = result.output
+    if result.stderr_bytes:
+        output = f"{output}\n{result.stderr_bytes.decode()}"
+
+    assert result.exit_code == 1
+    assert "Error loading agent config" in output
+    assert f"Agent '{missing_agent}' not found in config" in output
+    assert "Traceback" not in output
 
 
 # ── --model flag ─────────────────────────────────────────────────────
@@ -221,68 +257,6 @@ def test_stdout_json_and_default_context(monkeypatch) -> None:
     assert "_headless_skills_dir" not in captured_ctx
 
 
-# ── ToolGuardMixin behavior ─────────────────────────────────────────
-
-
-class _FakeActingBase:
-    """Provides ``_acting`` that ToolGuardMixin.super() resolves to."""
-
-    def __init__(self):
-        self.acting_called = False
-
-    async def _acting(self, _tool_call):
-        self.acting_called = True
-        return {"output": "executed"}
-
-
-def _build_guarded_agent(request_context: dict):
-    from qwenpaw.agents.tool_guard_mixin import ToolGuardMixin
-
-    class _GuardInstance(ToolGuardMixin, _FakeActingBase):
-        pass
-
-    inst = _GuardInstance()
-    inst._request_context = dict(  # pylint: disable=protected-access
-        request_context,
-    )
-    return inst
-
-
-async def test_tool_guard_bypassed_via_request_context():
-    """_acting delegates directly to super when _headless_tool_guard=false."""
-    agent = _build_guarded_agent({"_headless_tool_guard": "false"})
-
-    tool_call = {"id": "tc_1", "name": "execute_shell_command", "input": {}}
-    result = await agent._acting(tool_call)  # pylint: disable=protected-access
-
-    assert agent.acting_called is True
-    assert result == {"output": "executed"}
-
-
-async def test_tool_guard_not_bypassed_without_flag():
-    """Without _headless_tool_guard, the mixin runs its guard logic."""
-    agent = _build_guarded_agent({"session_id": "s1"})
-
-    tool_call = {"id": "tc_2", "name": "execute_shell_command", "input": {}}
-    with patch(
-        "qwenpaw.security.tool_guard.engine.get_guard_engine",
-    ) as mock_engine_fn:
-        mock_engine = MagicMock()
-        mock_engine.enabled = True
-        mock_engine.is_denied.return_value = False
-        mock_engine.is_guarded.return_value = False
-        mock_engine.guard.return_value = None
-        mock_engine_fn.return_value = mock_engine
-
-        with patch("qwenpaw.app.approvals.get_approval_service"):
-            result = await agent._acting(  # pylint: disable=protected-access
-                tool_call,
-            )
-
-    assert agent.acting_called is True
-    assert result == {"output": "executed"}
-
-
 # ── Full CLI → request_context → component e2e ──────────────────────
 
 
@@ -375,9 +349,15 @@ def test_isolated_workspace_creates_overlay(tmp_path):
 
     skills_dir = tmp_path / "ext_skills"
     (skills_dir / "alpha").mkdir(parents=True)
-    (skills_dir / "alpha" / "SKILL.md").write_text("# alpha\n")
+    (skills_dir / "alpha" / "SKILL.md").write_text(
+        "---\nname: alpha\ndescription: Test alpha skill\n---\n# alpha\n",
+        encoding="utf-8",
+    )
     (skills_dir / "beta").mkdir(parents=True)
-    (skills_dir / "beta" / "SKILL.md").write_text("# beta\n")
+    (skills_dir / "beta" / "SKILL.md").write_text(
+        "---\nname: beta\ndescription: Test beta skill\n---\n# beta\n",
+        encoding="utf-8",
+    )
     (skills_dir / "not-a-skill").mkdir(parents=True)
 
     base_ws = tmp_path / "real_workspace"
@@ -438,3 +418,54 @@ def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):
         pass
 
     assert set(real_ws.iterdir()) == original_contents
+
+
+# ── _run_task ────────────────────────────────────────────────────────
+
+
+async def test_run_task_sends_a_valid_user_message(monkeypatch) -> None:
+    """``_run_task`` must build a message AgentScope 2.0 accepts.
+
+    ``Msg.content`` is typed ``list[ContentBlock]``, so a bare string
+    raises a pydantic ``ValidationError`` that the surrounding
+    ``except Exception`` turns into ``status="error"`` — the task never
+    reaches the agent.
+    """
+    from qwenpaw.config.config import AgentProfileConfig
+    from qwenpaw.cli.task_cmd import _run_task
+
+    captured: dict = {}
+
+    class _FakeAgent:
+        model = None
+
+        async def reply(self, msgs):
+            captured["msgs"] = list(msgs)
+            reply = MagicMock()
+            reply.get_text_content.return_value = "done"
+            return reply
+
+    class _FakeBuilder:
+        async def build(self, _ctx):
+            return _FakeAgent()
+
+    monkeypatch.setattr(
+        "qwenpaw.runtime.builder.AgentBuilder",
+        _FakeBuilder,
+    )
+
+    result = await _run_task(
+        instruction="do the thing",
+        agent_config=AgentProfileConfig(id="default", name="Default"),
+        request_context={},
+        max_iters=1,
+        timeout=30,
+        output_dir=None,
+    )
+
+    assert result["status"] == "success"
+    assert result["response"] == "done"
+    msg = captured["msgs"][0]
+    assert msg.role == "user"
+    assert msg.content[0].type == "text"
+    assert msg.content[0].text == "do the thing"

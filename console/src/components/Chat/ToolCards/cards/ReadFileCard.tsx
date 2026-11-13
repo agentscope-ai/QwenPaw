@@ -1,9 +1,14 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FileTextOutlined } from "@ant-design/icons";
+import { FileText as FileTextOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell, DefaultBlock } from "../shared";
-import { shortFileName, countLines } from "../shared/utils";
+import {
+  ToolCardShell,
+  DefaultBlock,
+  FileAttachmentPreview,
+  FilePreviewLink,
+} from "../shared";
+import { shortFileName, countLines, stringifyResult } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
 export interface ReadFileCardProps {
@@ -20,8 +25,19 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
   const file = shortFileName((params.file_path || params.path || "") as string);
   const title = file ? t("tool.readFile", { file }) : t("tool.readFileDefault");
 
-  const resultText = typeof content.result === "string" ? content.result : "";
-  const lineCount = countLines(content.result);
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FileTextOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
+
+  const resultText = stringifyResult(content.result);
+  const lineCount = countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (
@@ -34,10 +50,12 @@ const ReadFileCard: React.FC<ReadFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<FileTextOutlined />}
+      icon={<FileTextOutlined size="1em" />}
       title={title}
       badges={badge}
+      summaryAction={<FilePreviewLink content={content} />}
     >
+      <FileAttachmentPreview content={content} />
       {resultText && <DefaultBlock title="Output" content={resultText} />}
     </ToolCardShell>
   );

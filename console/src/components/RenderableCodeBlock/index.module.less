@@ -1,0 +1,232 @@
+.block {
+  margin: 14px 0;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-surface);
+  box-shadow: var(--app-shadow-md);
+}
+
+.header {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) auto minmax(72px, 1fr);
+  align-items: center;
+  min-height: 48px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-subtle);
+  backdrop-filter: blur(12px);
+}
+
+.sourceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 5px 10px 5px 14px;
+  border-bottom: 1px solid var(--app-border-subtle);
+  background: var(--app-surface-subtle);
+}
+
+.language {
+  overflow: hidden;
+  color: var(--app-text-secondary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-fill-faint);
+}
+
+.tab,
+.activeTab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  gap: 6px;
+  padding: 4px 11px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  transition:
+    color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.activeTab {
+  color: var(--app-accent-text);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.tab:hover {
+  color: var(--app-text);
+}
+
+.tab:focus-visible,
+.activeTab:focus-visible,
+.actions button:focus-visible {
+  outline: 2px solid var(--app-accent-border);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.actions button:hover {
+  color: var(--app-accent-text);
+  background: var(--app-accent-faint);
+}
+
+.panel {
+  min-width: 0;
+  overflow: auto;
+  background: var(--app-surface-sunken);
+}
+
+.panel :global(pre),
+.panel :global(code) {
+  background: transparent !important;
+}
+
+.latexPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 148px;
+  padding: 28px 24px;
+  overflow: auto hidden;
+  color: #17211e;
+  background: radial-gradient(
+      circle at 50% 0%,
+      rgba(243, 107, 33, 0.14),
+      transparent 50%
+    ),
+    #fffaf6;
+  font-size: 1.06em;
+}
+
+.latexPreview :global(.katex-display) {
+  margin: 0;
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  min-height: 110px;
+  gap: 12px;
+  padding: 24px;
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
+}
+
+.error div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.error strong {
+  font-size: 13px;
+}
+
+.error span {
+  overflow-wrap: anywhere;
+  color: var(--app-error-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+:global(.dark-mode) .latexPreview {
+  color: #e7efec;
+  background: radial-gradient(
+      circle at 50% 0%,
+      rgba(243, 107, 33, 0.18),
+      transparent 52%
+    ),
+    #17120f;
+}
+
+@media (max-width: 600px) {
+  .block {
+    margin: 10px 0;
+    border-radius: 10px;
+  }
+
+  .header {
+    grid-template-columns: 1fr auto;
+    min-height: 44px;
+    padding: 6px 8px 6px 12px;
+  }
+
+  .sourceHeader {
+    min-height: 42px;
+    padding-left: 12px;
+  }
+
+  .language {
+    display: none;
+  }
+
+  .tabs {
+    justify-self: start;
+  }
+
+  .tab,
+  .activeTab {
+    min-height: 28px;
+    padding: 3px 9px;
+  }
+
+  .latexPreview {
+    justify-content: flex-start;
+    min-height: 120px;
+    padding: 22px 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .activeTab,
+  .actions button {
+    transition: none;
+  }
+}

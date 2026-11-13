@@ -1,0 +1,440 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import type { MCPClientInfo } from "../../../api/types";
+
+const hoisted = vi.hoisted(() => {
+  const messageMock = {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+  };
+  const agentState = { selectedAgent: "agent-1", agents: [] };
+  const apiMocks = {
+    listMCPClients: vi.fn(),
+    createMCPClient: vi.fn(),
+    updateMCPClient: vi.fn(),
+    toggleMCPClient: vi.fn(),
+    deleteMCPClient: vi.fn(),
+    updateMCPPolicy: vi.fn(),
+  };
+  // A stable translation function so useCallback dependencies don't change on
+  // every render and trigger an infinite loadClients loop via useEffect.
+  const stableT = (k: string) => k;
+  return { messageMock, agentState, apiMocks, stableT };
+});
+
+vi.mock("../../../api", () => ({
+  __esModule: true,
+  default: hoisted.apiMocks,
+}));
+
+vi.mock("../../../stores/agentStore", () => ({
+  useAgentStore: Object.assign(() => hoisted.agentState, {
+    getState: () => hoisted.agentState,
+  }),
+}));
+
+vi.mock("../../../hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: hoisted.messageMock }),
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: hoisted.stableT }),
+}));
+
+import { useMCP } from "./useMCP";
+
+const { messageMock, agentState, apiMocks } = hoisted;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done;
+    reject = fail;
+  });
+  return { promise, reject, resolve };
+}
+
+function makeClient(overrides: Partial<MCPClientInfo> = {}): MCPClientInfo {
+  return {
+    key: "client-1",
+    name: "Client One",
+    description: "desc",
+    command: "cmd",
+    enabled: false,
+    transport: "stdio",
+    ...overrides,
+  } as MCPClientInfo;
+}
+
+describe("useMCP", () => {
+  beforeEach(() => {
+    agentState.selectedAgent = "agent-1";
+    vi.clearAllMocks();
+    apiMocks.listMCPClients.mockReset();
+    apiMocks.createMCPClient.mockReset();
+    apiMocks.updateMCPClient.mockReset();
+    apiMocks.toggleMCPClient.mockReset();
+    apiMocks.deleteMCPClient.mockReset();
+    apiMocks.updateMCPPolicy.mockReset();
+    messageMock.success.mockReset();
+    messageMock.error.mockReset();
+    messageMock.warning.mockReset();
+
+    apiMocks.listMCPClients.mockResolvedValue([]);
+  });
+
+  it("mounts and calls listMCPClients, sets clients, loading true->false", async () => {
+    const clients = [makeClient(), makeClient({ key: "client-2" })];
+    apiMocks.listMCPClients.mockResolvedValue(clients);
+
+    const { result } = renderHook(() => useMCP());
+
+    await waitFor(() => {
+      expect(result.current.clients).toEqual(clients);
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.ready).toBe(true);
+    expect(result.current.error).toBeNull();
+    expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(1);
+    expect(apiMocks.listMCPClients).toHaveBeenCalledWith("agent-1");
+  });
+
+  it("message.error('mcp.loadError') when loadClients fails", async () => {
+    apiMocks.listMCPClients.mockRejectedValue(new Error("network down"));
+
+    const { result } = renderHook(() => useMCP());
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+    expect(result.current.ready).toBe(false);
+    expect(result.current.error).toBe("mcp.loadError");
+    expect(messageMock.error).toHaveBeenCalledWith("mcp.loadError");
+  });
+
+  it("blocks every mutation until the initial load succeeds", async () => {
+    apiMocks.listMCPClients.mockRejectedValue(new Error("network down"));
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.error).toBe("mcp.loadError"));
+
+    await act(async () => {
+      expect(
+        await result.current.createClient("new", {
+          name: "New",
+          command: "run",
+        }),
+      ).toBe(false);
+      expect(
+        await result.current.updateClient("client-1", { name: "Changed" }),
+      ).toBe(false);
+      await result.current.toggleEnabled(makeClient());
+      await result.current.deleteClient(makeClient());
+      expect(
+        await result.current.updatePolicy("client-1", {
+          default_effect: "allow",
+          client_overrides: [],
+          tool_defaults: [],
+          tool_overrides: [],
+          unmanaged_rules_count: 0,
+        }),
+      ).toBe(false);
+    });
+
+    expect(apiMocks.createMCPClient).not.toHaveBeenCalled();
+    expect(apiMocks.updateMCPClient).not.toHaveBeenCalled();
+    expect(apiMocks.toggleMCPClient).not.toHaveBeenCalled();
+    expect(apiMocks.deleteMCPClient).not.toHaveBeenCalled();
+    expect(apiMocks.updateMCPPolicy).not.toHaveBeenCalled();
+  });
+
+  it("keeps loaded clients mutable when a refresh fails", async () => {
+    apiMocks.listMCPClients
+      .mockResolvedValueOnce([makeClient()])
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    apiMocks.updateMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    await act(async () => {
+      await result.current.refreshClients();
+    });
+    expect(result.current.clients).toEqual([makeClient()]);
+    expect(result.current.ready).toBe(true);
+    expect(result.current.error).toBe("mcp.loadError");
+
+    await act(async () => {
+      await result.current.updateClient("client-1", { name: "Renamed" });
+    });
+    expect(apiMocks.updateMCPClient).toHaveBeenCalledWith("client-1", {
+      name: "Renamed",
+    });
+  });
+
+  it.each(["resolve", "reject"] as const)(
+    "ignores a late %s from the previously selected agent",
+    async (settlement) => {
+      const agentA = deferred<MCPClientInfo[]>();
+      apiMocks.listMCPClients.mockImplementation((agentId: string) =>
+        agentId === "agent-a"
+          ? agentA.promise
+          : Promise.resolve([makeClient({ key: "client-b", name: "Agent B" })]),
+      );
+      agentState.selectedAgent = "agent-a";
+      const { result, rerender } = renderHook(() => useMCP());
+      await waitFor(() =>
+        expect(apiMocks.listMCPClients).toHaveBeenCalledWith("agent-a"),
+      );
+
+      agentState.selectedAgent = "agent-b";
+      rerender();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      expect(result.current.clients[0].name).toBe("Agent B");
+
+      await act(async () => {
+        if (settlement === "resolve") {
+          agentA.resolve([makeClient({ name: "Late Agent A" })]);
+          await agentA.promise;
+        } else {
+          agentA.reject(new Error("late Agent A failure"));
+          await agentA.promise.catch(() => undefined);
+        }
+      });
+      expect(result.current.clients[0].name).toBe("Agent B");
+      expect(result.current.error).toBeNull();
+      expect(apiMocks.listMCPClients).toHaveBeenCalledWith("agent-b");
+    },
+  );
+
+  it("blocks stale-agent mutations while the next agent is loading", async () => {
+    const agentB = deferred<MCPClientInfo[]>();
+    apiMocks.listMCPClients.mockImplementation((agentId: string) =>
+      agentId === "agent-b" ? agentB.promise : Promise.resolve([makeClient()]),
+    );
+    apiMocks.createMCPClient.mockResolvedValue(undefined);
+    const { result, rerender } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+
+    agentState.selectedAgent = "agent-b";
+    rerender();
+    await waitFor(() => expect(result.current.ready).toBe(false));
+
+    await act(async () => {
+      expect(
+        await result.current.createClient("stale", {
+          name: "Stale Agent A",
+          command: "run",
+        }),
+      ).toBe(false);
+    });
+    expect(apiMocks.createMCPClient).not.toHaveBeenCalled();
+
+    await act(async () => {
+      agentB.resolve([makeClient({ key: "client-b", name: "Agent B" })]);
+      await agentB.promise;
+    });
+    expect(result.current.ready).toBe(true);
+    expect(result.current.clients[0].name).toBe("Agent B");
+  });
+
+  it.each(
+    (["create", "update", "toggle", "delete", "policy"] as const).flatMap(
+      (operation) =>
+        (["resolve", "reject"] as const).map((settlement) => ({
+          operation,
+          settlement,
+        })),
+    ),
+  )(
+    "ignores a late $settlement from agent A's $operation mutation",
+    async ({ operation, settlement }) => {
+      const pendingMutation = deferred<unknown>();
+      const agentAClient = makeClient({ name: "Agent A", enabled: false });
+      const agentBClient = makeClient({ name: "Agent B", enabled: false });
+      apiMocks.listMCPClients.mockImplementation((agentId: string) =>
+        Promise.resolve(
+          agentId === "agent-a" ? [agentAClient] : [agentBClient],
+        ),
+      );
+      agentState.selectedAgent = "agent-a";
+      const { result, rerender } = renderHook(() => useMCP());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+
+      let mutation: Promise<unknown>;
+      if (operation === "create") {
+        apiMocks.createMCPClient.mockReturnValueOnce(pendingMutation.promise);
+        mutation = result.current.createClient("client-2", {
+          name: "Created by Agent A",
+          command: "run",
+        });
+      } else if (operation === "update") {
+        apiMocks.updateMCPClient.mockReturnValueOnce(pendingMutation.promise);
+        mutation = result.current.updateClient("client-1", {
+          name: "Renamed by Agent A",
+        });
+      } else if (operation === "toggle") {
+        apiMocks.toggleMCPClient.mockReturnValueOnce(pendingMutation.promise);
+        mutation = result.current.toggleEnabled(agentAClient);
+      } else if (operation === "delete") {
+        apiMocks.deleteMCPClient.mockReturnValueOnce(pendingMutation.promise);
+        mutation = result.current.deleteClient(agentAClient);
+      } else {
+        apiMocks.updateMCPPolicy.mockReturnValueOnce(pendingMutation.promise);
+        mutation = result.current.updatePolicy("client-1", {
+          default_effect: "allow",
+          client_overrides: [],
+          tool_defaults: [],
+          tool_overrides: [],
+          unmanaged_rules_count: 0,
+        });
+      }
+
+      agentState.selectedAgent = "agent-b";
+      rerender();
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      expect(result.current.clients).toEqual([agentBClient]);
+      expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(2);
+      vi.clearAllMocks();
+
+      let mutationResult: unknown;
+      await act(async () => {
+        if (settlement === "resolve") {
+          pendingMutation.resolve(undefined);
+        } else {
+          pendingMutation.reject(new Error("late Agent A mutation failure"));
+        }
+        mutationResult = await mutation;
+      });
+
+      expect(result.current.clients).toEqual([agentBClient]);
+      expect(result.current.error).toBeNull();
+      expect(messageMock.success).not.toHaveBeenCalled();
+      expect(messageMock.error).not.toHaveBeenCalled();
+      expect(apiMocks.listMCPClients).not.toHaveBeenCalled();
+      if (
+        operation === "create" ||
+        operation === "update" ||
+        operation === "policy"
+      ) {
+        expect(mutationResult).toBe(false);
+      }
+    },
+  );
+
+  it("createClient success: calls createMCPClient with client_key + client, message.success, returns true", async () => {
+    apiMocks.createMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let ret: boolean | undefined;
+    await act(async () => {
+      ret = await result.current.createClient("my-key", {
+        name: "My",
+        command: "run",
+      });
+    });
+
+    expect(apiMocks.createMCPClient).toHaveBeenCalledWith({
+      client_key: "my-key",
+      client: { name: "My", command: "run" },
+    });
+    expect(messageMock.success).toHaveBeenCalledWith("mcp.createSuccess");
+    expect(ret).toBe(true);
+  });
+
+  it("createClient failure with error.message: message.error receives error.message, returns false", async () => {
+    apiMocks.createMCPClient.mockRejectedValue(new Error("dup key"));
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let ret: boolean | undefined;
+    await act(async () => {
+      ret = await result.current.createClient("k", {
+        name: "N",
+        command: "c",
+      });
+    });
+
+    expect(messageMock.error).toHaveBeenCalledWith("dup key");
+    expect(ret).toBe(false);
+  });
+
+  it("createClient failure without error.message: message.error receives 'mcp.createError'", async () => {
+    apiMocks.createMCPClient.mockRejectedValue({});
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let ret: boolean | undefined;
+    await act(async () => {
+      ret = await result.current.createClient("k", {
+        name: "N",
+        command: "c",
+      });
+    });
+
+    expect(messageMock.error).toHaveBeenCalledWith("mcp.createError");
+    expect(ret).toBe(false);
+  });
+
+  it("updates the card silently without reloading the collection", async () => {
+    apiMocks.listMCPClients.mockResolvedValue([makeClient()]);
+    apiMocks.updateMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    let ret: boolean | undefined;
+    await act(async () => {
+      ret = await result.current.updateClient("client-1", { name: "Renamed" });
+    });
+
+    expect(apiMocks.updateMCPClient).toHaveBeenCalledWith("client-1", {
+      name: "Renamed",
+    });
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(1);
+    expect(result.current.clients[0].name).toBe("Renamed");
+    expect(ret).toBe(true);
+  });
+
+  it("toggles the card without remounting the collection", async () => {
+    apiMocks.listMCPClients.mockResolvedValue([makeClient({ enabled: true })]);
+    apiMocks.toggleMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.toggleEnabled(makeClient({ enabled: true }));
+    });
+
+    expect(apiMocks.toggleMCPClient).toHaveBeenCalledWith("client-1");
+    expect(messageMock.success).not.toHaveBeenCalled();
+    expect(apiMocks.listMCPClients).toHaveBeenCalledTimes(1);
+    expect(result.current.clients[0].enabled).toBe(false);
+  });
+
+  it("deleteClient success: message.success('mcp.deleteSuccess')", async () => {
+    apiMocks.deleteMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      await result.current.deleteClient(makeClient());
+    });
+
+    expect(apiMocks.deleteMCPClient).toHaveBeenCalledWith("client-1");
+    expect(messageMock.success).toHaveBeenCalledWith("mcp.deleteSuccess");
+  });
+});

@@ -16,7 +16,9 @@ export const SparkUpLine = makeIcon("SparkUpLine");
 export const SparkCopyLine = makeIcon("SparkCopyLine");
 export const SparkAttachmentLine = makeIcon("SparkAttachmentLine");
 export const SparkNewChatFill = makeIcon("SparkNewChatFill");
+export const SparkNewChatLine = makeIcon("SparkNewChatLine");
 export const SparkHistoryLine = makeIcon("SparkHistoryLine");
+export const SparkOperateLeftLine = makeIcon("SparkOperateLeftLine");
 export const SparkOperateRightLine = makeIcon("SparkOperateRightLine");
 export const SparkEditLine = makeIcon("SparkEditLine");
 export const SparkDeleteLine = makeIcon("SparkDeleteLine");
@@ -39,6 +41,17 @@ export const SparkChinese02Line = makeIcon("SparkChinese02Line");
 export const SparkEnglish02Line = makeIcon("SparkEnglish02Line");
 export const SparkJapanLine = makeIcon("SparkJapanLine");
 export const SparkRusLine = makeIcon("SparkRusLine");
+export const SparkPtLine = makeIcon("SparkPtLine");
 // Theme toggle icons
 export const SparkMoonLine = makeIcon("SparkMoonLine");
 export const SparkSunLine = makeIcon("SparkSunLine");
+export const SparkComputerLine = makeIcon("SparkComputerLine");
+// Sidebar nav icons
+export const SparkFile2Line = makeIcon("SparkFile2Line");
+// Community header / post menu icons
+export const SparkUserLine = makeIcon("SparkUserLine");
+export const SparkDocumentLine = makeIcon("SparkDocumentLine");
+export const SparkMagicNoteLine = makeIcon("SparkMagicNoteLine");
+export const SparkVisableLine = makeIcon("SparkVisableLine");
+export const SparkThumbsUpFill = makeIcon("SparkThumbsUpFill");
+export const SparkThumbsUpLine = makeIcon("SparkThumbsUpLine");

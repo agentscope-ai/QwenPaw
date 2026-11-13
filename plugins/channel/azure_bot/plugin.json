@@ -1,0 +1,19 @@
+{
+  "id": "azure-bot",
+  "name": "Azure Bot",
+  "version": "2.0.0",
+  "type": "channel",
+  "description": "Azure Bot Service channel (Bot Framework) integration for QwenPaw. Supports Teams, Slack, Web Chat and other Azure Bot channels.",
+  "description_i18n": {
+    "zh-CN": "Azure Bot Service（Bot Framework）消息频道，支持 Teams、Slack、Web Chat 等 Azure Bot 渠道。",
+    "en-US": "Azure Bot Service (Bot Framework) channel integration for QwenPaw. Supports Teams, Slack, Web Chat and other Azure Bot channels."
+  },
+  "author": "QwenPaw Team",
+  "entry": {
+    "descriptor": "channel.json"
+  },
+  "qwenpaw_version": {
+    "min": "2.2.2b4",
+    "max": "2.4.0"
+  }
+}

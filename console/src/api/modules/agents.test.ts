@@ -1,0 +1,219 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+vi.mock("../request", () => ({
+  request: vi.fn(),
+}));
+
+import { agentsApi } from "./agents";
+import { request } from "../request";
+
+describe("agentsApi", () => {
+  beforeEach(() => {
+    vi.mocked(request).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("listAgents calls GET /agents", async () => {
+    const data = { agents: [] };
+    vi.mocked(request).mockResolvedValue(data);
+    const result = await agentsApi.listAgents();
+    expect(request).toHaveBeenCalledWith("/agents");
+    expect(result).toEqual(data);
+  });
+
+  it("getAgent calls GET /agents/${id}", async () => {
+    const data = { name: "a1" } as any;
+    vi.mocked(request).mockResolvedValue(data);
+    const result = await agentsApi.getAgent("a1");
+    expect(request).toHaveBeenCalledWith("/agents/a1");
+    expect(result).toEqual(data);
+  });
+
+  it("createAgent sends POST /agents with JSON body", async () => {
+    const agent = { name: "new" } as any;
+    const ref = { agent_id: "x" } as any;
+    vi.mocked(request).mockResolvedValue(ref);
+    const result = await agentsApi.createAgent(agent);
+    expect(request).toHaveBeenCalledWith("/agents", {
+      method: "POST",
+      body: JSON.stringify(agent),
+    });
+    expect(result).toEqual(ref);
+  });
+
+  it("updateAgent sends PUT /agents/${id} with JSON body", async () => {
+    const agent = { name: "updated" } as any;
+    vi.mocked(request).mockResolvedValue(agent);
+    const result = await agentsApi.updateAgent("a1", agent);
+    expect(request).toHaveBeenCalledWith("/agents/a1", {
+      method: "PUT",
+      body: JSON.stringify(agent),
+    });
+    expect(result).toEqual(agent);
+  });
+
+  it("updateModelSettings sends a narrow PATCH request", async () => {
+    const settings = {
+      fallback_models: [{ provider_id: "openai", model: "fallback" }],
+      subagent_model: null,
+    };
+    vi.mocked(request).mockResolvedValue(settings);
+
+    const result = await agentsApi.updateModelSettings("a1", settings);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/model-settings", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+    expect(result).toEqual(settings);
+  });
+
+  it("updates third-party model settings from Chat", async () => {
+    await agentsApi.updateBackendSettings("a1", {
+      model: "gpt-test-codex",
+      reasoning_effort: "high",
+    });
+    expect(request).toHaveBeenCalledWith("/agents/a1/backend-settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        model: "gpt-test-codex",
+        reasoning_effort: "high",
+      }),
+    });
+  });
+
+  it("rebuildMemoryIndex sends POST with an extended timeout", async () => {
+    const resp = { status: "completed" } as const;
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.rebuildMemoryIndex("a1");
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=all",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
+    expect(result).toEqual(resp);
+  });
+
+  it("passes scoped reindex and supports undo", async () => {
+    await agentsApi.rebuildMemoryIndex("a1", "embedding");
+    expect(request).toHaveBeenCalledWith(
+      "/agents/a1/memory/reindex?scope=embedding",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+      },
+    );
+
+    await agentsApi.undoEmbeddingReindex("a1");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/memory/reindex/undo", {
+      method: "POST",
+    });
+  });
+
+  it("getMemoryStatus fetches structured ReMe status", async () => {
+    const status = {
+      components: {},
+      components_total: "0 B",
+      process_rss: "1.00 KiB",
+    };
+    vi.mocked(request).mockResolvedValue(status);
+
+    const result = await agentsApi.getMemoryStatus("a1");
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status");
+    expect(result).toEqual(status);
+  });
+
+  it("getMemoryStatus forwards a cancellation signal", async () => {
+    const controller = new AbortController();
+
+    await agentsApi.getMemoryStatus("a1", controller.signal);
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/status", {
+      signal: controller.signal,
+    });
+  });
+
+  it("getMemoryRuntimeStatus fetches lightweight runtime state", async () => {
+    const runtime = { reindexing: true } as any;
+    const controller = new AbortController();
+    vi.mocked(request).mockResolvedValue(runtime);
+
+    const result = await agentsApi.getMemoryRuntimeStatus(
+      "a1",
+      controller.signal,
+    );
+
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/runtime-status", {
+      signal: controller.signal,
+    });
+    expect(result).toEqual(runtime);
+  });
+
+  it("getMemoryGraph loads the indexed wikilink graph", async () => {
+    const graph = { version: 1, nodes: [], edges: [] } as const;
+    vi.mocked(request).mockResolvedValue(graph);
+    const result = await agentsApi.getMemoryGraph("a1");
+    expect(request).toHaveBeenCalledWith("/agents/a1/memory/graph");
+    expect(result).toEqual(graph);
+  });
+
+  it("encodes tag expressions without changing literal plus signs or Unicode", async () => {
+    const signal = new AbortController().signal;
+    await agentsApi.getMemoryTagFiles("a1", "C++ & 赵六", 2, signal);
+    const [path, options] = vi.mocked(request).mock.calls[0];
+    const url = new URL(path, "http://localhost");
+    expect(url.pathname).toBe("/agents/a1/memory/tag-files");
+    expect(url.searchParams.get("tag")).toBe("C++ & 赵六");
+    expect(url.searchParams.get("page")).toBe("2");
+    expect(options?.signal).toBe(signal);
+  });
+
+  it("deleteAgent sends DELETE /agents/${id}", async () => {
+    const resp = { success: true, agent_id: "a1" };
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.deleteAgent("a1");
+    expect(request).toHaveBeenCalledWith("/agents/a1", {
+      method: "DELETE",
+    });
+    expect(result).toEqual(resp);
+  });
+
+  it("reorderAgents sends PUT /agents/order with agent_ids", async () => {
+    const resp = { success: true, agent_ids: ["a", "b"] } as any;
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.reorderAgents(["a", "b"]);
+    expect(request).toHaveBeenCalledWith("/agents/order", {
+      method: "PUT",
+      body: JSON.stringify({ agent_ids: ["a", "b"] }),
+    });
+    expect(result).toEqual(resp);
+  });
+
+  it("toggleAgentEnabled sends PATCH with enabled flag", async () => {
+    const resp = { success: true, agent_id: "a1", enabled: true };
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.toggleAgentEnabled("a1", true);
+    expect(request).toHaveBeenCalledWith("/agents/a1/toggle", {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(result).toEqual(resp);
+  });
+
+  it("setAgentPinned sends PATCH with pinned flag", async () => {
+    const resp = { success: true, agent_id: "a1", pinned: true };
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await agentsApi.setAgentPinned("a1", true);
+    expect(request).toHaveBeenCalledWith("/agents/a1/pin", {
+      method: "PATCH",
+      body: JSON.stringify({ pinned: true }),
+    });
+    expect(result).toEqual(resp);
+  });
+});

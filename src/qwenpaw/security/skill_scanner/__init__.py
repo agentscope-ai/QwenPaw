@@ -49,6 +49,7 @@ from .models import (
 )
 from .scan_policy import ScanPolicy
 from ...constant import EnvVarLoader
+from ...exceptions import SkillScanError
 from .analyzers import BaseAnalyzer
 from .analyzers.pattern_analyzer import PatternAnalyzer
 from .scanner import SkillScanner
@@ -391,34 +392,6 @@ def _store_cached_result(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-
-
-def _format_finding_location(f: Finding) -> str:
-    if f.line_number is not None:
-        return f"({f.file_path}:{f.line_number})"
-    return f"({f.file_path})"
-
-
-class SkillScanError(Exception):
-    """Raised when a skill fails a security scan and blocking is enabled."""
-
-    def __init__(self, result: ScanResult) -> None:
-        self.result = result
-        findings_summary = "; ".join(
-            f"[{f.severity.value}] {f.title} " f"{_format_finding_location(f)}"
-            for f in result.findings[:5]
-        )
-        truncated = (
-            f" (and {len(result.findings) - 5} more)"
-            if len(result.findings) > 5
-            else ""
-        )
-        super().__init__(
-            f"Security scan of skill '{result.skill_name}' found "
-            f"{len(result.findings)} issue(s) "
-            f"(max severity: {result.max_severity.value}): "
-            f"{findings_summary}{truncated}",
-        )
 
 
 def scan_skill_directory(

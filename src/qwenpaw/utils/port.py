@@ -76,6 +76,7 @@ def try_bind_port(host: str, port: int) -> socket.socket | None:
     port is unavailable.  The caller is responsible for closing the
     socket (or passing it to a server that will).
     """
+    sock: socket.socket | None = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         if sys.platform == "win32":
@@ -83,13 +84,15 @@ def try_bind_port(host: str, port: int) -> socket.socket | None:
         else:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, port))
-        sock.listen(1)
+        # Match Uvicorn: Windows ignores backlog changes after first listen.
+        sock.listen(2048)
         return sock
     except OSError:
-        try:
-            sock.close()
-        except OSError:
-            pass
+        if sock is not None:
+            try:
+                sock.close()
+            except OSError:
+                pass
         return None
 
 

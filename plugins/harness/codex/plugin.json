@@ -1,0 +1,38 @@
+{
+  "id": "qwenpaw-harness-codex",
+  "name": "Codex Harness",
+  "version": "1.0.0",
+  "description": "Optional Codex app-server backend",
+  "author": "QwenPaw Team",
+  "type": "general",
+  "entry": {
+    "backend": "main.py",
+    "frontend": "frontend/dist/index.js"
+  },
+  "qwenpaw_version": {
+    "min": "2.3.0b1"
+  },
+  "sdk": {
+    "version": "1.1.0",
+    "capabilities": [
+      "harnesses"
+    ]
+  },
+  "meta": {
+    "harnesses": [
+      {
+        "id": "codex",
+        "label": "Codex"
+      }
+    ]
+  },
+  "pack_exclude": [
+    "tests",
+    "requirements-test.txt",
+    "frontend/src",
+    "frontend/package.json",
+    "frontend/package-lock.json",
+    "frontend/tsconfig.json",
+    "frontend/vite.config.ts"
+  ]
+}

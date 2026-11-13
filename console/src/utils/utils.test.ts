@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getAgentDisplayName } from "./agentDisplayName";
-import { stripFrontmatter } from "./markdown";
+import { parseMarkdownFrontmatter, stripFrontmatter } from "./markdown";
 
 // ---------------------------------------------------------------------------
 // getAgentDisplayName
@@ -78,5 +78,40 @@ describe("stripFrontmatter", () => {
   it("handles Windows line endings \\r\\n", () => {
     const input = "---\r\ntitle: Test\r\n---\r\n# Hello";
     expect(stripFrontmatter(input)).toBe("# Hello");
+  });
+});
+
+describe("parseMarkdownFrontmatter", () => {
+  it("preserves block lists and nested metadata values", () => {
+    const input = [
+      "---",
+      "memory_tags:",
+      "- 赵六",
+      "- 上海示例科技有限公司",
+      "source:",
+      "  path: memory/note.md",
+      "---",
+      "## Body",
+    ].join("\n");
+    expect(parseMarkdownFrontmatter(input)).toEqual({
+      body: "## Body",
+      entries: [
+        { key: "memory_tags", value: "- 赵六\n- 上海示例科技有限公司" },
+        { key: "source", value: "path: memory/note.md" },
+      ],
+    });
+  });
+
+  it("returns ordered metadata entries and the Markdown body", () => {
+    const input =
+      "---\ndescription: Memory Search: query guidance\nname: memory-search\n---\n## Body";
+
+    expect(parseMarkdownFrontmatter(input)).toEqual({
+      body: "## Body",
+      entries: [
+        { key: "description", value: "Memory Search: query guidance" },
+        { key: "name", value: "memory-search" },
+      ],
+    });
   });
 });

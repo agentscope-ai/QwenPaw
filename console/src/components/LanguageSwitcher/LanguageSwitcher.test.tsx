@@ -22,7 +22,7 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("@/api/modules/language", () => ({
-  languageApi: { updateLanguage: mockUpdateLanguage },
+  settingsApi: { updateLanguage: mockUpdateLanguage },
 }));
 
 vi.mock("@agentscope-ai/design", () => ({
@@ -55,12 +55,15 @@ describe("LanguageSwitcher", () => {
     expect(screen.getByRole("button")).toBeInTheDocument();
   });
 
-  it("shows 4 language options", () => {
+  it("shows all supported language options", () => {
     renderWithProviders(<LanguageSwitcher />);
     expect(screen.getByText("English")).toBeInTheDocument();
     expect(screen.getByText("简体中文")).toBeInTheDocument();
     expect(screen.getByText("日本語")).toBeInTheDocument();
     expect(screen.getByText("Русский")).toBeInTheDocument();
+    expect(screen.getByText("Português (Brasil)")).toBeInTheDocument();
+    expect(screen.getByText("Bahasa Indonesia")).toBeInTheDocument();
+    expect(screen.getByText("Tiếng Việt")).toBeInTheDocument();
   });
 
   it("calls i18n.changeLanguage when a language option is clicked", async () => {
@@ -77,7 +80,7 @@ describe("LanguageSwitcher", () => {
     expect(localStorage.getItem("language")).toBe("ja");
   });
 
-  it("calls languageApi.updateLanguage after switching language", async () => {
+  it("calls settingsApi.updateLanguage after switching language", async () => {
     const user = userEvent.setup();
     renderWithProviders(<LanguageSwitcher />);
     await user.click(screen.getByText("English"));

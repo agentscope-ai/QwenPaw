@@ -24,6 +24,17 @@
   description: "Shell command contains 'rm' which may cause data loss"
   remediation: "Confirm with the user before removing files or directories"
 
+# ── find -delete: bypasses rm detection ───────────────────────────────
+- id: TOOL_CMD_FIND_DELETE
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "\\bfind\\b\\s+.*\\s-delete\\b"
+  description: "Shell command contains 'find ... -delete' which may cause data loss"
+  remediation: "Confirm with the user before deleting files with find -delete"
+
 # ── mv: file / directory move / rename ────────────────────────────────
 - id: TOOL_CMD_DANGEROUS_MV
   tools: [execute_shell_command]

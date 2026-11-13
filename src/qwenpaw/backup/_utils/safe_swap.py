@@ -59,6 +59,7 @@ from ._mount_swap import (
 
 logger = logging.getLogger(__name__)
 
+
 _RESTORE_TMP_SUFFIX = ".restore_tmp"
 _RESTORE_OLD_SUFFIX = ".restore_old"
 _RESTORE_LOCK_FILE = ".qwenpaw_restore.lock"
@@ -99,13 +100,15 @@ def _acquire_file_lock(handle: BinaryIO, lock_path: Path) -> None:
     if os.name == "nt":
         import msvcrt
 
-        handle.seek(0)
-        if handle.read(_LOCK_REGION_SIZE) == b"":
-            handle.write(b"\0")
-            handle.flush()
-        handle.seek(0)
         while time.monotonic() < deadline:
             try:
+                st = os.fstat(handle.fileno())
+                if st.st_size == 0:
+                    handle.seek(0)
+                    handle.write(b"\0")
+                    handle.flush()
+
+                handle.seek(0)
                 msvcrt.locking(
                     handle.fileno(),
                     msvcrt.LK_NBLCK,
@@ -353,16 +356,13 @@ def _swap_directories(dst: Path, tmp_dst: Path, old_dst: Path) -> None:
             try:
                 old_dst.rename(dst)
                 logger.warning(
-                    "Rolled back %s rename after failed commit; "
-                    "original data restored from %s",
-                    dst,
-                    old_dst,
+                    "Rolled back rename after failed commit; "
+                    "original data restored",
                 )
             except OSError:
-                logger.exception(
-                    "Rollback of %s failed — original data is in %s",
-                    dst,
-                    old_dst,
+                logger.error(
+                    "Rollback failed; original data remains in the "
+                    "restore_old directory",
                 )
         raise
 
@@ -399,10 +399,7 @@ def assert_directory_renamable(dst: Path) -> None:
                 try:
                     probe.rename(dst)
                 except OSError:
-                    logger.exception(
-                        "Failed to restore %s after rename probe",
-                        dst,
-                    )
+                    logger.error("Failed to restore after rename probe")
             raise
 
 
@@ -471,6 +468,7 @@ def extract_to_tmp(
     dst: Path,
     *,
     zip_slip_base: Path | None = None,
+    dir_mode: int | None = None,
 ) -> Path:
     """Phase 1 only: extract ZIP entries with *prefix* into a sibling
     ``.restore_tmp`` directory and return its path.
@@ -479,6 +477,9 @@ def extract_to_tmp(
     :func:`discard_tmp` to roll it back.
 
     *zip_slip_base* defaults to *dst* and is used for the Zip Slip guard.
+
+    *dir_mode*, when set, is used when creating the staging directory so it
+    is never exposed with process-default permissions.
     """
     if zip_slip_base is None:
         zip_slip_base = dst
@@ -488,7 +489,10 @@ def extract_to_tmp(
         tmp_dst = dst.with_name(dst.name + _RESTORE_TMP_SUFFIX)
         if tmp_dst.exists():
             shutil.rmtree(tmp_dst)
-        tmp_dst.mkdir(parents=True, exist_ok=True)
+        if dir_mode is None:
+            tmp_dst.mkdir(parents=True, exist_ok=True)
+        else:
+            tmp_dst.mkdir(mode=dir_mode, parents=True, exist_ok=True)
 
         _extract_zip_to(zf, prefix, tmp_dst, base_resolved)
         return tmp_dst

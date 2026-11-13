@@ -15,21 +15,31 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from typing import Optional
+from urllib.parse import unquote
 
 from fastapi import Request, Response
+from starlette.requests import HTTPConnection
+from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..constant import SECRET_DIR, EnvVarLoader
+from ..plugins.browser_access import (
+    PAWAPP_SCOPE_HEADER,
+    browser_read_allowed,
+)
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -38,6 +48,20 @@ from ..security.secret_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+_RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
+_RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
+
+
+def runtime_token_matches(expected: str, supplied: str) -> bool:
+    """Compare runtime tokens without accepting malformed or empty values."""
+    return (
+        bool(expected)
+        and expected.isascii()
+        and supplied.isascii()
+        and (hmac.compare_digest(expected, supplied))
+    )
+
 
 AUTH_FILE = SECRET_DIR / "auth.json"
 
@@ -53,6 +77,9 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/login",
         "/api/auth/status",
         "/api/auth/register",
+        "/api/runtime/shutdown",
+        "/api/runtime/connect",
+        "/api/runtime/clients",
         "/api/version",
         "/api/settings/language",
         "/api/settings/upload-limit",
@@ -564,27 +591,62 @@ def revoke_all_tokens() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# FastAPI middleware
+# FastAPI middleware — client IP resolution with trusted proxy verification
 # ---------------------------------------------------------------------------
 
+_LOOPBACK = frozenset({"127.0.0.1", "::1"})
+_BRACKETED = re.compile(r"^\[([^\]]+)\](?::\d+)?$")
+_V4_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
 
-def _resolve_client_ip(request: Request) -> str:
-    """Return the real client IP, respecting reverse-proxy headers."""
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip", "")
-    if real_ip:
-        return real_ip.strip()
-    return request.client.host if request.client else ""
+_MAX_WARN_IPS = 1024
+_warned_untrusted_ips: set[str] = set()
+
+
+def _normalize_ip(raw: str) -> str | None:
+    """Strip brackets, port, zone-id and validate. None on failure."""
+    if not raw:
+        return None
+    s = raw.strip()
+    m = _BRACKETED.match(s) or _V4_PORT.match(s)
+    if m:
+        s = m.group(1)
+    if "%" in s:
+        s = s.split("%", 1)[0]
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        return None
+
+
+def _parse_networks(entries: list[str]) -> list:
+    """Parse CIDR/IP strings into network objects."""
+    nets = []
+    for entry in entries:
+        try:
+            nets.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            continue
+    return nets
+
+
+def _ip_in_networks(ip_str: str, networks: list) -> bool:
+    """Check if a normalized IP string falls within any network."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for net in networks:
+        if addr.version == net.version and addr in net:
+            return True
+    return False
 
 
 # Cached config for hot-path auth checks (avoids disk read per request)
-_auth_config_cache: tuple = (0, None)  # (mtime_ns, config)
+_auth_config_cache: tuple = (0, None, [])
 
 
 def _get_config_cached():
-    """Return config with mtime-based cache (stat is ~1us vs read ~1ms)."""
+    """Return (config, trusted_networks) with mtime-based cache."""
     global _auth_config_cache  # noqa: PLW0603
     from ..config import load_config
     from ..config.utils import get_config_path
@@ -595,26 +657,138 @@ def _get_config_cached():
     except OSError:
         mtime_ns = 0
     if mtime_ns != _auth_config_cache[0] or _auth_config_cache[1] is None:
-        _auth_config_cache = (mtime_ns, load_config())
-    return _auth_config_cache[1]
+        cfg = load_config()
+        nets = _parse_networks(cfg.security.trusted_proxies)
+        _auth_config_cache = (mtime_ns, cfg, nets)
+    return _auth_config_cache[1], _auth_config_cache[2]
+
+
+def _resolve_client_ip(request: Request) -> str:
+    """Return the real client IP.
+
+    Only trusts proxy headers when the direct TCP peer is in
+    trusted_proxies. XFF is parsed right-to-left, skipping
+    trusted IPs.
+    """
+    direct_raw = request.client.host if request.client else ""
+    direct_ip = _normalize_ip(direct_raw) or direct_raw
+
+    _cfg, networks = _get_config_cached()
+    if not networks or not _ip_in_networks(direct_ip, networks):
+        # Log once per untrusted source to avoid flooding
+        has_proxy_hdr = request.headers.get(
+            "x-forwarded-for",
+        ) or request.headers.get("x-real-ip")
+        if (
+            has_proxy_hdr
+            and direct_ip not in _warned_untrusted_ips
+            and len(_warned_untrusted_ips) < _MAX_WARN_IPS
+        ):
+            _warned_untrusted_ips.add(direct_ip)
+            logger.warning(
+                "Ignoring proxy headers from untrusted source"
+                " %s (add to security.trusted_proxies if"
+                " legitimate)",
+                direct_ip,
+            )
+        return direct_ip
+
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        for token in reversed(xff.split(",")):
+            norm = _normalize_ip(token)
+            if norm is None:
+                break
+            if not _ip_in_networks(norm, networks):
+                return norm
+
+    real_ip = _normalize_ip(
+        request.headers.get("x-real-ip", ""),
+    )
+    return real_ip or direct_ip
+
+
+resolve_client_ip = _resolve_client_ip
+
+
+def is_loopback_ip(value: str) -> bool:
+    """Return whether an address is a loopback IP or localhost."""
+    return value == "localhost" or (_normalize_ip(value) in _LOOPBACK)
+
+
+def is_trusted_proxy(request: HTTPConnection) -> bool:
+    """Return whether the direct peer is an explicitly trusted proxy."""
+    peer = request.client.host if request.client else ""
+    _cfg, networks = _get_config_cached()
+    return bool(
+        networks and _ip_in_networks(_normalize_ip(peer) or peer, networks),
+    )
+
+
+class TrustedProxySchemeMiddleware:
+    """Restore the external scheme without changing the direct TCP peer."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        forwarded_proto = [
+            value
+            for key, value in scope.get("headers", [])
+            if key.lower() == b"x-forwarded-proto"
+        ]
+        if not forwarded_proto or not is_trusted_proxy(HTTPConnection(scope)):
+            await self.app(scope, receive, send)
+            return
+
+        schemes = {b"http": "http", b"https": "https"}
+        if scope["type"] == "websocket":
+            schemes = {
+                b"http": "ws",
+                b"https": "wss",
+                b"ws": "ws",
+                b"wss": "wss",
+            }
+        scheme = (
+            schemes.get(forwarded_proto[0].strip(b" \t").lower())
+            if len(forwarded_proto) == 1
+            else None
+        )
+        if scheme is None:
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+            else:
+                response = Response(
+                    content='{"detail":"Invalid X-Forwarded-Proto"}',
+                    status_code=400,
+                    media_type="application/json",
+                )
+                await response(scope, receive, send)
+            return
+
+        scope = dict(scope, scheme=scheme)
+        await self.app(scope, receive, send)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next,
-    ) -> Response:
-        """Check Bearer token on protected API routes; skip public paths."""
+    async def dispatch(self, request: Request, call_next):
         if self._should_skip_auth(request):
             return await call_next(request)
 
         token = self._extract_token(request)
         if not token:
             return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
+                content='{"detail":"Not authenticated"}',
                 status_code=401,
                 media_type="application/json",
             )
@@ -622,9 +796,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         user = verify_token(token)
         if user is None:
             return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
+                content='{"detail":"Invalid or expired token"}',
                 status_code=401,
                 media_type="application/json",
             )
@@ -633,41 +805,113 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
     @staticmethod
-    def _should_skip_auth(request: Request) -> bool:
-        """Return ``True`` when the request does not require auth."""
+    def _should_skip_auth(  # pylint: disable=too-many-return-statements
+        request: Request,
+    ) -> bool:
         if not is_auth_enabled() or not has_registered_users():
             return True
 
         path = request.url.path
-
-        if request.method == "OPTIONS":
+        if path == "/api/config/theme" and request.method == "GET":
             return True
-
-        if path in _PUBLIC_PATHS or any(
-            path.startswith(p) for p in _PUBLIC_PREFIXES
+        if (
+            request.method == "OPTIONS"
+            or path in _PUBLIC_PATHS
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+            or not path.startswith("/api/")
         ):
             return True
 
-        # Only protect /api/ routes
-        if not path.startswith("/api/"):
-            return True
+        cfg, _ = _get_config_cached()
+        allowed = cfg.security.allow_no_auth_hosts
+        client_ip = resolve_client_ip(request)
+        norm = _normalize_ip(client_ip) or client_ip
+        if norm not in allowed:
+            return False
 
-        # Check if client host is in allow_no_auth_hosts whitelist
-        client_host = _resolve_client_ip(request)
-        config = _get_config_cached()
-        allowed_hosts = config.security.allow_no_auth_hosts
-        return client_host in allowed_hosts
+        # Defense-in-depth: loopback whitelist requires
+        # direct TCP peer also be loopback.
+        if norm in _LOOPBACK:
+            peer = _normalize_ip(
+                request.client.host if request.client else "",
+            )
+            if peer not in _LOOPBACK:
+                logger.warning(
+                    "Auth skip blocked: client_ip=%s but"
+                    " direct peer %s is not loopback",
+                    norm,
+                    peer,
+                )
+                return False
+        return True
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:
-        """Extract Bearer token from header or WebSocket query param."""
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            return auth_header[7:]
-        if "upgrade" in request.headers.get("connection", "").lower():
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        conn = request.headers.get("connection", "")
+        if "upgrade" in conn.lower():
             return request.query_params.get("token")
+        return request.query_params.get("token") or None
 
-        token = request.query_params.get("token")
-        if token:
-            return token
-        return None
+
+class RuntimeBoundaryMiddleware:
+    """Protect every HTTP and WebSocket path of a managed runtime."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        runtime_token = os.environ.get(_RUNTIME_TOKEN_ENV, "")
+        if not runtime_token or scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        headers = {
+            key.decode("latin-1").lower(): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
+        app_id = headers.get(PAWAPP_SCOPE_HEADER.lower())
+        if runtime_token_matches(runtime_token, supplied) and (
+            app_id is None or browser_read_allowed(scope, unquote(app_id))
+        ):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await send({"type": "websocket.close", "code": 4401})
+            return
+        body = b'{"detail":"Invalid runtime boundary token"}'
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            },
+        )
+        await send({"type": "http.response.body", "body": body})
+
+
+def check_proxy_config_sanity() -> None:
+    """Log a warning at startup if proxy config looks suspect."""
+    try:
+        cfg, _ = _get_config_cached()
+    except (OSError, ValueError):
+        return
+    sec = cfg.security
+    has_non_loopback = any(h not in _LOOPBACK for h in sec.allow_no_auth_hosts)
+    if has_non_loopback and not sec.trusted_proxies:
+        logger.warning(
+            "allow_no_auth_hosts contains non-loopback entries"
+            " but trusted_proxies is empty. If behind a reverse"
+            " proxy, add proxy IPs to"
+            " security.trusted_proxies.",
+        )

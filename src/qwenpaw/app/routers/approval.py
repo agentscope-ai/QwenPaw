@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Approval API endpoints for tool guard approvals."""
+"""Authenticated Console endpoints for shared approval requests."""
+
 from __future__ import annotations
 
 import logging
@@ -8,12 +9,34 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..approvals import get_approval_service
-from ...security.tool_guard.approval import ApprovalDecision
+from ..approvals import ApprovalActor, PendingApproval, get_approval_service
+from ..approvals.display import approval_display_fields
+from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/approval", tags=["approval"])
+
+
+def _console_admin_actor(
+    request: Request,
+    pending: PendingApproval,
+) -> ApprovalActor:
+    """Represent the authenticated/local Console as an explicit admin."""
+    user = getattr(request.state, "user", None)
+    username = (
+        user.get("username", "console")
+        if isinstance(user, dict)
+        else "console"
+    )
+    return ApprovalActor(
+        session_id=pending.session_id,
+        root_session_id=pending.root_session_id,
+        user_id=str(username),
+        channel="console",
+        agent_id=pending.agent_id,
+        is_admin=True,
+    )
 
 
 class ApprovalActionRequest(BaseModel):
@@ -28,6 +51,14 @@ class ApprovalActionRequest(BaseModel):
     reason: Optional[str] = Field(
         None,
         description="Optional reason for denial",
+    )
+    scope: Optional[str] = Field(
+        None,
+        description=(
+            "Approval scope for approve actions: 'exact' (record the "
+            "literal target) or 'similar' (record the generalized "
+            "pattern). Omitted/unknown defaults to 'exact'."
+        ),
     )
 
 
@@ -93,11 +124,31 @@ async def post_approval_approve(
             detail="Root session mismatch: cannot approve other session trees",
         )
 
+    # Parse the approval scope. Unknown / omitted values fall back to None,
+    # which the governance consumer treats as EXACT (least-privilege).
+    scope: ApprovalScope | None = None
+    if body.scope:
+        try:
+            scope = ApprovalScope(body.scope.strip().lower())
+        except ValueError:
+            logger.info(
+                "Approval approve: unknown scope %r, defaulting to exact",
+                body.scope,
+            )
+            scope = None
+
     # Resolve the Future
     resolved = await svc.resolve_request(
         body.request_id,
         ApprovalDecision.APPROVED,
+        scope=scope,
+        actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval approved: request_id=%s session=%s tool=%s",
@@ -167,7 +218,13 @@ async def post_approval_deny(
     resolved = await svc.resolve_request(
         body.request_id,
         ApprovalDecision.DENIED,
+        actor=_console_admin_actor(request, pending),
     )
+    if resolved is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Approval request already resolved or expired",
+        )
 
     logger.info(
         "Approval denied: request_id=%s session=%s tool=%s",
@@ -223,11 +280,13 @@ async def get_approval_list(
                 "owner_agent_id": pending.owner_agent_id,
                 "agent_id": pending.agent_id,
                 "tool_name": pending.tool_name,
+                **approval_display_fields(pending),
                 "severity": pending.severity,
                 "findings_count": pending.findings_count,
                 "created_at": pending.created_at,
                 "timeout_seconds": pending.timeout_seconds,
                 "result_summary": pending.result_summary,
+                "reasoning": pending.extra.get("reasoning", ""),
             },
         )
 

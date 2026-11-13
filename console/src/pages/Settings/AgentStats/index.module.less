@@ -16,7 +16,7 @@
 .loading {
   text-align: center;
   padding: 60px;
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .filters {
@@ -32,6 +32,13 @@
   @media (max-width: 480px) {
     width: 100%;
   }
+}
+
+.currentAgentSectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--app-text);
+  margin: 8px 0 12px;
 }
 
 .summaryCards {
@@ -51,13 +58,13 @@
 .cardValue {
   font-size: 24px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
   margin-bottom: 4px;
 }
 
 .cardLabel {
   font-size: 13px;
-  color: #999;
+  color: var(--app-text-tertiary);
   cursor: help;
 }
 
@@ -120,27 +127,7 @@
   padding: 60px;
 
   > p {
-    color: #ff4d4f;
+    color: var(--app-error);
     margin-bottom: 16px;
-  }
-}
-
-:global(.dark-mode) {
-  .loading {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .error {
-    > p {
-      color: #ff7875;
-    }
-  }
-
-  .cardValue {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .cardLabel {
-    color: rgba(255, 255, 255, 0.35);
   }
 }

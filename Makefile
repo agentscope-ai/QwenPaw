@@ -1,10 +1,10 @@
 # CoPaw Test & Coverage Makefile
 
-.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean
+.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean gen-browser-manual install-dev install-mail-mcp
 
-# Python path
-PYTHON := python
-PYTEST := python -m pytest
+# Cross-platform default (override with: make PYTHON=python3.12 <target>)
+PYTHON ?= python
+PYTEST := $(PYTHON) -m pytest
 
 # Default: run all tests
 test:
@@ -29,7 +29,7 @@ coverage-full:
 		--cov-report=term-missing \
 		--cov-report=html
 
-# Check contract coverage for all channels
+# Check built-in channel contract coverage
 check-contracts:
 	$(PYTHON) scripts/check_channel_contracts.py
 
@@ -40,7 +40,13 @@ clean:
 
 # Quick check (fast feedback)
 quick:
+	@qp_test_workdir=$$(mktemp -d); \
+	trap 'rm -rf "$$qp_test_workdir"' EXIT; \
+	QWENPAW_WORKING_DIR="$$qp_test_workdir" \
 	$(PYTEST) tests/unit/ -x -q --tb=line
+
+gen-browser-manual:
+	$(PYTHON) scripts/gen_browser_manual.py
 
 # Channel-specific tests
 test-channel:
@@ -51,6 +57,14 @@ test-channel-contract:
 	@echo "Running Channel contract tests..."
 	$(PYTEST) tests/contract/channels/ -v --tb=short
 
-# BaseChannel core unit tests (optional, not enforced)
+# Channel host core unit tests
 test-base-core:
-	$(PYTEST) tests/unit/channels/test_base_core.py -v
+	$(PYTEST) tests/unit/channels/test_channel_host.py -v
+
+## Install the project and bundled mail MCP for development.
+install-dev:
+	$(PYTHON) -m pip install -e .
+
+## Install only the standalone mail MCP package.
+install-mail-mcp:
+	$(PYTHON) -m pip install -e packages/qwenpawmail-mcp

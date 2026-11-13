@@ -8,8 +8,9 @@ markdown configuration files in the working directory.
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
@@ -25,6 +26,19 @@ You are a helpful assistant.
 
 # Backward compatibility alias
 SYS_PROMPT = DEFAULT_SYS_PROMPT
+
+DRIVER_POLICY_RECHECK_HINT = (
+    "Driver and MCP permission results are evaluated at the moment of a "
+    "tool call. A previous `driver_policy_denied` result in the "
+    "conversation history does not prove the tool is still denied in a "
+    "later user turn, because users may change Driver policy between "
+    "messages. If the user asks for the action again in a later turn, "
+    "attempt the relevant tool again and let the current policy decide. "
+    "Previous assistant messages that only explained such a denial are "
+    "also point-in-time. "
+    "Do not refuse solely because of an earlier `driver_policy_denied` "
+    "result."
+)
 
 
 class PromptConfig:
@@ -182,9 +196,7 @@ class PromptBuilder:
 
         # Get memory prompt from manager or fallback
         if self.memory_manager:
-            memory_section = self.memory_manager.get_memory_prompt(
-                self.language,
-            )
+            memory_section = self.memory_manager.get_memory_prompt()
         else:
             memory_section = ""
 
@@ -372,35 +384,42 @@ def build_bootstrap_guidance(
     )
 
 
-def _get_active_model_info():
+def _get_active_model_slot(agent_config=None):
+    """Prefer explicit prompt config or the executing model to defaults."""
+    from ..providers.model_selection import current_model_slot
+    from ..providers.provider_manager import ProviderManager
+
+    active = (
+        getattr(agent_config, "active_model", None)
+        if agent_config is not None
+        else current_model_slot()
+    )
+    if active is None and agent_config is None:
+        try:
+            from ..app.agent_context import get_current_agent_id
+            from ..config.config import load_agent_config
+
+            active = load_agent_config(get_current_agent_id()).active_model
+        except Exception:
+            pass
+    return active or ProviderManager.get_instance().get_active_model()
+
+
+def _get_active_model_info(agent_config=None):
     """Resolve the active model's ModelInfo and model name.
 
-    Tries agent-specific model first, then falls back to global.
+    Uses explicit prompt config or the executing model, then agent/global.
 
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
         when the active model cannot be resolved.
     """
     try:
-        from ..app.agent_context import get_current_agent_id
-        from ..config.config import load_agent_config
         from ..providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
 
-        # Try to get agent-specific model first
-        active = None
-        try:
-            agent_id = get_current_agent_id()
-            agent_config = load_agent_config(agent_id)
-            if agent_config.active_model:
-                active = agent_config.active_model
-        except Exception:
-            pass
-
-        # Fallback to global active model
-        if not active:
-            active = manager.get_active_model()
+        active = _get_active_model_slot(agent_config)
 
         if not active:
             return None, None
@@ -409,7 +428,7 @@ def _get_active_model_info():
         if not provider:
             return None, None
 
-        for m in provider.models + provider.extra_models:
+        for m in provider.all_models():
             if m.id == active.model:
                 return m, active.model
         return None, None
@@ -418,11 +437,72 @@ def _get_active_model_info():
 
 
 def get_active_model_supports_multimodal() -> bool:
-    """Check if the current active model supports multimodal input."""
+    """Check if the current active model supports multimodal input.
+
+    Defaults to True when model info is unavailable or the
+    capability has not been probed yet, so that unknown models
+    fail-open (sending an image to a text-only model yields a
+    recoverable API error, but stripping images from a
+    multimodal model silently breaks functionality).
+    """
     model_info, _ = _get_active_model_info()
     if model_info is None:
-        return False
-    return bool(model_info.supports_multimodal)
+        return True
+    if model_info.supports_image or model_info.supports_video:
+        return True
+    return model_info.supports_multimodal is not False
+
+
+def get_model_supports_image(current_model: Any = None) -> bool:
+    """Resolve image capability for one call or the configured active model.
+
+    QwenPaw model wrappers expose ``provider_id:model`` through
+    ``model_key``. When no request-local model is supplied, use the configured
+    active model. Visual Compact requires explicit image support; generic
+    multimodal support and unknown metadata are not sufficient.
+    """
+    if current_model is None:
+        model_info, _ = _get_active_model_info()
+        return bool(
+            model_info is not None and model_info.supports_image is True,
+        )
+    try:
+        model_key = getattr(current_model, "model_key", None)
+        provider_id = ""
+        model_name = str(getattr(current_model, "model", "") or "")
+        if isinstance(model_key, str):
+            provider_id, separator, keyed_name = model_key.partition(":")
+            if separator:
+                model_name = keyed_name
+            else:
+                provider_id = ""
+        if not provider_id:
+            provider_id = str(
+                getattr(current_model, "_provider_id", "") or "",
+            )
+        if not provider_id:
+            inner = getattr(current_model, "_inner", None)
+            provider_id = str(getattr(inner, "_provider_id", "") or "")
+        if provider_id and model_name:
+            from ..providers.provider_manager import ProviderManager
+
+            provider = ProviderManager.get_instance().get_provider(
+                provider_id,
+            )
+            if provider is not None:
+                model_info = next(
+                    (
+                        item
+                        for item in provider.models + provider.extra_models
+                        if item.id == model_name
+                    ),
+                    None,
+                )
+                if model_info is not None:
+                    return model_info.supports_image is True
+    except Exception:
+        pass
+    return False
 
 
 def get_active_model_multimodal_raw() -> bool | None:
@@ -445,26 +525,34 @@ def get_active_model_multimodal_raw() -> bool | None:
     return model_info.supports_multimodal
 
 
-def build_multimodal_hint() -> str:
+def build_multimodal_hint(agent_config=None) -> str:
     """Build a short system-prompt snippet describing multimodal capability."""
-    model_info, model_name = _get_active_model_info()
+    model_info, model_name = _get_active_model_info(agent_config)
     if model_info is None:
         return ""
     return format_multimodal_hint(model_info, model_name)
 
 
+def build_driver_policy_recheck_hint() -> str:
+    """Build guidance for point-in-time Driver/MCP policy results."""
+    return DRIVER_POLICY_RECHECK_HINT
+
+
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
+    if model_info.supports_image or model_info.supports_video:
+        return ""
     if (
-        model_info.supports_image
-        or model_info.supports_video
-        or model_info.supports_multimodal is None
+        model_info.supports_image is None
+        and model_info.supports_multimodal is not False
     ):
         return ""
     return (
-        "It appears that you can only understand text content. "
-        " Please honestly inform the user about this when "
-        " their input includes multimodal information."
+        "You can only understand text content, so reading an image will not "
+        "provide information. Use snapshot() to read page text and "
+        "bounding_box() to obtain coordinates instead of relying on "
+        "screenshot(). Honestly tell the user when their input includes "
+        "multimodal information."
     )
 
 
@@ -472,8 +560,10 @@ __all__ = [
     "build_system_prompt_from_working_dir",
     "build_bootstrap_guidance",
     "build_multimodal_hint",
+    "build_driver_policy_recheck_hint",
     "format_multimodal_hint",
     "get_active_model_supports_multimodal",
+    "get_model_supports_image",
     "get_active_model_multimodal_raw",
     "PromptBuilder",
     "PromptConfig",

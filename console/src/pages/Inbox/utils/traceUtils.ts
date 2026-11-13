@@ -1,4 +1,5 @@
 import type { PushMessage } from "../types";
+import { stripScrollHeadlines } from "../../Chat/headlineFilter";
 
 export type TraceDisplayItem = {
   at: number;
@@ -42,6 +43,9 @@ export const getPrimaryTraceBlock = (
   return first as Record<string, unknown>;
 };
 
+const isToolCallBlockType = (blockType: string): boolean =>
+  blockType === "tool_use" || blockType === "tool_call";
+
 export const isCollapsibleTraceEvent = (
   kind: string,
   event: Record<string, unknown>,
@@ -54,7 +58,7 @@ export const isCollapsibleTraceEvent = (
   const blockType = String(block?.type || "").toLowerCase();
   if (
     blockType === "thinking" ||
-    blockType === "tool_use" ||
+    isToolCallBlockType(blockType) ||
     blockType === "tool_result"
   ) {
     return true;
@@ -75,7 +79,9 @@ export const extractTraceText = (event: Record<string, unknown>): string => {
   if (blockType === "text") {
     const text = block.text;
     if (typeof text === "string" && text.trim()) {
-      return text.trim();
+      return event.role === "assistant"
+        ? stripScrollHeadlines(text)
+        : text.trim();
     }
   }
   if (blockType === "tool_result") {
@@ -91,10 +97,14 @@ export const extractTraceText = (event: Record<string, unknown>): string => {
       if (textChunks.length) return textChunks.join("\n");
     }
   }
-  if (blockType === "tool_use") {
+  if (isToolCallBlockType(blockType)) {
     const rawInput = block.raw_input;
     if (typeof rawInput === "string" && rawInput.trim()) {
       return rawInput.trim();
+    }
+    const input = block.input;
+    if (typeof input === "string" && input.trim()) {
+      return input.trim();
     }
   }
   return "";
@@ -105,7 +115,7 @@ export const normalizeTraceKind = (event: Record<string, unknown>): string => {
   const block = getPrimaryTraceBlock(event);
   const blockType = String(block?.type || "").toLowerCase();
   if (blockType === "thinking") return "thinking";
-  if (blockType === "tool_use") return "tool_call";
+  if (isToolCallBlockType(blockType)) return "tool_call";
   if (blockType === "tool_result") return "tool_output";
   if (blockType === "text") return "push_preview";
   return "event";
@@ -117,6 +127,21 @@ export const shouldHideTraceEvent = (
 ): boolean => {
   const lowerType = eventType.toLowerCase();
   if (lowerType === "response_completed") return true;
+  const block = getPrimaryTraceBlock(eventRecord);
+  const type = String(block?.type || "").toLowerCase();
+  // Keep the existing attachment behavior; internal hints are not transcript.
+  if (["image", "file", "audio", "video", "data", "hint"].includes(type)) {
+    return true;
+  }
+  if (eventType === "event" && block && type && type !== "text") return false;
+  if (
+    eventType === "event" &&
+    !block &&
+    Object.keys(eventRecord).some(
+      (key) => !["content", "role", "name", "id", "timestamp"].includes(key),
+    )
+  )
+    return false;
   if (
     !extractTraceText(eventRecord) &&
     !isCollapsibleTraceEvent(eventType, eventRecord)
@@ -150,10 +175,11 @@ export const getToolFieldText = (
   const block = getPrimaryTraceBlock(eventRecord);
   if (!block) return "";
   const blockType = String(block.type || "").toLowerCase();
-  if (field === "tool_input" && blockType === "tool_use") {
+  if (field === "tool_input" && isToolCallBlockType(blockType)) {
     const rawInput = block.raw_input;
     if (typeof rawInput === "string" && rawInput.trim()) return rawInput;
     const input = block.input;
+    if (typeof input === "string") return input;
     if (input !== undefined) {
       try {
         return JSON.stringify(input, null, 2);
@@ -224,10 +250,15 @@ export const buildTraceDisplayItems = (
 ): TraceDisplayItem[] => {
   if (!rawEvents.length) return [];
 
+  let turn = 0;
   const normalized = rawEvents
     .flatMap((item) => {
       const eventRecord = (item.event || {}) as Record<string, unknown>;
-      const content = eventRecord.content;
+      if (eventRecord.role === "user") turn += 1;
+      const content =
+        typeof eventRecord.content === "string"
+          ? [{ type: "text", text: eventRecord.content }]
+          : eventRecord.content;
       if (Array.isArray(content) && content.length > 1) {
         return content.map((block) => {
           const blockRecord = {
@@ -236,6 +267,7 @@ export const buildTraceDisplayItems = (
           } as Record<string, unknown>;
           return {
             ...item,
+            turn,
             eventRecord: blockRecord,
             eventType: normalizeTraceKind(blockRecord),
           };
@@ -243,11 +275,12 @@ export const buildTraceDisplayItems = (
       }
       const normalizedRecord =
         Array.isArray(content) && content.length === 1
-          ? eventRecord
+          ? { ...eventRecord, content }
           : ({ ...eventRecord } as Record<string, unknown>);
       return [
         {
           ...item,
+          turn,
           eventRecord: normalizedRecord,
           eventType: normalizeTraceKind(normalizedRecord),
         },
@@ -256,87 +289,72 @@ export const buildTraceDisplayItems = (
     .filter((item) => !shouldHideTraceEvent(item.eventType, item.eventRecord));
 
   const grouped: TraceDisplayItem[] = [];
+  const pending = new Map<string, number[]>();
+  const toolId = (record: Record<string, unknown>): string => {
+    const block = getPrimaryTraceBlock(record);
+    const id =
+      block?.tool_use_id ?? block?.call_id ?? block?.id ?? record.tool_call_id;
+    return typeof id === "string" ? id : "";
+  };
+  const toolName = (record: Record<string, unknown>): string =>
+    String(getPrimaryTraceBlock(record)?.name || record.tool_name || "");
+
   for (let i = 0; i < normalized.length; i += 1) {
     const current = normalized[i];
-    const traceText = extractTraceText(current.eventRecord);
-    const collapsible = isCollapsibleTraceEvent(
-      current.eventType,
-      current.eventRecord,
-    );
-    const collapseTitle = getTraceFoldTitle(
-      current.eventType,
-      current.eventRecord,
-    );
-
-    if (current.eventType === "tool_call") {
-      const next = normalized[i + 1];
-      const currentToolName = String(current.eventRecord.tool_name || "");
-      const nextToolName = String(next?.eventRecord?.tool_name || "");
-      const canPair =
-        !!next &&
-        next.eventType === "tool_output" &&
-        (!!currentToolName || !!nextToolName)
-          ? currentToolName === nextToolName
-          : true;
-      const toolInput = getToolFieldText(current.eventRecord, "tool_input");
-      if (canPair && next) {
-        const nextTraceText = extractTraceText(next.eventRecord);
-        const toolOutput =
-          getToolFieldText(next.eventRecord, "tool_output") || nextTraceText;
+    const { eventRecord, eventType } = current;
+    if (current.turn !== normalized[i - 1]?.turn) pending.clear();
+    const traceText = extractTraceText(eventRecord);
+    const base = {
+      at: current.at,
+      eventType,
+      eventRecord,
+      traceText,
+      collapsible:
+        isCollapsibleTraceEvent(eventType, eventRecord) ||
+        eventType === "event",
+      collapseTitle: getTraceFoldTitle(eventType, eventRecord),
+    };
+    const id = toolId(eventRecord);
+    if (eventType === "tool_call") {
+      if (id) pending.set(id, [...(pending.get(id) || []), grouped.length]);
+      grouped.push({
+        ...base,
+        collapsible: true,
+        toolInput: getToolFieldText(eventRecord, "tool_input"),
+        renderKind: "tool_pair",
+      });
+      continue;
+    }
+    if (eventType === "tool_output") {
+      let callIndex = id ? pending.get(id)?.[0] : undefined;
+      // Legacy traces without IDs: only pair an immediately adjacent call
+      // and result when neither supplies an ID and their names agree.
+      const previous = normalized[i - 1];
+      if (
+        !id &&
+        previous?.eventType === "tool_call" &&
+        previous.turn === current.turn &&
+        !toolId(previous.eventRecord) &&
+        toolName(previous.eventRecord) === toolName(eventRecord)
+      ) {
+        callIndex = grouped.length - 1;
+      }
+      const toolOutput =
+        getToolFieldText(eventRecord, "tool_output") || traceText;
+      if (callIndex !== undefined) {
+        grouped[callIndex].toolOutput = toolOutput;
+        if (id) pending.get(id)?.shift();
+      } else {
         grouped.push({
-          at: current.at,
-          eventType: "tool_call",
-          eventRecord: current.eventRecord,
-          traceText,
+          ...base,
           collapsible: true,
-          collapseTitle:
-            collapseTitle ||
-            getTraceFoldTitle(next.eventType, next.eventRecord),
-          toolInput,
           toolOutput,
           renderKind: "tool_pair",
         });
-        i += 1;
-        continue;
       }
-      grouped.push({
-        at: current.at,
-        eventType: current.eventType,
-        eventRecord: current.eventRecord,
-        traceText,
-        collapsible: true,
-        collapseTitle,
-        toolInput,
-        renderKind: "tool_pair",
-      });
       continue;
     }
-
-    if (current.eventType === "tool_output") {
-      const toolOutput =
-        getToolFieldText(current.eventRecord, "tool_output") || traceText;
-      grouped.push({
-        at: current.at,
-        eventType: current.eventType,
-        eventRecord: current.eventRecord,
-        traceText,
-        collapsible: true,
-        collapseTitle,
-        toolOutput,
-        renderKind: "tool_pair",
-      });
-      continue;
-    }
-
-    grouped.push({
-      at: current.at,
-      eventType: current.eventType,
-      eventRecord: current.eventRecord,
-      traceText,
-      collapsible,
-      collapseTitle,
-      renderKind: "normal",
-    });
+    grouped.push({ ...base, renderKind: "normal" });
   }
   return grouped;
 };

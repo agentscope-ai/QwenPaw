@@ -1,0 +1,21 @@
+name: Get QwenPaw Version
+description: Extract __version__ from src/qwenpaw/__version__.py
+
+outputs:
+  version:
+    description: The extracted version string (e.g. 1.2.3)
+    value: ${{ steps.extract.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: extract
+      shell: bash
+      run: |
+        set -euo pipefail
+        version=$(sed -n 's/^__version__[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src/qwenpaw/__version__.py)
+        if [ -z "$version" ]; then
+          echo "::error::Failed to extract __version__ from src/qwenpaw/__version__.py"
+          exit 1
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"

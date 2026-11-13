@@ -1,0 +1,1316 @@
+# -*- coding: utf-8 -*-
+"""Durable, file-backed conversation history shared across sessions."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import random
+import re
+import sqlite3
+import threading
+import time
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from ..types import LogEntry
+from ....utils.io_utils import run_async_to_completion, run_sync_io
+from ....utils.sqlite_uri import sqlite_uri
+
+logger = logging.getLogger(__name__)
+
+_BUSY_TIMEOUT_MS = 5000
+_BACKUP_TIMEOUT_S = 60.0
+_WRITE_RETRY_DEADLINE_S = 5.0
+_WRITE_RETRY_MIN_S = 0.020
+_WRITE_RETRY_MAX_S = 0.150
+_SCHEMA_VERSION = 1
+_REQUIRED_COLUMNS = {"seq", "session_id", "kind"}
+
+_CONTENTION_CODES = {
+    sqlite3.SQLITE_BUSY,
+    sqlite3.SQLITE_LOCKED,
+}
+
+_OPTIONAL_COLUMNS = {
+    "agent_id": "TEXT",
+    "role": "TEXT",
+    "name": "TEXT",
+    "content": "TEXT",
+    "tool_call_id": "TEXT",
+    "tool_input": "TEXT",
+    "tool_state": "TEXT",
+    "headline": "TEXT",
+    "blocks": "TEXT",
+    "metadata": "TEXT",
+    "created_at": "TEXT",
+    "dedup_key": "TEXT",
+}
+_UNSET = object()
+
+# The recall tool's own turns — the model's ``ms.*`` Python source and its
+# printed stdout/stderr — are written through to history like any turn, but
+# they are the agent *reading* memory, not memory content. Keyword-indexing
+# them lets a later ``ms.search`` match the agent's own past queries (and their
+# tracebacks), drowning the real content: a self-pollution feedback loop. So
+# these rows stay durable + recallable by ``seq``, but are kept OUT of the FTS
+# index (and out of ``search`` — see ``MemorySpace``). Must match the recall
+# tool names in ``repl.py`` and ``recall_tool.py``.
+_RECALL_TOOL_NAMES = (
+    "recall_history_python",
+    "recall_history",
+)
+
+# Columns of conversation_history, in INSERT order (minus the
+# autoincrement seq).
+_INSERT_COLUMNS = (
+    "session_id",
+    "agent_id",
+    "kind",
+    "role",
+    "name",
+    "content",
+    "tool_call_id",
+    "tool_input",
+    "tool_state",
+    "headline",
+    "blocks",
+    "metadata",
+    "created_at",
+    "dedup_key",
+)
+
+
+class HistorySchemaError(sqlite3.DatabaseError):
+    """The DB is valid SQLite, but its schema cannot be opened safely."""
+
+
+class HistoryCorruptionError(sqlite3.DatabaseError):
+    """An integrity check proved that the SQLite file is corrupt."""
+
+
+def _is_contention_error(exc: BaseException) -> bool:
+    """Whether *exc* is transient SQLite writer/schema contention."""
+    code = getattr(exc, "sqlite_errorcode", None)
+    if isinstance(code, int):
+        primary_code = code & 0xFF
+        return primary_code in _CONTENTION_CODES
+    return str(exc).lower() in {
+        "database is locked",
+        "database table is locked",
+        "database schema is locked",
+    }
+
+
+def _retry_contention(conn: sqlite3.Connection, operation):
+    """Acquire a writer within one deadline without replaying writes."""
+    deadline = time.monotonic() + _WRITE_RETRY_DEADLINE_S
+    previous_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    try:
+        while True:
+            remaining = max(0.0, deadline - time.monotonic())
+            wait_ms = min(250, int(remaining * 1000))
+            conn.execute(f"PRAGMA busy_timeout={wait_ms}")
+            try:
+                return operation()
+            except sqlite3.OperationalError as exc:
+                remaining = deadline - time.monotonic()
+                if not _is_contention_error(exc) or remaining <= 0:
+                    raise
+                time.sleep(
+                    min(
+                        random.uniform(_WRITE_RETRY_MIN_S, _WRITE_RETRY_MAX_S),
+                        remaining,
+                    ),
+                )
+    finally:
+        conn.execute(f"PRAGMA busy_timeout={previous_timeout}")
+
+
+@contextmanager
+def _immediate_transaction(
+    conn: sqlite3.Connection,
+):
+    """Run a short write transaction with bounded, jittered lock retries.
+
+    ``BEGIN IMMEDIATE`` surfaces the only-writer collision before any
+    statement mutates state. Retrying that boundary is therefore safe and
+    avoids SQLite's deterministic lock-wait convoy across gateway/CLI/worker
+    processes. Non-contention errors are never retried.
+    """
+    _retry_contention(conn, lambda: conn.execute("BEGIN IMMEDIATE"))
+    try:
+        yield
+        conn.commit()
+    except BaseException:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+
+def _validate_history_columns(conn: sqlite3.Connection) -> set[str]:
+    """Require the columns and rowid alias used by history writes and FTS."""
+    rows = conn.execute(f"PRAGMA table_info(conversation_history)").fetchall()
+    columns = {str(row[1]) for row in rows}
+    missing_required = _REQUIRED_COLUMNS - columns
+    if missing_required:
+        missing = f", ".join(sorted(missing_required))
+        raise HistorySchemaError(
+            f"history schema is missing required column(s): {missing}",
+        )
+    primary_key = [(row[1], row[2].upper()) for row in rows if row[5]]
+    # A rowid alias has no separate primary-key index. This also rejects
+    # WITHOUT ROWID tables and SQLite's column-level PRIMARY KEY DESC case.
+    indexed_primary_key = any(
+        row[3] == f"pk"
+        for row in conn.execute(f"PRAGMA index_list(conversation_history)")
+    )
+    if primary_key != [(f"seq", f"INTEGER")] or indexed_primary_key:
+        raise HistorySchemaError(
+            f"history seq must be an INTEGER PRIMARY KEY alias for rowid",
+        )
+    return columns
+
+
+def _validate_history_connection(conn: sqlite3.Connection) -> int:
+    """Validate integrity and the minimum compatible history schema."""
+    row = conn.execute("PRAGMA quick_check").fetchone()
+    result = str(row[0]) if row else "no result"
+    if result != "ok":
+        raise HistoryCorruptionError(f"quick_check failed: {result}")
+
+    return _validate_history_schema(conn)
+
+
+def _validate_history_schema(conn: sqlite3.Connection) -> int:
+    """Identify a supported history schema without changing it."""
+    version_row = conn.execute("PRAGMA user_version").fetchone()
+    version = int(version_row[0] if version_row else 0)
+    if version > _SCHEMA_VERSION:
+        raise HistorySchemaError(
+            f"history schema version {version} is newer than supported "
+            f"version {_SCHEMA_VERSION}",
+        )
+
+    _validate_history_columns(conn)
+    return version
+
+
+def validate_history_database(
+    db_path: str | Path,
+    *,
+    check_integrity: bool = True,
+) -> int:
+    """Read-only integrity and compatibility check for an existing store.
+
+    Returns the on-disk ``PRAGMA user_version``. Version ``0`` remains valid
+    for pre-versioned stores and is migrated on the next runtime open.
+    Skip integrity only for a snapshot already verified by the backup worker.
+    """
+    path = Path(db_path).expanduser().resolve()
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    conn = sqlite3.connect(
+        sqlite_uri(path, "ro"),
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    try:
+        conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        if check_integrity:
+            return _validate_history_connection(conn)
+        return _validate_history_schema(conn)
+    finally:
+        conn.close()
+
+
+def backup_history_database(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> Path:
+    """Create a verified snapshot with bounded, cancellable copying."""
+    deadline = time.monotonic() + _BACKUP_TIMEOUT_S
+
+    def check_progress(_status: int, _remaining: int, _total: int) -> None:
+        if check_cancelled is not None:
+            check_cancelled()
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"History snapshot timed out: {source}")
+
+    check_progress(0, 0, 0)
+    source_path = Path(source).expanduser().resolve()
+    if not source_path.is_file():
+        raise FileNotFoundError(source_path)
+    target = Path(destination).expanduser()
+    if target.resolve() == source_path:
+        raise ValueError(
+            "history backup destination must differ from source",
+        )
+    if target.exists():
+        raise FileExistsError(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(
+        sqlite_uri(source_path, "ro"),
+        uri=True,
+        timeout=_BUSY_TIMEOUT_MS / 1000,
+    )
+    snapshot: sqlite3.Connection | None = None
+    try:
+        # Short lock waits let progress checks observe cancellation promptly.
+        conn.execute(f"PRAGMA busy_timeout=100")
+        snapshot = sqlite3.connect(str(target))
+        conn.backup(
+            snapshot,
+            pages=256,
+            progress=check_progress,
+            sleep=0.05,
+        )
+        _validate_history_connection(snapshot)
+        return target
+    finally:
+        if snapshot is not None:
+            snapshot.close()
+        conn.close()
+
+
+class HistoryStore:
+    """Owns the *read-write* connection to the ``conversation_history`` file.
+
+    Every event the agent appends is write-through-persisted here with full
+    structure (blocks, tool args, state) so a later session can retrieve it.
+    The model reaches the same file *read-only* through its ``MemorySpace``
+    (ATTACHed ``hist`` schema), so this writer and those readers coexist under
+    WAL. The file is never dropped; ``close()`` only closes this connection.
+    """
+
+    # FTS5 is a property of the SQLite build, not of one DB — warn at most once
+    # per process when it's missing, so a long-lived server doesn't log-spam.
+    _fts_unavailable_warned = False
+
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        initialize: bool = True,
+    ) -> None:
+        self._path = Path(db_path).expanduser()
+        if initialize:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Serializes the single connection across threads: ``compress`` writes
+        # from a worker thread (``asyncio.to_thread``, to spare the event loop)
+        # while ``on_save`` writes on the loop thread. Both share this
+        # connection, so every access takes ``self._lock``.
+        self._lock = threading.Lock()
+        # Durability health: flipped True the first time a write-through fails
+        # (disk/SQLite error). The durability promise no longer holds while
+        # degraded; callers/monitoring can read this.
+        self.degraded = False
+        self.write_failures = 0
+        # True only after the connection closes, including a deferred close
+        # completed by the last request releasing its borrow.
+        self._closed = False
+        self._borrowers = 0
+        self._close_requested = False
+        self._retention_task: asyncio.Task | None = None
+        self._retention_days = 0
+        try:
+            self._open(initialize=initialize)
+        except BaseException:
+            try:
+                self._conn.close()
+            except (AttributeError, sqlite3.Error):
+                pass
+            raise
+
+    @staticmethod
+    def _file_identity(path: Path) -> tuple[int, int] | None:
+        """Return the stable identity of the current file at ``path``."""
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        return stat.st_dev, stat.st_ino
+
+    def _run_integrity_check(self, *, repair: bool = False) -> None:
+        """Raise when SQLite reports corruption in the history database."""
+        results = [r[0] for r in self._conn.execute("PRAGMA quick_check")]
+        if results != ["ok"]:
+            # Some SQLite builds also report damage to the derived FTS index.
+            if repair and self._is_fts_only_corruption(results):
+                self._repair_fts()
+                results = [
+                    r[0] for r in self._conn.execute("PRAGMA quick_check")
+                ]
+            if self._is_fts_only_corruption(results):
+                raise RuntimeError(
+                    "History FTS corruption detected; "
+                    f"history preserved: {self._path}: {results}",
+                )
+            if results != ["ok"]:
+                raise sqlite3.DatabaseError(f"quick_check failed: {results}")
+
+    def _open(self, *, initialize: bool) -> None:
+        # Maintenance opens an existing schema without creating or upgrading it.
+        self._conn = sqlite3.connect(
+            sqlite_uri(self._path.resolve(), "rwc" if initialize else "rw"),
+            uri=True,
+            check_same_thread=False,
+            timeout=_BUSY_TIMEOUT_MS / 1000,
+        )
+        self._opened_identity = self._file_identity(self._path)
+        self._conn.row_factory = sqlite3.Row
+        self._conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
+        if initialize:
+            _retry_contention(
+                self._conn,
+                lambda: self._conn.execute("PRAGMA journal_mode=WAL"),
+            )
+            self._init_schema()
+        else:
+            _validate_history_schema(self._conn)
+            self._fts = (
+                self._conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' "
+                    "AND name='conversation_history_fts'",
+                ).fetchone()
+                is not None
+            )
+        # Only a real database error schedules a recovery probe.
+        self._fts_check_pending = False
+
+    def check_integrity(self, *, repair: bool = False) -> None:
+        """Verify history and optionally repair its derived index."""
+        with self._lock:
+            self._run_integrity_check(repair=repair)
+            if self._fts:
+                try:
+                    with self._conn:
+                        self._check_fts()
+                except sqlite3.DatabaseError as exc:
+                    if not repair or not self._is_corruption(exc):
+                        raise
+                    self._repair_fts()
+
+    def _retry_pending_fts_check(self) -> None:
+        """Retry a deferred probe under the lock, or during construction."""
+        if self._fts_check_pending:
+            timeout = self._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+            try:
+                # FTS integrity-check is an INSERT and needs a writer lock.
+                # This optional probe must not stall request construction
+                # behind an ordinary writer; subsequent borrows try it again.
+                try:
+                    self._conn.execute("PRAGMA busy_timeout=0")
+                    with self._conn:
+                        self._check_fts()
+                finally:
+                    self._conn.execute(
+                        f"PRAGMA busy_timeout={timeout}",
+                    )
+            except sqlite3.DatabaseError as exc:
+                code = getattr(exc, "sqlite_errorcode", None)
+                if code is not None and (code & 0xFF) in (
+                    sqlite3.SQLITE_BUSY,
+                    sqlite3.SQLITE_LOCKED,
+                ):
+                    logger.debug(
+                        "Deferring history FTS check until a later borrow: %s",
+                        self._path,
+                    )
+                    return
+                elif self._is_corruption(exc):
+                    self._repair_fts()
+                else:
+                    raise
+            self._fts_check_pending = False
+
+    @staticmethod
+    def _is_fts_only_corruption(results: Sequence[str]) -> bool:
+        # SQLite versions describe FTS damage differently. Match the error
+        # category and exact index name, not a single diagnostic spelling.
+        # Mixed results or corruption in another table must not be treated
+        # as repairable damage to this derived index alone.
+        pattern = (
+            r"(?:malformed inverted index for FTS5 table "
+            r"(?:main\.)?conversation_history_fts|"
+            r"fts5: corruption\b.* from table "
+            r'"(?:main\.)?conversation_history_fts")'
+        )
+        return bool(results) and all(
+            re.fullmatch(pattern, result) is not None for result in results
+        )
+
+    @staticmethod
+    def _is_corruption(exc: sqlite3.DatabaseError) -> bool:
+        # Extended codes such as SQLITE_CORRUPT_VTAB share this primary code.
+        code = getattr(exc, "sqlite_errorcode", None)
+        return code is not None and (code & 0xFF) == sqlite3.SQLITE_CORRUPT
+
+    def _check_fts(self) -> None:
+        # Do not use rank=1: recall-tool rows are deliberately absent from
+        # this external-content index, so full content equality is invalid.
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts) VALUES('integrity-check')",
+        )
+
+    def _rebuild_fts(self) -> None:
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts) VALUES('rebuild')",
+        )
+        # Rebuild includes every source row. Remove the deliberately excluded
+        # rows now, while we know they are indexed, in the same transaction.
+        for row in self._conn.execute(
+            "SELECT seq, content FROM conversation_history "
+            "WHERE name IN (?, ?)",
+            _RECALL_TOOL_NAMES,
+        ).fetchall():
+            self._conn.execute(
+                "INSERT INTO conversation_history_fts"
+                "(conversation_history_fts, rowid, content) "
+                "VALUES('delete', ?, ?)",
+                (row["seq"], row["content"] or ""),
+            )
+
+    def _repair_fts(self) -> None:
+        logger.warning("Rebuilding damaged history FTS index: %s", self._path)
+        try:
+            with _immediate_transaction(self._conn):
+                self._rebuild_fts()
+                self._check_fts()
+        except sqlite3.DatabaseError as exc:
+            # Keep the source history even if repair fails. In particular,
+            # do not let the constructor quarantine it as a corrupt database.
+            raise RuntimeError(
+                f"History FTS repair failed; history preserved: {self._path}",
+            ) from exc
+        logger.info("History FTS index repaired: %s", self._path)
+
+    def _delete_fts_row(self, row: sqlite3.Row) -> None:
+        # Older rebuilds may have indexed recall rows. The docsize table
+        # records actual membership (SELECT on the virtual table instead
+        # reads external content, including rows that were never indexed).
+        if (
+            row["name"] in _RECALL_TOOL_NAMES
+            and not self._conn.execute(
+                "SELECT 1 FROM conversation_history_fts_docsize WHERE id = ?",
+                (row["seq"],),
+            ).fetchone()
+        ):
+            return
+        self._conn.execute(
+            "INSERT INTO conversation_history_fts"
+            "(conversation_history_fts, rowid, content) "
+            "VALUES('delete', ?, ?)",
+            (row["seq"], row["content"] or ""),
+        )
+
+    @staticmethod
+    def _schema_columns(conn: sqlite3.Connection) -> set[str]:
+        return {
+            str(row["name"])
+            for row in conn.execute(
+                "PRAGMA table_info(conversation_history)",
+            ).fetchall()
+        }
+
+    def _migrate_schema(self) -> None:
+        """Apply bounded, idempotent upgrades to the current schema version."""
+        version_row = self._conn.execute("PRAGMA user_version").fetchone()
+        version = int(version_row[0] if version_row else 0)
+        if version > _SCHEMA_VERSION:
+            raise HistorySchemaError(
+                f"history schema version {version} is newer than supported "
+                f"version {_SCHEMA_VERSION}",
+            )
+
+        columns = _validate_history_columns(self._conn)
+        for name, ddl in _OPTIONAL_COLUMNS.items():
+            if name not in columns:
+                self._conn.execute(
+                    f"ALTER TABLE conversation_history "
+                    f"ADD COLUMN {name} {ddl}",
+                )
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def matches_path(self, path: Path) -> bool:
+        """Whether a workspace can reuse this connection for the current file.
+
+        A restore/replacement at the same path must not reuse an old inode.
+        Replacing a live database still requires stopping its writers first.
+        """
+        return (
+            not self.closed
+            and not self._close_requested
+            and self._path.resolve() == path.resolve()
+            and self._opened_identity is not None
+            and self._opened_identity == self._file_identity(path)
+        )
+
+    def _init_schema(self) -> None:
+        version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+        missing_columns = _OPTIONAL_COLUMNS.keys() - self._schema_columns(
+            self._conn,
+        )
+        # Reopening an initialized store must not wait for an ordinary writer.
+        # Only schema creation/migration needs an explicit write transaction.
+        transaction = (
+            self._conn
+            if version == _SCHEMA_VERSION and not missing_columns
+            else _immediate_transaction(self._conn)
+        )
+        with self._lock, transaction:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS conversation_history (
+                    seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id   TEXT NOT NULL,
+                    agent_id     TEXT,
+                    kind         TEXT NOT NULL,
+                    role         TEXT,
+                    name         TEXT,
+                    content      TEXT,
+                    tool_call_id TEXT,
+                    tool_input   TEXT,
+                    tool_state   TEXT,
+                    headline     TEXT,
+                    blocks       TEXT,
+                    metadata     TEXT,
+                    created_at   TEXT,
+                    dedup_key    TEXT
+                )
+                """,
+            )
+            self._migrate_schema()
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_session "
+                "ON conversation_history(session_id)",
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_agent "
+                "ON conversation_history(agent_id)",
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_kind "
+                "ON conversation_history(kind)",
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS ch_created_at "
+                "ON conversation_history(created_at)",
+            )
+            # Idempotency net: a second append of the same logical event, such
+            # as a resume re-persisting its restored window, collides here and
+            # is dropped by ON CONFLICT rather than duplicating a row. NULL
+            # dedup_key never conflicts, so un-keyed rows are simply never
+            # deduped.
+            self._conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_dedup "
+                "ON conversation_history(session_id, dedup_key)",
+            )
+            self._conn.execute(
+                "CREATE TABLE IF NOT EXISTS history_migrations ("
+                "agent_id TEXT NOT NULL, migration_key TEXT NOT NULL, "
+                "completed_at TEXT NOT NULL, "
+                "PRIMARY KEY (agent_id, migration_key))",
+            )
+            self._init_fts()
+            # Publish the version only after every table/index/FTS migration in
+            # this transaction has succeeded.
+            if version != _SCHEMA_VERSION:
+                self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+
+    def _init_fts(self) -> None:
+        """Create the FTS5 full-text index over ``content``, if available.
+
+        External-content FTS5 indexes without duplicating the text; it is kept
+        in sync by ``append``/``update_entry``. On a pre-existing DB it is
+        back-filled once via 'rebuild'. Porter stemming on top of unicode61
+        casefolding so "tanks" matches "tank".
+
+        Attempting the ``CREATE VIRTUAL TABLE`` is itself the availability
+        probe: SQLite builds without the FTS5 module (some minimal
+        container/distro builds) raise ``no such module: fts5`` here. We catch
+        that, leave ``self._fts`` False so the write path skips FTS upkeep, and
+        log one warning — search then degrades to a LIKE scan (see
+        ``MemorySpace.search``). The store itself stays fully functional.
+        """
+        try:
+            existed = self._conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='conversation_history_fts'",
+            ).fetchone()
+            self._conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS conversation_history_fts "
+                "USING fts5(content, content='conversation_history', "
+                "content_rowid='seq', tokenize='porter unicode61')",
+            )
+            if not existed:
+                self._rebuild_fts()
+            self._fts = True
+        except sqlite3.OperationalError as exc:
+            if "no such module: fts5" not in str(exc).lower():
+                raise
+            self._fts = False
+            if not HistoryStore._fts_unavailable_warned:
+                HistoryStore._fts_unavailable_warned = True
+                logger.warning(
+                    "SQLite has no FTS5 module (%s); scroll history keyword "
+                    "search degrades to a slower LIKE scan. The history store "
+                    "is otherwise fully functional. Use a SQLite build with "
+                    "FTS5 to restore ranked full-text recall.",
+                    exc,
+                )
+
+    def migration_complete(self, agent_id: str, key: str) -> bool:
+        """Read one durable completion record without inspecting sessions."""
+        with self._lock:
+            return (
+                self._conn.execute(
+                    "SELECT 1 FROM history_migrations "
+                    "WHERE agent_id = ? AND migration_key = ?",
+                    (agent_id, key),
+                ).fetchone()
+                is not None
+            )
+
+    def complete_migration(self, agent_id: str, key: str) -> None:
+        """Publish completion after the caller's imports have committed."""
+        with self._lock, _immediate_transaction(self._conn):
+            self._conn.execute(
+                "INSERT OR REPLACE INTO history_migrations VALUES (?, ?, ?)",
+                (agent_id, key, datetime.now(timezone.utc).isoformat()),
+            )
+
+    async def start_retention(self, days: int) -> None:
+        """Maintain an idle workspace and apply retention changes on reload."""
+        if days == self._retention_days:
+            return
+        if self._retention_task is not None:
+            self._retention_task.cancel()
+            try:
+                await self._retention_task
+            except asyncio.CancelledError:
+                pass
+            self._retention_task = None
+        self._retention_days = days
+        if days <= 0:
+            return
+
+        async def maintain() -> None:
+            # Let workspace startup publish readiness before maintenance.
+            await asyncio.sleep(1)
+            while True:
+                cutoff = (
+                    datetime.now(timezone.utc) - timedelta(days=days)
+                ).isoformat()
+                try:
+                    while await run_sync_io(
+                        self.purge,
+                        before=cutoff,
+                        limit=1000,
+                    ):
+                        await asyncio.sleep(0)
+                except (sqlite3.Error, RuntimeError):
+                    logger.exception("History retention failed: %s", self.path)
+                await asyncio.sleep(24 * 60 * 60)
+
+        self._retention_task = asyncio.create_task(maintain())
+
+    # --- write path ----------------------------------------------------
+
+    @staticmethod
+    def _insert_row(
+        session_id: str,
+        agent_id: str | None,
+        entry: LogEntry,
+        dedup_key: str | None,
+    ) -> tuple:
+        """Build the SQLite row shared by single and batched appends."""
+        return (
+            session_id,
+            agent_id,
+            entry.kind,
+            entry.role,
+            entry.name,
+            entry.content,
+            entry.tool_call_id,
+            _to_json(entry.tool_input),
+            entry.tool_state,
+            entry.headline,
+            _to_json(entry.blocks),
+            _to_json(entry.metadata or None),
+            entry.created_at or datetime.now(timezone.utc).isoformat(),
+            dedup_key,
+        )
+
+    def append(
+        self,
+        *,
+        session_id: str,
+        entry: LogEntry,
+        agent_id: str | None = None,
+        dedup_key: str | None = None,
+    ) -> int:
+        """Write-through one event. Returns the assigned ``seq`` (watermark).
+
+        ``dedup_key`` is the row's stable identity within the session (the
+        source ``msg.id`` for a turn, the ``tool_call_id`` for a result). A
+        second append carrying the same ``(session_id, dedup_key)`` is a no-op
+        and returns the *existing* seq, so a resume that re-persists its
+        restored window can re-link bookkeeping without duplicating rows. A
+        ``None`` key is never deduped.
+        """
+        row = self._insert_row(session_id, agent_id, entry, dedup_key)
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
+            cur = self._conn.execute(
+                f"INSERT INTO conversation_history "
+                f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+                f"ON CONFLICT(session_id, dedup_key) DO NOTHING",
+                row,
+            )
+            if cur.rowcount == 0:
+                # Conflict: this event is already durable. Return its seq so
+                # the caller re-links to the existing row; no new row, no FTS
+                # write.
+                existing = self._conn.execute(
+                    "SELECT seq FROM conversation_history "
+                    "WHERE session_id = ? AND dedup_key = ?",
+                    (session_id, dedup_key),
+                ).fetchone()
+                return int(existing["seq"]) if existing else 0
+            seq = int(cur.lastrowid or 0)
+            if self._fts and entry.name not in _RECALL_TOOL_NAMES:
+                self._conn.execute(
+                    "INSERT INTO conversation_history_fts(rowid, content) "
+                    "VALUES (?, ?)",
+                    (seq, entry.content or ""),
+                )
+            return seq
+
+    def append_many(
+        self,
+        *,
+        session_id: str,
+        entries: Sequence[tuple[LogEntry, str | None]],
+        agent_id: str | None = None,
+    ) -> int:
+        """Append a group of events in one transaction.
+
+        Returns the number of newly inserted rows. Duplicate keys remain
+        no-ops and only newly inserted rows are added to FTS, matching
+        :meth:`append`. This is intended for backfills where committing every
+        individual row would turn SQLite fsync latency into startup latency.
+        """
+        if not entries:
+            return 0
+
+        placeholders = ", ".join("?" for _ in _INSERT_COLUMNS)
+        sql = (
+            f"INSERT INTO conversation_history "
+            f"({', '.join(_INSERT_COLUMNS)}) VALUES ({placeholders}) "
+            f"ON CONFLICT(session_id, dedup_key) DO NOTHING"
+        )
+        inserted = 0
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
+            for entry, dedup_key in entries:
+                row = self._insert_row(
+                    session_id,
+                    agent_id,
+                    entry,
+                    dedup_key,
+                )
+                cur = self._conn.execute(sql, row)
+                if cur.rowcount == 0:
+                    continue
+                inserted += 1
+                seq = int(cur.lastrowid or 0)
+                if self._fts and entry.name not in _RECALL_TOOL_NAMES:
+                    self._conn.execute(
+                        "INSERT INTO conversation_history_fts(rowid, content) "
+                        "VALUES (?, ?)",
+                        (seq, entry.content or ""),
+                    )
+        return inserted
+
+    def update_entry(
+        self,
+        seq: int,
+        *,
+        content: str | None,
+        headline: str | None,
+        blocks,
+        tool_call_id: str | None = None,
+        name: str | None = None,
+        tool_state: str | None = None,
+        tool_input: Any = None,
+        metadata: Any = _UNSET,
+    ) -> None:
+        """Refresh an already-appended row in place (keeping FTS in sync).
+
+        Used when one logical turn is *extended* after first write: AgentScope
+        accumulates a whole reply into a single assistant Msg, so the durable
+        row must end up with every cell's blocks and any later-emitted
+        headline. The scalar ``tool_call_id``/``name``/``tool_state``/
+        ``tool_input`` and message ``metadata`` are refreshed too, so a turn
+        that grows a *later* tool call doesn't leave them frozen at their
+        first-write values. ``seq`` is unchanged. Omitting ``metadata`` keeps
+        the stored value unchanged for backwards-compatible direct callers.
+        """
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
+            old_row = self._conn.execute(
+                "SELECT seq, content, name FROM conversation_history "
+                "WHERE seq = ?",
+                (seq,),
+            ).fetchone()
+            if old_row is None:
+                return
+            if self._fts:
+                self._delete_fts_row(old_row)
+            # Keep every column name below as a hard-coded literal. Only
+            # values are parameterized; never add caller-controlled names.
+            assignments = [
+                "content = ?",
+                "headline = ?",
+                "blocks = ?",
+                "tool_call_id = ?",
+                "name = ?",
+                "tool_state = ?",
+                "tool_input = ?",
+            ]
+            values: list[Any] = [
+                content,
+                headline,
+                _to_json(blocks),
+                tool_call_id,
+                name,
+                tool_state,
+                _to_json(tool_input),
+            ]
+            if metadata is not _UNSET:
+                assignments.append("metadata = ?")
+                # The history schema canonically represents empty metadata
+                # as SQL NULL, matching the initial insert path.
+                values.append(_to_json(metadata or None))
+            values.append(seq)
+            self._conn.execute(
+                "UPDATE conversation_history SET "
+                + ", ".join(assignments)
+                + " WHERE seq = ?",
+                values,
+            )
+            if self._fts and name not in _RECALL_TOOL_NAMES:
+                self._conn.execute(
+                    "INSERT INTO conversation_history_fts(rowid, content) "
+                    "VALUES (?, ?)",
+                    (seq, content or ""),
+                )
+
+    # --- read path -----------------------------------------------------
+
+    def count(self, session_id: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT COUNT(*) AS n FROM conversation_history "
+                "WHERE session_id = ?",
+                (session_id,),
+            )
+            return int(cur.fetchone()["n"])
+
+    def claim_session(self, session_id: str, agent_id: str | None) -> int:
+        """Assign legacy unowned rows in a canonical session to an agent."""
+        if not session_id or not agent_id:
+            return 0
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
+            cur = self._conn.execute(
+                "UPDATE conversation_history SET agent_id = ? "
+                "WHERE session_id = ? AND agent_id IS NULL",
+                (agent_id, session_id),
+            )
+            return int(cur.rowcount)
+
+    def reconcile_session_rows(
+        self,
+        source_ids: set[str],
+        target_id: str,
+        dedup_keys: set[str],
+        *,
+        agent_id: str | None = None,
+    ) -> tuple[int, int]:
+        """Move rows proven to come from one file into its canonical session.
+
+        ``source_ids`` alone is not sufficient provenance because synthetic
+        IDs can collide across channel directories. Restricting the operation
+        to dedup keys recomputed from the source file prevents unrelated rows
+        from being swept into ``target_id``.
+
+        Returns ``(moved, deduplicated)``. Non-conflicting rows retain
+        their original ``seq``; source duplicates are removed in favor of the
+        existing canonical row so the unique dedup contract remains valid.
+        """
+        sources = sorted(
+            source_id
+            for source_id in source_ids
+            if source_id and source_id != target_id
+        )
+        keys = sorted(str(key) for key in dedup_keys if key)
+        if not sources or not target_id or not keys:
+            return (0, 0)
+
+        moved = 0
+        deduplicated = 0
+        with self._lock, _immediate_transaction(
+            self._conn,
+        ):
+            for source_id in sources:
+                for start in range(0, len(keys), 400):
+                    chunk = keys[slice(start, start + 400)]
+                    placeholders = ", ".join("?" for _ in chunk)
+                    ownership = ""
+                    params: list[Any] = [source_id, *chunk]
+                    if agent_id:
+                        ownership = " AND (agent_id = ? OR agent_id IS NULL)"
+                        params.append(agent_id)
+                    rows = self._conn.execute(
+                        "SELECT seq, dedup_key, content, name "
+                        "FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + placeholders
+                        + ")"
+                        + ownership,
+                        params,
+                    ).fetchall()
+                    if not rows:
+                        continue
+
+                    row_keys = [str(row["dedup_key"]) for row in rows]
+                    target_placeholders = ", ".join("?" for _ in row_keys)
+                    existing = self._conn.execute(
+                        "SELECT dedup_key FROM conversation_history "
+                        "WHERE session_id = ? AND dedup_key IN ("
+                        + target_placeholders
+                        + ")",
+                        [target_id, *row_keys],
+                    ).fetchall()
+                    existing_keys = {str(row["dedup_key"]) for row in existing}
+                    duplicates = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) in existing_keys
+                    ]
+                    movable = [
+                        row
+                        for row in rows
+                        if str(row["dedup_key"]) not in existing_keys
+                    ]
+
+                    if self._fts:
+                        for row in duplicates:
+                            self._delete_fts_row(row)
+                    if duplicates:
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in duplicates],
+                        )
+                        deduplicated += len(duplicates)
+
+                    if movable:
+                        seqs = [int(row["seq"]) for row in movable]
+                        seq_placeholders = ", ".join("?" for _ in seqs)
+                        cur = self._conn.execute(
+                            "UPDATE conversation_history "
+                            "SET session_id = ?, "
+                            "agent_id = COALESCE(agent_id, ?) "
+                            "WHERE seq IN (" + seq_placeholders + ")",
+                            [target_id, agent_id, *seqs],
+                        )
+                        moved += int(cur.rowcount)
+
+        return (moved, deduplicated)
+
+    def existing_seqs(self, seqs: set[int]) -> set[int]:
+        """Return the subset of globally addressed history rows that exist."""
+        if not seqs:
+            return set()
+        ordered = sorted(int(seq) for seq in seqs)
+        placeholders = ", ".join("?" for _ in ordered)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq FROM conversation_history WHERE seq IN ("
+                + placeholders
+                + ")",
+                ordered,
+            ).fetchall()
+        return {int(row["seq"]) for row in rows}
+
+    def contents_by_seqs(self, seqs: set[int]) -> dict[int, str | None]:
+        """Return exact persisted content for globally addressed rows.
+
+        Summary evidence uses this after live tool results have been folded.
+        Querying exact primary keys, instead of a broad ``lo..hi`` range,
+        prevents interleaved rows from another agent or session entering the
+        evidence. Chunking also keeps the query below SQLite parameter limits
+        for unusually tool-heavy histories.
+        """
+        if not seqs:
+            return {}
+        ordered = sorted(int(seq) for seq in seqs)
+        found: dict[int, str | None] = {}
+        with self._lock:
+            for start in range(0, len(ordered), 500):
+                chunk = ordered[start : start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = self._conn.execute(
+                    "SELECT seq, content FROM conversation_history "
+                    f"WHERE seq IN ({placeholders})",
+                    chunk,
+                ).fetchall()
+                found.update(
+                    {int(row["seq"]): row["content"] for row in rows},
+                )
+        return found
+
+    @staticmethod
+    def _purge_where(
+        before: str,
+        kinds: tuple[str, ...] | None,
+    ) -> tuple[str, list]:
+        """Build the shared ``WHERE`` for purge/estimate so they can't drift.
+
+        Always bounds by ``created_at < before`` (NULL ``created_at`` is never
+        matched, so unstamped rows are retained). When ``kinds`` is given, also
+        restricts to those row kinds (e.g. ``("tool_result",)`` to drop only
+        tool output and keep the conversation). Values are bound, never
+        interpolated.
+        """
+        clause = "created_at IS NOT NULL AND created_at < ?"
+        params: list = [before]
+        if kinds:
+            placeholders = ", ".join("?" for _ in kinds)
+            clause += f" AND kind IN ({placeholders})"
+            params.extend(kinds)
+        return clause, params
+
+    def estimate_purge(
+        self,
+        *,
+        before: str,
+        kinds: tuple[str, ...] | None = None,
+    ) -> dict:
+        """How much ``purge(before=...)`` would remove — WITHOUT removing it.
+
+        Returns ``{"rows": n, "content_bytes": b}`` where ``content_bytes`` is
+        the summed length of the ``content`` column for the matched rows (the
+        bulk of the on-disk weight; the FTS index roughly mirrors it, so true
+        reclaim is larger). ``kinds`` narrows to specific row kinds (e.g.
+        ``("tool_result",)`` to size only tool output). A dry-run estimate to
+        show before an operator commits a purge, so they never delete blindly.
+        """
+        where, params = self._purge_where(before, kinds)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS rows, "
+                "COALESCE(SUM(LENGTH(content)), 0) AS content_bytes "
+                "FROM conversation_history WHERE " + where,
+                params,
+            ).fetchone()
+        return {
+            "rows": int(row["rows"]),
+            "content_bytes": int(row["content_bytes"]),
+        }
+
+    def purge(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+        limit: int = -1,
+        kinds: tuple[str, ...] | None = None,
+    ) -> int:
+        """Delete history rows with ``created_at < before`` (ISO-8601).
+
+        Returns the number of rows that match (and, unless ``dry_run``, were
+        removed). With ``dry_run=True`` nothing is deleted — the count is
+        computed and returned so a caller can preview the blast radius (pair
+        with :meth:`estimate_purge` for the byte estimate). ``kinds`` narrows
+        the delete to specific row kinds — e.g. ``("tool_result",)`` drops only
+        tool output (the bulk of the bloat) while keeping the conversation
+        turns. The FTS index is kept in sync (each purged row is removed from
+        it first). Rows with a NULL/empty ``created_at`` are never matched, so
+        they are retained. This is the retention/clear path — driven on
+        background maintenance and teardown by ``history_retention_days``
+        (default 30; set 0 to keep history forever, which calls nothing here).
+
+        Note: this DELETEs but does not ``VACUUM``, so freed pages are reused
+        but the file does not shrink on disk until a separate vacuum.
+        """
+        where, params = self._purge_where(before, kinds)
+        if dry_run:
+            return self.estimate_purge(before=before, kinds=kinds)["rows"]
+        with self._lock:
+            # Avoid writer contention when retention has nothing to delete.
+            # Re-read matching rows under the write lock for FTS consistency.
+            match = self._conn.execute(
+                f"SELECT 1 FROM conversation_history WHERE {where} LIMIT 1",
+                params,
+            ).fetchone()
+            if match is None:
+                return 0
+            for attempt in range(2):
+                try:
+                    with _immediate_transaction(
+                        self._conn,
+                    ):
+                        doomed = self._conn.execute(
+                            "SELECT seq, content, name "
+                            "FROM conversation_history WHERE "
+                            + where
+                            + " LIMIT ?",
+                            (*params, limit),
+                        ).fetchall()
+                        if not doomed:
+                            return len(doomed)
+                        if self._fts:
+                            for row in doomed:
+                                self._delete_fts_row(row)
+                        self._conn.executemany(
+                            "DELETE FROM conversation_history WHERE seq = ?",
+                            [(row["seq"],) for row in doomed],
+                        )
+                    return len(doomed)
+                except sqlite3.DatabaseError as exc:
+                    # The transaction has rolled back before rebuilding. Never
+                    # rebuild for operational errors or retry more than once.
+                    if (
+                        attempt
+                        or not self._fts
+                        or not self._is_corruption(exc)
+                    ):
+                        raise
+                    self._repair_fts()
+        raise AssertionError("unreachable")
+
+    def vacuum(self) -> None:
+        """Rebuild the database file to reclaim space freed by ``purge``.
+
+        ``purge`` only DELETEs rows, so freed pages are reused but the file
+        does not shrink on disk. VACUUM rewrites it compactly. It is O(db size)
+        and briefly needs extra scratch space, so it is an explicit, separate
+        step rather than run inline on the retention purge path.
+        """
+        # VACUUM cannot run inside an open transaction; sqlite3 in its default
+        # isolation mode opens one implicitly on writes, so commit first.
+        with self._lock:
+            self._conn.commit()
+            self._conn.execute("VACUUM")
+
+    def note_database_error(self, exc: BaseException) -> None:
+        """Schedule a probe for corruption, not ordinary I/O errors."""
+        if isinstance(exc, sqlite3.DatabaseError) and self._is_corruption(exc):
+            with self._lock:
+                if self._fts and not self._closed:
+                    self._fts_check_pending = True
+
+    def note_write_failure(self, exc: BaseException) -> None:
+        """Record a write-through failure — durability is now degraded.
+
+        Logs prominently on the first failure (then counts the rest, to avoid
+        log spam). Read ``degraded`` to gate any "fully durable" guarantees.
+        """
+        self.note_database_error(exc)
+        self.write_failures += 1
+        if not self.degraded:
+            self.degraded = True
+            logger.error(
+                "history write-through FAILED; durability degraded "
+                "(further failures counted silently): %s",
+                exc,
+            )
+
+    @property
+    def closed(self) -> bool:
+        """True once the connection is gone, not while borrowers drain."""
+        return self._closed
+
+    def acquire(self) -> None:
+        """Borrow the workspace connection for one request."""
+        with self._lock:
+            if self._closed or self._close_requested:
+                raise RuntimeError("History store is shutting down")
+            self._retry_pending_fts_check()
+            self._borrowers += 1
+
+    def release(self) -> None:
+        """Release a request's borrow and finish a pending workspace close."""
+        with self._lock:
+            self._borrowers -= 1
+            if self._close_requested and not self._borrowers:
+                self._close_connection()
+
+    def _close_connection(self) -> None:
+        # Caller holds the connection lock, including against worker writes.
+        self._conn.close()
+        self._closed = True
+
+    def close(self) -> bool:
+        """Close once requests have drained; False asks the owner to retry.
+
+        Refusing new borrows prevents shutdown racing a new request. Existing
+        borrowers retain a usable connection until their final persistence and
+        cleanup finish. The last release completes the deferred close.
+        """
+        with self._lock:
+            self._close_requested = True
+            if self._borrowers:
+                return False
+            self._close_connection()
+            return True
+
+    async def shutdown(self) -> None:
+        """Finish shutdown after the last request releases history."""
+
+        async def drain() -> None:
+            if self._retention_task is not None:
+                self._retention_task.cancel()
+                try:
+                    await self._retention_task
+                except asyncio.CancelledError:
+                    pass
+                self._retention_task = None
+            # Do not occupy an executor thread while awaiting borrowers: their
+            # final persistence and release also need the executor. Each close
+            # attempt is offloaded because a current write can hold the lock.
+            while not await run_sync_io(self.close):
+                await asyncio.sleep(0.05)
+
+        await run_async_to_completion(drain())
+
+    def __repr__(self) -> str:
+        return f"<HistoryStore path={self._path}>"
+
+
+def _to_json(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, default=str)

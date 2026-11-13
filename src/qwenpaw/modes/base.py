@@ -1,0 +1,218 @@
+# -*- coding: utf-8 -*-
+"""``AgentMode`` and ``ModeGatedHook`` base classes.
+
+An ``AgentMode`` is a *bundle* of behavior: commands, tools, hooks and
+prompt contributors that should appear together. ``setup(workspace)`` is
+the single entry point that pushes those four pieces into the host
+workspace's plugins / service_manager — there is no other registration
+path, which keeps "which mode owns what" trivially derivable from
+``mode.commands()`` / ``.tools()`` / ``.hooks()`` /
+``.prompt_contributors()``. A fifth, request-scoped contribution —
+``middlewares(ctx, agent_config)`` — is collected by ``AgentBuilder``
+while assembling the agent, for active modes only.
+
+``ModeGatedHook`` is the base every mode-scoped hook should inherit
+from: it auto-skips when the owning mode's ``is_active(ctx)`` returns
+``False``, so subclasses never need to repeat the gate themselves
+(forgetting it was a recurring bug in the old code).
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import Any, TYPE_CHECKING
+
+from ..runtime.hooks import HookBase, HookContext, HookResult
+from .catalog import LoopModeInfo, _as_str_dict
+
+if TYPE_CHECKING:
+    from ..runtime.prompt_manager import PromptContributor
+    from ..runtime.slash_command_registry import CommandSpec
+    from ..runtime.tool_registry import ToolDescriptor
+
+
+class AgentMode:
+    """Base class for one named runtime mode.
+
+    Subclasses set ``name`` (must be unique within a workspace) and
+    override ``is_active`` plus any of the four content methods they
+    actually contribute to.
+    """
+
+    name: str
+    owner_plugin_id: str = ""
+    loop_entry: str | None = None
+
+    def describe_loop(self, workspace: Any) -> LoopModeInfo | None:
+        """Describe an explicitly declared plugin entry command."""
+        if self.loop_entry is None:
+            return None
+        resolved = workspace.plugins.slash_command_registry.resolve(
+            f"/{self.loop_entry}",
+        )
+        if resolved is None:
+            return None
+        command, _ = resolved
+        metadata = command.metadata or {}
+        return LoopModeInfo(
+            id=f"plugin:{self.name}",
+            name=str(metadata.get(f"loop_name") or self.name),
+            slash_command=command.name,
+            description=command.help_text,
+            source=f"plugin",
+            name_i18n=_as_str_dict(metadata.get(f"name_i18n")) or None,
+            description_i18n=(
+                _as_str_dict(metadata.get(f"description_i18n")) or None
+            ),
+        )
+
+    def setup(self, workspace: object) -> None:
+        """Register every contribution into ``workspace``'s plugins.
+
+        ``workspace`` is typed as ``object`` because the concrete
+        ``Workspace`` class is defined in a higher layer — by duck-typing
+        on ``workspace.plugins`` subclasses stay stable.
+        """
+        self._registered: list[tuple[str, object]] = []
+        for spec in self.commands():
+            if self.owner_plugin_id:
+                spec = replace(spec, owner_plugin_id=self.owner_plugin_id)
+            workspace.plugins.slash_command_registry.register(spec)
+            self._registered.append(("command", spec))
+        for desc in self.tools():
+            workspace.plugins.tool_registry.register(desc)
+            self._registered.append(("tool", desc))
+        for hook in self.hooks():
+            workspace.plugins.hook_registry.register(hook)
+            self._registered.append(("hook", hook))
+        for contributor in self.prompt_contributors():
+            workspace.plugins.prompt_manager.register(contributor)
+            self._registered.append(("prompt", contributor))
+
+    def teardown(self, workspace: object) -> None:
+        """Remove every contribution this instance successfully registered.
+
+        Safe to call when some of those names were never registered
+        (partial ``setup`` failure). Subclasses that append extra
+        state (stop handlers, etc.) should override and call ``super``.
+        """
+        plugins = getattr(workspace, "plugins", None)
+        if plugins is None:
+            return
+        for kind, obj in reversed(getattr(self, "_registered", [])):
+            if kind == "command":
+                plugins.slash_command_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "tool":
+                plugins.tool_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "hook":
+                plugins.hook_registry.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+            elif kind == "prompt":
+                plugins.prompt_manager.unregister(
+                    getattr(obj, "name", ""),
+                    expected=obj,
+                )
+        self._registered = []
+
+    def commands(self) -> list["CommandSpec"]:
+        return []
+
+    def tools(self) -> list["ToolDescriptor"]:
+        return []
+
+    def hooks(self) -> list[HookBase]:
+        return []
+
+    def prompt_contributors(self) -> list["PromptContributor"]:
+        return []
+
+    def middlewares(  # noqa: ARG002
+        self,
+        ctx: HookContext,  # pylint: disable=unused-argument
+        agent_config: object,  # pylint: disable=unused-argument
+    ) -> list[Any]:
+        """AgentScope middlewares this mode adds to the agent.
+
+        Unlike the ``setup``-time registrations these are built per
+        request by ``AgentBuilder._build_middlewares`` and only for modes
+        whose ``is_active(ctx)`` is ``True``. Default: none.
+        """
+        return []
+
+    async def on_turn_start(
+        self,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Prepare mode-owned state for a new user turn."""
+
+    async def on_conversation_reset(
+        self,
+        ctx: HookContext,  # noqa: ARG002
+    ) -> None:
+        """Called on /new and /clear to reset mode state.
+
+        Subclasses override to clear sessions, gate state,
+        or any mode-specific data. Default is no-op.
+        """
+
+    def is_active(  # noqa: ARG002
+        self,
+        ctx: HookContext,  # pylint: disable=unused-argument
+    ) -> bool:
+        """Whether this mode applies to the current request.
+
+        Default is ``False`` — subclasses MUST override and read
+        something concrete (e.g. ``ctx.agent_config.mode``) so an
+        unconfigured mode never silently leaks into requests.
+        """
+        return False
+
+
+def find_active_explicit_mode(ctx: HookContext) -> str | None:
+    """Return the active loop mode for one request context.
+
+    The internal ``coding`` plugin adds optional code tools and context;
+    it is not a competing loop mode.
+    """
+    plugins = getattr(getattr(ctx, "workspace", None), "plugins", None)
+    for mode in getattr(plugins, "modes", []):
+        name = getattr(mode, "name", "")
+        if not name or name in {"default", "custom-loop-control", "coding"}:
+            continue
+        try:
+            if mode.is_active(ctx):
+                return str(name)
+        except Exception:
+            continue
+    return None
+
+
+class ModeGatedHook(HookBase):
+    """``HookBase`` variant that auto-skips when its owner mode is inactive.
+
+    Subclasses implement ``_run`` instead of ``run``. The base ``run``
+    runs the mode gate first, returning a no-op ``HookResult`` (CONTINUE
+    + no payload) when ``owner_mode.is_active(ctx)`` is ``False``.
+    """
+
+    def __init__(self, owner_mode: AgentMode) -> None:
+        self.owner_mode = owner_mode
+
+    async def run(self, ctx: HookContext) -> HookResult:
+        if not self.owner_mode.is_active(ctx):
+            return HookResult()
+        return await self._run(ctx)
+
+    async def _run(self, ctx: HookContext) -> HookResult:  # noqa: D401, ARG002
+        raise NotImplementedError
+
+
+__all__ = ["AgentMode", "ModeGatedHook", "find_active_explicit_mode"]

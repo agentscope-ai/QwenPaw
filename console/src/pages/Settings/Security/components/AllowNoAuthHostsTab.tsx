@@ -1,19 +1,15 @@
+import { useAutoSave } from "@/hooks/useAutoSave";
 import { useState, useEffect, useCallback } from "react";
-import {
-  Card,
-  Button,
-  Input,
-  Table,
-  Popconfirm,
-  Tag,
-  Alert,
-} from "@agentscope-ai/design";
+import { Button, Input, Popconfirm, Tag, Alert } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
-import { Space } from "antd";
-import { Shield, Plus, Trash2, AlertTriangle } from "lucide-react";
+import { Space, Spin } from "antd";
+import { Network, Plus, Trash2, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import styles from "../index.module.less";
+import entries from "./SecurityEntries.module.less";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import NumberFlow from "@number-flow/react";
 
 interface AllowNoAuthHostsTabProps {
   onSave?: (handlers: {
@@ -27,15 +23,22 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
   const { t } = useTranslation();
   const [hosts, setHosts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const saving = false;
+  const [loaded, setLoaded] = useState(false);
+  const [inputError, setInputError] = useState("");
+  const reduced = useReducedMotion();
   const [newHost, setNewHost] = useState("");
   const { message } = useAppMessage();
+  const { schedule, flush } = useAutoSave(async () => {
+    await api.updateAllowNoAuthHosts({ hosts });
+  });
 
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getAllowNoAuthHosts();
       setHosts(data?.hosts ?? ["127.0.0.1", "::1"]);
+      setLoaded(true);
     } catch {
       message.error(t("security.allowNoAuthHosts.loadFailed"));
     } finally {
@@ -62,85 +65,49 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
 
   const handleAdd = useCallback(() => {
     const trimmed = newHost.trim();
-    if (!trimmed) return;
+    if (!trimmed || !loaded) return;
 
     if (!isValidIP(trimmed)) {
-      message.error(t("security.allowNoAuthHosts.invalidIP"));
+      setInputError(t("security.allowNoAuthHosts.invalidIP"));
       return;
     }
 
     if (hosts.includes(trimmed)) {
-      message.warning(t("security.allowNoAuthHosts.duplicate"));
+      setInputError(t("security.allowNoAuthHosts.duplicate"));
       return;
     }
 
     setHosts((prev) => [...prev, trimmed]);
+    schedule();
     setNewHost("");
-  }, [newHost, hosts, t, message]);
+    setInputError("");
+  }, [newHost, hosts, t, loaded, schedule]);
 
-  const handleRemove = useCallback((host: string) => {
-    setHosts((prev) => prev.filter((h) => h !== host));
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    try {
-      setSaving(true);
-      await api.updateAllowNoAuthHosts({ hosts });
-      message.success(t("security.allowNoAuthHosts.saveSuccess"));
-    } catch {
-      message.error(t("security.allowNoAuthHosts.saveFailed"));
-    } finally {
-      setSaving(false);
-    }
-  }, [hosts, t, message]);
+  const handleRemove = useCallback(
+    (host: string) => {
+      setHosts((prev) => prev.filter((h) => h !== host));
+      schedule();
+    },
+    [schedule],
+  );
 
   const handleReset = useCallback(() => {
     fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    onSave?.({ save: handleSave, reset: handleReset, saving });
-  }, [handleSave, handleReset, saving, onSave]);
+    onSave?.({
+      save: async () => {
+        await flush();
+      },
+      reset: handleReset,
+      saving,
+    });
+  }, [flush, handleReset, saving, onSave]);
 
   const isDefaultHost = (host: string) => {
     return host === "127.0.0.1" || host === "::1";
   };
-
-  const columns = [
-    {
-      title: t("security.allowNoAuthHosts.ipAddress"),
-      dataIndex: "host",
-      key: "host",
-      render: (host: string) => (
-        <Space className={styles.hostRow}>
-          <Shield size={16} style={{ color: "#52c41a" }} />
-          <code style={{ fontSize: "13px" }}>{host}</code>
-          {isDefaultHost(host) && (
-            <Tag color="blue">{t("security.allowNoAuthHosts.default")}</Tag>
-          )}
-        </Space>
-      ),
-    },
-    {
-      title: t("security.allowNoAuthHosts.actions"),
-      key: "actions",
-      width: 80,
-      render: (_: unknown, record: { host: string }) => (
-        <Popconfirm
-          title={t("security.allowNoAuthHosts.removeConfirm")}
-          onConfirm={() => handleRemove(record.host)}
-          okText={t("common.delete")}
-          cancelText={t("common.cancel")}
-        >
-          <Button type="text" danger size="small">
-            <Trash2 size={14} />
-          </Button>
-        </Popconfirm>
-      ),
-    },
-  ];
-
-  const dataSource = hosts.map((host) => ({ key: host, host }));
 
   return (
     <div className={styles.tabContent}>
@@ -153,38 +120,96 @@ export function AllowNoAuthHostsTab({ onSave }: AllowNoAuthHostsTabProps = {}) {
         style={{ marginBottom: 16 }}
       />
 
-      <Card className={styles.formCard}>
-        <Space.Compact style={{ width: "100%" }}>
+      <section
+        className={entries.paths}
+        aria-label={t("security.allowNoAuthHosts.ipAddress")}
+      >
+        <div className={entries.pathHeader}>
+          <h3>
+            {t("security.allowNoAuthHosts.ipAddress")}{" "}
+            <NumberFlow value={hosts.length} respectMotionPreference />
+          </h3>
+          {!loaded && !loading && (
+            <Button onClick={fetchData}>{t("common.retry")}</Button>
+          )}
+        </div>
+        <Space.Compact className={entries.addInput}>
           <Input
             value={newHost}
-            onChange={(e) => setNewHost(e.target.value)}
+            onChange={(e) => {
+              setNewHost(e.target.value);
+              setInputError("");
+            }}
             placeholder={t("security.allowNoAuthHosts.inputPlaceholder")}
+            aria-label={t("security.allowNoAuthHosts.ipAddress")}
             onPressEnter={handleAdd}
             allowClear
+            disabled={!loaded || loading}
+            status={inputError ? "error" : undefined}
+            aria-invalid={!!inputError}
+            aria-describedby={inputError ? "host-input-error" : undefined}
           />
           <Button
             type="primary"
             icon={<Plus size={16} />}
             onClick={handleAdd}
-            disabled={!newHost.trim()}
+            disabled={!loaded || loading || !newHost.trim()}
           >
             {t("security.allowNoAuthHosts.add")}
           </Button>
         </Space.Compact>
-      </Card>
-
-      <Card className={styles.tableCard}>
-        <Table
-          columns={columns}
-          dataSource={dataSource}
-          loading={loading}
-          pagination={false}
-          size="middle"
-          locale={{
-            emptyText: t("security.allowNoAuthHosts.empty"),
-          }}
-        />
-      </Card>
+        {inputError && (
+          <p id="host-input-error" role="alert" className={entries.inputError}>
+            {inputError}
+          </p>
+        )}
+        <Spin spinning={loading}>
+          <ul className={entries.pathList}>
+            <AnimatePresence initial={false}>
+              {hosts.map((host) => (
+                <motion.li
+                  key={host}
+                  layout={!reduced}
+                  className={entries.pathRow}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={
+                    reduced
+                      ? { duration: 0 }
+                      : { type: "spring", stiffness: 360, damping: 38 }
+                  }
+                >
+                  <Network size={17} aria-hidden="true" />
+                  <code>{host}</code>
+                  {isDefaultHost(host) && (
+                    <Tag>{t("security.allowNoAuthHosts.default")}</Tag>
+                  )}
+                  <Popconfirm
+                    title={t("security.allowNoAuthHosts.removeConfirm")}
+                    description={<code>{host}</code>}
+                    onConfirm={() => handleRemove(host)}
+                    okText={t("common.delete")}
+                    cancelText={t("common.cancel")}
+                  >
+                    <Button
+                      type="text"
+                      danger
+                      icon={<Trash2 size={16} />}
+                      aria-label={`${t("common.delete")}: ${host}`}
+                    />
+                  </Popconfirm>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
+          {loaded && !hosts.length && (
+            <p className={entries.empty}>
+              {t("security.allowNoAuthHosts.empty")}
+            </p>
+          )}
+        </Spin>
+      </section>
     </div>
   );
 }

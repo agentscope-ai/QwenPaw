@@ -11,12 +11,14 @@
  */
 import type React from "react";
 import { chatExtensions } from "../registry/chatExtensions";
+import { harnessNamespace } from "../harnesses";
 import { auditStore } from "../registry/audit";
 import { pluginSystem } from "../hostExternals";
 import { combineDisposables } from "../registry/types";
-import { ChatScalar } from "../registry/slotKeys";
+import { ChatScalar, ThemeTokens } from "../registry/slotKeys";
 import type {
   ChatActionSpec,
+  ChatApprovalRendererItem,
   ChatNodeItem,
   ChatRequestPayloadTransform,
   ChatRequestPayloadTransformItem,
@@ -30,8 +32,9 @@ import type {
   ChatSuggestionsItem,
   Disposable,
   OverrideRecord,
+  ThemeTokenKey,
+  ThemeTokenOverrides,
   WelcomeRenderFn,
-  WelcomeRenderProps,
 } from "../registry/types";
 import {
   useHostTheme,
@@ -42,6 +45,9 @@ import {
   getCurrentSessionId,
 } from "./hooks";
 import { hostFetch } from "./fetch";
+import { submitChat } from "./chatSubmit";
+import { openExternalLink } from "../../utils/openExternalLink";
+import type { ChatCodeBlockProps, ChatSubmitInput } from "../types/qwenpaw";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Plugin-facing API surface
@@ -66,6 +72,47 @@ interface ThemePartial {
   colorPrimary?: ChatScalarValues["theme.colorPrimary"];
 }
 
+const THEME_TOKEN_KEYS: ReadonlySet<string> = new Set(
+  Object.values(ThemeTokens),
+);
+
+/**
+ * Reject anything the token layer cannot honour.
+ *
+ * Unknown keys are an error rather than being ignored: silently dropping a
+ * typo would leave the plugin author staring at an unchanged UI, and letting
+ * arbitrary `--app-*` names through would widen a deliberately closed API.
+ */
+function validateThemeTokens(
+  pluginId: string,
+  tokens: ThemeTokenOverrides,
+): ThemeTokenOverrides {
+  const validated: ThemeTokenOverrides = {};
+  for (const [key, value] of Object.entries(tokens)) {
+    if (!THEME_TOKEN_KEYS.has(key)) {
+      throw new Error(
+        `[QwenPaw] chat.theme.overrideTokens: unknown token "${key}" from plugin "${pluginId}". ` +
+          `Allowed tokens: ${Array.from(THEME_TOKEN_KEYS).join(", ")}.`,
+      );
+    }
+    const light = value?.light;
+    const dark = value?.dark;
+    if (
+      typeof light !== "string" ||
+      light === "" ||
+      typeof dark !== "string" ||
+      dark === ""
+    ) {
+      throw new Error(
+        `[QwenPaw] chat.theme.overrideTokens: token "${key}" from plugin "${pluginId}" ` +
+          `must provide both "light" and "dark" values.`,
+      );
+    }
+    validated[key as ThemeTokenKey] = { light, dark };
+  }
+  return validated;
+}
+
 interface SenderPartial {
   placeholder?: ChatScalarValues["sender.placeholder"];
   disclaimer?: ChatScalarValues["sender.disclaimer"];
@@ -77,12 +124,24 @@ interface ResponsePartial {
 }
 
 export interface QwenPawChatNamespace {
+  codeBlock(
+    pluginId: string,
+    language: string,
+    component: React.ComponentType<ChatCodeBlockProps>,
+  ): Disposable;
+  submit(pluginId: string, input: ChatSubmitInput): Promise<void>;
   welcome: {
     set(pluginId: string, partial: WelcomePartial): Disposable;
     render(pluginId: string, value: WelcomeRenderValue): Disposable;
   };
   theme: {
     set(pluginId: string, partial: ThemePartial): Disposable;
+    /**
+     * Override semantic theme roles for light and dark schemes at once.
+     * Keys are `styles/tokens.css` roles without the `--app-` prefix; each
+     * value must carry both schemes. Later registrations win per token.
+     */
+    overrideTokens(pluginId: string, tokens: ThemeTokenOverrides): Disposable;
   };
   leftHeader: {
     set(pluginId: string, partial: LeftHeaderPartial): Disposable;
@@ -155,6 +214,13 @@ export interface QwenPawChatNamespace {
     toolName: string,
     render: React.FC<Record<string, unknown>>,
   ): Disposable;
+  approval: {
+    render(
+      pluginId: string,
+      sourceType: string,
+      render: ChatApprovalRendererItem["render"],
+    ): Disposable;
+  };
   card(
     pluginId: string,
     cardName: string,
@@ -207,8 +273,7 @@ function normalizeWelcomeRender(value: WelcomeRenderValue): WelcomeRenderFn {
   }
   // Plain ReactNode → wrap into a fn that ignores SDK props and renders the node verbatim.
   const node = value;
-  return ((_props: WelcomeRenderProps) =>
-    node as unknown as React.ReactElement) as WelcomeRenderFn;
+  return (() => node as unknown as React.ReactElement) as WelcomeRenderFn;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -261,6 +326,8 @@ function makeChatNamespace(): QwenPawChatNamespace {
     },
     theme: {
       set: (pid, partial) => applyPartial(pid, partial, themeFieldMap),
+      overrideTokens: (pid, tokens) =>
+        chatExtensions.setThemeTokens(pid, validateThemeTokens(pid, tokens)),
     },
     leftHeader: {
       set: (pid, partial) => applyPartial(pid, partial, leftHeaderFieldMap),
@@ -350,11 +417,18 @@ function makeChatNamespace(): QwenPawChatNamespace {
         return chatExtensions.addResponseAppend(pid, item);
       },
     },
+    codeBlock: (pid, language, component) =>
+      chatExtensions.addCodeBlock(pid, language, component),
+    submit: submitChat,
     toolRender: (pid, toolName, render) => {
       // Mirror to existing pluginSystem.toolRenderers so the old
       // `usePlugins().toolRenderConfig` path keeps producing the same map.
       pluginSystem.addToolRenderers(pid, { [toolName]: render });
       return chatExtensions.addToolRender(pid, toolName, render);
+    },
+    approval: {
+      render: (pid, sourceType, render) =>
+        chatExtensions.addApprovalRenderer(pid, sourceType, render),
     },
     card: (pid, cardName, render) =>
       chatExtensions.addCard(pid, cardName, render),
@@ -370,6 +444,7 @@ export function installHostSdk(): void {
   if (typeof window === "undefined") return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ns = (window.QwenPaw as any) ?? ((window as any).QwenPaw = {});
+  ns.harnesses = harnessNamespace;
 
   if (!ns.chat) {
     ns.chat = makeChatNamespace();
@@ -393,4 +468,5 @@ export function installHostSdk(): void {
   if (!host.getSelectedAgentId) host.getSelectedAgentId = getSelectedAgentId;
   if (!host.getCurrentSessionId) host.getCurrentSessionId = getCurrentSessionId;
   if (!host.fetch) host.fetch = hostFetch;
+  if (!host.openExternalLink) host.openExternalLink = openExternalLink;
 }

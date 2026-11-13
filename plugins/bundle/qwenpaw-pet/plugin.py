@@ -5,6 +5,7 @@
 
 import atexit
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,25 @@ from pathlib import Path
 _plugin_dir = str(Path(__file__).resolve().parent)
 if _plugin_dir not in sys.path:
     sys.path.insert(0, _plugin_dir)
+
+# Evict stale cached sibling modules so hot-reload after plugin
+# reinstall picks up the new files instead of the previous version
+# lingering in ``sys.modules``.
+for _sib in (
+    "emitter",
+    "patch_runner",
+    "patch_approval",
+    "router",
+    "pet_paths",
+):
+    _cached = sys.modules.get(_sib)
+    if _cached is None:
+        continue
+    _cached_file = getattr(_cached, "__file__", None) or ""
+    if _cached_file and os.path.realpath(_cached_file).startswith(
+        os.path.realpath(_plugin_dir) + os.sep,
+    ):
+        del sys.modules[_sib]
 
 from qwenpaw.plugins.api import PluginApi  # noqa: E402
 

@@ -133,6 +133,12 @@ def test_parse_json_tool_call_missing_name() -> None:
     assert len(result.tool_calls) == 0
 
 
+def test_parse_json_tool_call_ignores_non_object_json() -> None:
+    text = "<tool_call>[1]</tool_call>"
+    result = parse_tool_calls_from_text(text)
+    assert len(result.tool_calls) == 0
+
+
 def test_parse_multiple_tool_calls() -> None:
     text = (
         'text<tool_call>{"name":"a","arguments":{}}</tool_call>'

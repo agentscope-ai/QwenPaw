@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-import json
+import logging
 import time
 import uuid
 from typing import Any
 
 from ..constant import WORKING_DIR
+from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
+from .notification_store import publish_inbox
+
+logger = logging.getLogger(__name__)
 
 _INBOX_PATH = WORKING_DIR / "inbox_events.json"
 _LOCK = asyncio.Lock()
@@ -17,20 +21,30 @@ _MAX_EVENTS = 5000
 def _load_events() -> list[dict[str, Any]]:
     if not _INBOX_PATH.exists():
         return []
-    data = json.loads(_INBOX_PATH.read_text(encoding="utf-8"))
+    try:
+        data = read_json(_INBOX_PATH)
+    except (ValueError, OSError) as exc:
+        # Corrupted or unreadable inbox file — treat as empty rather than
+        # crashing every subsequent read. The next append_event will
+        # atomically replace the file with a valid payload. Log the
+        # error so permission/disk-full issues are not silently lost.
+        logger.warning(
+            "Failed to load inbox events from %s: %s",
+            _INBOX_PATH,
+            exc,
+        )
+        return []
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
 
 
 def _save_events(events: list[dict[str, Any]]) -> None:
-    _INBOX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = _INBOX_PATH.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(events, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
+    write_json_atomic(
+        _INBOX_PATH,
+        events,
+        sort_keys=True,
     )
-    tmp_path.replace(_INBOX_PATH)
 
 
 async def append_event(
@@ -60,10 +74,11 @@ async def append_event(
         "created_at": time.time(),
     }
     async with _LOCK:
-        events = _load_events()
+        events = await run_sync_io(_load_events)
         events.insert(0, event)
         del events[_MAX_EVENTS:]
-        _save_events(events)
+        await run_sync_io(_save_events, events)
+    publish_inbox(event)
     return event
 
 
@@ -77,7 +92,7 @@ async def list_events(
     unread_only: bool = False,
 ) -> list[dict[str, Any]]:
     async with _LOCK:
-        events = _load_events()
+        events = await run_sync_io(_load_events)
     if source_type:
         events = [
             event
@@ -95,30 +110,98 @@ async def list_events(
     return events[offset : offset + max(limit, 0)]
 
 
+async def query_events(
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    source_types: set[str] | None = None,
+    status: str | None = None,
+    agent_id: str | None = None,
+    unread_only: bool = False,
+    event_id: str | None = None,
+) -> tuple[list[dict[str, Any]], int, int]:
+    """Return a filtered page with exact total and unread counts."""
+    async with _LOCK:
+        events = await run_sync_io(_load_events)
+    if event_id:
+        events = [event for event in events if event.get(f"id") == event_id]
+    if source_types:
+        events = [
+            event
+            for event in events
+            if event.get("source_type") in source_types
+        ]
+    if status:
+        events = [event for event in events if event.get("status") == status]
+    if agent_id:
+        events = [
+            event for event in events if event.get("agent_id") == agent_id
+        ]
+    unread_count = sum(not bool(event.get("read")) for event in events)
+    if unread_only:
+        events = [event for event in events if not bool(event.get("read"))]
+    total = len(events)
+    page = events[offset : offset + max(limit, 0)]
+    return page, total, unread_count
+
+
 async def mark_read(event_ids: list[str]) -> int:
     if not event_ids:
         return 0
     event_id_set = set(event_ids)
     updated = 0
     async with _LOCK:
-        events = _load_events()
+        events = await run_sync_io(_load_events)
         for event in events:
             if event.get("id") in event_id_set and not bool(event.get("read")):
                 event["read"] = True
                 updated += 1
-        _save_events(events)
+        await run_sync_io(_save_events, events)
     return updated
 
 
 async def mark_all_read() -> int:
     updated = 0
     async with _LOCK:
-        events = _load_events()
+        events = await run_sync_io(_load_events)
         for event in events:
             if not bool(event.get("read")):
                 event["read"] = True
                 updated += 1
-        _save_events(events)
+        await run_sync_io(_save_events, events)
+    return updated
+
+
+async def mark_read_by_acl_sender(agent_id: str, sender_address: str) -> int:
+    """Mark matching unread ACL-pending events for one agent as read.
+
+    Called when the user approves / denies / dismisses an ACL pending sender
+    so the corresponding notification is cleared from the unread count.
+    """
+    needle = (sender_address or "").lower().strip()
+    if not agent_id or not needle:
+        return 0
+    updated = 0
+    async with _LOCK:
+        events = await run_sync_io(_load_events)
+        for event in events:
+            if bool(event.get("read")):
+                continue
+            if event.get("agent_id") != agent_id:
+                continue
+            payload = event.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("acl_status") != "pending":
+                continue
+            event_sender = payload.get("acl_sender_address")
+            if not isinstance(event_sender, str):
+                continue
+            if event_sender.lower().strip() == needle:
+                event["read"] = True
+                updated += 1
+        if updated:
+            await run_sync_io(_save_events, events)
     return updated
 
 
@@ -129,7 +212,7 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
     deleted_run_id: str | None = None
     run_id_still_referenced = False
     async with _LOCK:
-        events = _load_events()
+        events = await run_sync_io(_load_events)
         kept_events = []
         for event in events:
             if not deleted and event.get("id") == event_id:
@@ -152,5 +235,5 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
                     run_id_still_referenced = True
                     break
         if deleted:
-            _save_events(kept_events)
+            await run_sync_io(_save_events, kept_events)
     return deleted, deleted_run_id, run_id_still_referenced

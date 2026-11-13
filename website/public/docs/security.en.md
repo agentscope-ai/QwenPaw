@@ -4,29 +4,39 @@ QwenPaw includes built-in security features to protect your agent from malicious
 
 ## Overview
 
-QwenPaw's security system consists of three core security layers:
+QwenPaw's security system consists of five core security layers:
 
 ```
 Security Architecture:
-├─ Tool Guard — Runtime tool call protection
+├─ Governance Policy — Runtime tool call protection
 │  Detects dangerous command patterns, injection attacks, and malicious operations
 │  using YAML regex rules plus a quote-aware shell evasion guardian
 │
 ├─ File Guard — Sensitive file access control
 │  Blocks agent access to protected files and directories
 │
-└─ Skill Scanner — Pre-activation skill security scanning
-   Scans for malicious code, hardcoded secrets, and security threats
-   before skills are enabled
+├─ Sandbox — OS kernel-level execution isolation
+│  Confines shell commands to a restricted filesystem view using
+│  platform-native mechanisms (Seatbelt / bubblewrap / Landlock / AppContainer / Restricted_token)
+│
+├─ Skill Scanner — Pre-activation skill security scanning
+│  Scans for malicious code, hardcoded secrets, and security threats
+│  before skills are enabled
+│
+└─ Access Policy — Declarative access policy
+   Controls who can invoke which capabilities under what conditions
+   with per-tool granularity and source-aware rules
 ```
 
 **Additional feature**: Web Authentication — Optional login protection for the Console interface
 
 **Key concepts**:
 
-- **Tool Guard** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
+- **Governance Policy** inspects tool calls in real-time before execution, using YAML regex rules and a dedicated shell evasion guardian to detect dangerous patterns
 - **File Guard** operates independently to protect sensitive files and directories from unauthorized access
+- **Sandbox** executes shell commands inside an OS kernel-enforced isolation boundary, restricting filesystem access to only declared paths
 - **Skill Scanner** runs before skills are enabled to detect malicious code and security threats
+- **Access Policy** evaluates source, identity, and target for each capability invocation — deciding whether to allow, deny, or request human approval
 - **Web Authentication** (optional) controls access to the Console interface
 
 ---
@@ -268,6 +278,36 @@ The engine also runs **`ShellEvasionGuardian`** on `execute_shell_command`. It t
 
 ---
 
+## Mailbox Security
+
+A mailbox authorization code grants full IMAP/SMTP send and receive access. The
+public mailbox identity and automatic-processing settings live in the
+workspace's `agent.json`; the authorization code, app password, or login
+password is encrypted in `credentials.yaml`. `drivers/mcp/qwenpawmail.yaml`
+stores only a credential reference, which is resolved when the MCP subprocess
+starts. Neither the Agent API nor the agent returns these secrets. Passwords,
+phone numbers, and verification codes entered on a provider's registration page
+are not saved to QwenPaw configuration either. Restrict workspace access, do not
+commit these files, and do not share backups containing both the workspace and
+decryption material. Revoke and rotate the credential with the provider if
+exposure is suspected.
+
+Treat every message body as untrusted external input. Automatic processing must
+not follow instructions embedded in email and is barred from permanent deletion
+by default. Outbound mail is limited to the original sender or a known contact in
+`CONTACTS.md`; money, commitments, and sensitive relationships require a draft
+and confirmation. When a message cannot be classified, the exploration path
+raises every subsequent tool call to strict approval.
+
+When automation is enabled, also consider **Mail Access Control**. Unknown
+senders remain pending until allowed, at which point every message saved in the
+pending record is processed; denied senders' later messages are marked read and
+skipped. Among the tools, `delete_message` is permanent, while `delete_thread`
+moves messages to Trash; verify the target before either action. See
+[Mailbox Management and Automation](./mailbox#Mail-Access-Control).
+
+---
+
 ## File Guard
 
 The **File Guard** blocks agent tools from accessing sensitive files and directories. It runs automatically on **every tool call**, scanning all file-path-related parameters to enforce a deny list of protected paths.
@@ -333,6 +373,218 @@ In the Console under **Settings → Security → File Guard** tab, you can:
 - **Remove protection** — Click the delete button to remove paths that no longer need protection
 - **Save configuration** — Click "Save" to persist changes to `config.json`; **changes take effect immediately**
 - **Reset changes** — Click "Reset" to revert to the last saved state
+
+---
+
+## Sandbox
+
+The **Sandbox** provides OS kernel-level execution isolation for shell commands. When the governance layer decides a tool call should run in a sandbox, commands execute inside a restricted filesystem view where only explicitly declared paths are accessible.
+
+### How it works
+
+The sandbox sits between the governance decision and actual command execution:
+
+```
+Tool call flow:
+  1. Governance Policy → pattern detection + policy evaluation (ALLOW / DENY / ASK / SANDBOX_FALLBACK)
+  2. Sandbox           → kernel-enforced execution isolation (runtime)
+  3. Result            → violation detection + output capture
+```
+
+**Division of responsibility**:
+
+- **Governance Policy** = pattern detection + rule-based policy evaluation before execution (regex signatures, shell evasion heuristics, user/builtin rules)
+- **File Guard** = path-level access control (blocks specific files/dirs)
+- **Sandbox** = runtime kernel isolation (the command literally cannot see or write to paths outside the whitelist)
+
+Even if a command passes Tool Guard and File Guard checks, the sandbox ensures it cannot access anything beyond its declared filesystem view at the OS level.
+
+### Supported platforms
+
+QwenPaw automatically detects the best available sandbox backend on startup:
+
+| Platform | Backend                                      | Mechanism                                              | Detection                                            |
+| -------- | -------------------------------------------- | ------------------------------------------------------ | ---------------------------------------------------- |
+| macOS    | **Seatbelt**                                 | `sandbox-exec` with S-expression profiles              | `sandbox-exec` binary on PATH                        |
+| Linux    | **Bubblewrap** (preferred)                   | Mount namespaces + user namespaces + PID namespace     | `bwrap` binary + user namespace support              |
+| Linux    | **Landlock** (fallback)                      | Landlock LSM kernel module (5.13+)                     | Kernel version + LSM probe + ABI syscall             |
+| Windows  | **AppContainer** (`allow_read_all=False`)    | AppContainer profile + `icacls` ACL enforcement        | Windows 10+ (build 10240) + `icacls.exe` on PATH     |
+| Windows  | **Restricted_token** (`allow_read_all=True`) | Dedicated user + restricted token + WFP firewall rules | Windows 10+ (build 10240); administrator recommended |
+| Any      | **None**                                     | No isolation (passthrough)                             | Used when no backend is available                    |
+
+**Probe priority on Linux**: bubblewrap > Landlock > None. If `bwrap` is installed and user namespaces work, bubblewrap is chosen. Otherwise falls back to Landlock if the kernel supports it.
+
+**Windows backend selection**: The backend is determined by the `allow_read_all` setting. When `allow_read_all=False` (deny-all model), AppContainer is used — only explicitly declared paths are readable. When `allow_read_all=True` (deny-list model, the default), Restricted_token is used — the entire filesystem is readable but writes are restricted to declared mounts via a restricted token with `CreateRestrictedToken` in Restricted_token mode.
+
+**Capability comparison**:
+
+| Capability               | Seatbelt (macOS)   | Bubblewrap (Linux)       | Landlock (Linux)     | AppContainer (Windows)      | Restricted_token (Windows) |
+| ------------------------ | ------------------ | ------------------------ | -------------------- | --------------------------- | -------------------------- |
+| Filesystem read control  | Yes                | Yes                      | Yes                  | Yes (deny-all + ACL grants) | Yes                        |
+| Filesystem write control | Yes                | Yes                      | Yes                  | Yes                         | Yes (restricted token)     |
+| deny_paths invisible     | No (access denied) | Yes (not mounted)        | No (access denied)   | No (access denied)          | No (access denied)         |
+| PID namespace isolation  | No                 | Yes                      | No                   | No                          | No                         |
+| Minimal /dev             | Yes (allowlist)    | Yes (synthetic devtmpfs) | No                   | N/A                         | N/A                        |
+| Network control          | Yes (allow/deny)   | Planned                  | No (requires ABI v4) | Yes (allow/deny)            | Yes (WFP firewall rules)   |
+
+### Isolation model
+
+The sandbox uses a **deny-default whitelist** model:
+
+1. **Base filesystem**: By default, everything is either read-only (`allow_read_all=True`) or invisible (`allow_read_all=False`)
+2. **Writable paths**: Only explicitly declared `mounts` with `writable=True` can be written to (typically just the workspace directory)
+3. **Denied paths**: Paths in `deny_paths` are blocked even if they would otherwise be readable:
+   - Bubblewrap: path is not mounted at all (invisible, `ls` shows nothing)
+   - Landlock/Seatbelt: access returns `Permission denied`
+4. **Minimal /dev**: Only essential device nodes are available (`/dev/null`, `/dev/zero`, `/dev/urandom`, `/dev/tty`)
+5. **PID isolation** (Bubblewrap only): processes inside the sandbox cannot see host PIDs
+
+### Configuration
+
+Sandbox configuration is compiled automatically by the governance policy engine. Users typically do not need to set these values manually. The key fields are:
+
+| Field             | Type   | Default                     | Description                                                        |
+| ----------------- | ------ | --------------------------- | ------------------------------------------------------------------ |
+| `mode`            | string | auto-detected               | `seatbelt`, `bubblewrap`, `landlock`, `appcontainer`, or `none`    |
+| `workspace_dir`   | string | agent workspace             | Primary working directory (always writable)                        |
+| `mounts`          | list   | workspace only              | Declared filesystem paths with permissions                         |
+| `deny_paths`      | list   | `["~/.ssh", "~/.aws", ...]` | Sensitive paths to block                                           |
+| `allow_read_all`  | bool   | `true`                      | If true, entire filesystem is readable by default (deny-list mode) |
+| `network_allow`   | list   | `["*"]`                     | Network access policy (currently allows all)                       |
+| `timeout_seconds` | int    | `30`                        | Maximum execution time before kill                                 |
+| `env_vars`        | dict   | `{}`                        | Additional environment variables for sandboxed process             |
+
+**MountSpec** entries in `mounts`:
+
+| Field        | Type   | Default | Description                           |
+| ------------ | ------ | ------- | ------------------------------------- |
+| `path`       | string | —       | Filesystem path                       |
+| `writable`   | bool   | `false` | Allow write access                    |
+| `executable` | bool   | `true`  | Allow executing binaries (macOS only) |
+
+#### Granting a path outside the workspace
+
+There is no `mounts` field to edit directly. The list is derived from your
+`policy.yaml` rules: a `Write(...)` rule becomes a writable mount and a
+`Read(...)` rule a read-only one, with the workspace always writable. So the
+way to let a sandboxed command write outside the workspace is to add the
+rule, not to hand-write a mount.
+
+This matters for tools that keep a cache in the home directory. `uv`, `pip`
+and `npm` all fail under the sandbox until their cache directory is granted:
+
+```yaml
+# policy.yaml — let uv populate its cache
+user_rules:
+  - match: Write(~/.cache/uv/**)
+    action: allow
+    reason: uv build cache
+```
+
+The path may use `~` or `$VAR`; both are expanded when the mount is
+compiled. Two behaviours to keep in mind:
+
+- **A path is bound only if it exists when the sandbox starts.** An absent
+  path is skipped and reported at `WARNING` as not bound. A cache directory
+  usually does not exist before its tool first runs, so create it once
+  (`mkdir -p ~/.cache/uv`) if the very first sandboxed run must write there.
+- **`mode=none` ignores mounts entirely**, so inside a container without a
+  kernel backend the grant is irrelevant — nothing is restricted to begin
+  with.
+
+### Violation detection
+
+When a sandboxed command attempts to access a path outside its allowed view, the OS kernel blocks the operation. QwenPaw detects these violations by matching stderr patterns:
+
+| Platform         | Detection patterns                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| Seatbelt         | `deny(N) file-read-data`, `Sandbox:`, `sandbox-exec:`, `Operation not permitted`         |
+| Bubblewrap       | `Permission denied`, `bwrap:`, `Operation not permitted`, `EACCES`                       |
+| Landlock         | `Permission denied`, `Operation not permitted`                                           |
+| AppContainer     | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
+| Restricted_token | `Access is denied`, `error 5`, `0x80070005`, `Permission denied`, `拒绝访问`, `权限不足` |
+
+When a violation is detected:
+
+1. The `sandbox_violation` field is populated in the execution result
+2. The governance layer logs the violation
+3. Depending on policy, the agent may be prompted to request user approval for expanded access
+
+### Current limitations
+
+- **Network isolation**: Only the all-open and block-all postures are enforceable, and only on backends with a kernel-level mechanism — Seatbelt (macOS), Landlock ABI v4+ (Linux, kernel 6.7+), AppContainer capability SIDs and the elevated Windows backend's WFP rules. Domain-level filtering is implemented nowhere; what a domain allowlist degrades to differs by backend, so read the log line rather than assuming: Seatbelt / AppContainer open the network **fully**, while WFP blocks it **entirely**. Bubblewrap does not isolate the network at all (`--unshare-net` is planned).
+- **Windows without administrator rights**: the unelevated backend has neither WFP rules nor capability SIDs. A block-all request only sets HTTP(S) proxy environment variables, which a raw socket ignores, and a domain allowlist sets nothing at all — so `network_allow` is never enforced there and is always reported as ignored. Run as administrator for enforced blocking.
+- **`network_ports`**: honoured only by Landlock ABI v4+, and only together with `network_allow=[]`. Port rules attach to the same handled-access mask as the wholesale block, so with the network left open — including the `["*"]` default — no port rule is installed.
+- **Resource limits**: `max_processes` and `max_memory_mb` are accepted but not enforced by any backend; enforcing them needs Linux cgroups / Windows Job objects.
+- **`env_mode="allowlist"`**: Not implemented. Every backend behaves as `"inject"` — inherit the current environment, then apply `env_vars`. Because the allowlist exists to keep undeclared host variables (API keys, cloud credentials, tokens) out of the sandboxed child, requesting it is reported at `WARNING`.
+- **`shell_executable`**: Honoured by the Windows backends and `mode=none`. The bubblewrap / Seatbelt / Landlock backends pin their own shell. Under `mode=none` a configured shell that cannot be resolved is reported and falls back to the platform default (`COMSPEC` / cmd.exe on Windows, `SHELL` / `/bin/bash` elsewhere); the command flag follows the shell, so cmd.exe gets `/c`, PowerShell gets `-Command` and POSIX shells get `-c`.
+- **`platform_hints`**: only `seatbelt_extra_rules` (macOS) is consumed. Any other key — including a typo of that one — is dropped, and because the hints can carry admin-authored deny rules the whole field is then reported at `WARNING`.
+- **`mode=none` enforces nothing**: the passthrough backend applies only `timeout_seconds`, `env_vars` and `shell_executable`. Every isolation constraint is ignored. This is the common case inside containers, where no kernel backend is available and QwenPaw falls back to `mode=none`.
+- **Unenforced constraints are logged, never silently dropped**: each backend declares the fields it actually applies, and anything else you configured is reported when the sandbox is created — constraints that form a security boundary at `WARNING`, the rest at `DEBUG`. Seeing `NoneSandbox does not enforce deny_paths=~/.ssh; the constraint is IGNORED.` means those paths really are readable. Treat these lines as security findings, not noise.
+- **Windows AppContainer** (`allow_read_all=False`): Requires administrator privileges for initial ACL setup. The AppContainer profile is preserved for reuse across invocations with the same configuration.
+- **Windows AppContainer file deletion limitation** (`allow_read_all=False`): Sandboxed processes in AppContainer mode may be unable to delete files within the workspace. This does not affect `allow_read_all=True` (Restricted_token) mode. A solution is under investigation.
+- **Windows Restricted_token** (`allow_read_all=True`): Full isolation (dedicated local user, WFP firewall rules) requires administrator privileges. When running without administrator privileges, an unelevated sandbox mode is used instead — it provides write restrictions via `CreateRestrictedToken` but with limited isolation compared to the full sandbox. For maximum security, running as administrator is recommended.
+- **Windows minimum version**: Both Windows backends require **Windows 10 version 1507 (build 10240)** or later. Earlier Windows versions (Windows 7, 8, 8.1) do not support the isolation mechanisms and will fall back to `mode=none` (no isolation).
+- **Windows system directory ACL restrictions** (AppContainer only): The `icacls` ACL setup cannot modify permissions on certain protected system directories such as `C:\Program Files`, `C:\Program Files (x86)`, `C:\Windows`, and `C:\Windows\System32`. These directories are protected by Windows Resource Protection (WRP) and TrustedInstaller ownership.
+- **deny_paths for files (Bubblewrap)**: Individual files in `deny_paths` appear as empty (bound to `/dev/null`) rather than non-existent. Directory-level deny uses `--tmpfs` and is truly invisible.
+
+### Troubleshooting
+
+**macOS: `sandbox-exec` reports syntax error**
+
+The Seatbelt profile uses S-expression syntax. If you see `expecting ')'` errors, this typically indicates a malformed profile. Check that the `deny_paths` entries do not contain special characters (quotes, newlines, backslashes).
+
+**Linux: bwrap probe failed**
+
+Bubblewrap requires user namespace support. Check:
+
+```bash
+# Verify bwrap is installed
+which bwrap
+
+# Check user namespaces are enabled
+cat /proc/sys/kernel/unprivileged_userns_clone
+# Should output: 1
+
+# Manual probe
+bwrap --ro-bind / / --dev /dev --unshare-user --unshare-pid --proc /proc -- /bin/echo OK
+```
+
+If user namespaces are disabled (Docker containers, some hardened kernels), QwenPaw automatically falls back to Landlock.
+
+**Windows: AppContainer ACL setup failed**
+
+AppContainer (`allow_read_all=False`) requires administrator privileges for `icacls` ACL operations. If you see warnings about failed ACL setup:
+
+1. Run QwenPaw as administrator (right-click → Run as administrator)
+2. Verify `icacls.exe` is on your PATH (ships with all Windows editions)
+3. Use `scripts/cleanup_windows_sandbox.py` to remove stale AppContainer profiles and ACLs
+
+**Windows: Restricted_token user provisioning failed**
+
+Restricted_token (`allow_read_all=True`) uses dedicated local user accounts and WFP firewall rules for full isolation, which requires administrator privileges. Without administrator privileges, QwenPaw automatically falls back to the unelevated sandbox mode with limited isolation. If you see errors about user creation or firewall setup:
+
+1. The unelevated sandbox is still active and provides basic write restrictions
+2. For full sandbox protection, run QwenPaw as administrator (right-click → Run as administrator)
+3. Use `scripts/cleanup_windows_sandbox.py` to remove stale sandbox users and firewall rules
+
+**Windows: Minimum version not met**
+
+Both Windows sandbox backends require Windows 10 (build 10240) or later. If you see `"AppContainer requires Windows 10+"` in the probe output, you are running an unsupported Windows version. Upgrade to Windows 10 or later to use sandbox isolation. On older systems, QwenPaw falls back to `mode=none` (no kernel isolation).
+
+**Windows: ACL grant fails on system directories (e.g. Program Files)**
+
+If you see `icacls` warnings for paths like `C:\Program Files` or `C:\Windows`, this is expected (AppContainer mode only). These directories are owned by TrustedInstaller and protected by Windows Resource Protection — even administrators cannot modify their ACLs.
+
+**Verifying sandbox is active**
+
+Check the governance log (`qwenpaw.log`) for lines containing:
+
+```
+governance decision: tool=Bash target="..." action=sandbox_fallback sandbox=bubblewrap ...
+```
+
+The `sandbox=` field shows which backend is actually being used. If it shows `-`, sandbox is not active for that call.
 
 ---
 
@@ -531,6 +783,145 @@ In `config.json`:
   }
 }
 ```
+
+---
+
+## Access Policy
+
+**Access Policy** is a declarative policy engine that determines whether to allow, deny, or require human approval for each capability invocation. Each service client carries its own access policy, enabling per-tool granularity with source-aware and identity-aware rules. Currently implemented for MCP and designed to extend to future protocol integrations.
+
+### How it works
+
+1. **Per-client policy** — Each service client (e.g., MCP client) has an independent access policy. Policies are evaluated on every capability invocation.
+2. **Three effects**:
+   - `allow` — The invocation proceeds immediately
+   - `deny` — The invocation is blocked; the agent receives an error
+   - `ask` — The invocation is suspended until a human approves or rejects it in the Console
+3. **Two-level granularity**:
+   - **Client-level** — A default effect that applies to all capabilities in the client
+   - **Tool-level** — Override the default for specific tools (e.g., allow most tools but deny `dangerous_tool`)
+4. **Source-aware rules** — Rules can match based on where the request comes from (e.g., only from Console, only from DingTalk) and who is making the request (e.g., a specific user)
+5. **Priority resolution** — When multiple rules match, the most specific rule wins (see [Policy evaluation](#policy-evaluation) below)
+
+### Policy model
+
+Each client's policy consists of a `default_effect` and a list of `rules`:
+
+| Field            | Description                                                              |
+| ---------------- | ------------------------------------------------------------------------ |
+| `default_effect` | Effect when no rule matches: `allow`, `deny`, or `ask` (default: `deny`) |
+| `rules`          | List of policy rules evaluated in priority order                         |
+
+**Policy rule fields**:
+
+| Field       | Type   | Description                                                                                             |
+| ----------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| `subject`   | string | Caller identity pattern. Typed prefix format: `user:xxx`, `session:xxx`, `channel:xxx`, `*` (match all) |
+| `effect`    | string | `allow`, `deny`, or `ask`                                                                               |
+| `target`    | object | `{ kind, name }` — target capability. `kind`: `"tool"` or `"*"`. `name`: tool name or `"*"`             |
+| `principal` | object | Source matching (optional, see below)                                                                   |
+
+**Principal fields** (source-aware matching):
+
+| Field           | Description                  | Example                          |
+| --------------- | ---------------------------- | -------------------------------- |
+| `source_type`   | Where the request comes from | `"channel"`                      |
+| `source_value`  | Specific source              | `"console"`, `"dingtalk"`, `"*"` |
+| `subject_type`  | Scope within the source      | `"all"`, `"user"`                |
+| `subject_value` | Specific identity            | `"admin"`, `"*"`                 |
+
+### Policy evaluation
+
+When a tool is invoked, the policy engine evaluates all matching rules and selects the most specific one:
+
+**Matching criteria** (all must be satisfied for a rule to match):
+
+1. The rule's `subject` matches any of the request's identities (user, session, channel)
+2. The rule's `principal` matches the request source
+3. The rule's `target` matches the invoked tool
+
+**Priority order** (highest to lowest):
+
+| Priority | Dimension   | More specific wins                                              |
+| -------- | ----------- | --------------------------------------------------------------- |
+| 1        | Target name | Exact tool name > wildcard `*`                                  |
+| 2        | Target kind | `"tool"` > `"*"`                                                |
+| 3        | Principal   | More fields specified > fewer fields                            |
+| 4        | Subject     | Exact (`user:admin`) > typed wildcard (`user:*`) > global (`*`) |
+| 5        | Strictness  | `deny` > `ask` > `allow`                                        |
+
+If no rules match, `default_effect` is applied.
+
+**Example**:
+
+| Request                          | Result | Reason                             |
+| -------------------------------- | ------ | ---------------------------------- |
+| `user:admin` calls any tool      | ALLOW  | Exact subject match (priority 4)   |
+| Anyone calls `dangerous_tool`    | DENY   | Exact target name (priority 1)     |
+| Console user calls `safe_tool`   | ALLOW  | Target name + principal match      |
+| DingTalk user calls `other_tool` | ASK    | No rule matches → `default_effect` |
+
+### Approval flow
+
+When a policy evaluates to `ask`:
+
+1. The tool invocation is **suspended** — the agent pauses execution
+2. An **approval card** appears in the Console showing:
+   - Tool name and arguments
+   - Caller identity and source channel
+   - Service client name
+3. The user can **Approve** or **Reject**:
+   - **Approve** → the tool call proceeds normally
+   - **Reject** → the agent receives a permission-denied error and explains to the user
+4. If no response within the timeout period, the invocation is rejected
+
+> **Tip**: For trusted clients in personal use, set `default_effect: allow` to skip approval. For shared or sensitive deployments, use `ask` as the default and explicitly `allow` trusted sources.
+
+### Usage with MCP
+
+Access Policy is currently available for MCP clients. Each MCP client's policy is stored in its YAML configuration file:
+
+```yaml
+# drivers/mcp/hello-mcp.yaml
+name: hello-mcp
+protocol: mcp
+endpoint:
+  transport: stdio
+  command: python
+  args: ["./mcp_servers/hello_server.py"]
+  env:
+    ECHO_SECRET:
+      source: credential
+      credential: static
+      field: ECHO_SECRET
+config:
+  display_name: Hello MCP
+  description: Local stdio MCP demo with print_content and get_secret_status tools
+enabled: true
+policy:
+  default_effect: ask
+  rules:
+    - subject: "*"
+      effect: deny
+      target: { kind: tool, name: get_secret_status }
+```
+
+#### Console management
+
+In the Console under **Agent → MCP**, click **Tools & Access** on any MCP client card to open the Access Policy panel:
+
+![access policy](https://img.alicdn.com/imgextra/i3/O1CN01tpnV8w1XnOfo2bOIE_!!6000000002968-0-tps-3840-2080.jpg)
+
+- **Set default effect** — Choose the client-wide default: Ask (yellow), Allow (green), or Deny (red)
+- **Add client-level rules** — Override the default for specific sources or users:
+  - Select a source channel (Console, DingTalk, Telegram, etc.)
+  - Optionally restrict to a specific user
+  - Set the effect for that source/user combination
+- **Per-tool defaults** — Set a different default effect for individual tools
+- **Per-tool rules** — Override per-tool defaults with source/user-specific rules
+- **Save** — Click "Save" to persist; **changes take effect immediately without restart**
+
+> **Note**: Rules created via YAML that use advanced subject patterns (e.g., `user:admin`, `session:xxx`) are preserved but not editable from the Console. The modal shows an "unmanaged rules" count when such rules exist.
 
 ---
 

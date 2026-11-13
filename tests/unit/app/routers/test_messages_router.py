@@ -16,7 +16,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agentscope_runtime.engine.schemas.exception import AppBaseException
+from qwenpaw.exceptions import AppBaseException
 
 
 @pytest.fixture

@@ -1,0 +1,15 @@
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "\n42\n", "sequence_number": 52}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "43\n4", "sequence_number": 53}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "4\n45", "sequence_number": 54}
+
+data: {"type": "replay_end"}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "\n46\n", "sequence_number": 55}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "47\n4", "sequence_number": 56}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "8\n49", "sequence_number": 57}
+
+data: {"type": "text", "delta": true, "index": 0, "status": null, "object": "content", "msg_id": "msg_e0e7dfe2e3be4cc9b481f22dc851ebdb", "text": "196\n", "sequence_number": 192}

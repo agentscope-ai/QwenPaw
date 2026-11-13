@@ -42,27 +42,47 @@ class AgentsPage(BasePage):
     PAGE_HEADER = 'button:has-text("Create Agent"), span[class*="breadcrumbCurrent"]:has-text("智能体")'
     BREADCRUMB = 'span[class*="breadcrumbCurrent"]:has-text("智能体")'
 
-    # Agent list (table structure)
-    AGENT_TABLE = '.qwenpaw-table'
-    AGENT_LIST = '.qwenpaw-table-tbody'
-    AGENT_ITEM = '.qwenpaw-table-tbody tr.qwenpaw-table-row'
-    # Table column order: drag handle (1) | Name (2) | ID (3) | Description (4) | Workspace (5) | Model (6) | Actions (7)
-    AGENT_NAME_CELL = 'td.qwenpaw-table-cell:nth-child(2)'
-    AGENT_ID_CELL = 'td.qwenpaw-table-cell:nth-child(3)'
-    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(4)'
-    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
-    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
-    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
-    AGENT_STATUS = '.qwenpaw-tag'
+    # Agent gallery. The settings redesign replaced the table with cards.
+    AGENT_TABLE = 'div[class*="grid"]'
+    AGENT_LIST = AGENT_TABLE
+    AGENT_ITEM = 'div[class*="grid"] article[class*="card"]'
+    # Column order: drag handle (1) | Name (2) | ID (3) | Backend (4) |
+    # Description (5) | Workspace (6) | Model (7) | Actions (8). Upstream
+    # #6397 inserted the Backend column after ID, shifting everything to
+    # its right. Actions is declared ``fixed: "right"``, so anchor it on
+    # the fixed-column class instead of a position that keeps drifting.
+    AGENT_NAME_CELL = 'button[class*="open"] strong'
+    AGENT_ID_CELL = 'span[class*="identity"] code'
+    AGENT_DESC_CELL = 'div[class*="description"]'
+    AGENT_WORKSPACE_CELL = 'span[class*="identity"]'
+    AGENT_MODEL_CELL = 'button[class*="open"] > span:not([class])'
+    AGENT_ACTIONS_CELL = 'div[class*="quickActions"]'
+    # Post-#6198 the name cell shows an AgentStatusIndicator dot exposing a
+    # ``data-status`` attribute (disabled/pending/starting/running/failed)
+    # instead of a "Disabled" Tag.
+    AGENT_STATUS = '[data-status]'
 
     # Action buttons
-    CREATE_AGENT_BTN = 'button:has-text("创建智能体"), button:has-text("Create Agent"), .qwenpaw-btn-primary'
-    # Inline action buttons in a table row (3 icon buttons: edit, toggle, delete)
-    # Locate via Ant Design icon class names (anticon-edit / anticon-delete), fallback to nth-child
-    EDIT_BTN = 'button:has(.anticon-edit), .qwenpaw-space-item:nth-child(1) button'
-    TOGGLE_BTN = '.qwenpaw-space-item:nth-child(2) button'
-    DELETE_BTN = 'button.qwenpaw-btn-dangerous, button:has(.anticon-delete)'
-    ENABLE_TOGGLE = '.qwenpaw-space-item:nth-child(2) button'
+    CREATE_AGENT_BTN = (
+        'button:has-text("创建智能体"), '
+        'button:has-text("Create Agent")'
+    )
+    # Inline action buttons in a table row. Post v2.0.1 (#6262 added a Copy
+    # button at position 3) the actions are 5 icon buttons in order:
+    # Pin | Edit | Copy | Toggle | Delete. Anchor on icon semantics only —
+    # positional fallbacks like :nth-child(N) go stale whenever upstream
+    # inserts a button (exactly what broke AGENT-005 on v2.0.1):
+    #   Edit   = antd EditOutlined    -> .anticon-edit
+    #   Copy   = antd CopyOutlined    -> .anticon-copy   (do not match)
+    #   Toggle = lucide Eye/EyeOff    -> svg.lucide-eye / svg.lucide-eye-off
+    #   Delete = antd DeleteOutlined  -> .anticon-delete (danger button)
+    EDIT_BTN = 'button[aria-label="Edit"], button[aria-label="编辑"]'
+    TOGGLE_BTN = (
+        'button[aria-label="Enable"], button[aria-label="Disable"], '
+        'button[aria-label="启用"], button[aria-label="禁用"]'
+    )
+    DELETE_BTN = 'button:has-text("Delete"), button:has-text("删除")'
+    ENABLE_TOGGLE = TOGGLE_BTN
     REFRESH_BTN = 'button:has(.anticon-reload), button:has(.spark-icon-spark-refresh-line)'
 
     # Create/edit form
@@ -134,17 +154,24 @@ class AgentsPage(BasePage):
             try:
                 name_cell = row.locator(self.AGENT_NAME_CELL).first
                 name_text = name_cell.inner_text() if name_cell.is_visible() else ""
-                # The name cell may contain a "Disabled" tag that needs to be stripped
-                status_tag = name_cell.locator(self.AGENT_STATUS).first
-                status = status_tag.inner_text().strip() if status_tag.is_visible() else ""
-                # Remove the status tag text from the raw name text
-                clean_name = name_text.replace(status, "").strip() if status else name_text.strip()
+                # Post-#6198 status is an AgentStatusIndicator dot exposing a
+                # ``data-status`` attribute (no visible text) — read the attribute.
+                status_dot = row.locator(self.AGENT_STATUS).first
+                status = (
+                    (status_dot.get_attribute("data-status") or "").strip()
+                    if status_dot.count() > 0 else ""
+                )
+                clean_name = name_text.strip()
 
                 id_cell = row.locator(self.AGENT_ID_CELL).first
                 agent_id = id_cell.inner_text().strip() if id_cell.is_visible() else ""
 
                 desc_cell = row.locator(self.AGENT_DESC_CELL).first
-                desc = desc_cell.inner_text().strip() if desc_cell.is_visible() else ""
+                desc = (
+                    desc_cell.inner_text().strip()
+                    if desc_cell.count() > 0 and desc_cell.is_visible()
+                    else ""
+                )
 
                 agents.append({
                     "name": clean_name,
@@ -323,8 +350,10 @@ class AgentsPage(BasePage):
         logger.info(f"Clicking delete for agent: {agent_name}")
         agent_row = self.find_agent_by_name(agent_name)
         if agent_row:
-            actions_cell = agent_row.locator(self.AGENT_ACTIONS_CELL).first
-            delete_btn = actions_cell.locator(self.DELETE_BTN).first
+            agent_row.locator('button[class*="open"]').first.click()
+            detail = self.page.locator('.qwenpaw-modal:visible').first
+            expect(detail).to_be_visible(timeout=5000)
+            delete_btn = detail.locator(self.DELETE_BTN).first
             delete_btn.click()
             self.wait(500)
         else:
@@ -367,7 +396,11 @@ class AgentsPage(BasePage):
 
     def toggle_agent_status(self, agent_name: str) -> "AgentsPage":
         """
-        Toggle the agent enabled status (clicks the second Actions button and confirms the Popconfirm).
+        Toggle the agent enabled status.
+
+        Clicks the Eye/EyeOff Toggle icon button and confirms the Popconfirm.
+        Post-#6198 the toggle is disabled while the agent is still starting
+        (startup_status pending/starting), so we wait for it to become enabled.
 
         Args:
             agent_name: Agent name.
@@ -377,6 +410,13 @@ class AgentsPage(BasePage):
         if agent_row:
             actions_cell = agent_row.locator(self.AGENT_ACTIONS_CELL).first
             toggle_btn = actions_cell.locator(self.TOGGLE_BTN).first
+            # Wait out the startup-readiness gate before clicking.
+            try:
+                expect(toggle_btn).to_be_enabled(timeout=20000)
+            except (AssertionError, TimeoutError, Exception):
+                logger.warning(
+                    "[toggle] toggle still disabled after 20s; clicking anyway"
+                )
             toggle_btn.click()
             self.wait(500)
             # The toggle action triggers a Popconfirm that must be confirmed
@@ -402,26 +442,22 @@ class AgentsPage(BasePage):
 
     def get_agent_status(self, agent_name: str) -> str:
         """
-        Return the agent status.
+        Return the agent's startup status.
 
-        Args:
-            agent_name: Agent name.
-
-        Returns:
-            Status text (e.g. "Disabled" or empty string when enabled).
+        Post-#6198 this is the AgentStatusIndicator ``data-status`` attribute
+        (e.g. "disabled" / "pending" / "starting" / "running" / "failed"),
+        or "" when the indicator is absent.
         """
         agent_row = self.find_agent_by_name(agent_name)
         if agent_row:
-            name_cell = agent_row.locator(self.AGENT_NAME_CELL).first
-            status_tag = name_cell.locator(self.AGENT_STATUS).first
-            if status_tag.is_visible():
-                return status_tag.inner_text().strip()
+            status_dot = agent_row.locator(self.AGENT_STATUS).first
+            if status_dot.count() > 0:
+                return (status_dot.get_attribute("data-status") or "").strip()
         return ""
 
     def is_agent_enabled(self, agent_name: str) -> bool:
-        """Return whether the agent is enabled (no Disabled tag means enabled)."""
-        status = self.get_agent_status(agent_name)
-        return status == "" or "Enabled" in status or "active" in status.lower()
+        """Return whether the agent is enabled (data-status != "disabled")."""
+        return self.get_agent_status(agent_name) != "disabled"
 
     # ========== Agent file management ==========
 

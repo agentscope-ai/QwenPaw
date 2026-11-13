@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FolderOpenOutlined } from "@ant-design/icons";
+import { FolderOpen as FolderOpenOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { countLines, stringifyResult } from "../shared/utils";
@@ -22,8 +22,19 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     ? t("tool.globSearch", { pattern })
     : t("tool.globSearchDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FolderOpenOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(content.result);
+  const lineCount = countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (
@@ -36,7 +47,7 @@ const GlobSearchCard: React.FC<GlobSearchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<FolderOpenOutlined />}
+      icon={<FolderOpenOutlined size="1em" />}
       title={title}
       badges={badge}
     >

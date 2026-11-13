@@ -22,6 +22,32 @@ export interface ToolGuardConfig {
   shell_evasion_checks: Record<string, boolean>;
 }
 
+// ── Sandbox switch types ──────────────────────────────
+
+export interface SandboxSetting {
+  enabled: boolean;
+}
+
+export interface SandboxStatusResponse {
+  enabled: boolean;
+  effective: boolean;
+  reason: string | null;
+}
+
+// ── Deny Paths Protection types ──────────────────────────────
+
+export interface DenyPathsProtectionSetting {
+  enabled: boolean;
+}
+
+export interface DenyPathsProtectionResponse {
+  active: boolean;
+  protected_paths: string[];
+  failed_paths: string[];
+  platform_supported: boolean;
+  message: string | null;
+}
+
 // ── File Guard types ──────────────────────────────────────────────
 
 export interface FileGuardResponse {
@@ -101,6 +127,37 @@ export const securityApi = {
 
   getBuiltinRules: () =>
     request<ToolGuardRule[]>("/config/security/tool-guard/builtin-rules"),
+
+  // ── Sandbox switch ───────────────────────────
+
+  getSandbox: (enabled?: boolean) =>
+    request<SandboxStatusResponse>(
+      enabled !== undefined
+        ? `/config/security/sandbox?enabled=${enabled}`
+        : "/config/security/sandbox",
+    ),
+
+  updateSandbox: (body: SandboxSetting) =>
+    request<SandboxStatusResponse>("/config/security/sandbox", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  // ── Deny Paths Protection ───────────────────────────
+
+  getDenyPathsProtection: () =>
+    request<DenyPathsProtectionResponse>(
+      "/config/security/sandbox/deny-paths-protection",
+    ),
+
+  updateDenyPathsProtection: (body: DenyPathsProtectionSetting) =>
+    request<DenyPathsProtectionResponse>(
+      "/config/security/sandbox/deny-paths-protection",
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    ),
 
   // ── File Guard ─────────────────────────────────────────────────
 

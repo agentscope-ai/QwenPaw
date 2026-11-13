@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { SearchOutlined } from "@ant-design/icons";
+import { Search as SearchOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { countLines, stringifyResult } from "../shared/utils";
@@ -22,8 +22,22 @@ const GrepSearchCard: React.FC<GrepSearchCardProps> = ({
     ? t("tool.grepSearch", { pattern })
     : t("tool.grepSearchDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<SearchOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
+
   const resultText = stringifyResult(content.result);
-  const lineCount = countLines(content.result);
+  const hasNoMatches = resultText
+    .trim()
+    .startsWith("No matches found for pattern:");
+  const lineCount = hasNoMatches ? 0 : countLines(resultText);
 
   const badge =
     content.status === "done" && lineCount > 0 ? (
@@ -36,7 +50,7 @@ const GrepSearchCard: React.FC<GrepSearchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<SearchOutlined />}
+      icon={<SearchOutlined size="1em" />}
       title={title}
       badges={badge}
     >

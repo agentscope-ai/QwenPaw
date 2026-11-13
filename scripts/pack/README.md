@@ -1,5 +1,11 @@
 # QwenPaw Desktop packaging scripts
 
+> ⚠️ **Legacy (rollback-only).** These conda-pack based packaging scripts have
+> been superseded by the **Tauri** desktop build (see `console/src-tauri/` and
+> `scripts/pack-tauri/`). They are kept only for short-term rollback and are no
+> longer used by the release pipeline. For the current desktop app, refer to the
+> [Desktop Application Guide](https://qwenpaw.agentscope.io/docs/desktop).
+
 One-click build: each script first builds a **wheel** via
 `scripts/wheel_build.sh` (includes the console frontend), then uses a
 **temporary conda environment** and **conda-pack** (no current dev env).

@@ -4,11 +4,13 @@ import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import type { PoolSkillSpec } from "../../../../api/types";
 import {
+  getPoolSkillAutomationState,
   getPoolBuiltinStatusLabel,
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
-import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillVisual } from "@/components/SkillVisual";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
 import { SkillTagChips } from "./SkillMeta";
 import styles from "../index.module.less";
 dayjs.extend(relativeTime);
@@ -33,6 +35,18 @@ export function PoolSkillListItem({
   onDelete,
 }: PoolSkillListItemProps) {
   const { t } = useTranslation();
+  const isBuiltin = isSkillBuiltin(skill.source);
+  const automationState = getPoolSkillAutomationState(skill);
+  let automationLabel = "";
+  if (!isBuiltin && skill.auto_sync) {
+    automationLabel = t("skillPool.autoSync");
+  } else if (isBuiltin && automationState === "on") {
+    automationLabel = t("skillPool.automationBoth");
+  } else if (isBuiltin && automationState === "mixed") {
+    automationLabel = t(
+      skill.auto_update ? "skillPool.builtinAutoUpdate" : "skillPool.autoSync",
+    );
+  }
 
   return (
     <div
@@ -58,13 +72,30 @@ export function PoolSkillListItem({
       )}
       <div className={styles.listItemLeft}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
+          <SkillVisual
+            name={skill.name}
+            emoji={skill.emoji}
+            emojiClassName={styles.skillEmoji}
+          />
         </span>
         <div className={styles.listItemInfo}>
           <div className={styles.listItemHeader}>
+            <CommunityFeedback
+              origin={skill.installation_origin}
+              resourceName={skill.name}
+              variant="inline"
+            />
             <span className={styles.skillTitle}>{skill.name}</span>
-            {isSkillBuiltin(skill.source) && (
+            {isBuiltin && (
               <span className={styles.typeBadge}>{t("skillPool.builtin")}</span>
+            )}
+            {skill.version_text && (
+              <span className={styles.typeBadge}>
+                {t("skillPool.version")}: {skill.version_text}
+              </span>
+            )}
+            {automationLabel && (
+              <span className={styles.automationTag}>{automationLabel}</span>
             )}
             <span
               className={`${styles.statusValue} ${

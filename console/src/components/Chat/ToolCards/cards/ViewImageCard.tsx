@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { PictureOutlined } from "@ant-design/icons";
+import { ImageIcon } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, MediaPreview } from "../shared";
 import { shortFileName, getMediaInfo } from "../shared/utils";
@@ -28,8 +28,9 @@ const ViewImageCard: React.FC<ViewImageCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<PictureOutlined />}
+      icon={<ImageIcon size={15} />}
       title={title}
+      defaultExpanded={Boolean(media)}
     >
       {media && <MediaPreview media={media} />}
     </ToolCardShell>

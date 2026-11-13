@@ -6,8 +6,9 @@
 >
 > - **兼容性测试不完整**：未在所有系统版本和硬件配置上进行充分测试
 > - **性能可能存在缺陷**：启动速度、内存占用等方面可能需要进一步优化
-> - **更新方式存在缺陷**：目前暂时需要卸载后重新下载才能完成版本更新
 > - **功能持续完善中**：部分功能可能不稳定或缺失
+>
+> ✅ 桌面应用现已采用 **Tauri** 构建，内置**应用内自动更新**，无需卸载重装即可升级到新版本。
 >
 > 欢迎反馈问题，帮助我们改进产品质量。
 
@@ -39,11 +40,11 @@
 ### 安装步骤
 
 1. **下载安装包**
-   从 [Release 页面][releases]下载 `QwenPaw-Setup-<version>.exe` 文件
+   从 [Release 页面][releases]下载 `QwenPaw-Tauri-<version>-Windows-setup.exe` 文件
 
 2. **运行安装程序**
    双击 `.exe` 文件，按照安装向导提示完成安装
-   - 默认安装位置：`C:\Users\<你的用户名>\AppData\Local\QwenPaw`
+   - 默认安装位置：`C:\Users\<你的用户名>\AppData\Local\QwenPaw Desktop`
    - 安装完成后会在桌面和开始菜单创建快捷方式
 
 ### 启动方式
@@ -55,11 +56,11 @@
 - **特点**: 静默启动，无终端窗口，界面简洁
 - **适用场景**: 正常使用，不需要查看技术日志
 - **启动方式**: 双击桌面或开始菜单的 "QwenPaw Desktop" 图标
-- **技术说明**: 使用 VBScript 启动器，后台运行 Python 进程
+- **技术说明**: 原生 Tauri 桌面应用，后台以 sidecar 方式运行 Python 后端
 
 #### **QwenPaw Desktop (Debug)** (调试模式)
 
-- **特点**: 显示终端窗口，实时输出运行日志
+- **特点**: 打开终端窗口，以调试日志级别启动应用，并实时跟踪后端与应用日志
 - **适用场景**:
   - 遇到问题需要查看错误信息
   - 开发测试
@@ -69,16 +70,14 @@
   - 应用启动信息
   - Python 错误堆栈
   - API 调用日志
-  - 按 Ctrl+C 或关闭窗口可停止应用
+  - 按 Ctrl+C 或关闭窗口可停止查看日志
 
 ### 常见问题
 
 **Q: 应用启动后窗口白屏，无法正常显示？**
 
-A: 这通常是因为系统缺少 **Microsoft WebView2** 运行时（部分 Windows 10 系统未预装）。
-请前往微软官网下载并安装：
+A: 桌面应用依赖 **Microsoft WebView2** 运行时。安装程序通常会在联网时自动下载并静默安装 WebView2；如果因离线安装等原因缺失并导致白屏，可前往微软官网手动安装后重启应用：
 [Microsoft WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)
-安装完成后重启应用即可。
 
 **Q: 应用启动后没有反应？**
 
@@ -108,13 +107,13 @@ A: 应用未经过 **Microsoft 代码签名**（成本 $200-800/年），Windows
 ### 安装步骤
 
 1. **下载压缩包**
-   从 [Release 页面][releases]下载 `QwenPaw-<version>-macOS.zip` 文件
+   从 [Release 页面][releases]下载 `QwenPaw-Tauri-<version>-macOS.zip` 文件
 
 2. **解压缩**
-   双击 `.zip` 文件自动解压，得到 `QwenPaw.app` 应用
+   双击 `.zip` 文件自动解压，得到 `QwenPaw Desktop.app` 应用
 
 3. **移动到应用程序文件夹 (可选)**
-   将 `QwenPaw.app` 拖到 `/Applications` 文件夹
+   将 `QwenPaw Desktop.app` 拖到 `/Applications` 文件夹
 
 ### 首次启动：解除系统安全限制
 
@@ -136,7 +135,7 @@ QwenPaw 应用**未经过 Apple 开发者签名和公证（Notarization）**，m
 
 #### 方法 1：右键打开 (推荐)
 
-1. **右键点击**（或 Control + 点击）`QwenPaw.app`
+1. **右键点击**（或 Control + 点击）`QwenPaw Desktop.app`
 2. 在菜单中选择 **"打开"**
 3. 在弹出的对话框中，再次点击 **"打开"** 按钮
 4. ✅ 之后双击即可正常启动，不会再弹窗
@@ -155,7 +154,7 @@ QwenPaw 应用**未经过 Apple 开发者签名和公证（Notarization）**，m
 
 ```bash
 # 移除下载隔离属性
-xattr -cr /Applications/QwenPaw.app
+xattr -cr "/Applications/QwenPaw Desktop.app"
 ```
 
 ⚠️ **注意**: 此方法会完全移除安全检查，仅当您完全信任应用来源时使用。
@@ -173,34 +172,34 @@ xattr -cr /Applications/QwenPaw.app
 
 #### 正常启动（双击）
 
-- 双击 `QwenPaw.app` 即可启动
-- 应用会在后台运行，打开浏览器窗口
-- 日志输出到：`~/.qwenpaw/desktop.log`
+- 双击 `QwenPaw Desktop.app` 即可启动
+- 应用会在后台运行，打开应用窗口
+- 应用日志输出到：`~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`
+- 后端 sidecar 日志位于工作目录：`~/.qwenpaw/desktop.log`
 
 #### 终端启动（查看实时日志）
 
-如果应用崩溃或需要查看详细日志：
+如果应用崩溃或需要查看详细日志，可直接从终端运行 Tauri 应用内的可执行文件，并开启调试日志级别：
 
 ```bash
-# 切换到应用目录
-cd /Applications  # 或您的 QwenPaw.app 所在目录
-
-# 设置环境变量并启动（隔离打包环境，避免冲突）
-APP_ENV="$(pwd)/QwenPaw.app/Contents/Resources/env"
-PYTHONNOUSERSITE=1 PYTHONPATH= PYTHONHOME="$APP_ENV" "$APP_ENV/bin/python" -m qwenpaw desktop
+# 以调试日志级别启动（直接运行 app 内的可执行文件）
+QWENPAW_DESKTOP_DEBUG=1 "/Applications/QwenPaw Desktop.app/Contents/MacOS/qwenpaw-desktop"
 ```
 
 **终端启动的优势：**
 
-- ✅ 实时查看所有日志输出
+- ✅ 实时查看应用与后端的所有日志输出
 - ✅ 看到完整的 Python 错误堆栈
 - ✅ 便于调试和报告问题
-- ✅ 可添加 `--log-level debug` 查看更详细信息
+- ✅ `QWENPAW_DESKTOP_DEBUG=1` 会把桌面日志级别提升为 debug，输出更详细信息
 
 **查看日志文件：**
 
 ```bash
-# 查看最近的启动日志
+# 跟踪应用日志
+tail -f ~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log
+
+# 跟踪后端 sidecar 日志
 tail -f ~/.qwenpaw/desktop.log
 ```
 
@@ -219,7 +218,7 @@ A: 按照上述"解除系统安全限制"步骤操作
 
 **Q: 如何卸载？**
 
-A: 将 `QwenPaw.app` 拖到废纸篓，然后删除 `~/.qwenpaw` 配置文件夹
+A: 将 `QwenPaw Desktop.app` 拖到废纸篓，然后删除 `~/.qwenpaw` 配置文件夹
 
 **Q: Intel Mac 可以用吗？**
 A: 可以运行，但可能无法使用内置的本地模型服务
@@ -238,10 +237,10 @@ A: 当前采用
 ## 技术支持
 
 - **GitHub Issues**: [提交问题](https://github.com/agentscope-ai/QwenPaw/issues)
-- **打包文档**: `scripts/pack/README.md` - 技术细节和本地构建指南
+- **桌面外壳与构建**: Tauri 桌面外壳位于 `console/src-tauri/`，打包脚本位于 `scripts/pack-tauri/`
 - **日志位置**:
-  - Windows: Debug 模式终端查看，或 `%USERPROFILE%\.qwenpaw\` 目录
-  - macOS: `~/.qwenpaw/desktop.log`
+  - Windows: Debug 快捷方式终端查看；应用日志 `%LOCALAPPDATA%\io.agentscope.qwenpaw.desktop\logs\qwenpaw-desktop.log`；后端 `%USERPROFILE%\.qwenpaw\desktop.log`
+  - macOS: 应用日志 `~/Library/Logs/io.agentscope.qwenpaw.desktop/qwenpaw-desktop.log`；后端 `~/.qwenpaw/desktop.log`
 
 ---
 

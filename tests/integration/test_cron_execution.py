@@ -23,11 +23,13 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    default_http_timeout,
     register_mock_provider,
     unregister_mock_provider,
+    wait_cron_executed,
 )
 
-_CRON_HTTP_TIMEOUT = 15.0
+_CRON_HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 
 
@@ -143,22 +145,6 @@ def _delete_job(app_server, job_id):
         pass
 
 
-def _poll_history(app_server, job_id, deadline, *, min_count=1):
-    """Poll GET history until min_count records appear."""
-    while time.time() < deadline:
-        resp = app_server.api_request(
-            "GET",
-            f"/api/cron/jobs/{job_id}/history",
-            timeout=_CRON_HTTP_TIMEOUT,
-        )
-        if resp.status_code == 200:
-            records = resp.json()
-            if isinstance(records, list) and len(records) >= min_count:
-                return records
-        time.sleep(1.0)
-    return []
-
-
 def _poll_inbox_cron(app_server, deadline, *, event_type=None):
     """Poll inbox for cron-sourced events."""
     while time.time() < deadline:
@@ -220,7 +206,7 @@ def test_cron_text_manual_run_creates_history(app_server) -> None:
         assert run_resp.status_code == 200
         assert run_resp.json().get("started") is True
 
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 15.0,
@@ -280,7 +266,7 @@ def test_cron_agent_manual_run_with_mock_llm(
         assert run_resp.status_code == 200
         assert run_resp.json().get("started") is True
 
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 30.0,
@@ -348,7 +334,7 @@ def test_cron_agent_tool_call_execution(
         )
         assert run_resp.status_code == 200
 
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 30.0,
@@ -445,73 +431,6 @@ def test_cron_agent_run_creates_inbox_event(
 
 
 # ------------------------------------------------------------------ #
-# A5: text delivery to custom channel
-# ------------------------------------------------------------------ #
-
-
-@pytest.mark.integration
-@pytest.mark.p1
-def test_cron_text_delivery_to_custom_channel(
-    app_server,
-    channel_callback_server,
-) -> None:
-    """Test purpose:
-    - Verify a text-type cron job dispatched to the test_echo custom
-      channel delivers the text to the callback server.
-
-    Test flow:
-    1. Enable test_echo channel.
-    2. POST create text-type job dispatched to test_echo.
-    3. POST run.
-    4. Poll callback server recorded payloads.
-    5. Assert the text arrives at the callback.
-    6. Cleanup.
-
-    API endpoints:
-    - PUT /api/config/channels/test_echo
-    - POST /api/cron/jobs
-    - POST /api/cron/jobs/{job_id}/run
-    - DELETE /api/cron/jobs/{job_id}
-    """
-    server = channel_callback_server
-    server.recorded.clear()
-
-    app_server.api_request(
-        "PUT",
-        "/api/config/channels/test_echo",
-        json={"enabled": True},
-        timeout=_CRON_HTTP_TIMEOUT,
-    )
-    time.sleep(1.0)
-
-    cron_text = "cron-delivery-test-payload"
-    spec = _text_spec(
-        "integ_text_channel",
-        text=cron_text,
-        channel="test_echo",
-    )
-    job_id = _create_job(app_server, spec)
-    try:
-        run_resp = app_server.api_request(
-            "POST",
-            f"/api/cron/jobs/{job_id}/run",
-            timeout=_CRON_HTTP_TIMEOUT,
-        )
-        assert run_resp.status_code == 200
-
-        deadline = time.time() + 10.0
-        while time.time() < deadline and not server.recorded:
-            time.sleep(0.5)
-
-        assert (
-            len(server.recorded) >= 1
-        ), "callback server did not receive cron text"
-        assert server.recorded[0].get("text") == cron_text
-    finally:
-        _delete_job(app_server, job_id)
-
-
-# ------------------------------------------------------------------ #
 # A6: agent run error → error history record
 # ------------------------------------------------------------------ #
 
@@ -551,7 +470,7 @@ def test_cron_delivery_error_creates_error_record(
             timeout=_CRON_HTTP_TIMEOUT,
         )
 
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 15.0,
@@ -592,7 +511,7 @@ def test_cron_scheduler_fires_on_schedule(app_server) -> None:
     spec["schedule"]["cron"] = "* * * * *"
     job_id = _create_job(app_server, spec)
     try:
-        records = _poll_history(
+        records = wait_cron_executed(
             app_server,
             job_id,
             time.time() + 80.0,

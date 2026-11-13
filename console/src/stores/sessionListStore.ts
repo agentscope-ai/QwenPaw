@@ -11,6 +11,10 @@
  */
 import { create } from "zustand";
 import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
+import type { ChatSource } from "../api/types/chat";
+import { useAgentStore } from "./agentStore";
+
+export const SESSION_LIST_REFRESH_EVENT = "qwenpaw:session-list-refresh";
 
 export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
@@ -19,14 +23,24 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   channel?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
+  lastFinishedAt?: string | null;
   meta?: Record<string, unknown>;
   status?: string;
   generating?: boolean;
   pinned?: boolean;
+  archivedAt?: string | null;
+  archived?: boolean;
+  source?: ChatSource;
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
 }
 
 interface SessionListStore {
   sessions: ExtendedSession[];
+  loading: boolean;
+  /** Resolved route metadata, including Chats absent from the sidebar. */
+  resolvedRouteSession: ExtendedSession | null;
   /** Timestamp of last update — used to detect staleness */
   lastUpdated: number;
   /**
@@ -41,12 +55,44 @@ interface SessionListStore {
     setLibrarySessions: (s: ExtendedSession[]) => void,
   ) => void;
 
-  /** Called by anyone (sidebar, drawer) after a CRUD operation */
+  /** Called after a session CRUD operation to refresh the sidebar. */
   syncSessions: (sessions: ExtendedSession[]) => void;
+}
+
+/** Resolve canonical Chat IDs before confirmed, display, or runtime aliases. */
+export function findSessionByReference<
+  T extends { id: string; realId?: string; sessionId?: string },
+>(sessions: readonly T[], id: string, resolved?: T | null): T | undefined {
+  const canonical = sessions.find(
+    (session) => (session.realId ?? session.id) === id,
+  );
+  if (canonical) return canonical;
+
+  if (
+    resolved?.id === id ||
+    resolved?.realId === id ||
+    resolved?.sessionId === id
+  )
+    return resolved;
+
+  const display = sessions.find((session) => session.id === id);
+  if (display) return display;
+
+  // Multiple Chats may share a runtime identity; never guess between them.
+  const runtimeMatches = new Map<string, T>();
+  for (const session of sessions) {
+    if (session.sessionId === id)
+      runtimeMatches.set(session.realId ?? session.id, session);
+  }
+  return runtimeMatches.size === 1
+    ? runtimeMatches.values().next().value
+    : undefined;
 }
 
 export const useSessionListStore = create<SessionListStore>((set, get) => ({
   sessions: [],
+  loading: true,
+  resolvedRouteSession: null,
   lastUpdated: 0,
   _setLibrarySessions: null,
 
@@ -73,3 +119,19 @@ export const useSessionListStore = create<SessionListStore>((set, get) => ({
 export function syncSessionsGlobal(sessions: ExtendedSession[]) {
   useSessionListStore.getState().syncSessions(sessions);
 }
+
+// The shared list belongs to one agent at a time. Clear it synchronously on
+// every agent change so consumers (e.g. the simple-mode sidebar) never keep
+// rendering — and navigating to — the previous agent's sessions while the
+// new agent's list is still loading. The library setter stays registered:
+// it belongs to the mounted initializer, which re-syncs after the switch.
+useAgentStore.subscribe((state, prevState) => {
+  if (state.selectedAgent !== prevState.selectedAgent) {
+    useSessionListStore.setState({
+      sessions: [],
+      loading: true,
+      resolvedRouteSession: null,
+      lastUpdated: Date.now(),
+    });
+  }
+});

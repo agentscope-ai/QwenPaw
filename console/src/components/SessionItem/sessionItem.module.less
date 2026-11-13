@@ -1,0 +1,319 @@
+@keyframes sidebarStatusBreathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* ── Base item styles ─────────────────────────────────────────────────── */
+
+.item {
+  position: relative;
+  display: flex;
+  cursor: pointer;
+  transition: background 0.15s;
+  min-width: 0;
+
+  &.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+}
+
+.sidebar {
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+
+  &:hover {
+    background: var(--app-fill-subtle);
+
+    .moreBtn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .statusSlot {
+      opacity: 0;
+    }
+  }
+
+  &.active {
+    background: var(--app-fill);
+
+    .nameViewport {
+      font-weight: 500;
+      color: var(--app-text);
+    }
+
+    &:hover {
+      background: var(--app-fill-strong);
+    }
+  }
+
+  &.dropdownOpen {
+    .moreBtn {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .statusSlot {
+      opacity: 0;
+    }
+  }
+}
+
+.primary {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+    outline-offset: 1px;
+  }
+}
+
+/* ── Content area ─────────────────────────────────────────────────────── */
+
+.content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ── Name ─────────────────────────────────────────────────────────────── */
+
+.nameViewport {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--app-font-body);
+  font-weight: 400;
+  line-height: 24px;
+  color: var(--app-text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.nameTrack {
+  display: inline-block;
+  min-width: max-content;
+  white-space: nowrap;
+  transform: translateX(0);
+}
+
+.nameTrackOverflow {
+  will-change: transform;
+
+  .sidebar:hover &,
+  .primary:focus-visible & {
+    animation: sessionNameMarquee var(--name-marquee-duration) ease-in-out
+      infinite alternate;
+  }
+}
+
+@keyframes sessionNameMarquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--name-marquee-distance));
+  }
+}
+
+.infoCard {
+  width: min(300px, calc(100vw - 32px));
+  color: var(--app-text);
+}
+
+.infoHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.infoName {
+  display: -webkit-box;
+  min-width: 0;
+  max-height: calc(66px * var(--app-font-scale));
+  overflow: hidden;
+  font-size: calc(15px * var(--app-font-scale));
+  font-weight: 600;
+  line-height: 1.47;
+  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.infoTime {
+  padding-top: 1px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.infoRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-body);
+  line-height: 1.43;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.infoIcon {
+  display: inline-flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-text-tertiary);
+}
+
+.infoPopover {
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-inner) {
+    padding: 12px 14px;
+  }
+}
+
+:global(.dark-mode) .infoCard {
+  color: var(--app-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nameTrackOverflow {
+    animation: none !important;
+  }
+}
+
+/* ── Status indicators ────────────────────────────────────────────────── */
+
+.statusSlot {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.15s;
+
+  width: 14px;
+  height: 14px;
+}
+
+.runningDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #00a5fb;
+  animation: sidebarStatusBreathe 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.unseenDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #52c41a;
+  box-shadow: 0 0 5px 1px rgba(82, 196, 26, 0.25);
+  pointer-events: none;
+}
+
+.idleDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-text-quaternary);
+  pointer-events: none;
+}
+
+.pinMark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--app-accent);
+}
+
+/* ── More button ─────────────────────────────────────────────────────── */
+
+.moreBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  font-size: 14px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    border-color 0.15s,
+    box-shadow 0.15s,
+    opacity 0.15s,
+    transform 0.15s;
+  flex-shrink: 0;
+
+  &:hover {
+    background: var(--app-fill);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+    outline-offset: var(--app-focus-ring-offset);
+  }
+}
+
+@media (hover: none), (any-pointer: coarse) {
+  .moreBtn {
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+    margin: -11px;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* ── Rename input ─────────────────────────────────────────────────────── */
+
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--app-font-secondary);
+}

@@ -1,0 +1,332 @@
+# -*- coding: utf-8 -*-
+"""Control commands module.
+
+Provides centralized command registration and dispatch for control commands
+like /stop that require immediate response and special handling.
+
+Usage:
+    # Check if a query is a control command
+    if is_control_command(query):
+        response = await handle_control_command(query, context)
+
+    # Register new control command
+    register_command(MyCustomHandler())
+"""
+
+from __future__ import annotations
+
+# pylint: disable=too-many-branches
+
+import logging
+from typing import Any, Dict
+
+from ....exceptions import SystemCommandException
+from ....checkpoints.models import CheckpointError
+from .base import BaseControlCommandHandler, ControlContext
+from .checkpoint_handler import CheckpointCommandHandler
+from .approval_handler import (
+    ApprovalCommandHandler,
+    ApproveCommandHandler,
+    DenyCommandHandler,
+)
+from .model_handler import ModelCommandHandler
+from .skills_handler import SkillsCommandHandler
+from .stop_handler import StopCommandHandler
+
+logger = logging.getLogger(__name__)
+
+# Global command registry: command_name -> handler instance
+_COMMAND_REGISTRY: Dict[str, BaseControlCommandHandler] = {}
+_COMMAND_OWNERS: Dict[str, str] = {}
+
+
+def _command_key(command_name: str) -> str:
+    return str(command_name or "").lstrip("/").lower()
+
+
+def _registry_key(command_name: str) -> str:
+    """Normalize a live-table key so ``foo`` and ``/foo`` occupy one row."""
+    wanted = _command_key(command_name)
+    return f"/{wanted}" if wanted else ""
+
+
+def command_owner(command_name: str) -> str | None:
+    """Return the plugin id or ``core`` occupying *command_name*."""
+    wanted = _command_key(command_name)
+    for stored in _COMMAND_REGISTRY:
+        if _command_key(stored) == wanted:
+            return _COMMAND_OWNERS.get(stored, "core")
+    return None
+
+
+def _register_defaults() -> None:
+    """Register default control command handlers."""
+    register_command(ApprovalCommandHandler())
+    register_command(ApproveCommandHandler())
+    register_command(DenyCommandHandler())
+    register_command(StopCommandHandler())
+    register_command(ModelCommandHandler())
+    register_command(SkillsCommandHandler())
+    register_command(CheckpointCommandHandler())
+
+
+def register_command(
+    handler: BaseControlCommandHandler,
+    *,
+    owner: str | None = None,
+) -> None:
+    """Register a control command handler.
+
+    Args:
+        handler: Command handler instance
+        owner: Plugin id when a plugin occupies the name. Built-in
+            boot registration omits this and may still replace itself.
+
+    Raises:
+        ValueError: If command_name is empty or already occupied
+    """
+    if not handler.command_name:
+        raise ValueError(
+            f"Handler {handler.__class__.__name__} has empty command_name",
+        )
+
+    command = _registry_key(handler.command_name)
+    if not command:
+        raise ValueError(
+            f"Handler {handler.__class__.__name__} has empty command_name",
+        )
+    existing = _COMMAND_REGISTRY.get(command)
+    if existing is not None:
+        existing_owner = _COMMAND_OWNERS.get(command)
+        if owner is not None:
+            from ....runtime.occupancy import occupancy_conflict
+
+            occupant = existing_owner or "core"
+            if occupant != owner:
+                raise ValueError(
+                    occupancy_conflict(
+                        "control_command",
+                        _command_key(command),
+                        occupant,
+                    ),
+                )
+        else:
+            logger.warning(
+                f"Overriding existing handler for command: {command}",
+            )
+
+    _COMMAND_REGISTRY[command] = handler
+    if owner is not None:
+        _COMMAND_OWNERS[command] = owner
+    logger.debug(
+        f"Registered control command: {command} "
+        f"-> {handler.__class__.__name__}",
+    )
+
+
+def unregister_command(
+    command_name: str,
+    *,
+    expected: Any = None,
+    owner: str | None = None,
+) -> bool:
+    """Remove a plugin control command handler from the global registry.
+
+    Only plugin-registered commands should be removed at runtime.
+    Default built-in handlers (/stop, /model, etc.) are never removed.
+
+    Args:
+        command_name: Command name to remove (e.g. ``"mystatus"``
+            or ``"/mystatus"``; leading slash is stripped).
+        expected: Handler instance that must still occupy the row.
+        owner: Plugin id that must still own the row.
+
+    Returns:
+        ``True`` if the command was found and removed, ``False``
+        otherwise.
+    """
+    key = _registry_key(command_name)
+    current = _COMMAND_REGISTRY.get(key)
+    if current is None:
+        logger.warning(
+            f"unregister_command: '{command_name}' not found in registry",
+        )
+        return False
+    if expected is not None and current is not expected:
+        return False
+    if owner is not None and _COMMAND_OWNERS.get(key) != owner:
+        return False
+    del _COMMAND_REGISTRY[key]
+    _COMMAND_OWNERS.pop(key, None)
+    logger.info(f"Unregistered control command: /{key}")
+    return True
+
+
+def _extract_command_token(query: str | None) -> str | None:
+    """Extract the command token from a query string.
+
+    Returns the first word (e.g. ``"/stop"`` from ``"/stop session=123"``),
+    or ``None`` if query is empty or not a slash command.
+    """
+    if not query or not isinstance(query, str):
+        return None
+    parts = query.strip().lower().split(None, 1)
+    return parts[0] if parts else None
+
+
+def is_control_command(query: str | None) -> bool:
+    """Check if query is a registered control command.
+
+    Args:
+        query: User query text
+
+    Returns:
+        True if query matches a registered control command
+
+    Example:
+        is_control_command("/stop") -> True
+        is_control_command("/stop session=123") -> True
+        is_control_command("hello") -> False
+    """
+    return _extract_command_token(query) in _COMMAND_REGISTRY
+
+
+def iter_commands() -> list[BaseControlCommandHandler]:
+    """Return the registered control-command handlers.
+
+    Useful for advertising the available commands to clients (e.g. the
+    ACP ``available_commands_update`` notification) or building help text.
+    """
+    return list(_COMMAND_REGISTRY.values())
+
+
+def parse_args(query: str, command_prefix: str) -> Dict[str, Any]:
+    """Parse command arguments from query.
+
+    Args:
+        query: Full query text (e.g. "/stop session=123")
+        command_prefix: Command prefix (e.g. "/stop")
+
+    Returns:
+        Dict of parsed arguments with "_raw_args" key for raw arguments
+    """
+    args: Dict[str, Any] = {}
+
+    # Remove command prefix
+    args_str = query[len(command_prefix) :].strip()
+
+    # Store raw arguments for handlers that need full text
+    args["_raw_args"] = args_str
+
+    if not args_str:
+        return args
+
+    # Split args into parts
+    parts = args_str.split()
+
+    # Special parsing for /approval command
+    if command_prefix.lower() == "/approval" and parts:
+        # First part is action (approve/deny/list/cancel)
+        args["action"] = parts[0].lower()
+
+        # Parse flags for list command (--all / -a)
+        if args["action"] == "list" and len(parts) > 1:
+            for part in parts[1:]:
+                if part in ("--all", "-a"):
+                    args["all"] = True
+
+        # Parse scope flags for approve command (--exact / --pattern).
+        # Default (no flag) is EXACT, set by the handler.
+        if args["action"] == "approve" and len(parts) > 1:
+            for part in parts[1:]:
+                if part == "--exact":
+                    args["exact"] = True
+                elif part == "--pattern":
+                    args["pattern"] = True
+
+        # Second part (if exists) is request_id
+        if len(parts) > 1 and not parts[1].startswith("-"):
+            args["request_id"] = parts[1]
+
+        # Remaining parts (for deny) are reason
+        if len(parts) > 2 and args["action"] == "deny":
+            args["reason"] = " ".join(parts[2:])
+
+        return args
+
+    # Default parsing: key=value pairs
+    for part in parts:
+        if "=" in part:
+            key, value = part.split("=", 1)
+            args[key.strip()] = value.strip()
+
+    return args
+
+
+async def handle_control_command(
+    query: str,
+    context: ControlContext,
+) -> str:
+    """Dispatch control command to appropriate handler.
+
+    Args:
+        query: User query (e.g. "/stop session=123")
+        context: Control command context
+
+    Returns:
+        Response text from handler
+
+    Raises:
+        ValueError: If command not found (should not happen
+                    if is_control_command() was checked first)
+    """
+    token = _extract_command_token(query)
+    if token is None:
+        raise ValueError(f"Unknown control command: {query}")
+    handler = _COMMAND_REGISTRY.get(token)
+    if handler is None:
+        raise ValueError(f"Unknown control command: {query}")
+
+    args = parse_args(query, token)
+    context.args = args
+
+    logger.info(
+        f"Handling control command: {token} args={args}",
+    )
+
+    try:
+        from ....plugins.activity import plugin_invocation
+
+        with plugin_invocation(command_owner(token)):
+            return await handler.handle(context)
+    except CheckpointError as exc:
+        logger.info("Checkpoint command rejected: %s", exc)
+        return f"**Checkpoint error**\n\n{exc}"
+    except Exception as e:
+        logger.exception(
+            f"Control command failed: {token}",
+        )
+        return f"**Command Failed**\n\n{str(e)}"
+
+
+# Register default handlers on module import
+_register_defaults()
+
+
+# Export public API
+__all__ = [
+    "ApprovalCommandHandler",
+    "ApproveCommandHandler",
+    "BaseControlCommandHandler",
+    "CheckpointCommandHandler",
+    "ControlContext",
+    "DenyCommandHandler",
+    "ModelCommandHandler",
+    "SkillsCommandHandler",
+    "StopCommandHandler",
+    "is_control_command",
+    "handle_control_command",
+    "iter_commands",
+    "register_command",
+    "unregister_command",
+]

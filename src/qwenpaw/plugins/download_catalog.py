@@ -4,13 +4,19 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import http.client
 import json
 import logging
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 from packaging.version import InvalidVersion, Version
+
+from .._version_compat import check_plugin_version_compat
+from ..plugins.architecture import PluginManifest
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +25,21 @@ _FETCH_TIMEOUT = 30
 
 
 def _fetch_json(url: str) -> Any:
-    req = urllib.request.Request(  # noqa: S310
+    req = urllib.request.Request(
         url,
-        headers={"Accept": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+        },
     )
     with urllib.request.urlopen(req, timeout=_FETCH_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        data = resp.read()
+        if (
+            resp.headers.get("Content-Encoding") == "gzip"
+            or data[:2] == b"\x1f\x8b"
+        ):
+            data = gzip.decompress(data)
+        return json.loads(data)
 
 
 def _plugin_id_from_file_entry(entry: dict[str, Any]) -> str:
@@ -84,6 +99,7 @@ def _pick_en(value: Any) -> str:
 def _installed_plugin_ids() -> dict[str, str]:
     """Return ``{plugin_id: installed_version}`` from disk manifests."""
     from ..config.utils import get_plugins_dir
+    from .loader import _is_disabled_plugin_dir
 
     plugins_dir = get_plugins_dir()
     if not plugins_dir.is_dir():
@@ -91,7 +107,7 @@ def _installed_plugin_ids() -> dict[str, str]:
 
     installed: dict[str, str] = {}
     for item in plugins_dir.iterdir():
-        if not item.is_dir():
+        if not item.is_dir() or _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.is_file():
@@ -107,7 +123,82 @@ def _installed_plugin_ids() -> dict[str, str]:
     return installed
 
 
-def build_plugin_catalog() -> dict[str, Any]:
+def _normalize_ver(raw: str) -> str:
+    """Strip leading 'v' and surrounding whitespace from a version string."""
+    s = raw.strip()
+    if s.lower().startswith("v"):
+        s = s[1:]
+    return s
+
+
+def _get_version_constraint(
+    entry: dict[str, Any],
+) -> dict[str, str] | None:
+    """Extract a structured ``qwenpaw_version`` from a CDN index entry.
+
+    Reuses the same normalization logic as
+    ``scripts/pack/generate_plugin_metadata.get_version``:
+      1. If ``qwenpaw_version`` dict exists, use directly.
+      2. Otherwise synthesize from ``min_version`` / ``max_version``.
+
+    Returns ``None`` when no version constraint is declared.
+    """
+    qwenpaw_version = entry.get("qwenpaw_version")
+    if isinstance(qwenpaw_version, dict):
+        return {
+            k: _normalize_ver(str(v))
+            for k, v in qwenpaw_version.items()
+            if k in ("min", "max")
+        }
+
+    min_ver = _normalize_ver(str(entry.get("min_version") or ""))
+    max_ver = _normalize_ver(str(entry.get("max_version") or ""))
+    if not min_ver and not max_ver:
+        return None
+
+    result: dict[str, str] = {}
+    if min_ver:
+        result["min"] = min_ver
+    if max_ver:
+        result["max"] = max_ver
+    return result
+
+
+def _is_entry_compatible(entry: dict[str, Any]) -> bool:
+    """Return True when a CDN index entry supports the running QwenPaw.
+
+    Checks the structured ``qwenpaw_version`` field first, then falls
+    back to ``min_version`` / ``max_version``.  Missing constraints
+    are treated as compatible for backwards compat.
+    """
+    plugin_id = str(entry.get("plugin_id") or entry.get("id") or "")
+    version = str(entry.get("version") or "0.0.0")
+
+    version_constraint = _get_version_constraint(entry)
+    if version_constraint is None:
+        return True
+
+    manifest_data: dict[str, Any] = {
+        "id": plugin_id,
+        "version": version,
+        "qwenpaw_version": version_constraint,
+    }
+
+    try:
+        manifest = PluginManifest.from_dict(manifest_data)
+        compatible, _ = check_plugin_version_compat(manifest)
+        return compatible
+    except Exception as exc:
+        logger.warning(
+            "Plugin catalog: skipping %s due to manifest"
+            " validation error: %s",
+            plugin_id,
+            exc,
+        )
+        return False
+
+
+def _build_remote_plugin_catalog() -> dict[str, Any]:
     """Download main + plugins index from CDN and normalize for the console.
 
     Returns:
@@ -119,7 +210,13 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     try:
         main_index = _fetch_json(f"{base}/metadata/index.json")
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+        http.client.HTTPException,
+    ) as exc:
         logger.warning("Plugin catalog: main index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugin catalog index"
         return result
@@ -136,7 +233,13 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     try:
         plugins_index = _fetch_json(f"{base}{index_path}")
-    except (urllib.error.URLError, json.JSONDecodeError, TimeoutError) as exc:
+    except (
+        urllib.error.URLError,
+        json.JSONDecodeError,
+        TimeoutError,
+        OSError,
+        http.client.HTTPException,
+    ) as exc:
         logger.warning("Plugin catalog: plugins index fetch failed: %s", exc)
         result["error"] = "Failed to fetch plugins metadata"
         return result
@@ -151,6 +254,8 @@ def build_plugin_catalog() -> dict[str, Any]:
             continue
         rel_url = str(entry.get("url") or "")
         if not rel_url.startswith("/"):
+            continue
+        if not _is_entry_compatible(entry):
             continue
         plugin_id = _plugin_id_from_file_entry(entry)
         catalog_version = str(entry.get("version") or "")
@@ -185,6 +290,56 @@ def build_plugin_catalog() -> dict[str, Any]:
 
     plugins.sort(key=lambda p: (p.get("kind") or "", p.get("name") or ""))
     result["plugins"] = plugins
+    return result
+
+
+def build_plugin_catalog() -> dict[str, Any]:
+    """Combine CDN releases with bundled plugins available for reinstall."""
+    from ..market.builtin import get_builtin_hub_plugins_dir
+
+    result = _build_remote_plugin_catalog()
+    plugins = {
+        (entry["plugin_id"], entry["version"]): entry
+        for entry in result["plugins"]
+    }
+    installed = _installed_plugin_ids()
+    bundled_dir = Path(__file__).resolve().parent / "bundled"
+    manifests = (
+        bundled_dir.glob("*/*/plugin.json")
+        if bundled_dir.is_dir()
+        else get_builtin_hub_plugins_dir().glob("*/plugin.json")
+    )
+    for path in sorted(manifests):
+        manifest = PluginManifest.from_dict(
+            json.loads(path.read_text(encoding="utf-8")),
+        )
+        compatible, _ = check_plugin_version_compat(manifest)
+        if not compatible:
+            continue
+        installed_version = installed.get(manifest.id)
+        plugins[(manifest.id, manifest.version)] = {
+            "id": f"{manifest.id}-{manifest.version}",
+            "plugin_id": manifest.id,
+            "name": manifest.name,
+            "description": manifest.description,
+            "description_i18n": manifest.description_i18n,
+            "version": manifest.version,
+            "author": manifest.author,
+            "kind": manifest.plugin_type.value,
+            "size": "",
+            "sha256": "",
+            "install_url": str(path.parent.resolve()),
+            "installed": manifest.id in installed,
+            "installed_version": installed_version,
+            "upgrade_available": _is_upgrade_available(
+                installed_version or "",
+                manifest.version,
+            ),
+        }
+    result["plugins"] = sorted(
+        plugins.values(),
+        key=lambda entry: (entry.get("kind") or "", entry.get("name") or ""),
+    )
     return result
 
 

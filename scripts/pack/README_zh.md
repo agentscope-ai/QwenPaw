@@ -1,5 +1,10 @@
 # QwenPaw Desktop 打包脚本
 
+> ⚠️ **旧版（仅用于回滚）。** 这套基于 conda-pack 的打包脚本已被 **Tauri**
+> 桌面版构建取代（详见 `console/src-tauri/` 与 `scripts/pack-tauri/`），仅作
+> 短期回滚保留，发布流程已不再使用。当前桌面应用请参考
+> [桌面应用指南](https://qwenpaw.agentscope.io/docs/desktop)。
+
 一键打包：脚本会先运行 `scripts/wheel_build.sh` 构建 **wheel**
 （包含 console 前端产物），再用 **临时 conda 环境** + **conda-pack**
 （不依赖当前开发环境）。依赖以 `pyproject.toml` 为准。

@@ -1,186 +1,133 @@
-#!/bin/bash
-#
-# Channel Pre-Commit Check Script
-# =================================
-#
-# Run this script before committing channel changes to catch issues early.
-#
-# Note: Contract tests are the PRIMARY gate (tests/contract/channels/).
-#       Unit tests are optional supplements (tests/unit/channels/).
-#
-# Usage:
-#   ./scripts/check-channels.sh              # Check all channels (contract tests)
-#   ./scripts/check-channels.sh dingtalk     # Check specific channel
-#   ./scripts/check-channels.sh --changed    # Only check changed channels
-#
-
+#!/usr/bin/env bash
+# Check built-in console contracts and official channel plugin unit tests.
+# Usage: ./scripts/check-channels.sh [all|<channel>|--changed|-c]
 set -euo pipefail
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-
-# Parse arguments
+PYTHON_BIN="${PYTHON_BIN:-python3}"
 TARGET="${1:-all}"
-CHECK_CHANGED=0
-
-if [ "$TARGET" == "--changed" ] || [ "$TARGET" == "-c" ]; then
-    CHECK_CHANGED=1
-    TARGET="changed"
-fi
-
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}CoPaw Channel Pre-Commit Check${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
-
-# Check if we're in a git repo
-if [ ! -d "$PROJECT_ROOT/.git" ]; then
-    echo -e "${RED}Error: Not a git repository${NC}"
-    exit 1
-fi
-
 cd "$PROJECT_ROOT"
 
-# Determine which channels to test
-if [ "$CHECK_CHANGED" -eq 1 ]; then
-    echo -e "${YELLOW}Detecting changed channels...${NC}"
-
-    # Get changed channel files
-    CHANGED_FILES=$(git diff --name-only HEAD 2>/dev/null || echo "")
-    STAGED_FILES=$(git diff --cached --name-only 2>/dev/null || echo "")
-
-    ALL_CHANGED="$CHANGED_FILES $STAGED_FILES"
-
-    # Check if base.py changed
-    if echo "$ALL_CHANGED" | grep -qE "channels/(base|registry|manager|renderer)\.py"; then
-        echo -e "${YELLOW}⚠️  BaseChannel or common code changed - running ALL channel tests${NC}"
-        CHANNELS="all"
-    else
-        # Extract modified channels
-        CHANNELS=$(echo "$ALL_CHANGED" | grep -oE 'channels/[^/]+' | sed 's/channels\///' | sort -u | grep -v "^$" || true)
-
-        if [ -z "$CHANNELS" ]; then
-            echo -e "${GREEN}✅ No channel changes detected${NC}"
-            exit 0
-        fi
-
-        echo -e "${BLUE}Changed channels: $CHANNELS${NC}"
-    fi
-elif [ "$TARGET" == "all" ]; then
-    CHANNELS="all"
-else
-    CHANNELS="$TARGET"
-fi
-
-# Setup Python environment
-echo ""
-echo -e "${BLUE}Setting up Python environment...${NC}"
-
-if ! command -v python3 &> /dev/null; then
-    echo -e "${RED}Error: python3 not found${NC}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    echo "Error: $PYTHON_BIN not found" >&2
     exit 1
 fi
 
-# Check if dependencies are installed
-if ! python3 -c "import copaw" 2>/dev/null; then
-    echo -e "${YELLOW}Installing dependencies...${NC}"
-    pip install -e ".[dev]" -q
+# Only built-ins use the BaseChannel contract. Official plugins declare
+# their channel keys in manifests and exercise the driver API in unit tests.
+REGISTRY_SPECS="$("$PYTHON_BIN" scripts/check_channel_contracts.py --list-specs)"
+PLUGIN_SPECS="$("$PYTHON_BIN" - <<'PY'
+import json
+from pathlib import Path
+
+for manifest in sorted(Path("plugins/channel").glob("*/channel.json")):
+    key = json.loads(manifest.read_text(encoding="utf-8"))["channel_key"]
+    print(f"{key}\t{manifest.parent.as_posix()}\ttests/unit/channels/test_{key}.py")
+PY
+)"
+SPECS="$(
+    while IFS=$'\t' read -r key source_dir contract; do
+        [ -n "$key" ] && printf '%s\tsrc/qwenpaw/app/channels/%s\t%s\n' "$key" "$source_dir" "$contract"
+    done <<<"$REGISTRY_SPECS"
+    printf '%s\n' "$PLUGIN_SPECS"
+)"
+TEST_FILES=""
+
+if [ "$TARGET" = "--changed" ] || [ "$TARGET" = "-c" ]; then
+    CHANGED_FILES="$(git diff --name-only HEAD)"
+    UNTRACKED_FILES="$(git ls-files --others --exclude-standard)"
+    CHANGED_FILES+=$'\n'"$UNTRACKED_FILES"
+    # Validate paths before shared changes can select the full suite.
+    while IFS= read -r changed; do
+        case "$changed" in
+            plugins/channel/*/channel.json|tests/unit/channels/test_*.py|tests/unit/plugins/test_plugin_process.py|tests/contract/channels/test_*.py)
+                if [ ! -f "$changed" ]; then
+                    echo "Error: Missing channel check path: $changed" >&2
+                    exit 1
+                fi
+                ;;
+        esac
+        case "$changed" in
+            tests/contract/channels/test_*.py)
+                if ! printf '%s\n' "$REGISTRY_SPECS" |
+                    awk -F '\t' -v path="$changed" '
+                        $3 == path { found = 1 }
+                        END { exit !found }
+                    '; then
+                    echo "Error: Non-canonical channel contract path: $changed" >&2
+                    exit 1
+                fi
+                ;;
+        esac
+    done <<<"$CHANGED_FILES"
+    # Shared protocol, execution, host and test helpers affect every driver.
+    if grep -qE '^(src/qwenpaw/(channel_protocol/|plugins/(execution/|(channel_[^/]+|_?channels|official_channels|official_channel_catalog|official_execution_context|execution_backend)\.py$)|config/channel_config_compat\.py$|app/channels/[^/]+\.py$)|tests/(channel_support/|conftest\.py$|unit/channels/(conftest|__init__)\.py$|contract(/channels)?/__init__\.py$)|scripts/(check-channels\.sh|check_channel_contracts\.py)$)' <<<"$CHANGED_FILES"; then
+        TARGET="all"
+    else
+        while IFS= read -r changed; do
+            while IFS=$'\t' read -r key source_dir test_file; do
+                case "$changed" in
+                    "$source_dir"/*|"$test_file")
+                        TEST_FILES+="$test_file"$'\n'
+                        ;;
+                esac
+            done <<<"$SPECS"
+            case "$changed" in
+                tests/unit/channels/test_*.py|tests/unit/plugins/test_plugin_process.py)
+                    TEST_FILES+="$changed"$'\n'
+                    ;;
+            esac
+        done <<<"$CHANGED_FILES"
+        if [ -z "$TEST_FILES" ]; then
+            echo "No channel changes detected."
+            exit 0
+        fi
+    fi
+elif [ "$TARGET" != "all" ]; then
+    TEST_FILES="$(printf '%s\n' "$SPECS" | awk -F '\t' -v key="$TARGET" '$1 == key { print $3 }')"
+    if [ -z "$TEST_FILES" ]; then
+        echo "Error: Unknown channel: $TARGET" >&2
+        exit 1
+    fi
 fi
 
-# Run tests
-echo ""
-echo -e "${BLUE}Running tests...${NC}"
+if [ "$TARGET" = "all" ]; then
+    TEST_FILES=$'tests/contract/channels\ntests/unit/channels\ntests/unit/plugins/test_plugin_process.py'
+fi
+
+if ! PROJECT_ROOT="$PROJECT_ROOT" "$PYTHON_BIN" -c '
+import os
+from pathlib import Path
+
+import pytest
+import qwenpaw
+
+source_root = (Path(os.environ["PROJECT_ROOT"]) / "src").resolve()
+module_path = Path(qwenpaw.__file__).resolve()
+raise SystemExit(0 if module_path.is_relative_to(source_root) else 1)
+'; then
+    echo "Installing dependencies..."
+    "$PYTHON_BIN" -m pip install -e ".[dev,test,full]" -q
+fi
 
 EXIT_CODE=0
-
-if [ "$CHANNELS" == "all" ]; then
-    # Run ALL contract tests (PRIMARY gate)
-    echo -e "${YELLOW}Running ALL channel CONTRACT tests (PRIMARY)...${NC}"
-
-    if ! pytest tests/contract/channels -v --tb=short; then
-        EXIT_CODE=1
-    fi
-
-    # Run optional unit tests (informational)
-    echo ""
-    echo -e "${YELLOW}Running optional UNIT tests (supplemental)...${NC}"
-
-    if ! pytest tests/unit/channels -v --tb=short 2>/dev/null; then
-        echo -e "${YELLOW}⚠️  Some unit tests failed (optional, does not block PR)${NC}"
-    fi
-else
-    # Run specific channel contract tests
-    for ch in $CHANNELS; do
-        echo ""
-        echo -e "${BLUE}----------------------------------------${NC}"
-        echo -e "${BLUE}Testing channel: $ch${NC}"
-        echo -e "${BLUE}----------------------------------------${NC}"
-
-        # PRIMARY: Check if contract test file exists
-        CONTRACT_TEST_FILE="tests/contract/channels/test_${ch}_contract.py"
-
-        if [ -f "$CONTRACT_TEST_FILE" ]; then
-            echo -e "${GREEN}✅ Contract test found: $CONTRACT_TEST_FILE${NC}"
-
-            if ! pytest "$CONTRACT_TEST_FILE" -v --tb=short; then
-                echo -e "${RED}❌ Contract tests FAILED for $ch${NC}"
-                EXIT_CODE=1
-            else
-                echo -e "${GREEN}✅ Contract tests PASSED for $ch${NC}"
-            fi
-        else
-            echo -e "${RED}❌ CONTRACT TEST MISSING for $ch${NC}"
-            echo -e "${RED}   Required: $CONTRACT_TEST_FILE${NC}"
-            echo -e "${YELLOW}   Template: tests/contract/channels/test_console_contract.py${NC}"
-            EXIT_CODE=1
-        fi
-
-        # OPTIONAL: Check if unit test file exists
-        UNIT_TEST_FILE="tests/unit/channels/test_${ch}.py"
-        if [ -f "$UNIT_TEST_FILE" ]; then
-            echo ""
-            echo -e "${BLUE}Running optional unit tests for $ch...${NC}"
-            if ! pytest "$UNIT_TEST_FILE" -v --tb=short 2>/dev/null; then
-                echo -e "${YELLOW}⚠️  Unit tests failed (optional)${NC}"
-            else
-                echo -e "${GREEN}✅ Unit tests passed${NC}"
-            fi
-        fi
-    done
-
-    # Run base channel contract tests if base might be affected
-    if echo "$ALL_CHANGED" | grep -qE "channels/base\.py"; then
-        echo ""
-        echo -e "${BLUE}Running BaseChannel contract tests...${NC}"
-        if ! pytest tests/contract/channels/ -v --tb=short; then
-            EXIT_CODE=1
-        fi
-    fi
+if ! "$PYTHON_BIN" scripts/check_channel_contracts.py; then
+    EXIT_CODE=1
 fi
 
-# Summary
-echo ""
-echo -e "${BLUE}========================================${NC}"
-if [ $EXIT_CODE -eq 0 ]; then
-    echo -e "${GREEN}✅ All checks passed!${NC}"
-    echo -e "${GREEN}You can safely commit your changes.${NC}"
-else
-    echo -e "${RED}❌ Some checks failed${NC}"
-    echo ""
-    echo "Required fixes:"
-    echo "  - Create missing contract test: tests/contract/channels/test_<channel>_contract.py"
-    echo "  - Ensure contract test implements create_instance() method"
-    echo "  - Fix failing contract test assertions"
-    echo ""
-    echo "Note: Unit tests are OPTIONAL and do not block PR merging."
+# Keep paths as array entries and propagate every pytest failure with logs.
+TEST_ARGS=()
+while IFS= read -r test_file; do
+    [ -z "$test_file" ] || TEST_ARGS+=("$test_file")
+done < <(printf '%s\n' "$TEST_FILES" | sort -u)
+if ! "$PYTHON_BIN" -m pytest "${TEST_ARGS[@]}" -v --tb=short; then
+    EXIT_CODE=1
 fi
-echo -e "${BLUE}========================================${NC}"
 
-exit $EXIT_CODE
+if [ "$EXIT_CODE" -eq 0 ]; then
+    echo "All channel checks passed."
+else
+    echo "Channel checks failed." >&2
+fi
+exit "$EXIT_CODE"

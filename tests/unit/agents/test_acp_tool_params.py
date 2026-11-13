@@ -8,7 +8,26 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from qwenpaw.agents.acp.server import _StreamTracker, _msg_to_updates
+import pytest
+
+# pylint: disable=no-name-in-module,wrong-import-position
+# flake8: noqa: E402,E501
+_acp_server = pytest.importorskip(
+    "qwenpaw.agents.acp.server",
+    reason=(
+        "_StreamTracker / _msg_to_updates were removed in "
+        "AgentScope 2.0 ACP rewrite"
+    ),
+)
+if not hasattr(_acp_server, "_StreamTracker"):
+    pytest.skip(
+        "_StreamTracker not available in AgentScope 2.0",
+        allow_module_level=True,
+    )
+from qwenpaw.agents.acp.server import (  # type: ignore[import]
+    _StreamTracker,
+    _msg_to_updates,
+)
 
 
 def _msg(tool_calls):

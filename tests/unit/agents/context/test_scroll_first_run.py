@@ -1,0 +1,254 @@
+# -*- coding: utf-8 -*-
+# pylint: disable=too-few-public-methods,protected-access
+"""The scroll first-run notice.
+
+Scroll became the DEFAULT context strategy, so agents that never set
+``strategy`` are switched to it silently and get a durable ``history.db`` in
+their workspace. ``build_scroll_components`` must log a one-time notice the
+first time it wires scroll in a workspace (the db file's absence is the
+signal), and must stay silent on every later run.
+"""
+
+import logging
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from pydantic import ValidationError
+
+import qwenpaw.agents.context as context_mod
+import qwenpaw.agents.context.scroll.manager as scroll_manager_mod
+from qwenpaw.agents.context import build_scroll_components
+from qwenpaw.config.config import LightContextConfig, ScrollContextConfig
+
+
+class _DummyModel:
+    """A stand-in model; scroll only stores it, never calls it at wiring."""
+
+
+def _agent_config(strategy: str = "scroll") -> SimpleNamespace:
+    lcc = LightContextConfig(strategy=strategy)
+    return SimpleNamespace(running=SimpleNamespace(light_context_config=lcc))
+
+
+def _build(workspace: Path):
+    return build_scroll_components(
+        agent_config=_agent_config(),
+        workspace_dir=str(workspace),
+        model=_DummyModel(),
+        session_id="s1",
+        agent_id="ag1",
+    )
+
+
+def _notice_records(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "DEFAULT context strategy" in r.msg
+    ]
+
+
+def test_removed_eviction_headline_settings_are_ignored():
+    config = LightContextConfig(
+        strategy="scroll",
+        scroll_config={
+            "summarize_unheadlined_evictions": True,
+            "summarize_eviction_timeout_seconds": 45,
+        },
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_unheadlined_evictions",
+    )
+    assert not hasattr(
+        config.scroll_config,
+        "summarize_eviction_timeout_seconds",
+    )
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_summary_timeout_config_reaches_manager(tmp_path: Path, shared):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+
+    config = _agent_config()
+    config.running.light_context_config.scroll_config.summary_timeout_seconds = (
+        600
+    )
+    # Exercise the same JSON round-trip as persisted agent configuration.
+    config.running.light_context_config = (
+        LightContextConfig.model_validate_json(
+            config.running.light_context_config.model_dump_json(),
+        )
+    )
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    components = None
+    try:
+        components = build_scroll_components(
+            agent_config=config,
+            workspace_dir=str(tmp_path),
+            model=_DummyModel(),
+            session_id="s1",
+            agent_id="ag1",
+            history_store=supplied,
+        )
+        assert components is not None
+        assert components.context_manager._summary_timeout_seconds == 600
+    finally:
+        if components is not None:
+            components.context_manager.close()
+        if supplied is not None:
+            supplied.close()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("nan")])
+def test_summary_timeout_rejects_unbounded_or_invalid_values(timeout):
+    with pytest.raises(ValidationError):
+        ScrollContextConfig(summary_timeout_seconds=timeout)
+
+
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
+def test_first_run_logs_notice_once(tmp_path: Path, caplog):
+    db = tmp_path / "history.db"
+    assert not db.exists()
+
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
+        components = _build(tmp_path)
+    # Scroll actually wired and created the durable store.
+    assert components is not None
+    assert db.exists()
+    # Exactly one notice, and it points at the rollback path.
+    records = _notice_records(caplog)
+    assert len(records) == 1
+    msg = records[0].getMessage()
+    assert str(db) in msg
+    assert "native" in msg
+
+
+def test_notice_does_not_repeat_when_db_exists(tmp_path: Path, caplog):
+    # Pre-create the store so this looks like a second startup.
+    _build(tmp_path)
+    assert (tmp_path / "history.db").exists()
+
+    caplog.clear()  # drop the first run's notice; only watch the second
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
+        _build(tmp_path)
+    assert _notice_records(caplog) == []
+
+
+def _size_records(caplog) -> list[logging.LogRecord]:
+    return [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "history_retention_days" in r.msg
+    ]
+
+
+@pytest.mark.usefixtures("capture_qwenpaw_logs")
+def test_large_existing_db_warns_about_retention(tmp_path: Path, caplog):
+    # First build creates a small store (no size warning, just first-run).
+    _build(tmp_path)
+    db = tmp_path / "history.db"
+    assert db.exists()
+
+    # Drop the warn threshold below the tiny db so the next build trips it,
+    # and clear the process-level dedupe set so the test is order-independent.
+    monkey = db.stat().st_size - 1
+    context_mod._DB_SIZE_WARNED.discard(str(db))
+    orig = context_mod._DB_SIZE_WARN_BYTES
+    context_mod._DB_SIZE_WARN_BYTES = monkey
+    try:
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
+            _build(tmp_path)
+            records = _size_records(caplog)
+            assert len(records) == 1
+            assert "history_retention_days" in records[0].getMessage()
+            # Deduped: a second build in the same process does not re-warn.
+            caplog.clear()
+            _build(tmp_path)
+            assert _size_records(caplog) == []
+    finally:
+        context_mod._DB_SIZE_WARN_BYTES = orig
+        context_mod._DB_SIZE_WARNED.discard(str(db))
+
+
+def test_no_notice_when_strategy_is_native(tmp_path: Path, caplog):
+    with caplog.at_level(logging.WARNING, logger="qwenpaw.agents.context"):
+        components = build_scroll_components(
+            agent_config=_agent_config("native"),
+            workspace_dir=str(tmp_path),
+            model=_DummyModel(),
+            session_id="s1",
+            agent_id="ag1",
+        )
+    # Native is unaffected: nothing wired, no db, no notice.
+    assert components is None
+    assert not (tmp_path / "history.db").exists()
+    assert _notice_records(caplog) == []
+
+
+@pytest.mark.parametrize("shared", [False, True])
+def test_wiring_failure_closes_only_owned_history_store(
+    tmp_path: Path,
+    monkeypatch,
+    shared,
+):
+    from qwenpaw.agents.context.scroll.history import HistoryStore
+    from qwenpaw.agents.context.scroll import repl
+
+    histories = []
+    supplied = HistoryStore(tmp_path / "history.db") if shared else None
+    manager_class = scroll_manager_mod.ScrollContextManager
+
+    def track_manager(**kwargs):
+        histories.append(kwargs["history"])
+        return manager_class(**kwargs)
+
+    def fail_tool(**_kwargs):
+        raise RuntimeError("wiring failed")
+
+    monkeypatch.setattr(
+        scroll_manager_mod,
+        "ScrollContextManager",
+        track_manager,
+    )
+    monkeypatch.setattr(repl, "make_recall_history_python", fail_tool)
+
+    try:
+        components = build_scroll_components(
+            agent_config=_agent_config(),
+            workspace_dir=tmp_path,
+            model=_DummyModel(),
+            session_id="s1",
+            history_store=supplied,
+        )
+        assert components is None
+        assert len(histories) == 1
+        assert histories[0].closed is (not shared)
+    finally:
+        if supplied is not None:
+            assert supplied.close() is True
+
+
+def test_invalid_history_path_falls_back_without_writing_outside_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lcc = LightContextConfig()
+    lcc.scroll_config.db_filename = f"invalid\0.db"
+    agent_config = SimpleNamespace(
+        running=SimpleNamespace(light_context_config=lcc),
+    )
+
+    components = build_scroll_components(
+        agent_config=agent_config,
+        workspace_dir=str(workspace),
+        model=_DummyModel(),
+        session_id="s1",
+        agent_id="ag1",
+    )
+
+    assert components is None
+    assert not (tmp_path / "outside.db").exists()

@@ -14,5 +14,28 @@ export interface ACPAgentConfig {
 }
 
 export interface ACPConfig {
+  node_path?: string;
   agents: Record<string, ACPAgentConfig>;
+}
+
+export interface ACPNodeRuntimeCandidate {
+  key: string;
+  label: string;
+  node_path: string;
+  npx_path: string;
+  node_version: string;
+  npx_version: string;
+  available: boolean;
+  reason_code: string;
+  reason: string;
+}
+
+export interface ACPNodeRuntimeStatus {
+  node_path: string;
+  effective_node_path: string;
+  candidates: ACPNodeRuntimeCandidate[];
+}
+
+export interface ACPNodeRuntimeUpdate {
+  node_path: string;
 }

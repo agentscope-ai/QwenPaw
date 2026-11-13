@@ -253,6 +253,7 @@ def ensure_builtin_agents() -> None:
             heartbeat=HeartbeatConfig(),
             running=running_cfg,
             acp=acp_config,
+            approval_level=spec.get("approval_level", "AUTO"),
         )
 
         _initialize_agent_workspace(

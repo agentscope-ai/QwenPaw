@@ -1,0 +1,548 @@
+# -*- coding: utf-8 -*-
+# pylint:disable=too-many-return-statements
+"""Handler for /model command.
+
+The /model command manages model configuration for the current agent.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from ....exceptions import ProviderError
+from ....providers.model_selection import request_model_override
+from ....services.session_thinking import (
+    get_session_chat,
+    select_chat_model,
+)
+
+from ....utils.io_utils import run_sync_io
+from ....utils.logging import sanitize_log_value
+from .base import BaseControlCommandHandler, ControlContext
+
+logger = logging.getLogger(__name__)
+
+
+class ModelCommandHandler(BaseControlCommandHandler):
+    """Handler for /model command.
+
+    Features:
+    - Show current model: /model
+    - Show help: /model -h, /model --help, /model help
+    - List all models: /model list
+    - Switch model: /model <provider_id>:<model_id>
+    - Reset to global default: /model reset
+    - Show model info: /model info <provider_id>:<model_id>
+
+    Usage:
+        /model
+        /model -h
+        /model list
+        /model openai:gpt-4o
+        /model reset
+        /model info anthropic:claude-3-5-sonnet-20241022
+    """
+
+    command_name = "/model"
+    description = "Show or switch AI model"
+
+    async def handle(self, context: ControlContext) -> str:
+        """Handle /model command.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Response text (success or error message)
+        """
+        args_str = context.args.get("_raw_args", "").strip()
+
+        if not args_str:
+            return await self._show_current_model(context)
+        elif args_str.lower() in ("-h", "--help", "help"):
+            return self._show_help()
+        elif args_str.lower() == "list":
+            return await self._list_models(context)
+        elif args_str.lower() == "reset":
+            return await self._reset_model(context)
+        elif args_str.lower() == "info":
+            # Handle /model info without model spec
+            return (
+                "**Missing Model Specification**\n\n"
+                "Please specify a model to show information.\n\n"
+                "Usage: `/model info <provider>:<model>`\n\n"
+                "Example: `/model info openai:gpt-4o`\n"
+                "Use `/model list` to see available models."
+            )
+        elif args_str.lower().startswith("info "):
+            model_spec = args_str[5:].strip()
+            return await self._show_model_info(context, model_spec)
+        else:
+            return await self._switch_model(context, args_str)
+
+    def _show_help(self) -> str:
+        """Show help information for /model command.
+
+        Returns:
+            Formatted help text
+        """
+        return (
+            "**Model Management Commands**\n\n"
+            "Manage and switch AI models for the current agent.\n\n"
+            "**Available Commands:**\n\n"
+            "`/model` - Show current active model\n\n"
+            "`/model list` - List all available models\n\n"
+            "`/model <provider>:<model>` - Switch to specified model\n\n"
+            "`/model reset` - Reset to global default model\n\n"
+            "`/model info <provider>:<model>` - Show model information\n\n"
+            "`/model help` or `/model -h` - Show this help message\n\n"
+            "**Examples:**\n\n"
+            "`/model` - Show current model\n\n"
+            "`/model list` - List all models\n\n"
+            "`/model openai:gpt-4o` - Switch to GPT-4o\n\n"
+            "`/model reset` - Reset to global default\n\n"
+            "`/model info openai:gpt-4o` - Show GPT-4o information\n\n\n"
+            "**Capability Indicators:**\n\n"
+            "🖼️ - Supports image input\n\n"
+            "🎥 - Supports video input"
+        )
+
+    @staticmethod
+    async def _conversation_model(context: ControlContext):
+        """Read a request or persisted conversation override, if present."""
+        chat = await get_session_chat(context)
+        selected, source = select_chat_model(
+            chat.meta if chat else None,
+            model_override=request_model_override(context.payload),
+        )
+        return selected, f"{source} override" if source else None
+
+    async def _current_model(self, context: ControlContext):
+        """Report the same effective selection as normal conversation turns."""
+        selected, source = await self._conversation_model(context)
+        if selected:
+            return selected, source
+        active = context.workspace.config.active_model
+        if active and active.provider_id:
+            return active, "agent-specific"
+        from ....providers.provider_manager import ProviderManager
+
+        active = await run_sync_io(
+            ProviderManager.get_instance().get_active_model,
+        )
+        return active, "global default"
+
+    async def _override_notice(self, context: ControlContext) -> str:
+        """Explain why an agent-default update cannot replace an override."""
+        selected, source = await self._conversation_model(context)
+        if selected is None:
+            return ""
+        return (
+            f"\n\nThis conversation keeps its {source}: "
+            f"`{selected.provider_id}:{selected.model}`. "
+            "The agent default applies to conversations that inherit it."
+        )
+
+    async def _show_current_model(self, context: ControlContext) -> str:
+        """Show current active model for this agent.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Formatted response with current model info
+        """
+        active_model, source = await self._current_model(context)
+        if active_model is None or not active_model.provider_id:
+            return (
+                "**No Active Model**\n\n"
+                "No model is currently configured.\n\n"
+                "Use `/model list` to see available models, "
+                "then use `/model <provider>:<model>` to select one."
+            )
+
+        return (
+            f"**Current Model** ({source})\n\n"
+            f"Provider: `{active_model.provider_id}`\n"
+            f"Model: `{active_model.model}` ✓"
+        )
+
+    async def _list_models(self, context: ControlContext) -> str:
+        """List all available providers and models.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Formatted list of all providers and models
+        """
+        from ....providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        active_model, _source = await self._current_model(context)
+
+        # Get all provider infos
+        all_provider_infos = await manager.list_provider_info()
+
+        # Filter to only show configured providers
+        # (providers that have API key configured or don't require one)
+        configured_providers = []
+        for provider_info in all_provider_infos:
+            # Skip if provider requires API key but doesn't have one
+            if provider_info.require_api_key and not provider_info.api_key:
+                continue
+            # Skip if provider has no models
+            # (check both models and extra_models)
+            all_models = list(provider_info.models) + list(
+                provider_info.extra_models,
+            )
+            if not all_models:
+                continue
+            configured_providers.append(provider_info)
+
+        if not configured_providers:
+            return (
+                "**No Providers Configured**\n\n"
+                "Please configure at least one provider with API key "
+                "in the web console."
+            )
+
+        # Build response
+        lines = ["**Available Models**\n"]
+
+        total_models = 0
+        for provider_info in configured_providers:
+            provider_id = provider_info.id
+            provider_name = provider_info.name
+
+            # Get all models for this provider (both built-in and user-added)
+            extra_models = list(provider_info.extra_models)
+            all_models = [
+                m
+                for m in list(provider_info.models) + extra_models
+                if m.model_type == "chat"
+            ]
+            extra_model_ids = {m.id for m in extra_models}
+
+            lines.append(f"\n**Provider: {provider_name}** (`{provider_id}`)")
+
+            for model in all_models:
+                model_id = model.id
+
+                # Check if this is the active model
+                is_active = (
+                    active_model is not None
+                    and active_model.provider_id == provider_id
+                    and active_model.model == model_id
+                )
+
+                active_marker = " **[ACTIVE]**" if is_active else ""
+
+                # Add user-added marker
+                user_added_marker = (
+                    " *(user-added)*" if model_id in extra_model_ids else ""
+                )
+
+                # Add multimodal indicators
+                indicators = []
+                if model.supports_image:
+                    indicators.append("🖼️")
+                if model.supports_video:
+                    indicators.append("🎥")
+                indicator_str = " ".join(indicators)
+                if indicator_str:
+                    indicator_str = f" {indicator_str}"
+
+                lines.append(
+                    f"  - `{model_id}`{indicator_str}{user_added_marker}"
+                    f"{active_marker}",
+                )
+
+                total_models += 1
+
+        lines.append(
+            f"\n---\n"
+            f"Total: {len(configured_providers)} provider(s), "
+            f"{total_models} model(s)\n\n"
+            f"Use `/model <provider_id>:<model_id>` to switch models.",
+        )
+
+        return "\n".join(lines)
+
+    async def _switch_model(
+        self,
+        context: ControlContext,
+        model_spec: str,
+    ) -> str:
+        """Switch to a different model.
+
+        Args:
+            context: Control command context
+            model_spec: Model specification in format "provider_id:model_id"
+
+        Returns:
+            Success or error message
+        """
+        # Parse model spec
+        if ":" not in model_spec:
+            return (
+                "**Invalid Format**\n\n"
+                "Please use format: `/model <provider>:<model>`\n\n"
+                "Example: `/model openai:gpt-4o`\n"
+                "Use `/model list` to see available models."
+            )
+
+        parts = model_spec.split(":", 1)
+        provider_id = parts[0].strip()
+        model_id = parts[1].strip()
+
+        if not provider_id or not model_id:
+            return (
+                "**Invalid Format**\n\n"
+                "Provider and model cannot be empty.\n\n"
+                "Example: `/model openai:gpt-4o`"
+            )
+
+        # Validate provider and model
+        is_valid, error_msg = await self._validate_model(
+            provider_id,
+            model_id,
+        )
+        if not is_valid:
+            return (
+                f"**Switch Failed**\n\n"
+                f"{error_msg}\n\n"
+                f"Use `/model list` to see available models."
+            )
+
+        # Update agent config
+        from ....config.config import update_agent_config_async
+        from ....config.config import ModelSlotConfig as ModelSlot
+
+        workspace = context.workspace
+        agent_config = workspace.config
+
+        new_slot = ModelSlot(
+            provider_id=provider_id,
+            model=model_id,
+        )
+        agent_config.active_model = new_slot
+
+        def apply_active_model(persisted: Any) -> None:
+            persisted.active_model = new_slot
+
+        # Save to agent.json off the event loop (chat hot path)
+        try:
+            await update_agent_config_async(
+                agent_config.id,
+                apply_active_model,
+            )
+        except Exception as e:
+            logger.exception(f"Failed to save agent config: {e}")
+            return (
+                f"**Switch Failed**\n\n"
+                f"Failed to save configuration: {str(e)}"
+            )
+
+        logger.info(
+            f"/model switch: agent={agent_config.id} "
+            f"provider={sanitize_log_value(provider_id)} "
+            f"model={sanitize_log_value(model_id)}",
+        )
+
+        return (
+            f"**Model Switched**\n\n"
+            f"Provider: `{provider_id}`\n"
+            f"Model: `{model_id}`\n\n"
+            f"The new agent default will be used for subsequent messages "
+            f"that inherit it."
+            f"{await self._override_notice(context)}"
+        )
+
+    async def _reset_model(self, context: ControlContext) -> str:
+        """Reset to global default model.
+
+        Args:
+            context: Control command context
+
+        Returns:
+            Success message
+        """
+        from ....config.config import update_agent_config_async
+        from ....providers.provider_manager import ProviderManager
+
+        workspace = context.workspace
+        agent_config = workspace.config
+
+        # Get global active model
+        manager = ProviderManager.get_instance()
+        global_model = await run_sync_io(manager.get_active_model)
+
+        if global_model is None or not global_model.provider_id:
+            return (
+                "**Reset Failed**\n\n"
+                "No global default model is configured.\n\n"
+                "Please configure a model in the web console first."
+            )
+
+        # Clear agent-specific model (use None to indicate using global)
+        agent_config.active_model = None
+
+        def apply_reset(persisted: Any) -> None:
+            persisted.active_model = None
+
+        # Save to agent.json off the event loop (chat hot path)
+        try:
+            await update_agent_config_async(agent_config.id, apply_reset)
+        except Exception as e:
+            logger.exception(f"Failed to save agent config: {e}")
+            return (
+                f"**Reset Failed**\n\n"
+                f"Failed to save configuration: {str(e)}"
+            )
+
+        logger.info(
+            f"/model reset: agent={agent_config.id} "
+            f"using global model={global_model.provider_id}:"
+            f"{global_model.model}",
+        )
+
+        return (
+            f"**Model Reset**\n\n"
+            f"Agent now uses global default model:\n"
+            f"Provider: `{global_model.provider_id}`\n"
+            f"Model: `{global_model.model}`"
+            f"{await self._override_notice(context)}"
+        )
+
+    async def _show_model_info(  # pylint: disable=unused-argument
+        self,
+        context: ControlContext,
+        model_spec: str,
+    ) -> str:
+        """Show detailed information about a specific model.
+
+        Args:
+            context: Control command context
+            model_spec: Model specification in format "provider_id:model_id"
+
+        Returns:
+            Detailed model information
+        """
+        # Parse model spec
+        if ":" not in model_spec:
+            return (
+                "**Invalid Format**\n\n"
+                "Please use format: `/model info <provider>:<model>`\n\n"
+                "Example: `/model info openai:gpt-4o`"
+            )
+
+        parts = model_spec.split(":", 1)
+        provider_id = parts[0].strip()
+        model_id = parts[1].strip()
+
+        # Get provider and model
+        from ....providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        provider = await run_sync_io(manager.get_provider, provider_id)
+
+        if not provider:
+            return (
+                f"**Provider Not Found**\n\n"
+                f"Provider `{provider_id}` does not exist.\n\n"
+                f"Use `/model list` to see available providers."
+            )
+
+        # Find model
+        model_info = None
+        for model in provider.all_models():
+            if model.id == model_id:
+                model_info = model
+                break
+
+        if not model_info:
+            return (
+                f"**Model Not Found**\n\n"
+                f"Model `{model_id}` not found in provider "
+                f"`{provider_id}`.\n\n"
+                f"Use `/model list` to see available models."
+            )
+
+        # Build detailed info
+        lines = [
+            "**Model Information**\n",
+            f"**Provider:** `{provider_id}` ({provider.name})",
+            f"**Model ID:** `{model_info.id}`",
+            f"**Model Name:** {model_info.name or model_info.id}",
+        ]
+
+        # Multimodal capabilities
+        capabilities = []
+        if model_info.supports_image:
+            capabilities.append("🖼️ Image")
+        if model_info.supports_video:
+            capabilities.append("🎥 Video")
+        if model_info.supports_multimodal is False:
+            capabilities.append("📝 Text only")
+
+        if capabilities:
+            lines.append(f"**Capabilities:** {', '.join(capabilities)}")
+
+        # Probe source
+        if model_info.probe_source:
+            probe_source_display = {
+                "documentation": "Documentation",
+                "api": "API Discovery",
+                "probe": "Runtime Probe",
+                "probed": "Runtime Probe",
+            }.get(model_info.probe_source, model_info.probe_source)
+            lines.append(f"**Source:** {probe_source_display}")
+
+        # Provider info
+        if provider.base_url:
+            lines.append(f"**Base URL:** `{provider.base_url}`")
+
+        lines.append(
+            "\n---\n"
+            f"Use `/model {provider_id}:{model_id}` to switch to this model.",
+        )
+
+        return "\n".join(lines)
+
+    async def _validate_model(
+        self,
+        provider_id: str,
+        model_id: str,
+    ) -> tuple[bool, str]:
+        """Validate if provider and model exist.
+
+        Args:
+            provider_id: Provider ID
+            model_id: Model ID
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        from ....providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+
+        # Validate provider
+        provider = await run_sync_io(manager.get_provider, provider_id)
+        if not provider:
+            return False, f"Provider `{provider_id}` not found."
+
+        # Validate model
+        if not provider.has_model(model_id):
+            return (
+                False,
+                f"Model `{model_id}` not found in provider `{provider_id}`.",
+            )
+
+        try:
+            provider.validate_chat_model(model_id)
+        except ProviderError as exc:
+            return False, str(exc)
+        return True, ""

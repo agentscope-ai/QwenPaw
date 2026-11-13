@@ -270,7 +270,11 @@ class TestResolveAutoDeniedRules:
     """Tests for resolve_auto_denied_rules.
 
     Mirrors the priority chain of resolve_denied_tools:
-        user_defined > env var > config.json > default(empty).
+        user_defined > env var > config.json >
+        default({SAFETY_CHECKS_DESTRUCTIVE_COMMAND}).
+
+    Legacy persisted ``[]`` keeps the built-in default; opt out via env
+    ``none`` / ``-`` / ``off``.
     """
 
     def test_user_defined_takes_priority(self):
@@ -340,36 +344,43 @@ class TestResolveAutoDeniedRules:
         result = resolve_auto_denied_rules()
         assert result == {"RULE_CFG"}
 
-    def test_config_empty_list_falls_through_to_default(
+    def test_config_empty_list_keeps_built_in_default(
         self,
         mock_env_loader,
         mock_config,
     ):
-        """Falsy config.auto_denied_rules falls through to default empty."""
+        """Legacy persisted [] must not silently opt out of hard-deny."""
         mock_env_loader.return_value = ""
         mock_config.return_value.security.tool_guard.auto_denied_rules = []
         result = resolve_auto_denied_rules()
-        assert result == set()
+        assert result == {"SAFETY_CHECKS_DESTRUCTIVE_COMMAND"}
 
-    def test_default_is_empty_set(
+    def test_default_includes_shared_destructive_rule(
         self,
         mock_env_loader,
         mock_config,  # pylint: disable=unused-argument
     ):
-        """With nothing specified anywhere the default is an empty set."""
+        """With unset config (None), shared catastrophic findings auto-deny."""
         mock_env_loader.return_value = ""
+        # conftest mock leaves auto_denied_rules as None (unset).
+        result = resolve_auto_denied_rules()
+        assert result == {"SAFETY_CHECKS_DESTRUCTIVE_COMMAND"}
+
+    def test_env_none_opts_out_of_auto_deny(self, mock_env_loader):
+        """QWENPAW_TOOL_GUARD_AUTO_DENIED_RULES=none disables auto-deny."""
+        mock_env_loader.return_value = "none"
         result = resolve_auto_denied_rules()
         assert result == set()
 
     def test_config_load_failure_falls_to_default(self, mock_env_loader):
-        """If config loading raises, fall through to default empty set."""
+        """If config loading fails, fall through to built-in default."""
         mock_env_loader.return_value = ""
         with patch(
             "qwenpaw.security.tool_guard.utils._load_config_tool_guard",
             return_value=None,
         ):
             result = resolve_auto_denied_rules()
-        assert result == set()
+        assert result == {"SAFETY_CHECKS_DESTRUCTIVE_COMMAND"}
 
 
 # ---------------------------------------------------------------------------

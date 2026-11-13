@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "../../../api";
 import type {
   ToolGuardConfig,
@@ -21,6 +21,55 @@ export function useToolGuard() {
     Record<string, boolean>
   >({});
   const [enabled, setEnabled] = useState(true);
+  const [sandboxEnabled, setSandboxEnabled] = useState(false);
+  // Track the last *persisted* sandbox value so the save handler can
+  // skip the API call when nothing changed (avoids unnecessary 403s
+  // and partial-save side-effects).
+  const savedSandboxEnabledRef = useRef(false);
+  const [sandboxEffective, setSandboxEffective] = useState(true);
+  const [sandboxReason, setSandboxReason] = useState<string | null>(null);
+
+  // ── Deny Paths Protection state ──────────────────────────────
+  const [denyPathsActive, setDenyPathsActive] = useState(false);
+  const [denyPathsLoading, setDenyPathsLoading] = useState(false);
+  const [denyPathsProtectedPaths, setDenyPathsProtectedPaths] = useState<
+    string[]
+  >([]);
+  const [denyPathsPlatformSupported, setDenyPathsPlatformSupported] =
+    useState(false);
+
+  // Toggle deny paths protection: calls the backend immediately
+  const handleDenyPathsToggle = useCallback(async (val: boolean) => {
+    setDenyPathsLoading(true);
+    try {
+      const result = await api.updateDenyPathsProtection({ enabled: val });
+      setDenyPathsActive(result.active);
+      setDenyPathsProtectedPaths(result.protected_paths);
+      setDenyPathsPlatformSupported(result.platform_supported);
+    } catch {
+      // Revert on failure
+    } finally {
+      setDenyPathsLoading(false);
+    }
+  }, []);
+
+  // Wrapped setter: when the sandbox toggle changes, immediately re-fetch
+  // the effective status from the backend so the degradation warning
+  // (enabled but not effective due to non-admin) appears right away,
+  // rather than only after a full page reload.
+  const handleSandboxToggle = useCallback(async (val: boolean) => {
+    setSandboxEnabled(val);
+    try {
+      // Pass the proposed value so the backend computes effective/reason
+      // for the toggle target, not the current (unsaved) config value.
+      const sandbox = await api.getSandbox(val);
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
+    } catch {
+      // Best-effort: if the fetch fails, keep the previous effective/reason.
+      // The save handler will surface any real errors.
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,9 +77,11 @@ export function useToolGuard() {
     setLoading(true);
     setError(null);
     try {
-      const [cfg, builtin] = await Promise.all([
+      const [cfg, builtin, sandbox, denyPaths] = await Promise.all([
         api.getToolGuard(),
         api.getBuiltinRules(),
+        api.getSandbox(),
+        api.getDenyPathsProtection(),
       ]);
       setConfig(cfg);
       setEnabled(cfg.enabled);
@@ -39,6 +90,14 @@ export function useToolGuard() {
       setDisabledRules(new Set(cfg.disabled_rules ?? []));
       setAutoDenyRules(new Set(cfg.auto_denied_rules ?? []));
       setShellEvasionChecks(cfg.shell_evasion_checks ?? {});
+      setSandboxEnabled(sandbox.enabled);
+      savedSandboxEnabledRef.current = sandbox.enabled;
+      setSandboxEffective(sandbox.effective);
+      setSandboxReason(sandbox.reason);
+      // Deny paths protection
+      setDenyPathsActive(denyPaths.active);
+      setDenyPathsProtectedPaths(denyPaths.protected_paths);
+      setDenyPathsPlatformSupported(denyPaths.platform_supported);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : "Failed to load security config";
@@ -157,6 +216,20 @@ export function useToolGuard() {
     autoDenyRules,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    savedSandboxEnabled: savedSandboxEnabledRef.current,
+    markSandboxSaved: useCallback(() => {
+      savedSandboxEnabledRef.current = sandboxEnabled;
+    }, [sandboxEnabled]),
+    setSandboxEnabled: handleSandboxToggle,
+    sandboxEffective,
+    sandboxReason,
+    // Deny paths protection
+    denyPathsActive,
+    denyPathsLoading,
+    denyPathsProtectedPaths,
+    denyPathsPlatformSupported,
+    toggleDenyPaths: handleDenyPathsToggle,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,

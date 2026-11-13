@@ -11,14 +11,19 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import os
+import stat
+import subprocess
 import urllib.parse
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+import qwenpaw.agents.utils.file_handling as file_handling_module
 from qwenpaw.agents.utils.file_handling import (
     _default_download_dir,
+    _download_remote_to_path,
     _guess_suffix_from_file_content,
     _resolve_local_path,
     download_file_from_base64,
@@ -110,7 +115,7 @@ class TestResolveLocalPath:
         f = tmp_path / "empty.txt"
         f.write_text("", encoding="utf-8")
         parsed = urllib.parse.urlparse(f.as_uri())
-        from agentscope_runtime.engine.schemas.exception import (
+        from qwenpaw.exceptions import (
             AgentRuntimeErrorException,
         )
 
@@ -194,6 +199,8 @@ class TestDownloadFileFromBase64:
         )
         assert "test.txt" in result
         assert Path(result).read_bytes() == b"hello world"
+        if os.name != "nt":
+            assert stat.S_IMODE(Path(result).stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
     async def test_download_without_filename(self, tmp_path):
@@ -227,6 +234,54 @@ class TestDownloadFileFromBase64:
 # ---------------------------------------------------------------------------
 
 
+class TestDownloadRemoteToPath:
+    """Tests for downloader fallback behavior."""
+
+    def test_wget_timeout_falls_back_to_curl(self, monkeypatch, tmp_path):
+        calls: list[str] = []
+        target = tmp_path / "download.bin"
+
+        def fake_run(args, **_kwargs):
+            calls.append(args[0])
+            if args[0] == "wget":
+                raise subprocess.TimeoutExpired(args, 60)
+            target.write_bytes(b"curl fallback")
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(file_handling_module.subprocess, "run", fake_run)
+
+        _download_remote_to_path("https://example.com/file", target)
+
+        assert calls == ["wget", "curl"]
+        assert target.read_bytes() == b"curl fallback"
+
+    def test_curl_timeout_falls_back_to_urllib(self, monkeypatch, tmp_path):
+        calls: list[str] = []
+        target = tmp_path / "download.bin"
+
+        def fake_run(args, **_kwargs):
+            calls.append(args[0])
+            if args[0] == "wget":
+                raise FileNotFoundError("wget")
+            raise subprocess.TimeoutExpired(args, 60)
+
+        def fake_urlretrieve(_url, path):
+            Path(path).write_bytes(b"urllib fallback")
+            return path, None
+
+        monkeypatch.setattr(file_handling_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(
+            file_handling_module.urllib.request,
+            "urlretrieve",
+            fake_urlretrieve,
+        )
+
+        _download_remote_to_path("https://example.com/file", target)
+
+        assert calls == ["wget", "curl"]
+        assert target.read_bytes() == b"urllib fallback"
+
+
 class TestDownloadFileFromUrl:
     """Tests for download_file_from_url."""
 
@@ -256,3 +311,5 @@ class TestDownloadFileFromUrl:
             download_dir=str(tmp_path),
         )
         assert result is not None
+        if os.name != "nt":
+            assert stat.S_IMODE(Path(result).stat().st_mode) == 0o644

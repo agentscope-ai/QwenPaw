@@ -1,0 +1,20 @@
+name: "QwenPaw CodeQL Config"
+
+# Use security-extended for broader coverage than the default suite.
+# This adds rules for path traversal, SSRF, command injection,
+# hardcoded credentials, and unsafe deserialization.
+queries:
+  - uses: security-extended
+
+# Exclude test files — tests contain intentionally "unsafe" patterns
+# (mock subprocess, test injection vectors, etc.) that are not real
+# vulnerabilities.
+paths-ignore:
+  - tests/**
+  - e2e/**
+  - scripts/repro_*.py
+  - .claude/**
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"

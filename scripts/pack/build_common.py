@@ -91,8 +91,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--python",
-        default="3.10",
-        help="Python version for conda env (default: 3.10)",
+        default="3.11",
+        help="Python version for conda env (default: 3.11)",
     )
     parser.add_argument(
         "--wheel",
@@ -138,6 +138,12 @@ def main() -> int:
                 "-y",
             ],
         )
+        _run(
+            [
+                conda, "run", "-n", env_name, "python",
+                "-m", "pip", "install", "--upgrade", "pip>=26.2.2",
+            ],
+        )
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
@@ -154,10 +160,10 @@ def main() -> int:
                 "pip",
                 "install",
                 f"qwenpaw[full] @ {wheel_uri}",
+                "certifi>=2026.10.19",
             ],
             env=install_env,
         )
-        print("Verifying certifi is installed (required for SSL)...")
         _run(
             [
                 conda,
@@ -166,7 +172,10 @@ def main() -> int:
                 env_name,
                 "python",
                 "-c",
-                "import certifi; print(f'certifi OK: {certifi.where()}')",
+                "from importlib.util import find_spec; "
+                "assert not any(find_spec(name) for name in "
+                "('openai_codex', 'codex_cli_bin', 'qoder_agent_sdk')), "
+                "'Optional Harness SDK found in default desktop environment'",
             ],
         )
         if args.cache_wheels:
@@ -204,7 +213,7 @@ def main() -> int:
                 "install",
                 "-y",
                 "--force-reinstall",
-                "pip",
+                "pip>=26.2.2",
                 "setuptools",
                 "wheel",
             ],

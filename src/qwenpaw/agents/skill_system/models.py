@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ...exceptions import SkillConflictError
 
 ALL_SKILL_ROUTING_CHANNELS = [
     "console",
@@ -54,6 +55,7 @@ class SkillInfo(BaseModel):
     name: str
     description: str = ""
     version_text: str = ""
+    installation_origin: dict[str, Any] | None = None
     content: str
     source: str
     references: dict[str, Any] = Field(default_factory=dict)
@@ -66,11 +68,14 @@ class SkillRequirements(BaseModel):
 
     require_bins: list[str] = Field(default_factory=list)
     require_envs: list[str] = Field(default_factory=list)
+    require_mcps: list[str] = Field(default_factory=list)
 
 
-class SkillConflictError(RuntimeError):
-    """Raised when an import or save operation hits a renameable conflict."""
-
-    def __init__(self, detail: dict[str, Any]):
-        super().__init__(str(detail.get("message") or "Skill conflict"))
-        self.detail = detail
+__all__ = [
+    "ALL_SKILL_ROUTING_CHANNELS",
+    "BuiltinSkillIdentity",
+    "BuiltinSkillVariant",
+    "SkillConflictError",
+    "SkillInfo",
+    "SkillRequirements",
+]

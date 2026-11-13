@@ -156,7 +156,19 @@ def browser_context(browser: Browser, request: pytest.FixtureRequest) -> Generat
             "height": config.browser.viewport_height,
         } if video_dir else None,
     )
-    
+
+    # Pre-dismiss the "Try Desktop Mode" onboarding tour (v2.1.0-beta+).
+    # The tour renders a transparent spotlight overlay that intercepts all
+    # pointer events on first visit, breaking every click-driven test.
+    # Same pattern as the last-used-agent localStorage pinning in gotchas.
+    context.add_init_script(
+        """
+        try {
+            localStorage.setItem('qwenpaw.desktop-mode-hint.dismissed', '1');
+        } catch (e) {}
+        """
+    )
+
     yield context
     
     logger.info(f"Closing browser context for test: {test_name}")
@@ -181,6 +193,14 @@ def page(browser_context: BrowserContext, request: pytest.FixtureRequest) -> Gen
 
     page = browser_context.new_page()
     page.set_default_timeout(config.browser.timeout)
+
+    # Dismiss the desktop-mode onboarding Tour before it can render: its mask
+    # (DIV.ant-tour-mask) intercepts pointer events and breaks clicking
+    # any switch/button in automated tests. Same key as console's
+    # desktopModeHint.ts (dismissDesktopModeHint).
+    page.add_init_script(
+        "window.localStorage.setItem('qwenpaw.desktop-mode-hint.dismissed', '1');",
+    )
 
     # Inject test name + step counter, used by BasePage.step_shot for auto-archiving
     try:

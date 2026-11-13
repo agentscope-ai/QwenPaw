@@ -1,22 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
-
-// Mock react-window to avoid import errors in mocked ChatSessionDrawer
-vi.mock("react-window", () => ({
-  FixedSizeList: ({ children, itemData, itemCount }: any) => {
-    const Row = children;
-    return (
-      <>
-        {Array.from({ length: itemCount }, (_, i) => (
-          <Row key={i} index={i} style={{}} data={itemData} />
-        ))}
-      </>
-    );
-  },
-}));
-
-vi.mock("../../ChatSearchPanel", () => ({ default: () => null }));
-vi.mock("../../ChatSessionDrawer", () => ({ default: () => null }));
 
 import ChatActionGroup from "./index";
 
@@ -25,24 +9,68 @@ describe("ChatActionGroup", () => {
     expect(() => renderWithProviders(<ChatActionGroup />)).not.toThrow();
   });
 
-  it("renders history icon button when onToggleHistory is provided", () => {
-    renderWithProviders(<ChatActionGroup onToggleHistory={() => {}} />);
-    expect(
-      document.querySelector('[data-icon="SparkHistoryLine"]'),
-    ).toBeInTheDocument();
-  });
-
-  it("does not render history icon button in simple mode (no onToggleHistory)", () => {
+  it("does not render the former history or overflow actions", () => {
     renderWithProviders(<ChatActionGroup />);
     expect(
       document.querySelector('[data-icon="SparkHistoryLine"]'),
     ).not.toBeInTheDocument();
+    expect(document.querySelector(".anticon-more")).not.toBeInTheDocument();
   });
 
-  it("renders new chat icon button", () => {
-    renderWithProviders(<ChatActionGroup />);
+  it("replaces the new task action with the terminal before the workspace toggle", () => {
+    const onToggleTerminal = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup
+        terminalEnabled
+        onToggleTerminal={onToggleTerminal}
+        onToggleWorkspace={vi.fn()}
+      />,
+    );
     expect(
-      document.querySelector('[data-icon="SparkNewChatFill"]'),
-    ).toBeInTheDocument();
+      document.querySelector("svg.lucide-square-pen"),
+    ).not.toBeInTheDocument();
+
+    const terminal = screen.getByRole("button", { name: "terminal.title" });
+    const workspace = screen.getByRole("button", {
+      name: "files.openWorkspace",
+    });
+    expect(screen.getAllByRole("button")).toEqual([terminal, workspace]);
+    expect(terminal).toHaveAttribute("aria-expanded", "false");
+    expect(terminal).toHaveStyle({
+      width: "32px",
+      height: "32px",
+      padding: "0px",
+    });
+    expect(terminal.querySelector("svg")).toHaveStyle({
+      width: "17px",
+      height: "17px",
+    });
+    fireEvent.click(terminal);
+    expect(onToggleTerminal).toHaveBeenCalledOnce();
+  });
+
+  it("renders the Session workspace toggle next to essential actions", () => {
+    const onToggleWorkspace = vi.fn();
+    renderWithProviders(
+      <ChatActionGroup onToggleWorkspace={onToggleWorkspace} />,
+    );
+
+    const button = document.querySelector(
+      'button[aria-label="files.openWorkspace"]',
+    ) as HTMLButtonElement | null;
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveStyle({
+      width: "32px",
+      height: "32px",
+      padding: "0px",
+    });
+    expect(button?.querySelector("svg")).toHaveAttribute("width", "17");
+    expect(button?.querySelector("svg")).toHaveAttribute("height", "17");
+    expect(button?.querySelector("svg")).toHaveStyle({
+      width: "17px",
+      height: "17px",
+    });
+    button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(onToggleWorkspace).toHaveBeenCalledOnce();
   });
 });

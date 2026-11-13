@@ -1,0 +1,49 @@
+.actionGroup {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.workspaceButton {
+  width: var(--app-icon-button) !important;
+  min-width: var(--app-icon-button) !important;
+  height: var(--app-icon-button) !important;
+  padding: 0 !important;
+
+  :global(.ant-btn-icon) {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--app-icon-md);
+    line-height: 1;
+
+    > [data-spark-icon] {
+      font-size: var(--app-icon-md) !important;
+    }
+
+    > svg {
+      width: var(--app-icon-md) !important;
+      height: var(--app-icon-md) !important;
+      flex: 0 0 var(--app-icon-md);
+    }
+  }
+}
+
+.actionGroup button {
+  border-radius: 9px;
+  color: var(--app-text-secondary);
+  svg {
+    width: var(--app-icon-md) !important;
+    height: var(--app-icon-md) !important;
+    stroke-width: 1.75;
+  }
+}
+
+@media (max-width: 768px) {
+  .workspaceButton {
+    width: var(--app-hit-touch) !important;
+    min-width: var(--app-hit-touch) !important;
+    height: var(--app-hit-touch) !important;
+  }
+}

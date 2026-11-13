@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Estimated token counter implementation."""
 
-from agentscope.token import TokenCounterBase
 
-
-class EstimatedTokenCounter(TokenCounterBase):
+# Standalone class — qwenpaw's context manager only calls
+# ``await counter.count(text)``, so duck typing is enough; no base
+# class needed.
+class EstimatedTokenCounter:
     """Token counter that estimates tokens using character-based calculation.
 
     This is a lightweight approximation suitable for cases where exact token

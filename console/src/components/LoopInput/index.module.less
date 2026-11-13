@@ -1,0 +1,339 @@
+.modeTrigger,
+.activeMode {
+  display: inline-flex;
+  min-height: max(28px, calc(28px * var(--app-font-scale)));
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--app-surface) 92%, transparent);
+  color: var(--app-text-secondary);
+  font-size: var(--app-font-caption);
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+
+  > svg {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+  }
+}
+
+.modeTrigger {
+  padding: 0 9px;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.modeTrigger:hover,
+.modeTrigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--app-accent) 42%, transparent);
+  background: color-mix(in srgb, var(--app-accent-soft) 64%, transparent);
+  color: var(--app-text);
+}
+
+.modeTrigger:focus-visible,
+.modeOption:focus-visible,
+.settingsButton:focus-visible {
+  outline: 2px solid var(--app-accent-border);
+  outline-offset: 2px;
+}
+
+.activeMode {
+  padding: 0 10px;
+  color: var(--app-text);
+}
+
+.activeMode[data-state="starting"] {
+  border-color: color-mix(in srgb, var(--app-accent) 28%, transparent);
+  background: color-mix(in srgb, var(--app-accent-soft) 66%, transparent);
+}
+
+.activeMode[data-state="running"] {
+  border-color: color-mix(in srgb, var(--app-success) 32%, transparent);
+  background: color-mix(in srgb, var(--app-success-bg) 70%, transparent);
+}
+
+.activeMode[data-state="awaiting_user"] {
+  border-color: color-mix(in srgb, var(--app-warning) 24%, transparent);
+  background: color-mix(in srgb, var(--app-warning-bg) 62%, transparent);
+}
+
+.activeState {
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+  font-weight: 500;
+}
+
+.activeState::before {
+  margin-right: 5px;
+  color: var(--app-text-quaternary);
+  content: "·";
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.modePopover :global(.ant-popover-inner) {
+  padding: 0;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  box-shadow: var(--ant-box-shadow-secondary);
+  overflow: hidden;
+}
+
+.modeMenu {
+  width: min(360px, calc(100vw - 24px));
+  padding: 10px;
+  background: var(--app-surface-raised);
+}
+
+.menuHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 6px 10px;
+}
+
+.menuActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.menuTitle {
+  color: var(--app-text);
+  font-size: var(--app-font-secondary);
+  font-weight: 650;
+}
+
+.menuHint {
+  margin-top: 3px;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+}
+
+.settingsButton {
+  display: inline-grid;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
+}
+
+.settingsButton:hover {
+  background: var(--app-fill-subtle);
+  color: var(--app-text);
+}
+
+.modeList {
+  min-height: 0;
+}
+
+.modeGroup + .modeGroup {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
+.groupLabel {
+  padding: 4px 7px 5px;
+  color: var(--app-text-quaternary);
+  font-size: var(--app-font-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.modeOption {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  text-align: left;
+  cursor: pointer;
+
+  > svg:last-child {
+    width: var(--app-icon-sm);
+    height: var(--app-icon-sm);
+  }
+}
+
+.modeOption:hover,
+.modeOption.selected {
+  background: var(--app-fill-faint);
+}
+
+.modeOption.selected {
+  color: var(--app-accent);
+}
+
+.optionIcon {
+  display: inline-grid;
+  width: var(--app-icon-button);
+  height: var(--app-icon-button);
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
+
+  > svg {
+    width: var(--app-icon-md);
+    height: var(--app-icon-md);
+  }
+}
+
+.selected .optionIcon {
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.optionCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.optionName {
+  overflow: hidden;
+  color: var(--app-text);
+  font-size: var(--app-font-caption);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionDescription {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--app-text-tertiary);
+  font-size: var(--app-font-caption);
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.menuError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 6px 2px;
+  color: var(--app-error);
+  font-size: var(--app-font-caption);
+}
+
+.menuError button {
+  padding: 2px 5px;
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.modeDrawer {
+  .modeMenu {
+    width: 100%;
+    height: auto;
+    max-height: min(48dvh, 400px);
+    padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .menuHeader {
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 2px 0 10px 6px;
+  }
+
+  .settingsButton {
+    width: 44px;
+    height: 44px;
+  }
+
+  .modeList {
+    flex: 0 1 auto;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .modeOption {
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+}
+
+.advisorAnchor {
+  display: inline-block;
+  width: 0;
+  height: 0;
+}
+
+.advisorSetup {
+  display: flex;
+  width: 400px;
+  max-width: calc(100vw - 32px);
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.advisorSetupTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.advisorSetupHint {
+  color: var(--ant-color-text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.advisorRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.advisorRow > span {
+  color: var(--ant-color-text-secondary);
+}
+
+.advisorSelect {
+  width: 100%;
+}

@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { TeamOutlined } from "@ant-design/icons";
+import { Users as TeamOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { formatAgentList } from "../shared/utils";
@@ -30,7 +30,7 @@ const ListAgentsCard: React.FC<ListAgentsCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<TeamOutlined />}
+      icon={<TeamOutlined size="1em" />}
       title={title}
     >
       {formattedResult && (

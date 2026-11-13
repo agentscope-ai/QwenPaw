@@ -1,28 +1,29 @@
 //! Backend command construction for development and packaged builds.
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 #[cfg(debug_assertions)]
 use std::process::{Command as StdCommand, Stdio};
 
 #[cfg(not(debug_assertions))]
 use tauri::Manager;
-use tauri_plugin_shell::{process::Command, ShellExt};
 
 /// Builds the command used to start the Python backend sidecar.
 #[cfg(debug_assertions)]
 pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let source_path = repo_root.join("src");
-    let command = if command_exists("uv") {
+    let mut command = if command_exists("uv") {
         log::info!(
             "[backend] dev command: uv run python -m qwenpaw.tauri.entry cwd={}",
             repo_root.display(),
         );
-        app.shell()
-            .command("uv")
+        let mut command = Command::new("uv");
+        command
             .args(["run", "python", "-m", "qwenpaw.tauri.entry"])
             .current_dir(repo_root)
-            .env("PYTHONPATH", source_path.display().to_string())
+            .env("PYTHONPATH", source_path.display().to_string());
+        command
     } else {
         let (python, prefix_args) = python_command(&repo_root);
         let mut args = prefix_args;
@@ -33,12 +34,19 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
             args.join(" "),
             repo_root.display(),
         );
-        app.shell()
-            .command(python)
+        let mut command = Command::new(python);
+        command
             .args(args)
             .current_dir(repo_root)
-            .env("PYTHONPATH", source_path.display().to_string())
+            .env("PYTHONPATH", source_path.display().to_string());
+        command
     };
+    let origins = std::env::var("QWENPAW_CORS_ORIGINS").unwrap_or_default();
+    command.env(
+        "QWENPAW_CORS_ORIGINS",
+        format!("{origins},http://localhost:5173,http://127.0.0.1:5173"),
+    );
+    command.envs(crate::runtime_env::collect(app));
     Ok(command)
 }
 
@@ -46,6 +54,10 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
 #[cfg(not(debug_assertions))]
 pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
     let backend = packaged_backend_executable(app)?;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|err| format!("failed to resolve resource directory: {err}"))?;
     let backend_dir = backend
         .parent()
         .ok_or_else(|| format!("backend executable has no parent: {}", backend.display()))?
@@ -55,16 +67,25 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
         backend.display(),
         backend_dir.display(),
     );
-    let mut command = app
-        .shell()
-        .command(backend)
+    let mut command = Command::new(backend);
+    command
         .current_dir(&backend_dir)
-        .env(path_env_key(), path_with_backend_dir(&backend_dir)?);
+        .env(path_env_key(), path_with_backend_dir(&backend_dir)?)
+        .env(
+            "QWENPAW_TAURI_RESOURCE_DIR",
+            resource_dir.to_string_lossy().to_string(),
+        );
+    // A complete Playwright Chromium payload exceeds the practical NSIS
+    // installer mapping limit on Windows. The sidecar downloads the exact
+    // driver-matched revision into the user's QwenPaw data directory instead.
+    if cfg!(windows) {
+        command.env("QWENPAW_DESKTOP_MANAGED_PLAYWRIGHT", "1");
+    }
     // Bundled standalone Python used by the backend to install third-party
     // plugin dependencies (sys.executable is the frozen backend, not Python).
     if let Some(python) = packaged_python_runtime(app) {
         log::info!("[backend] bundled python runtime: {}", python.display());
-        command = command.env(
+        command.env(
             "QWENPAW_DESKTOP_PY_RUNTIME",
             python.to_string_lossy().to_string(),
         );
@@ -74,6 +95,16 @@ pub(super) fn create(app: &tauri::AppHandle) -> Result<Command, String> {
              installation will be unavailable"
         );
     }
+    if let Some(node_runtime) = packaged_node_runtime(app) {
+        log::info!("[backend] bundled node runtime: {}", node_runtime.display());
+        command.env(
+            "QWENPAW_DESKTOP_NODE_RUNTIME",
+            node_runtime.to_string_lossy().to_string(),
+        );
+    } else {
+        log::warn!("[backend] bundled node runtime not found");
+    }
+    command.envs(crate::runtime_env::collect(app));
     Ok(command)
 }
 
@@ -89,9 +120,28 @@ fn packaged_python_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
     let candidates = if cfg!(windows) {
         vec![base.join("python.exe")]
     } else {
-        vec![base.join("bin").join("python3"), base.join("bin").join("python")]
+        vec![
+            base.join("bin").join("python3"),
+            base.join("bin").join("python"),
+        ]
     };
     candidates.into_iter().find(|path| path.is_file())
+}
+
+#[cfg(not(debug_assertions))]
+fn packaged_node_runtime(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let root = app
+        .path()
+        .resource_dir()
+        .ok()?
+        .join("binaries")
+        .join("node-runtime");
+    let node = if cfg!(windows) {
+        root.join("node.exe")
+    } else {
+        root.join("bin").join("node")
+    };
+    node.is_file().then_some(root)
 }
 
 #[cfg(not(debug_assertions))]

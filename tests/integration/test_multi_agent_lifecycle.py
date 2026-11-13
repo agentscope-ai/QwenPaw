@@ -15,12 +15,13 @@ import pytest
 
 from tests.integration.helpers import (
     create_agent,
+    default_http_timeout,
     delete_agent_quietly,
     scoped,
     toggle_agent,
 )
 
-_AGENT_HTTP_TIMEOUT = 15.0
+_AGENT_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #
@@ -73,6 +74,46 @@ def test_create_agent_with_full_options(app_server) -> None:
         assert profile.get("name") == "Full Options Agent"
         assert profile.get("description") == ("test agent with all fields")
         assert "workspace_dir" in profile
+    finally:
+        delete_agent_quietly(app_server, agent_id)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_create_agent_persists_model_routing(app_server) -> None:
+    """Verify model routing fields are persisted during agent creation."""
+    agent_id = "integ_ma_routing_01"
+    fallback_models = [
+        {"provider_id": "openai", "model": "fallback-model"},
+    ]
+    fallback_policy = {"enabled": True, "target_scope": "free_only"}
+    subagent_model = {"provider_id": "openai", "model": "subagent-model"}
+
+    try:
+        resp = app_server.api_request(
+            "POST",
+            "/api/agents",
+            json={
+                "id": agent_id,
+                "name": "Routing Agent",
+                "fallback_models": fallback_models,
+                "fallback_policy": fallback_policy,
+                "subagent_model": subagent_model,
+            },
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert resp.status_code == 201, app_server.logs_tail()
+
+        get_resp = app_server.api_request(
+            "GET",
+            f"/api/agents/{agent_id}",
+            timeout=_AGENT_HTTP_TIMEOUT,
+        )
+        assert get_resp.status_code == 200, app_server.logs_tail()
+        profile = get_resp.json()
+        assert profile.get("fallback_models") == fallback_models
+        assert profile.get("fallback_policy") == fallback_policy
+        assert profile.get("subagent_model") == subagent_model
     finally:
         delete_agent_quietly(app_server, agent_id)
 
@@ -362,9 +403,19 @@ def test_multi_agent_reorder_and_delete_order_adjusts(
         assert b_id in all_ids
         assert c_id in all_ids
 
+        pinned_prefix_length = next(
+            (
+                index
+                for index, agent in enumerate(
+                    list_resp.json().get("agents", []),
+                )
+                if agent["id"] != "default" and not agent.get("pinned", False)
+            ),
+            len(all_ids),
+        )
         new_order = list(all_ids)
         new_order.remove(c_id)
-        new_order.insert(0, c_id)
+        new_order.insert(pinned_prefix_length, c_id)
 
         reorder_resp = app_server.api_request(
             "PUT",
@@ -379,10 +430,9 @@ def test_multi_agent_reorder_and_delete_order_adjusts(
             "/api/agents",
             timeout=_AGENT_HTTP_TIMEOUT,
         )
-        ids_reordered = [
-            a["id"] for a in list_after_reorder.json().get("agents", [])
-        ]
-        assert ids_reordered[0] == c_id
+        reordered_agents = list_after_reorder.json().get("agents", [])
+        ids_reordered = [agent["id"] for agent in reordered_agents]
+        assert ids_reordered == new_order
 
         del_resp = app_server.api_request(
             "DELETE",

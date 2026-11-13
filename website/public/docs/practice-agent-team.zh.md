@@ -1,6 +1,6 @@
 # QwenPaw Agent Team 实践指南
 
-本文档介绍如何使用 QwenPaw + HiClaw 构建多智能体协作团队，实现从单一 Agent 到 Agent Team 的能力跃迁。
+本文档介绍如何使用 QwenPaw + AgentTeams 构建多智能体协作团队，实现从单一 Agent 到 Agent Team 的能力跃迁。
 
 ---
 
@@ -17,11 +17,11 @@
 
 ### QwenPaw Team 方案
 
-QwenPaw Team 通过组合 **QwenPaw** + **[HiClaw](https://hiclaw.io/)**，提供完整的多 Agent 编排协作方案：
+QwenPaw Team 通过组合 **QwenPaw** + **[AgentTeams](https://hiclaw.io/)**，提供完整的多 Agent 编排协作方案：
 
 - **QwenPaw Team Leader**：基于 QwenPaw 构建，担任团队协调者，负责任务分解、工作分配和结果汇总
 - **QwenPaw Workers**：基于 QwenPaw 构建，担任任务执行者，专注于特定领域工作，接收 Leader 指令并返回结果
-- **HiClaw**：开源多 Agent 协同操作系统，提供声明式配置、自动化部署和生命周期管理
+- **AgentTeams**：开源多 Agent 协同操作系统，提供声明式配置、自动化部署和生命周期管理
 
 ![架构图](https://img.alicdn.com/imgextra/i2/O1CN01LtRoaN1I5gcjMEEkl_!!6000000000842-55-tps-601-509.svg)
 
@@ -91,7 +91,7 @@ Workers:
 
 ## 快速上手
 
-### 步骤 1：部署 HiClaw
+### 步骤 1：部署 AgentTeams
 
 #### Embedded 模式（开发者/小团队）
 
@@ -302,10 +302,10 @@ Worker 的 `soul` 字段定义了该 Agent 的身份、角色和行为规范：
 - [QwenPaw 快速开始](./quickstart)
 - [QwenPaw 多智能体](./multi-agent)
 - [QwenPaw Skills](./skills)
-- [HiClaw 官方文档](https://hiclaw.io/)
+- [AgentTeams 官方文档](https://hiclaw.io/)
 
 ---
 
 ## 总结
 
-QwenPaw Agent Team 通过 QwenPaw 和 HiClaw 的结合，为个人开发者和小型团队提供了强大的多智能体协作能力。通过合理的团队设计和任务分配，可以显著提升工作效率，实现"一个人的团队"。
+QwenPaw Agent Team 通过 QwenPaw 和 AgentTeams 的结合，为个人开发者和小型团队提供了强大的多智能体协作能力。通过合理的团队设计和任务分配，可以显著提升工作效率，实现"一个人的团队"。

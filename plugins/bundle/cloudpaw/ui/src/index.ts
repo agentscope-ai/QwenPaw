@@ -107,6 +107,9 @@ function buildPlugin() {
           return textBlock?.text ?? null;
         }
         if (typeof parsed === "string") return parsed;
+        if (typeof parsed === "object" && parsed !== null) {
+          return JSON.stringify(parsed);
+        }
       } catch {
         return output;
       }
@@ -114,6 +117,9 @@ function buildPlugin() {
     if (Array.isArray(output)) {
       const textBlock = output.find((b: any) => b?.type === "text" && b?.text);
       return textBlock?.text ?? null;
+    }
+    if (typeof output === "object") {
+      return JSON.stringify(output);
     }
     return null;
   }
@@ -842,6 +848,10 @@ function buildPlugin() {
   // ── manage_prd renderer ───────────────────────────────────────────────
 
   function ManagePRDRender({ data }: { data: any }) {
+    if (!data || !data?.content || !Array.isArray(data?.content)) {
+      return null;
+    }
+
     const [prd, setPrd] = useState<any>(null);
     const [fetchError, setFetchError] = useState(false);
     const isLoading =
@@ -853,7 +863,9 @@ function buildPlugin() {
     }, [data]);
 
     const toolResult = useMemo(() => {
-      const outputText = extractOutputText(data?.content?.[1]?.data?.output);
+      const output = data?.content?.[1]?.data?.output;
+      if (!output) return null;
+      const outputText = extractOutputText(output);
       if (!outputText) return null;
       try {
         return JSON.parse(outputText);
@@ -2350,6 +2362,27 @@ function buildPlugin() {
 
   // ── a2a_call tool renderer ───────────────────────────────────────────
 
+  /**
+   * Extract the last complete JSON object from a string that may contain
+   * multiple concatenated JSON objects (SSE streaming format).
+   * e.g., '{"a":1}{"b":2}{"c":3}' -> {c: 3}
+   */
+  function extractLastJsonObject(text: string): any | null {
+    if (!text) return null;
+    for (
+      let i = text.lastIndexOf("{");
+      i >= 0;
+      i = text.lastIndexOf("{", i - 1)
+    ) {
+      try {
+        return JSON.parse(text.substring(i));
+      } catch {
+        continue;
+      }
+    }
+    return null;
+  }
+
   function A2ACallRender({ data }: { data: any }) {
     const { token } = theme.useToken();
     const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -2399,6 +2432,12 @@ function buildPlugin() {
           const result = JSON.parse(textContent);
           return { toolResult: result, rawErrorText: "" };
         } catch {
+          // Handle concatenated JSON objects (SSE streaming format)
+          // e.g., {"a":1}{"b":2}{"c":3}
+          const lastJson = extractLastJsonObject(textContent);
+          if (lastJson) {
+            return { toolResult: lastJson, rawErrorText: "" };
+          }
           return { toolResult: null, rawErrorText: textContent };
         }
       }

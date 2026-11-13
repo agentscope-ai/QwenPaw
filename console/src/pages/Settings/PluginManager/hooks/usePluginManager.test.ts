@@ -1,0 +1,623 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import type { PluginInfo } from "@/api/modules/plugin";
+
+const hoisted = vi.hoisted(() => ({
+  messageMock: {
+    success: vi.fn(),
+    error: vi.fn(),
+  },
+  stableT: vi.fn((k: string, _options?: unknown) => k),
+  fetchPluginsMock: vi.fn(),
+  fetchPluginCatalogMock: vi.fn(),
+  fetchMarketPluginsMock: vi.fn(),
+  installPluginMock: vi.fn(),
+  uninstallPluginMock: vi.fn(),
+  setPluginEnabledMock: vi.fn(),
+  repairPluginDependenciesMock: vi.fn(),
+  applyDependencyUpgradeMock: vi.fn(),
+  cancelDependencyUpgradeMock: vi.fn(),
+  // Captured Modal.confirm options; initialized per-test in beforeEach.
+  modalConfirmMock: vi.fn(),
+  refreshMock: vi.fn(),
+  pluginsData: [] as PluginInfo[],
+}));
+
+vi.mock("@/hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: hoisted.messageMock }),
+}));
+
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
+  useTranslation: () => ({ t: hoisted.stableT }),
+}));
+
+vi.mock("@/api/modules/plugin", () => ({
+  fetchPlugins: hoisted.fetchPluginsMock,
+  fetchPluginCatalog: hoisted.fetchPluginCatalogMock,
+  installPlugin: hoisted.installPluginMock,
+  uninstallPlugin: hoisted.uninstallPluginMock,
+  setPluginEnabled: hoisted.setPluginEnabledMock,
+  repairPluginDependencies: hoisted.repairPluginDependenciesMock,
+  applyDependencyUpgrade: hoisted.applyDependencyUpgradeMock,
+  cancelDependencyUpgrade: hoisted.cancelDependencyUpgradeMock,
+}));
+
+vi.mock("@/api/modules/pluginMarket", () => ({
+  fetchMarketPlugins: hoisted.fetchMarketPluginsMock,
+  buildMarketDownloadUrl: vi.fn(() => "https://example.com/plugin.zip"),
+}));
+
+vi.mock("ahooks", () => ({
+  useRequest: (
+    fn: unknown,
+    opts: { onError?: () => void } & Record<string, unknown>,
+  ) => {
+    void fn;
+    void opts;
+    return {
+      data: hoisted.pluginsData,
+      loading: false,
+      refresh: hoisted.refreshMock,
+    };
+  },
+}));
+
+vi.mock("antd", () => ({
+  Modal: {
+    confirm: hoisted.modalConfirmMock,
+  },
+}));
+
+import { usePluginManager } from "./usePluginManager";
+
+const { messageMock, modalConfirmMock, refreshMock, uninstallPluginMock } =
+  hoisted;
+
+function makePlugin(): PluginInfo {
+  return {
+    id: "p1",
+    name: "demo",
+  } as unknown as PluginInfo;
+}
+
+describe("usePluginManager", () => {
+  beforeEach(() => {
+    messageMock.success.mockReset();
+    messageMock.error.mockReset();
+    modalConfirmMock.mockReset();
+    refreshMock.mockReset();
+    hoisted.installPluginMock.mockReset();
+    uninstallPluginMock.mockReset();
+    hoisted.setPluginEnabledMock.mockReset();
+    hoisted.repairPluginDependenciesMock.mockReset();
+    hoisted.applyDependencyUpgradeMock.mockReset();
+    hoisted.cancelDependencyUpgradeMock.mockReset();
+    hoisted.fetchPluginCatalogMock
+      .mockReset()
+      .mockResolvedValue({ plugins: [] });
+    hoisted.fetchMarketPluginsMock.mockReset().mockResolvedValue({
+      plugins: [],
+      total: 0,
+    });
+    hoisted.pluginsData = [makePlugin()];
+  });
+
+  it("initializes plugins from useRequest", () => {
+    const { result } = renderHook(() => usePluginManager());
+
+    expect(result.current.plugins).toEqual([makePlugin()]);
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("handleUninstall opens Modal.confirm with okType 'danger'", () => {
+    const { result } = renderHook(() => usePluginManager());
+
+    act(() => {
+      result.current.handleUninstall(makePlugin());
+    });
+
+    expect(modalConfirmMock).toHaveBeenCalledTimes(1);
+    const opts = modalConfirmMock.mock.calls[0][0] as {
+      title: string;
+      okType: string;
+    };
+    expect(opts.title).toBe("pluginManager.confirmTitle");
+    expect(opts.okType).toBe("danger");
+  });
+
+  it("Modal.confirm onOk success calls uninstallPlugin, success message, and refresh", async () => {
+    uninstallPluginMock.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePluginManager());
+
+    act(() => {
+      result.current.handleUninstall(makePlugin());
+    });
+
+    const opts = modalConfirmMock.mock.calls[0][0] as {
+      onOk: () => Promise<void>;
+    };
+
+    await act(async () => {
+      await opts.onOk();
+    });
+
+    expect(uninstallPluginMock).toHaveBeenCalledWith("p1");
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "pluginManager.uninstallSuccess",
+    );
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "sets plugin enabled=%s and refreshes installed state",
+    async (enabled) => {
+      const target = { ...makePlugin(), enabled: !enabled, loaded: !enabled };
+      hoisted.setPluginEnabledMock.mockResolvedValueOnce({
+        id: target.id,
+        enabled,
+        loaded: enabled,
+        status: enabled ? "active" : "disabled",
+      });
+      const { result } = renderHook(() => usePluginManager());
+      await act(async () => {
+        await (enabled
+          ? result.current.enableOne(target)
+          : result.current.disableOne(target));
+      });
+      expect(hoisted.setPluginEnabledMock).toHaveBeenCalledWith(
+        target.id,
+        enabled,
+      );
+      expect(refreshMock).toHaveBeenCalledOnce();
+      expect(messageMock.success).toHaveBeenCalledOnce();
+      expect(messageMock.error).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["active", "failed"])(
+    "reports the actual %s result of repairing a failed plugin",
+    async (status) => {
+      const target = {
+        ...makePlugin(),
+        enabled: true,
+        loaded: true,
+        status: "failed",
+      };
+      const diagnostic = "Backend restart required to finish repair";
+      hoisted.repairPluginDependenciesMock.mockResolvedValueOnce({
+        id: target.id,
+        enabled: true,
+        status,
+        diagnostics: status === "failed" ? [diagnostic] : [],
+      });
+      const { result } = renderHook(() => usePluginManager());
+      await act(async () => {
+        await result.current.repairOne(target);
+      });
+      expect(hoisted.repairPluginDependenciesMock).toHaveBeenCalledWith(
+        target.id,
+      );
+      expect(hoisted.setPluginEnabledMock).not.toHaveBeenCalled();
+      expect(refreshMock).toHaveBeenCalledOnce();
+      if (status === "active") {
+        expect(messageMock.success).toHaveBeenCalledOnce();
+        expect(messageMock.error).not.toHaveBeenCalled();
+      } else {
+        expect(messageMock.error).toHaveBeenCalledWith(
+          expect.stringContaining(diagnostic),
+        );
+        expect(messageMock.success).not.toHaveBeenCalled();
+      }
+    },
+  );
+
+  it.each(["loaded", "not-loaded", "cancelled"])(
+    "handles a %s shared dependency upgrade during repair",
+    async (outcome) => {
+      const target = { ...makePlugin(), status: "failed", enabled: true };
+      const operation = {
+        id: `repair-${outcome}`,
+        plugin_id: target.id,
+        status: "needs_confirmation",
+        changes: [],
+        affected_instances: [],
+        requires_restart: false,
+        message: "Review dependency repair",
+      };
+      hoisted.repairPluginDependenciesMock.mockRejectedValueOnce(
+        Object.assign(new Error("Review dependency repair"), {
+          code: "DEPENDENCY_UPGRADE_REQUIRED",
+          operation,
+        }),
+      );
+      hoisted.applyDependencyUpgradeMock.mockResolvedValueOnce({
+        ...operation,
+        status: "succeeded",
+        result: { id: target.id, loaded: outcome === "loaded" },
+      });
+      hoisted.cancelDependencyUpgradeMock.mockResolvedValueOnce({
+        ...operation,
+        status: "cancelled",
+      });
+      const { result } = renderHook(() => usePluginManager());
+      let pending!: Promise<void>;
+      await act(async () => {
+        pending = result.current.repairOne(target);
+      });
+      await waitFor(() => expect(modalConfirmMock).toHaveBeenCalledOnce());
+      const confirm = modalConfirmMock.mock.calls[0][0] as {
+        onOk: () => void;
+        onCancel: () => void;
+      };
+      await act(async () => {
+        if (outcome === "cancelled") confirm.onCancel();
+        else confirm.onOk();
+        await pending;
+      });
+      expect(hoisted.repairPluginDependenciesMock).toHaveBeenCalledWith(
+        target.id,
+      );
+      expect(hoisted.setPluginEnabledMock).not.toHaveBeenCalled();
+      expect(refreshMock).toHaveBeenCalledOnce();
+      if (outcome === "cancelled") {
+        expect(hoisted.cancelDependencyUpgradeMock).toHaveBeenCalledWith(
+          operation.id,
+        );
+        expect(hoisted.applyDependencyUpgradeMock).not.toHaveBeenCalled();
+        expect(messageMock.success).not.toHaveBeenCalled();
+        expect(messageMock.error).not.toHaveBeenCalled();
+      } else {
+        expect(hoisted.applyDependencyUpgradeMock).toHaveBeenCalledWith(
+          operation.id,
+        );
+        expect(messageMock.success).toHaveBeenCalledTimes(
+          outcome === "loaded" ? 1 : 0,
+        );
+        expect(messageMock.error).toHaveBeenCalledTimes(
+          outcome === "loaded" ? 0 : 1,
+        );
+      }
+    },
+  );
+
+  it("detects official updates and updates one plugin without reloading", async () => {
+    const plugin = { ...makePlugin(), version: "1.0.0" };
+    hoisted.pluginsData = [plugin];
+    hoisted.fetchPluginCatalogMock.mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: "p1",
+          name: "demo",
+          version: "2.0.0",
+          install_url: "https://example.com/demo.zip",
+          upgrade_available: true,
+        },
+      ],
+    });
+    hoisted.installPluginMock.mockResolvedValue({ name: "demo" });
+
+    const { result } = renderHook(() => usePluginManager());
+    await waitFor(() => expect(result.current.updates.size).toBe(1));
+
+    await act(async () => {
+      await result.current.updateOne(plugin);
+    });
+
+    expect(hoisted.installPluginMock).toHaveBeenCalledWith(
+      "https://example.com/demo.zip",
+      { force: true },
+    );
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("selects the latest official update from an unordered catalog", async () => {
+    const plugin = { ...makePlugin(), version: "0.9.0" };
+    hoisted.pluginsData = [plugin];
+    hoisted.fetchPluginCatalogMock.mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: "p1",
+          name: "demo",
+          version: "1.0.0",
+          install_url: "https://example.com/demo-1.0.0.zip",
+          upgrade_available: true,
+        },
+        {
+          plugin_id: "p1",
+          name: "demo",
+          version: "1.2.0",
+          install_url: "https://example.com/demo-1.2.0.zip",
+          upgrade_available: true,
+        },
+        {
+          plugin_id: "p1",
+          name: "demo",
+          version: "1.1.0",
+          install_url: "https://example.com/demo-1.1.0.zip",
+          upgrade_available: true,
+        },
+      ],
+    });
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [
+        {
+          id: "p1",
+          display_name: "demo",
+          developer: "owner",
+          owner: "owner",
+          version: "1.1.5",
+          logo_url: null,
+          downloads: 0,
+          view_count: 0,
+          details_url: null,
+          locales: {},
+        },
+      ],
+      total: 1,
+    });
+
+    const { result } = renderHook(() => usePluginManager());
+
+    await waitFor(() => expect(result.current.updates.size).toBe(1));
+    expect(result.current.updates.get("p1")).toMatchObject({
+      version: "1.2.0",
+      source: "https://example.com/demo-1.2.0.zip",
+    });
+  });
+
+  it("detects community updates by package ID and author", async () => {
+    const plugin = {
+      ...makePlugin(),
+      id: "qwenpaw-thinking-collapse",
+      author: "erickcharles",
+      version: "2.8.0",
+    };
+    hoisted.pluginsData = [plugin];
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [
+        {
+          id: "@erickcharles/qwenpaw-thinking-collapse",
+          display_name: "Thinking Collapse",
+          developer: "erickcharles",
+          owner: "erickcharles",
+          version: "2.9.0",
+          logo_url: null,
+          downloads: 0,
+          view_count: 0,
+          details_url: null,
+          locales: {},
+        },
+      ],
+      total: 1,
+    });
+
+    const { result } = renderHook(() => usePluginManager());
+    await waitFor(() => expect(result.current.updates.size).toBe(1));
+    expect(result.current.updates.get(plugin.id)?.version).toBe("2.9.0");
+  });
+
+  it("detects community updates via recorded market id when the author differs", async () => {
+    // Real-world shape from #8176: the plugin.json author ("onesixth")
+    // does not equal the market owner login ("onesix"), so author-based
+    // matching never fires and "Update All" skipped third-party plugins.
+    const plugin = {
+      ...makePlugin(),
+      id: "qwenpaw-plugin-tool-wait_agent_task",
+      author: "onesixth",
+      version: "1.1.0",
+      market_id: "@onesix/qwenpaw-plugin-tool-wait_agent_task",
+    };
+    hoisted.pluginsData = [plugin];
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [
+        {
+          id: "@onesix/qwenpaw-plugin-tool-wait_agent_task",
+          display_name: "Wait Agent Task",
+          developer: "ONESIX",
+          owner: "onesix",
+          version: "1.2.0",
+          logo_url: null,
+          downloads: 0,
+          view_count: 0,
+          details_url: null,
+          locales: {},
+        },
+      ],
+      total: 1,
+    });
+    hoisted.installPluginMock.mockResolvedValue({ name: plugin.name });
+
+    const { result } = renderHook(() => usePluginManager());
+
+    await waitFor(() => expect(result.current.updates.size).toBe(1));
+    expect(result.current.updates.get(plugin.id)?.version).toBe("1.2.0");
+
+    await act(async () => {
+      await result.current.updateAll();
+    });
+
+    expect(hoisted.installPluginMock).toHaveBeenCalledWith(
+      "https://example.com/plugin.zip",
+      { force: true },
+    );
+    expect(messageMock.success).toHaveBeenCalledWith(
+      "pluginManager.updateAllSuccess",
+    );
+  });
+
+  it("stops checking market updates after an empty page", async () => {
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [],
+      total: 100,
+    });
+
+    const { result } = renderHook(() => usePluginManager());
+
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() => expect(result.current.updatesLoading).toBe(false));
+  });
+
+  it("stops checking market updates when a page has no new plugins", async () => {
+    const entry = {
+      id: "@owner/other-plugin",
+      display_name: "Other Plugin",
+      developer: "owner",
+      owner: "owner",
+      version: "1.0.0",
+      logo_url: null,
+      downloads: 0,
+      view_count: 0,
+      details_url: null,
+      locales: {},
+    };
+    hoisted.fetchMarketPluginsMock.mockResolvedValue({
+      plugins: [entry],
+      total: 100,
+    });
+
+    const { result } = renderHook(() => usePluginManager());
+
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() => expect(result.current.updatesLoading).toBe(false));
+  });
+
+  it("limits market update checks to twenty pages", async () => {
+    hoisted.fetchMarketPluginsMock.mockImplementation(({ page_number }) =>
+      Promise.resolve({
+        plugins: [
+          {
+            id: `@owner/plugin-${page_number}`,
+            display_name: `Plugin ${page_number}`,
+            developer: "owner",
+            owner: "owner",
+            version: "1.0.0",
+            logo_url: null,
+            downloads: 0,
+            view_count: 0,
+            details_url: null,
+            locales: {},
+          },
+        ],
+        total: 10_000,
+      }),
+    );
+
+    const { result } = renderHook(() => usePluginManager());
+
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(20),
+    );
+    await waitFor(() => expect(result.current.updatesLoading).toBe(false));
+  });
+
+  it("reuses market results until updates are manually refreshed", async () => {
+    const { result, rerender } = renderHook(() => usePluginManager());
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(1),
+    );
+
+    hoisted.pluginsData = [{ ...makePlugin(), version: "1.0.1" }];
+    rerender();
+    await waitFor(() =>
+      expect(hoisted.fetchPluginCatalogMock).toHaveBeenCalledTimes(2),
+    );
+    expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.refreshUpdates();
+    });
+    hoisted.pluginsData = [{ ...makePlugin(), version: "1.0.2" }];
+    rerender();
+    await waitFor(() =>
+      expect(hoisted.fetchMarketPluginsMock).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("continues updating after a plugin fails", async () => {
+    const first = { ...makePlugin(), id: "first", version: "1.0.0" };
+    const second = { ...makePlugin(), id: "second", version: "1.0.0" };
+    hoisted.pluginsData = [first, second];
+    hoisted.fetchPluginCatalogMock.mockResolvedValue({
+      plugins: [
+        {
+          plugin_id: "first",
+          name: "first",
+          version: "2.0.0",
+          install_url: "https://example.com/first.zip",
+          upgrade_available: true,
+        },
+        {
+          plugin_id: "second",
+          name: "second",
+          version: "2.0.0",
+          install_url: "https://example.com/second.zip",
+          upgrade_available: true,
+        },
+      ],
+    });
+    hoisted.installPluginMock
+      .mockRejectedValueOnce(new Error("first failed"))
+      .mockResolvedValueOnce({ name: "second" });
+
+    const { result } = renderHook(() => usePluginManager());
+    await waitFor(() => expect(result.current.updates.size).toBe(2));
+    await act(async () => {
+      await result.current.updateAll();
+    });
+
+    expect(hoisted.installPluginMock).toHaveBeenCalledTimes(2);
+    expect(hoisted.installPluginMock).toHaveBeenLastCalledWith(
+      "https://example.com/second.zip",
+      { force: true },
+    );
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(result.current.updates.has("first")).toBe(true);
+    expect(result.current.updates.has("second")).toBe(false);
+    expect(messageMock.error).toHaveBeenCalledWith(
+      "pluginManager.updateAllResult",
+    );
+  });
+});
+
+it("update-all includes the actionable conflict in its failure summary", async () => {
+  const plugin = {
+    id: "conflicted",
+    name: "Conflicted",
+    version: "1.0.0",
+  } as PluginInfo;
+  hoisted.pluginsData = [plugin];
+  hoisted.fetchPluginCatalogMock.mockResolvedValue({
+    plugins: [
+      {
+        plugin_id: "conflicted",
+        name: "Conflicted",
+        version: "2.0.0",
+        install_url: "https://example.invalid/conflict.zip",
+        upgrade_available: true,
+      },
+    ],
+  });
+  hoisted.fetchMarketPluginsMock.mockResolvedValue({ plugins: [], total: 0 });
+  hoisted.installPluginMock.mockRejectedValue(
+    new Error(
+      "DEPENDENCY_CONFLICT: disable the incompatible consumer before retrying",
+    ),
+  );
+  const { result } = renderHook(() => usePluginManager());
+  await waitFor(() => expect(result.current.updates.size).toBe(1));
+  hoisted.stableT.mockClear();
+  await act(async () => {
+    await result.current.updateAll();
+  });
+  const summary = hoisted.stableT.mock.calls.find(
+    ([key]) => key === "pluginManager.updateAllResult",
+  );
+  expect(JSON.stringify(summary?.[1])).toContain(
+    "disable the incompatible consumer before retrying",
+  );
+});

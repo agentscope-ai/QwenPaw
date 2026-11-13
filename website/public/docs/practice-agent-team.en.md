@@ -1,6 +1,6 @@
 # QwenPaw Agent Team Practice Guide
 
-This guide introduces how to build multi-agent collaborative teams using QwenPaw + HiClaw, achieving the capability leap from single Agent to Agent Team.
+This guide introduces how to build multi-agent collaborative teams using QwenPaw + AgentTeams, achieving the capability leap from single Agent to Agent Team.
 
 ---
 
@@ -17,11 +17,11 @@ However, "running multiple Agents simultaneously" and "multiple Agents collabora
 
 ### QwenPaw Team Solution
 
-QwenPaw Team provides a complete multi-Agent orchestration and collaboration solution by combining **QwenPaw** + **[HiClaw](https://hiclaw.io/)**:
+QwenPaw Team provides a complete multi-Agent orchestration and collaboration solution by combining **QwenPaw** + **[AgentTeams](https://hiclaw.io/)**:
 
 - **QwenPaw Team Leader**: Built on QwenPaw, serves as team coordinator, responsible for task decomposition, work allocation, and result aggregation
 - **QwenPaw Workers**: Built on QwenPaw, serve as task executors, focusing on domain-specific work, receiving Leader instructions and returning results
-- **HiClaw**: Open-source multi-Agent collaborative operating system, providing declarative configuration, automated deployment, and lifecycle management
+- **AgentTeams**: Open-source multi-Agent collaborative operating system, providing declarative configuration, automated deployment, and lifecycle management
 
 ![Architecture Diagram](https://img.alicdn.com/imgextra/i2/O1CN01LtRoaN1I5gcjMEEkl_!!6000000000842-55-tps-601-509.svg)
 
@@ -91,7 +91,7 @@ Before getting started, ensure the following conditions are met:
 
 ## Quick Start
 
-### Step 1: Deploy HiClaw
+### Step 1: Deploy AgentTeams
 
 #### Embedded Mode (Developers/Small Teams)
 
@@ -302,10 +302,10 @@ The Worker's `soul` field defines the Agent's identity, role, and behavioral nor
 - [QwenPaw Quick Start](./quickstart)
 - [QwenPaw Multi-Agent](./multi-agent)
 - [QwenPaw Skills](./skills)
-- [HiClaw Official Documentation](https://hiclaw.io/)
+- [AgentTeams Official Documentation](https://hiclaw.io/)
 
 ---
 
 ## Summary
 
-QwenPaw Agent Team, through the combination of QwenPaw and HiClaw, provides powerful multi-agent collaboration capabilities for individual developers and small teams. Through proper team design and task allocation, work efficiency can be significantly improved, achieving a "one-person team."
+QwenPaw Agent Team, through the combination of QwenPaw and AgentTeams, provides powerful multi-agent collaboration capabilities for individual developers and small teams. Through proper team design and task allocation, work efficiency can be significantly improved, achieving a "one-person team."

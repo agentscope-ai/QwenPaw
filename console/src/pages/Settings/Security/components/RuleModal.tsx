@@ -1,5 +1,7 @@
+import { SettingsField } from "@/components/interaction/SettingsField";
 import { useEffect } from "react";
 import { Modal, Form, Input, Select } from "@agentscope-ai/design";
+import type { FormInstance } from "antd";
 import { useTranslation } from "react-i18next";
 import type { ToolGuardRule } from "../../../../api/modules/security";
 
@@ -19,7 +21,7 @@ const CATEGORY_OPTIONS = [
 const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
-  "browser_use",
+  "browser",
   "desktop_screenshot",
   "view_image",
   "read_file",
@@ -35,15 +37,17 @@ interface RuleModalProps {
   open: boolean;
   editingRule: ToolGuardRule | null;
   existingRuleIds: string[];
+  saving?: boolean;
   onOk: () => void;
   onCancel: () => void;
-  form: any;
+  form: FormInstance;
 }
 
 export function RuleModal({
   open,
   editingRule,
   existingRuleIds,
+  saving = false,
   onOk,
   onCancel,
   form,
@@ -86,14 +90,17 @@ export function RuleModal({
       }
       open={open}
       onOk={onOk}
-      onCancel={onCancel}
+      onCancel={saving ? undefined : onCancel}
       okText={t("common.confirm")}
       cancelText={t("common.cancel")}
+      confirmLoading={saving}
+      okButtonProps={{ disabled: saving }}
+      cancelButtonProps={{ disabled: saving }}
       width={640}
       destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item
+        <SettingsField
           label={t("security.rules.ruleId")}
           name="id"
           rules={[
@@ -112,36 +119,46 @@ export function RuleModal({
           ]}
         >
           <Input placeholder="TOOL_CMD_CUSTOM_RULE" disabled={!!editingRule} />
-        </Form.Item>
-        <Form.Item label={t("security.rules.tools")} name="tools">
+        </SettingsField>
+        <SettingsField label={t("security.rules.tools")} name="tools">
           <Select
             mode="tags"
             options={toolOptions}
             placeholder={t("security.rules.toolsPlaceholder")}
             allowClear
+            style={{ width: "100%" }}
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.params")} name="params">
+        </SettingsField>
+        <SettingsField label={t("security.rules.params")} name="params">
           <Select
             mode="tags"
             placeholder={t("security.rules.paramsPlaceholder")}
             allowClear
+            style={{ width: "100%" }}
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.severityLabel")} name="severity">
+        </SettingsField>
+        <SettingsField
+          label={t("security.rules.severityLabel")}
+          name="severity"
+        >
           <Select
             options={SEVERITY_OPTIONS.map((s) => ({ label: s, value: s }))}
+            style={{ width: "100%" }}
           />
-        </Form.Item>
-        <Form.Item label={t("security.rules.categoryLabel")} name="category">
+        </SettingsField>
+        <SettingsField
+          label={t("security.rules.categoryLabel")}
+          name="category"
+        >
           <Select
             options={CATEGORY_OPTIONS.map((c) => ({
               label: t(`security.rules.categories.${c}`, { defaultValue: c }),
               value: c,
             }))}
+            style={{ width: "100%" }}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.patterns")}
           name="patterns"
           rules={[
@@ -154,8 +171,8 @@ export function RuleModal({
             placeholder={"\\brm\\b\\n\\bmv\\b"}
             style={{ fontFamily: "monospace" }}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.excludePatterns")}
           name="exclude_patterns"
           tooltip={t("security.rules.excludePatternsTooltip")}
@@ -165,19 +182,19 @@ export function RuleModal({
             placeholder={"^#"}
             style={{ fontFamily: "monospace" }}
           />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.descriptionLabel")}
           name="description"
         >
           <Input placeholder={t("security.rules.descriptionPlaceholder")} />
-        </Form.Item>
-        <Form.Item
+        </SettingsField>
+        <SettingsField
           label={t("security.rules.remediationLabel")}
           name="remediation"
         >
           <Input placeholder={t("security.rules.remediationPlaceholder")} />
-        </Form.Item>
+        </SettingsField>
       </Form>
     </Modal>
   );

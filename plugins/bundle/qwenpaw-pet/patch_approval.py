@@ -29,8 +29,11 @@ def patch_approval_service() -> None:
     if _PATCHED:
         return
 
-    from qwenpaw.app.approvals.service import ApprovalService
-    from qwenpaw.security.tool_guard.approval import ApprovalDecision
+    from qwenpaw.app.approvals.service import ApprovalActor, ApprovalService
+    from qwenpaw.security.tool_guard.approval import (
+        ApprovalDecision,
+        ApprovalScope,
+    )
 
     _ORIG_CREATE_PENDING = ApprovalService.create_pending
     _ORIG_RESOLVE_REQUEST = ApprovalService.resolve_request
@@ -62,8 +65,21 @@ def patch_approval_service() -> None:
             )
         return pending
 
-    async def resolve_request_wrapped(self, request_id: str, decision: Any):
-        resolved = await _ORIG_RESOLVE_REQUEST(self, request_id, decision)
+    async def resolve_request_wrapped(
+        self,
+        request_id: str,
+        decision: Any,
+        scope: ApprovalScope | None = None,
+        *,
+        actor: ApprovalActor | None = None,
+    ):
+        resolved = await _ORIG_RESOLVE_REQUEST(
+            self,
+            request_id,
+            decision,
+            scope=scope,
+            actor=actor,
+        )
         if resolved is None:
             return None
         try:

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
+from helpers import default_http_timeout
 
-_PROVIDERS_HTTP_TIMEOUT = 15.0
+_PROVIDERS_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 @pytest.mark.integration

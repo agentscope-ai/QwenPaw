@@ -3,19 +3,18 @@ import { useTranslation } from "react-i18next";
 import { Input, Tooltip } from "antd";
 import { IconButton } from "@agentscope-ai/design";
 import {
-  SparkDragDotLine,
-  SparkEditLine,
-  SparkSendLine,
-  SparkDeleteLine,
-  SparkRefreshLine,
-  SparkNextSentenceLine,
-  SparkPauseLine,
-  SparkPlayFill,
-  SparkAlertLine,
-  SparkErrorCircleLine,
-  SparkClearLine,
-} from "@agentscope-ai/icons";
-import { useTheme } from "../../../contexts/ThemeContext";
+  GripVertical as SparkDragDotLine,
+  Pencil as SparkEditLine,
+  Send as SparkSendLine,
+  Trash2 as SparkDeleteLine,
+  RefreshCw as SparkRefreshLine,
+  SkipForward as SparkNextSentenceLine,
+  Pause as SparkPauseLine,
+  Play as SparkPlayFill,
+  Bell as SparkAlertLine,
+  CircleAlert as SparkErrorCircleLine,
+  Eraser as SparkClearLine,
+} from "lucide-react";
 import {
   type QueueItem,
   type QueueRunState,
@@ -34,6 +33,8 @@ interface MessageQueuePanelProps {
   onPauseResume: () => void;
   onRetry: (id: string) => void;
   onSkip: (id: string) => void;
+  /** When true, omit outer chrome/title (used inside ChatSenderTabsPanel). */
+  embedded?: boolean;
 }
 
 export default function MessageQueuePanel({
@@ -47,9 +48,9 @@ export default function MessageQueuePanel({
   onPauseResume,
   onRetry,
   onSkip,
+  embedded = false,
 }: MessageQueuePanelProps) {
   const { t } = useTranslation();
-  const { isDark } = useTheme();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [dragOverId, setDragOverId] = useState<string | null>(null);
@@ -124,11 +125,11 @@ export default function MessageQueuePanel({
   if (items.length === 0) return null;
 
   const isPausedOrError = runState === "paused" || runState === "error";
-  const borderColor = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-  const rowBg = isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)";
-  const hoverBg = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)";
-  const dragOverBg = isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.06)";
-  const mutedColor = isDark ? "#888" : "#999";
+  const borderColor = "var(--app-border-subtle)";
+  const rowBg = "var(--app-fill-faint)";
+  const hoverBg = "var(--app-fill-subtle)";
+  const dragOverBg = "var(--app-fill)";
+  const mutedColor = "var(--app-text-tertiary)";
 
   return (
     <div
@@ -136,118 +137,129 @@ export default function MessageQueuePanel({
         display: "flex",
         flexDirection: "column",
         gap: 3,
-        padding: "8px 12px",
+        padding: embedded ? 0 : "8px 12px",
         maxHeight: 220,
         overflowY: "auto",
-        borderRadius: 8,
-        background: isDark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.01)",
-        border: `1px solid ${borderColor}`,
+        borderRadius: embedded ? 0 : 8,
+        background: embedded ? "transparent" : "var(--app-fill-faint)",
+        border: embedded ? "none" : `1px solid ${borderColor}`,
       }}
     >
-      {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 4,
-          position: "sticky",
-          top: 0,
-          zIndex: 1,
-          background: isDark ? "#1f1f1f" : "#fff",
-          paddingTop: 4,
-          paddingBottom: 6,
-          borderBottom: `1px solid ${borderColor}`,
-        }}
-      >
-        {/* Title + status badge */}
-        <span
+      {!embedded && (
+        <div
           style={{
-            display: "inline-flex",
+            display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: 6,
-            fontSize: 12,
-            fontWeight: 500,
-            color: isDark ? "#bbb" : "#555",
-            userSelect: "none",
+            marginBottom: 4,
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            background: "var(--app-surface)",
+            paddingTop: 4,
+            paddingBottom: 6,
+            borderBottom: `1px solid ${borderColor}`,
           }}
         >
-          {t("chat.queue.title")} ({items.length})
-          {runState === "paused" && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 11,
-                color: "#faad14",
-                fontWeight: 400,
-              }}
-            >
-              {t("chat.queue.paused")}
-            </span>
-          )}
-          {runState === "error" && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 3,
-                fontSize: 11,
-                color: "#ff4d4f",
-                fontWeight: 400,
-              }}
-            >
-              <SparkErrorCircleLine style={{ fontSize: 11 }} />
-              {t("chat.queue.sendFailed")}
-            </span>
-          )}
-        </span>
-
-        {/* Header actions */}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-          <Tooltip
-            title={
-              isPausedOrError ? t("chat.queue.resume") : t("chat.queue.pause")
-            }
-            mouseEnterDelay={0.5}
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              fontWeight: 500,
+              color: "var(--app-text-secondary)",
+              userSelect: "none",
+            }}
           >
-            <IconButton
-              bordered={false}
-              size="small"
-              icon={
-                isPausedOrError ? (
-                  <SparkPlayFill style={{ fontSize: 14, color: "#52c41a" }} />
-                ) : (
-                  <SparkPauseLine style={{ fontSize: 14, color: "#faad14" }} />
-                )
+            {t("chat.queue.title")} ({items.length})
+            {runState === "paused" && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  color: "var(--app-warning-text)",
+                  fontWeight: 400,
+                }}
+              >
+                {t("chat.queue.paused")}
+              </span>
+            )}
+            {runState === "error" && (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 11,
+                  color: "var(--app-error-text)",
+                  fontWeight: 400,
+                }}
+              >
+                <SparkErrorCircleLine size="1em" style={{ fontSize: 11 }} />
+                {t("chat.queue.sendFailed")}
+              </span>
+            )}
+          </span>
+          <span
+            style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+          >
+            <Tooltip
+              title={
+                isPausedOrError ? t("chat.queue.resume") : t("chat.queue.pause")
               }
-              onClick={onPauseResume}
-            />
-          </Tooltip>
-          {items.length > 1 && (
-            <Tooltip title={t("chat.queue.clear")} mouseEnterDelay={0.5}>
+              mouseEnterDelay={0.5}
+            >
               <IconButton
                 bordered={false}
                 size="small"
+                iconSize={14}
                 icon={
-                  <SparkClearLine style={{ fontSize: 14, color: mutedColor }} />
+                  isPausedOrError ? (
+                    <SparkPlayFill
+                      size="1em"
+                      style={{ fontSize: 14, color: "var(--app-success-text)" }}
+                    />
+                  ) : (
+                    <SparkPauseLine
+                      size="1em"
+                      style={{ fontSize: 14, color: "var(--app-warning-text)" }}
+                    />
+                  )
                 }
-                onClick={onClear}
+                onClick={onPauseResume}
               />
             </Tooltip>
-          )}
-        </span>
-      </div>
+            {items.length > 1 && (
+              <Tooltip title={t("chat.queue.clear")} mouseEnterDelay={0.5}>
+                <IconButton
+                  bordered={false}
+                  size="small"
+                  iconSize={14}
+                  icon={
+                    <SparkClearLine
+                      size="1em"
+                      style={{ fontSize: 14, color: mutedColor }}
+                    />
+                  }
+                  onClick={onClear}
+                />
+              </Tooltip>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Queue rows */}
       {items.map((item) => {
         const statusColor =
           item.status === "failed"
-            ? "#ff4d4f"
+            ? "var(--app-error-text)"
             : item.status === "sending"
-            ? "#1890ff"
-            : "#52c41a";
+            ? "var(--app-accent-text)"
+            : "var(--app-success-text)";
         const isHovered = hoveredId === item.id;
         const isEditing = editingId === item.id;
 
@@ -308,7 +320,7 @@ export default function MessageQueuePanel({
                   flexShrink: 0,
                 }}
               >
-                <SparkDragDotLine style={{ fontSize: 13 }} />
+                <SparkDragDotLine size="1em" style={{ fontSize: 13 }} />
               </span>
             </Tooltip>
 
@@ -337,12 +349,10 @@ export default function MessageQueuePanel({
                     whiteSpace: "nowrap",
                     color:
                       item.status === "failed"
-                        ? "#ff4d4f"
+                        ? "var(--app-error-text)"
                         : item.status === "sending"
-                        ? "#1890ff"
-                        : isDark
-                        ? "#ddd"
-                        : "#333",
+                        ? "var(--app-accent-text)"
+                        : "var(--app-text)",
                     fontWeight: item.status === "sending" ? 500 : 400,
                   }}
                 >
@@ -351,7 +361,7 @@ export default function MessageQueuePanel({
                     <span
                       style={{
                         fontSize: 10,
-                        color: "#ff4d4f",
+                        color: "var(--app-error-text)",
                         marginLeft: 4,
                       }}
                     >
@@ -385,9 +395,7 @@ export default function MessageQueuePanel({
                               gap: 3,
                               padding: "2px 5px",
                               borderRadius: 4,
-                              background: isDark
-                                ? "rgba(255,255,255,0.06)"
-                                : "rgba(0,0,0,0.04)",
+                              background: "var(--app-fill-subtle)",
                               fontSize: 10,
                               color: mutedColor,
                               maxWidth: 100,
@@ -409,6 +417,7 @@ export default function MessageQueuePanel({
                               />
                             ) : (
                               <SparkAlertLine
+                                size="1em"
                                 style={{ fontSize: 12, flexShrink: 0 }}
                               />
                             )}
@@ -443,7 +452,10 @@ export default function MessageQueuePanel({
                     <IconButton
                       bordered={false}
                       size="small"
-                      icon={<SparkEditLine style={{ fontSize: 13 }} />}
+                      iconSize={13}
+                      icon={
+                        <SparkEditLine size="1em" style={{ fontSize: 13 }} />
+                      }
                       onClick={() => startEdit(item)}
                     />
                   </Tooltip>
@@ -457,9 +469,14 @@ export default function MessageQueuePanel({
                         <IconButton
                           bordered={false}
                           size="small"
+                          iconSize={13}
                           icon={
                             <SparkRefreshLine
-                              style={{ fontSize: 13, color: "#1890ff" }}
+                              size="1em"
+                              style={{
+                                fontSize: 13,
+                                color: "var(--app-accent-text)",
+                              }}
                             />
                           }
                           onClick={() => onRetry(item.id)}
@@ -472,8 +489,10 @@ export default function MessageQueuePanel({
                         <IconButton
                           bordered={false}
                           size="small"
+                          iconSize={13}
                           icon={
                             <SparkNextSentenceLine
+                              size="1em"
                               style={{ fontSize: 13, color: mutedColor }}
                             />
                           }
@@ -490,7 +509,10 @@ export default function MessageQueuePanel({
                     <IconButton
                       bordered={false}
                       size="small"
-                      icon={<SparkSendLine style={{ fontSize: 13 }} />}
+                      iconSize={13}
+                      icon={
+                        <SparkSendLine size="1em" style={{ fontSize: 13 }} />
+                      }
                       onClick={() => onInterruptAndSend(item)}
                     />
                   </Tooltip>
@@ -499,9 +521,14 @@ export default function MessageQueuePanel({
                     <IconButton
                       bordered={false}
                       size="small"
+                      iconSize={13}
                       icon={
                         <SparkDeleteLine
-                          style={{ fontSize: 13, color: "#ff4d4f" }}
+                          size="1em"
+                          style={{
+                            fontSize: 13,
+                            color: "var(--app-error-text)",
+                          }}
                         />
                       }
                       onClick={() => onRemove(item.id)}

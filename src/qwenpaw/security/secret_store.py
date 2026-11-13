@@ -11,6 +11,7 @@ tokens, etc.) stored on disk.  Secrets are encrypted with Fernet (AES-128-CBC
 Encrypted values carry an ``ENC:`` prefix so readers can distinguish them
 from legacy plaintext and transparently migrate on first access.
 """
+
 from __future__ import annotations
 
 import base64
@@ -18,6 +19,7 @@ import hashlib
 import logging
 import os
 import secrets
+import stat
 import threading
 from pathlib import Path
 from typing import Optional
@@ -108,6 +110,11 @@ def _should_skip_keyring() -> bool:
         ``_KEYRING_TIMEOUT`` seconds regardless of what this function
         returns.
     """
+    # Explicit escape hatch for CI, containers, and remote/headless hosts
+    # where OS keyring access is unavailable or may block.
+    if EnvVarLoader.get_bool("QWENPAW_DISABLE_KEYRING"):
+        return True
+
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
 
@@ -254,6 +261,31 @@ def _read_key_file() -> Optional[str]:
                     len(content),
                 )
                 return None
+            if os.name != "nt":
+                try:
+                    mode = stat.S_IMODE(path.stat().st_mode)
+                    if mode & 0o077:
+                        # Remove permissions granted to group/other without
+                        # making stricter owner permissions (for example
+                        # 0o400) more permissive.
+                        corrected_mode = mode & 0o600
+                        os.chmod(path, corrected_mode)
+                        logger.warning(
+                            "Master key file had insecure permissions %#o; "
+                            "corrected to %#o",
+                            mode,
+                            corrected_mode,
+                        )
+                except OSError:
+                    # Keep using the existing key: treating a permission
+                    # hardening failure as a missing key would make the
+                    # caller generate a replacement and strand all secrets
+                    # encrypted with the original key.
+                    logger.warning(
+                        "Could not verify or correct master key file "
+                        "permissions; continuing with the existing key",
+                        exc_info=True,
+                    )
             return content
         except (OSError, ValueError):
             logger.warning(
@@ -458,3 +490,36 @@ def decrypt_dict_fields(
         ):
             result[field] = decrypt(result[field])
     return result
+
+
+# ---------------------------------------------------------------------------
+# Console-facing secret masking helpers.
+#
+# Pure string manipulation with no protocol-specific dependency; consumers
+# outside MCP (e.g. builtin tool config endpoints) import directly from here
+# instead of an MCP adapter module.
+# ---------------------------------------------------------------------------
+
+
+def mask_secret_value(value: str) -> str:
+    """Mask a secret value for Console display."""
+    if not value:
+        return value
+    length = len(value)
+    if length <= 8:
+        return "*" * length
+    if length <= 12:
+        return f"{value[:1]}{'*' * max(length - 2, 4)}{value[-1:]}"
+    prefix_len = 3 if length > 2 and value[2] == "-" else 2
+    prefix = value[:prefix_len]
+    suffix_len = 4 if length >= 16 else 2
+    suffix = value[-suffix_len:]
+    masked_len = max(length - prefix_len - suffix_len, 4)
+    return f"{prefix}{'*' * masked_len}{suffix}"
+
+
+def restore_masked_secret_value(incoming: str, existing: str) -> str:
+    """Return the existing secret when incoming equals its masked display."""
+    if existing and incoming == mask_secret_value(existing):
+        return existing
+    return incoming

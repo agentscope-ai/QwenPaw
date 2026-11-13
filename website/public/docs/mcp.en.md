@@ -141,6 +141,8 @@ Tavily is an AI-optimized web search service that enables agents to perform real
 
 > **Built-in Support**: A `tavily_search` client is automatically created at system startup. It auto-enables when the `TAVILY_API_KEY` environment variable is set. You can also directly modify the tavily mcp configuration.
 
+This configures the Tavily **MCP client**. QwenPaw's built-in `web_search` tool can use Tavily, AnySearch, or Firecrawl; see [Web Search](#Web-Search-web_search) below for its configuration.
+
 #### Remote MCP Service
 
 ```json
@@ -156,6 +158,27 @@ Tavily is an AI-optimized web search service that enables agents to perform real
   }
 }
 ```
+
+#### Built-in Mail MCP
+
+When mail is configured for a native QwenPaw agent, the system creates and
+enables a `qwenpawmail` MCP driver card in that agent's workspace. The card never
+stores a plaintext credential: it references the encrypted record in the
+workspace's `credentials.yaml`, which QwenPaw resolves into the subprocess
+environment only at startup. The driver starts the `qwenpawmail-mcp` package
+over stdio and also injects the state and workspace directories.
+The client exposes 22 tools for reading, sending, attachments, organization,
+threads, and statistics.
+
+New driver cards use `ask` as their default access policy. You can adjust policy
+by tool and call origin in **Workspace → MCP**. Saving the mail configuration
+again preserves the existing enabled state, tool scope, and access policy.
+
+You do not create this client manually on the general MCP page, but a source
+installation must include the mail package. Load the built-in `mailbox` Skill as
+well so the agent has the account setup, contact, automation, and safety workflow.
+See [Mailbox Management and Automation](./mailbox) for installation, providers,
+tools, and security details.
 
 ---
 
@@ -210,7 +233,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 - **Enabled**: Tool is loaded into agent context and can be called in conversations
 - **Disabled**: Tool is not available in agent's tool list and cannot be called
 
-> For optimal performance, enable only the tools you need to reduce context overhead. Configuration changes are hot-reloaded automatically—no server restart needed.
+> For optimal performance, enable only the tools you need to reduce context overhead. Configuration changes are hot-reloaded automatically—except switching the Browser stable/experimental track, which requires a service restart. See [Browser](./browser).
 
 > **Multi-Agent Support**: Each agent has independent tool configuration. After switching agents in the agent selector at the top of the Console, you'll see that agent's dedicated tool configuration. See [Multi-Agent](./multi-agent) for details.
 
@@ -218,26 +241,54 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
 
 ### Built-in Tool List
 
-| Type               | Tool Name                 | Description                                                                   |
-| ------------------ | ------------------------- | ----------------------------------------------------------------------------- |
-| File Operations    | `read_file`               | Read file contents, supports line range reading                               |
-| File Operations    | `write_file`              | Create or overwrite file                                                      |
-| File Operations    | `edit_file`               | Modify file using find-and-replace (replaces all occurrences)                 |
-| File Operations    | `append_file`             | Append content to file end                                                    |
-| File Search        | `grep_search`             | Search by content, supports regex and context                                 |
-| File Search        | `glob_search`             | Find files by name pattern                                                    |
-| Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution                              |
-| Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                                 |
-| Browser Automation | `browser_use`             | Browser automation with 30+ operations (navigation, interaction, screenshots) |
-| Screenshots        | `desktop_screenshot`      | Capture desktop or window screenshot                                          |
-| Image Analysis     | `view_image`              | Load image into context for model analysis                                    |
-| File Transfer      | `send_file_to_user`       | Send file to user, auto-detects file type                                     |
-| Memory Search      | `memory_search`           | Semantic search in MEMORY.md for past information                             |
-| Time               | `get_current_time`        | Get current time and timezone                                                 |
-| Time               | `set_user_timezone`       | Set user timezone preference                                                  |
-| Statistics         | `get_token_usage`         | Query LLM token usage statistics                                              |
+| Type               | Tool Name                 | Description                                                   |
+| ------------------ | ------------------------- | ------------------------------------------------------------- |
+| File Operations    | `read_file`               | Read file contents, supports line range reading               |
+| File Operations    | `write_file`              | Create or overwrite file                                      |
+| File Operations    | `edit_file`               | Modify file using find-and-replace (replaces all occurrences) |
+| File Operations    | `append_file`             | Append content to file end                                    |
+| File Search        | `grep_search`             | Search by content, supports regex and context                 |
+| File Search        | `glob_search`             | Find files by name pattern                                    |
+| Web Search         | `web_search`              | Search the web with Tavily, AnySearch, or Firecrawl           |
+| Web Fetch          | `web_fetch`               | Read a web page and convert it to Markdown                    |
+| Command Execution  | `execute_shell_command`   | Execute shell commands, supports async execution              |
+| Agent Delegation   | `delegate_external_agent` | Delegate work to an external ACP agent runner                 |
+| Browser Automation | `browser`                 | Unified Browser SDK automation with async Python              |
+| Screenshots        | `desktop_screenshot`      | Capture desktop or window screenshot                          |
+| Image Analysis     | `view_image`              | Load image into context for model analysis                    |
+| File Transfer      | `send_file_to_user`       | Send file to user, auto-detects file type                     |
+| Memory Search      | `memory_search`           | Semantic search in MEMORY.md for past information             |
+| Time               | `get_current_time`        | Get current time and timezone                                 |
+| Time               | `set_user_timezone`       | Set user timezone preference                                  |
+| Statistics         | `get_token_usage`         | Query LLM token usage statistics                              |
 
 ### Tool Details
+
+#### Web Search (`web_search`)
+
+Enable `web_search` under **Agent → Tools**, select a search provider, and optionally enter that provider's API key. Each agent has its own configuration. AnySearch is the default when no provider is selected.
+
+- **AnySearch** (default): Supports keyless anonymous search with an anonymous quota. An AnySearch API key enables authenticated requests. If the anonymous quota is exhausted, the service may return an automatically registered key, which the tool attempts to save before retrying.
+- **Tavily**: Keyless anonymous search works without an API key. With a Tavily API key, authenticated requests are preferred; HTTP 401, 429, or 432 falls back to anonymous search.
+- **Firecrawl**: The API key is optional. Authenticated requests are preferred when a key is set; HTTP 401 triggers one keyless retry. Keyless availability and limits depend on the service.
+
+Select the provider on the tool card, then enter its API key if needed. Keys are stored in the current agent's credential store; the **built-in tool** does not read the `TAVILY_API_KEY` environment variable from the Tavily MCP example above. If editing `agent.json` manually, the provider is stored at `tools.builtin_tools.web_search.config.provider`:
+
+```json
+{
+  "tools": {
+    "builtin_tools": {
+      "web_search": {
+        "name": "web_search",
+        "enabled": true,
+        "config": { "provider": "anysearch" }
+      }
+    }
+  }
+}
+```
+
+Valid `provider` values are `tavily`, `anysearch`, and `firecrawl`. Enter API keys through the Console instead of saving them in this file. `web_search` accepts `search_term`; `web_fetch` accepts `url` to read pages found in search results.
 
 **File Operations**
 
@@ -260,6 +311,7 @@ QwenPaw provides a set of ready-to-use built-in tools that agents can directly c
   - `case_sensitive`: Case-sensitive matching (default True)
   - `context_lines`: Context lines before/after match (default 0, max 5)
   - `include_pattern`: Filter by filename, e.g. "\*.py"
+  - `show_file`: Include file path on every output line (default True). When False, multi-file results group by file with the path shown once per file and `---` between file groups
 - `glob_search`: Supports recursive patterns like `**/*.json`
 
 **Command Execution**
@@ -325,40 +377,9 @@ Configure this option on the `execute_shell_command` tool card (only this tool s
 
 **Browser Automation**
 
-- `browser_use`: Supports 30+ operations
-  - **Basic Navigation**: start, stop, open, navigate, navigate_back, close
-  - **Page Interaction**: click, type, hover, drag, select_option
-  - **Page Analysis**: snapshot, screenshot, console_messages, network_requests
-  - **Form Operations**: fill_form, file_upload, press_key
-  - **JavaScript Execution**: eval, evaluate, run_code
-  - **Advanced Features**: cookies_get, cookies_set, cookies_clear, tabs, wait_for, pdf, resize, handle_dialog, install, connect_cdp, list_cdp_targets, clear_browser_cache
-- Use `action` parameter to specify operation type
-- Runs in headless mode by default; use `headed=True` to launch a visible browser window
-- Supports multiple tabs (use different `page_id` values)
-- `click` supports two targeting modes: element locators (`ref`/`selector`) and page coordinates (`page_x` / `page_y`, in page viewport pixels). When both are provided, the priority is `ref > selector > page_x/page_y`, and the coordinate parameters only take effect when neither `ref` nor `selector` is given
-  - Coordinate clicks are backed by `page.mouse.click(...)`; they support `button` and `double_click`, but not `modifiers_json`
-  - **When to use:** Designed for Canvas/WebGL UIs where no DOM sub-elements exist. Coordinates can be estimated from screenshots or computed via `action=evaluate` for pixel-precise targeting. Example evaluate-based workflow: (1) `action=evaluate` to get the canvas element's bounding rect, (2) compute click point with known offsets, (3) `action=click` with `page_x`/`page_y`
-
-```json
-{
-  "action": "click",
-  "page_x": 420,
-  "page_y": 260
-}
-```
-
-**CDP Mode (Advanced Feature):**
-The browser tool supports connecting to a running Chrome browser via Chrome DevTools Protocol (CDP):
-
-- **Start with CDP port exposed**: Use `action="start"` with `cdp_port` (e.g., 9222) to launch Chrome with `--remote-debugging-port`
-- **Connect to external browser**: Use `action="connect_cdp"` with `cdp_url` (e.g., `http://localhost:9222`) to connect to an already-running Chrome
-- **Discover CDP endpoints**: Use `action="list_cdp_targets"` to scan local port range (default 9000-10000) and find available CDP connections
-
-**CDP Mode Use Cases:**
-
-- Connect to a user's manually opened Chrome (preserving login state, bookmarks, extensions, etc.)
-- Integrate with external debugging tools
-- Perform automation in an existing browser session
+- `browser(code)`: Execute async Python against QwenPaw's built-in Browser SDK to drive a real browser — navigate, locate elements, act, and read visible page state. The complete SDK API is delivered to the agent automatically on first use.
+  - Works with a standalone browser launched by QwenPaw, or with your own signed-in Chrome (requires the [Chrome extension](./chrome))
+  - See [Browser](./browser) for identities, backends, and every setting
 
 **Screenshots and Images**
 

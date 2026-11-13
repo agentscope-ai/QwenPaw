@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { BulbOutlined } from "@ant-design/icons";
+import { Lightbulb as BulbOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
 import { ToolCardShell, DefaultBlock } from "../shared";
 import { formatMemorySearch } from "../shared/utils";
@@ -8,6 +8,11 @@ import { formatMemorySearch } from "../shared/utils";
 export interface MemorySearchCardProps {
   content: ToolCallContent;
   isStreaming?: boolean;
+}
+
+function compactNumber(value: unknown): string {
+  const n = Number(value);
+  return Number.isFinite(n) ? String(n) : "";
 }
 
 const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
@@ -18,12 +23,27 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
   const params = content.params || {};
   const query = (params.query || params.text || "") as string;
   const queryShort = query.length > 20 ? query.slice(0, 20) + "…" : query;
-  const title = queryShort
+  const limit = compactNumber(params.limit ?? params.max_results);
+  const minScore = compactNumber(params.min_score);
+  const meta = [limit && `limit=${limit}`, minScore && `min_score=${minScore}`]
+    .filter(Boolean)
+    .join(" ");
+  const baseTitle = queryShort
     ? t("tool.memorySearch", { query: queryShort })
     : t("tool.memorySearchDefault");
+  const title = meta ? `${baseTitle} · ${meta}` : baseTitle;
 
-  // Use the raw result string for formatMemorySearch — it expects JSON to parse.
-  // Fall back to stringifyResult if result is not a string.
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<BulbOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
+
   const rawResult =
     typeof content.result === "string"
       ? content.result
@@ -36,7 +56,7 @@ const MemorySearchCard: React.FC<MemorySearchCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<BulbOutlined />}
+      icon={<BulbOutlined size="1em" />}
       title={title}
     >
       {formattedResult && (

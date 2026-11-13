@@ -1,3 +1,4 @@
+import { SharedModal } from "@/components/interaction/SharedModal";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   Button,
@@ -9,12 +10,12 @@ import {
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
 import {
-  CloseOutlined,
-  DownloadOutlined,
-  DownOutlined,
-  SaveOutlined,
-} from "@ant-design/icons";
-import { Progress } from "antd";
+  X as CloseOutlined,
+  Download as DownloadOutlined,
+  ChevronDown as DownOutlined,
+  Save as SaveOutlined,
+} from "lucide-react";
+import { Progress, Segmented } from "antd";
 import type {
   LocalModelConfig,
   ProviderInfo,
@@ -30,6 +31,8 @@ import styles from "../../index.module.less";
 import { JsonConfigEditor } from "./JsonConfigEditor.tsx";
 import { LocalModelRow } from "./local-models/LocalModelRow";
 import { LocalRuntimePanel } from "./local-models/LocalRuntimePanel";
+import huggingFaceLogo from "./local-models/huggingface.svg";
+import modelScopeLogo from "./local-models/modelscope.png";
 import {
   formatProgressText,
   getProgressPercent,
@@ -128,6 +131,8 @@ export function LocalModelManageModal({
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
+  const [catalogSource, setCatalogSource] =
+    useState<LocalDownloadSource>("huggingface");
   const [customModelRepoId, setCustomModelRepoId] = useState("");
   const [customModelSource, setCustomModelSource] =
     useState<LocalDownloadSource>("huggingface");
@@ -219,12 +224,15 @@ export function LocalModelManageModal({
     }
   }, [generateKwargsText, parseGenerateConfig, t]);
 
-  const getLocalModelDisplayName = (modelId: string | null) => {
-    if (!modelId) {
-      return null;
-    }
-    return localModels.find((model) => model.id === modelId)?.name ?? modelId;
-  };
+  const getLocalModelDisplayName = useCallback(
+    (modelId: string | null) => {
+      if (!modelId) {
+        return null;
+      }
+      return localModels.find((model) => model.id === modelId)?.name ?? modelId;
+    },
+    [localModels],
+  );
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -413,7 +421,14 @@ export function LocalModelManageModal({
         }
       }
     },
-    [fetchLocalModels, refreshUpdateStatus, stopPolling, t],
+    [
+      fetchLocalModels,
+      message,
+      refreshUpdateStatus,
+      setModelDownloadState,
+      stopPolling,
+      t,
+    ],
   );
 
   const startPolling = useCallback(() => {
@@ -608,10 +623,11 @@ export function LocalModelManageModal({
           : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  }, [llamacppDownload, refreshStatus, startPolling, t]);
+  }, [llamacppDownload, message, refreshStatus, startPolling, t]);
 
   const handleCancelLlamacppDownload = useCallback(() => {
     Modal.confirm({
+      className: styles.modelConfirmModal,
       title: t("models.localCancelDownloadTitle"),
       content: t("models.localCancelDownloadConfirm", {
         repo: t("models.localLlamacppName"),
@@ -642,7 +658,7 @@ export function LocalModelManageModal({
         }
       },
     });
-  }, [refreshStatus, startPolling, t]);
+  }, [message, refreshStatus, startPolling, t]);
 
   const handleStartModelDownload = useCallback(
     async (model: LocalModelInfo) => {
@@ -675,7 +691,7 @@ export function LocalModelManageModal({
         message.error(errMsg);
       }
     },
-    [refreshStatus, setModelDownloadState, startPolling, t],
+    [message, refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartCustomModelDownload = useCallback(async () => {
@@ -693,11 +709,18 @@ export function LocalModelManageModal({
       downloaded: false,
       source: customModelSource,
     });
-  }, [customModelRepoId, customModelSource, handleStartModelDownload, t]);
+  }, [
+    customModelRepoId,
+    customModelSource,
+    handleStartModelDownload,
+    message,
+    t,
+  ]);
 
   const handleCancelModelDownload = useCallback(
     (modelName: string) => {
       Modal.confirm({
+        className: styles.modelConfirmModal,
         title: t("models.localCancelDownloadTitle"),
         content: t("models.localCancelDownloadConfirm", { repo: modelName }),
         okText: t("models.localCancelDownloadAction"),
@@ -727,7 +750,7 @@ export function LocalModelManageModal({
         },
       });
     },
-    [refreshStatus, setModelDownloadState, startPolling, t],
+    [message, refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartServer = useCallback(
@@ -757,6 +780,7 @@ export function LocalModelManageModal({
         serverStatus.model_name !== model.id
       ) {
         Modal.confirm({
+          className: styles.modelConfirmModal,
           title: t("models.localServerSwitchTitle"),
           content: t("models.localServerSwitchConfirm", {
             current: getLocalModelDisplayName(serverStatus.model_name),
@@ -771,7 +795,15 @@ export function LocalModelManageModal({
 
       await run();
     },
-    [localModels, onSaved, refreshStatus, serverStatus, t],
+    [
+      getLocalModelDisplayName,
+      message,
+      onSaved,
+      refreshStatus,
+      serverStatus?.available,
+      serverStatus?.model_name,
+      t,
+    ],
   );
 
   const handleStopServer = useCallback(async () => {
@@ -789,11 +821,12 @@ export function LocalModelManageModal({
     } finally {
       setStoppingServer(false);
     }
-  }, [onSaved, refreshStatus, t]);
+  }, [message, onSaved, refreshStatus, t]);
 
   const handleDeleteModel = useCallback(
     (model: LocalModelInfo) => {
       Modal.confirm({
+        className: styles.modelConfirmModal,
         title: t("models.localDeleteModel"),
         content: t("models.localDeleteConfirm", { name: model.name }),
         okText: t("common.delete"),
@@ -829,7 +862,10 @@ export function LocalModelManageModal({
 
   const isModelDownloading = isDownloadActive(modelDownload);
   const isServerBusy =
-    stoppingServer || startingModelName !== null || deletingModelName !== null;
+    stoppingServer ||
+    startingModelName !== null ||
+    deletingModelName !== null ||
+    isDownloadActive(llamacppDownload);
   const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const runtimeLockedMessage =
@@ -853,12 +889,14 @@ export function LocalModelManageModal({
   // Removed isAdvancedDirty, now handled per-field
 
   return (
-    <Modal
-      title={t("models.localModelsTitle", { provider: provider.name })}
+    <SharedModal
+      surfaceId={`provider:${provider.id}`}
+      title={provider.name}
       open={open}
       onCancel={handleClose}
       footer={null}
       width={800}
+      className={styles.modelManageModal}
       destroyOnHidden
     >
       {(loadingLocal || loadingStatus || loadingLocalConfig) &&
@@ -895,14 +933,6 @@ export function LocalModelManageModal({
 
       {isRuntimeInstalled ? (
         <section className={styles.localSection}>
-          <div className={styles.localSectionHeader}>
-            <div>
-              <div className={styles.localSectionTitle}>
-                {t("models.localModelsSectionTitle")}
-              </div>
-            </div>
-          </div>
-
           {isRuntimeInstalled && isModelDownloading ? (
             <div className={styles.localSectionInfoRow}>
               <div className={styles.localSectionInfoContent}>
@@ -920,14 +950,14 @@ export function LocalModelManageModal({
                         percent={currentModelDownloadPercent ?? 0}
                         showInfo={false}
                         status="active"
-                        strokeColor="#ff7f16"
+                        strokeColor="var(--app-accent)"
                         strokeWidth={10}
                       />
                       <Tooltip title={t("models.localCancelDownloadAction")}>
                         <Button
                           danger
                           size="small"
-                          icon={<CloseOutlined />}
+                          icon={<CloseOutlined size="1em" />}
                           onClick={() =>
                             handleCancelModelDownload(currentModelDownloadName)
                           }
@@ -960,34 +990,85 @@ export function LocalModelManageModal({
             </div>
           ) : null}
 
+          <div className={styles.localSectionHeader}>
+            <span>{t("models.localSource")}</span>
+            <Segmented
+              aria-label={t("models.localSource")}
+              value={catalogSource}
+              options={[
+                {
+                  label: "Hugging Face",
+                  value: "huggingface",
+                  icon: (
+                    <img src={huggingFaceLogo} width={18} height={18} alt="" />
+                  ),
+                },
+                {
+                  label: "ModelScope",
+                  value: "modelscope",
+                  icon: (
+                    <img src={modelScopeLogo} width={18} height={18} alt="" />
+                  ),
+                },
+              ]}
+              onChange={(value) => {
+                const source = value as LocalDownloadSource;
+                setCatalogSource(source);
+                setCustomModelSource(source);
+              }}
+            />
+          </div>
+          <div className={styles.localModelGroups}>
+            {(["chat", "decision"] as const).map((group) => {
+              const title = t(
+                group === "decision"
+                  ? "models.localDecisionModelsTitle"
+                  : "models.localChatModelsTitle",
+              );
+              const models = localModels.filter(
+                (model) =>
+                  (model.source === catalogSource || model.source === "auto") &&
+                  (group === "decision"
+                    ? model.model_type === "decision"
+                    : model.model_type !== "decision"),
+              );
+              return (
+                <section key={group} aria-label={title}>
+                  <h3 className={styles.localModelGroupTitle}>{title}</h3>
+                  <div
+                    className={`${styles.modelList} ${styles.localModelGroupList}`}
+                    tabIndex={0}
+                    aria-label={title}
+                  >
+                    {models.length === 0 ? (
+                      <div className={styles.modelListEmpty}>
+                        {!loadingLocal && t("models.localNoRecommendedModels")}
+                      </div>
+                    ) : (
+                      models.map((model) => (
+                        <LocalModelRow
+                          key={model.id}
+                          model={model}
+                          currentRunningModelName={currentRunningModelName}
+                          isModelDownloading={isModelDownloading}
+                          isServerBusy={isServerBusy}
+                          startingModelName={startingModelName}
+                          stoppingServer={stoppingServer}
+                          deletingModelName={deletingModelName}
+                          onStartDownload={handleStartModelDownload}
+                          onStartServer={handleStartServer}
+                          onStopServer={handleStopServer}
+                          onDeleteModel={handleDeleteModel}
+                        />
+                      ))
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
           <div className={styles.modelList}>
-            {serverStatus?.installed && loadingLocal ? (
-              <div className={styles.modelListEmpty}>{t("common.loading")}</div>
-            ) : serverStatus?.installed && localModels.length === 0 ? (
-              <div className={styles.modelListEmpty}>
-                {t("models.localNoRecommendedModels")}
-              </div>
-            ) : null}
-
-            {serverStatus?.installed
-              ? localModels.map((model) => (
-                  <LocalModelRow
-                    key={model.id}
-                    model={model}
-                    currentRunningModelName={currentRunningModelName}
-                    isModelDownloading={isModelDownloading}
-                    isServerBusy={isServerBusy}
-                    startingModelName={startingModelName}
-                    stoppingServer={stoppingServer}
-                    deletingModelName={deletingModelName}
-                    onStartDownload={handleStartModelDownload}
-                    onStartServer={handleStartServer}
-                    onStopServer={handleStopServer}
-                    onDeleteModel={handleDeleteModel}
-                  />
-                ))
-              : null}
-
             {serverStatus?.installed ? (
               <div
                 className={`${styles.modelListItem} ${styles.customModelListItem}`}
@@ -1004,7 +1085,7 @@ export function LocalModelManageModal({
                   <Button
                     type="primary"
                     size="small"
-                    icon={<DownloadOutlined />}
+                    icon={<DownloadOutlined size="1em" />}
                     onClick={() => {
                       void handleStartCustomModelDownload();
                     }}
@@ -1058,6 +1139,7 @@ export function LocalModelManageModal({
               {t("models.localAdvancedConfigTitle")}
             </span>
             <DownOutlined
+              size="1em"
               className={
                 advancedOpen
                   ? styles.localAdvancedConfigChevronOpen
@@ -1079,7 +1161,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={maxContextLength === savedMaxContextLength}
                   onClick={() => {
@@ -1121,7 +1203,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={serverPort === savedServerPort}
                   onClick={() => {
@@ -1160,7 +1242,7 @@ export function LocalModelManageModal({
                 <Button
                   type="primary"
                   size="small"
-                  icon={<SaveOutlined />}
+                  icon={<SaveOutlined size="1em" />}
                   loading={advancedSaving}
                   disabled={
                     generateKwargsText === savedGenerateKwargsText ||
@@ -1196,6 +1278,6 @@ export function LocalModelManageModal({
           </div>
         ) : null}
       </section>
-    </Modal>
+    </SharedModal>
   );
 }

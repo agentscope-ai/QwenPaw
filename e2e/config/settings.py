@@ -43,7 +43,7 @@ class BrowserConfig:
 @dataclass
 class ServerConfig:
     """Server configuration"""
-    base_url: str = "http://localhost:8088"
+    base_url: str = "http://localhost:7077"
     api_base_url: str = ""  # Leave empty to use base_url + /api
 
     model_key: str = ""     # Key for Model connection tests
@@ -167,6 +167,54 @@ class Config:
     @property
     def api_url(self) -> str:
         return self.server.api_base_url
+
+    @property
+    def working_dir(self) -> Path:
+        """Backend working directory for seed data.
+
+        Page objects that write seed files (inbox events, plan session
+        state, etc.) MUST use this property so the path always matches
+        what the running backend reads.
+
+        Strict guarantees:
+        1. ``QWENPAW_WORKING_DIR`` MUST be set.
+        2. The resolved path MUST be outside the user's home directory.
+           Writing seed data into ``~/.qwenpaw`` (or anywhere under
+           ``$HOME``) would corrupt the developer's real QwenPaw data.
+
+        Set it via:
+        - ``e2e/scripts/start_test_server.sh`` (local; exports the var)
+        - ``.github/workflows/_e2e-job.yml`` (CI; writes to
+          ``$GITHUB_ENV``)
+        - or run ``QWENPAW_WORKING_DIR=/tmp/some/isolated/dir pytest``
+        """
+        explicit = os.getenv("QWENPAW_WORKING_DIR")
+        if not explicit:
+            raise RuntimeError(
+                "QWENPAW_WORKING_DIR is not set. Refusing to fall back "
+                "to ~/.qwenpaw because that would corrupt the user's "
+                "real QwenPaw data. Start the backend via "
+                "e2e/scripts/start_test_server.sh, or run "
+                "`QWENPAW_WORKING_DIR=/tmp/qwenpaw-e2e-test-work-dir/working "
+                "pytest ...` against an isolated backend on the same "
+                "directory."
+            )
+        resolved = Path(explicit).expanduser().resolve()
+        home = Path.home().resolve()
+        try:
+            resolved.relative_to(home)
+            in_home = True
+        except ValueError:
+            in_home = False
+        if in_home:
+            raise RuntimeError(
+                f"QWENPAW_WORKING_DIR={resolved} is inside the user "
+                f"home ({home}). Refusing to seed e2e fixtures into a "
+                "directory that may hold the developer's real QwenPaw "
+                "data. Point it at an isolated location such as "
+                "/tmp/qwenpaw-e2e-test-work-dir/working."
+            )
+        return resolved
 
 
 # Global configuration instance

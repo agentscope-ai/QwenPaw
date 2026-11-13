@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
@@ -12,7 +13,7 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from json_repair import repair_json
 
@@ -27,13 +28,15 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
+from ..utils.io_utils import read_json, write_json_atomic
+from ..utils.logging import sanitize_log_value
 from .config import (
     Config,
     HeartbeatConfig,
     LastApiConfig,
     LastDispatchConfig,
     load_agent_config,
-    save_agent_config,
+    migrate_channel_display_fields,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,12 +44,34 @@ logger = logging.getLogger(__name__)
 # Config cache with mtime tracking for reducing disk IO
 _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
-_config_lock = threading.Lock()
+_config_lock = threading.RLock()
 
-# Agent config cache: {agent_id: (config, mtime)}
-# Using Any for forward reference to AgentProfileConfig
-_agent_config_cache: dict[str, tuple[Any, float]] = {}
-_agent_config_lock = threading.Lock()
+# Agent config cache entries are defined in config.py to avoid importing the
+# large AgentProfileConfig model here during module initialization.
+_agent_config_cache: dict[str, Any] = {}
+_agent_config_lock = threading.RLock()
+_last_dispatch_lock = threading.Lock()
+_root_publication_revision = 0
+_agent_publication_revision = 0
+
+
+def config_publication_revision() -> tuple[int, int]:
+    """Snapshot supported config publications without filesystem I/O."""
+    return _root_publication_revision, _agent_publication_revision
+
+
+def _record_agent_config_publication() -> None:
+    """Called after publication while holding _agent_config_lock."""
+    global _agent_publication_revision
+    _agent_publication_revision += 1
+
+
+# Unknown root fields are normally discarded on save. These non-secret keys
+# remain only long enough for an optional plugin to adopt pre-plugin state.
+# Remove an entry after its documented compatibility window closes.
+LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION = frozenset(
+    {"powercontext_installation_id"},
+)
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -278,6 +303,31 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _exec_executable_token(exec_value: str) -> Optional[str]:
+    """Extract the real executable from a .desktop ``Exec=`` value.
+
+    Handles the common ``env VAR=val /path/to/browser %U`` form (seen with
+    IME setups, e.g. ``Exec=env GTK_IM_MODULE=ibus /usr/bin/google-chrome``)
+    by skipping a leading ``env`` wrapper and any ``VAR=VALUE`` assignments,
+    so the browser binary is returned instead of ``env``.
+    """
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+    idx = 0
+    if idx < len(tokens) and Path(tokens[idx]).name == "env":
+        idx += 1
+        # Skip VAR=VALUE assignments that follow the `env` wrapper.
+        while (
+            idx < len(tokens)
+            and "=" in tokens[idx]
+            and not tokens[idx].startswith("/")
+        ):
+            idx += 1
+    return tokens[idx] if idx < len(tokens) else None
+
+
 def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Linux default HTTP
     handler.
@@ -307,7 +357,11 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        exe = _exec_executable_token(
+                            line.split("=", 1)[1].strip(),
+                        )
+                        if not exe:
+                            break
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
@@ -364,12 +418,19 @@ def get_available_channels() -> Tuple[str, ...]:
     from ..app.channels.registry import get_channel_registry
 
     registry = get_channel_registry()
-    all_keys = tuple(registry.keys())
+    from ..plugins.registry import PluginRegistry
+
+    static_keys = [
+        key
+        for key, row in PluginRegistry().get_channel_catalog().items()
+        if row.runtime_settings is not None
+    ]
+    all_keys = tuple(dict.fromkeys([*registry, *static_keys]))
 
     raw_enabled = EnvVarLoader.get_str("QWENPAW_ENABLED_CHANNELS", "").strip()
     if raw_enabled:
         enabled = {ch.strip() for ch in raw_enabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k in enabled) or all_keys
+        return tuple(k for k in all_keys if k in enabled)
 
     raw_disabled = EnvVarLoader.get_str(
         "QWENPAW_DISABLED_CHANNELS",
@@ -377,7 +438,7 @@ def get_available_channels() -> Tuple[str, ...]:
     ).strip()
     if raw_disabled:
         disabled = {ch.strip() for ch in raw_disabled.split(",") if ch.strip()}
-        return tuple(k for k in all_keys if k not in disabled) or all_keys
+        return tuple(k for k in all_keys if k not in disabled)
 
     return all_keys
 
@@ -499,57 +560,19 @@ def _read_config_data(config_path: Path) -> Optional[dict]:
     return data
 
 
-def _rewrite_legacy_weixin_key_on_disk(config_path: Path) -> None:
-    """One-shot migration: rewrite ``channels.weixin`` -> ``channels.wechat``.
-
-    Re-reads the raw file to detect whether the legacy key is still
-    present on disk (in-memory data may already have been normalized by
-    the model validator). When detected, backs up the original file and
-    writes the migrated content back so subsequent loads see the
-    canonical key directly.
-    """
-    try:
-        with open(config_path, "r", encoding="utf-8") as file:
-            raw = file.read()
-        raw_data = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
-        return
-    if not isinstance(raw_data, dict):
-        return
-    channels = raw_data.get("channels")
-    if not isinstance(channels, dict) or "weixin" not in channels:
-        return
-
-    legacy = channels.pop("weixin")
-    if "wechat" not in channels:
-        channels["wechat"] = legacy
-
-    try:
-        backup_path = config_path.with_suffix(
-            f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
-        )
-        shutil.copy2(config_path, backup_path)
-        with open(config_path, "w", encoding="utf-8") as file:
-            json.dump(raw_data, file, indent=2, ensure_ascii=False)
-        logger.warning(
-            "Migrated legacy 'channels.weixin' -> 'channels.wechat' in %s "
-            "(backup: %s)",
-            config_path,
-            backup_path,
-        )
-    except OSError as exc:
-        logger.error(
-            "Failed to migrate legacy 'weixin' key in %s: %s",
-            config_path,
-            exc,
-        )
-
-
 def _load_and_validate_config(
     config_path: Path,
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
+    channels = data.get("channels")
+    migrated_weixin = False
+    if isinstance(channels, dict) and "weixin" in channels:
+        legacy = channels.pop("weixin")
+        channels.setdefault("wechat", legacy)
+        migrated_weixin = True
+    migrated_display = migrate_channel_display_fields(channels)
+    migrated_data = data
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -579,7 +602,26 @@ def _load_and_validate_config(
             )
             return Config()
 
-    _rewrite_legacy_weixin_key_on_disk(config_path)
+    if migrated_weixin or migrated_display:
+        try:
+            migration_name = (
+                "channel-display" if migrated_display else "weixin"
+            )
+            backup_path = config_path.with_suffix(
+                f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
+            )
+            shutil.copy2(config_path, backup_path)
+            write_json_atomic(config_path, migrated_data)
+            logger.warning(
+                "Migrated legacy channel configuration in %s (backup: %s)",
+                config_path,
+                backup_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist channel configuration migration: %s",
+                config_path,
+            )
     return config
 
 
@@ -594,23 +636,22 @@ def load_config(config_path: Optional[Path] = None) -> Config:
     if config_path is None:
         config_path = get_config_path()
 
-    if not config_path.is_file():
-        return Config()
-
-    # Check mtime to see if we can use cached config
-    try:
-        current_mtime = config_path.stat().st_mtime
-    except OSError:
-        return Config()
-
     with _config_lock:
+        if not config_path.is_file():
+            return Config()
+
+        try:
+            current_mtime = config_path.stat().st_mtime
+        except OSError:
+            return Config()
+
         # Return cached config if mtime hasn't changed
         if (
             _config_cache is not None
             and _config_mtime is not None
             and _config_mtime == current_mtime
         ):
-            return _config_cache
+            return _config_cache.model_copy(deep=True)
 
         # Need to reload config from disk
         data = _read_config_data(config_path)
@@ -619,9 +660,12 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         else:
             config = _load_and_validate_config(config_path, data)
 
-        _config_cache = config
-        _config_mtime = current_mtime
-        return config
+        _config_cache = config.model_copy(deep=True)
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = current_mtime
+        return config.model_copy(deep=True)
 
 
 def strict_validate_config_file(
@@ -665,24 +709,50 @@ def strict_validate_config_file(
 
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
-    """Save the config to the file and invalidate cache."""
-    global _config_cache, _config_mtime
+    """Atomically save a detached config and publish it to the cache."""
+    global _config_cache, _config_mtime, _root_publication_revision
 
     if config_path is None:
         config_path = get_config_path()
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(
-            config.model_dump(mode="json", by_alias=True),
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
-
-    # Invalidate cache after saving
+    candidate = config.model_copy(deep=True)
     with _config_lock:
-        _config_cache = None
-        _config_mtime = None
+        payload = candidate.model_dump(mode="json", by_alias=True)
+        if candidate.theme is None:
+            payload.pop("theme", None)
+        else:
+            payload["theme"] = candidate.theme.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        if config_path.is_file():
+            existing = _read_config_data(config_path) or {}
+            for legacy_key in LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION:
+                if legacy_key in existing:
+                    payload[legacy_key] = existing[legacy_key]
+        write_json_atomic(
+            config_path,
+            payload,
+        )
+        _root_publication_revision += 1
+        _config_cache = candidate.model_copy(deep=True)
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = None
+
+
+def mutate_config(
+    mutator: Callable[[Config], None],
+    config_path: Optional[Path] = None,
+) -> Config:
+    """Apply one root-config mutation as an atomic transaction."""
+    if config_path is None:
+        config_path = get_config_path()
+    with _config_lock:
+        candidate = load_config(config_path)
+        mutator(candidate)
+        save_config(candidate, config_path)
+        return candidate.model_copy(deep=True)
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
@@ -711,28 +781,6 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     return hb if hb is not None else HeartbeatConfig()
 
 
-def get_dream_cron(agent_id: Optional[str] = None) -> str:
-    """Return dream-based memory optimization job cron expression for
-    the agent.
-
-    Args:
-        agent_id: Agent ID to load config from. If None, tries to load from
-                  root config.agents.defaults (legacy behavior).
-
-    Returns:
-        str: Cron expression for dream-based memory optimization job, or empty
-             string if disabled.
-    """
-    if agent_id is not None:
-        try:
-            agent_config = load_agent_config(agent_id)
-            return agent_config.running.reme_light_memory_config.dream_cron
-        except Exception:
-            return ""
-    # Legacy: return empty string if no agent_id provided
-    return ""
-
-
 def update_last_dispatch(
     channel: str,
     user_id: str,
@@ -749,16 +797,22 @@ def update_last_dispatch(
     """
     if agent_id is not None:
         try:
-            agent_config = load_agent_config(agent_id)
-            agent_config.last_dispatch = LastDispatchConfig(
+            config = load_config()
+            agent_ref = config.agents.profiles[agent_id]
+            workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+            dispatch = LastDispatchConfig(
                 channel=channel,
                 user_id=user_id,
                 session_id=session_id,
             )
-            save_agent_config(agent_id, agent_config)
+            _write_last_dispatch_state(workspace_dir, dispatch)
             return
         except Exception:
-            pass
+            logger.exception(
+                f"Failed to update last dispatch state for agent "
+                f"{agent_id}",
+            )
+            return
 
     # Legacy: update root config
     config = load_config()
@@ -768,6 +822,67 @@ def update_last_dispatch(
         session_id=session_id,
     )
     save_config(config)
+
+
+def _last_dispatch_state_path(workspace_dir: Path) -> Path:
+    """Return the runtime dispatch state path for one agent workspace."""
+    return workspace_dir / "state" / "last_dispatch.json"
+
+
+def _write_last_dispatch_state(
+    workspace_dir: Path,
+    dispatch: LastDispatchConfig,
+) -> None:
+    """Atomically persist one agent's latest dispatch target."""
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def _migrate_last_dispatch_state(
+    workspace_dir: Path,
+    legacy_dispatch: object,
+) -> None:
+    """Publish legacy dispatch state without replacing valid new state."""
+    if legacy_dispatch is None:
+        return
+
+    dispatch = LastDispatchConfig.model_validate(legacy_dispatch)
+    state_path = _last_dispatch_state_path(workspace_dir)
+    with _last_dispatch_lock:
+        if state_path.exists():
+            try:
+                LastDispatchConfig.model_validate(read_json(state_path))
+                return
+            except Exception:
+                logger.warning(
+                    f"Replacing invalid last dispatch state at {state_path}",
+                )
+        write_json_atomic(
+            state_path,
+            dispatch.model_dump(exclude_none=True),
+        )
+
+
+def read_last_dispatch(agent_id: str) -> Optional[LastDispatchConfig]:
+    """Read one agent's dedicated last-dispatch runtime state."""
+    try:
+        config = load_config()
+        agent_ref = config.agents.profiles[agent_id]
+        workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+        state_path = _last_dispatch_state_path(workspace_dir)
+        with _last_dispatch_lock:
+            if not state_path.exists():
+                return None
+            return LastDispatchConfig.model_validate(read_json(state_path))
+    except Exception:
+        logger.exception(
+            f"Failed to read last dispatch state for agent {agent_id}",
+        )
+        return None
 
 
 # In-process cache for the current server's API address.
@@ -852,7 +967,7 @@ def get_agent_dirs() -> list[Path]:
     agent_dirs = []
     if config.agents and config.agents.profiles:
         for profile in config.agents.profiles.values():
-            workspace_dir = Path(profile.workspace_dir)
+            workspace_dir = Path(profile.workspace_dir).expanduser()
             if (
                 workspace_dir.exists()
                 and (workspace_dir / "agent.json").exists()
@@ -890,3 +1005,42 @@ def is_qwenpaw_running() -> bool:
 
     except Exception:
         return False
+
+
+def sanitize_mcp_clients(
+    data: dict,
+    agent_id: str,
+) -> None:
+    """Drop invalid MCP client entries in-place.
+
+    Iterates over ``data["mcp"]["clients"]`` and removes
+    entries that fail ``MCPClientConfig`` validation so that
+    one broken MCP client does not prevent the whole agent
+    from loading.
+    """
+    from .config import MCPClientConfig
+
+    mcp = data.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    clients = mcp.get("clients")
+    if not isinstance(clients, dict):
+        return
+    bad_keys: list[str] = []
+    for key, val in clients.items():
+        if not isinstance(val, dict):
+            bad_keys.append(key)
+            continue
+        try:
+            MCPClientConfig.model_validate(
+                {**val, "name": key},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"Agent '{sanitize_log_value(agent_id)}': skipping invalid "
+                f"MCP client '{sanitize_log_value(key)}': "
+                f"{sanitize_log_value(exc)}",
+            )
+            bad_keys.append(key)
+    for key in bad_keys:
+        del clients[key]

@@ -14,6 +14,25 @@ export function pickLocalizedField(
   return en || zh;
 }
 
+export function normalizeDesktopDownloadMetadata(
+  file: FileMetadata,
+): FileMetadata {
+  const replaceDesktopClient = (value: string) =>
+    value.split("桌面客户端").join("桌面版");
+
+  return {
+    ...file,
+    name: {
+      ...file.name,
+      "zh-CN": replaceDesktopClient(file.name["zh-CN"]),
+    },
+    description: {
+      ...file.description,
+      "zh-CN": replaceDesktopClient(file.description["zh-CN"]),
+    },
+  };
+}
+
 export function isPreviewVersion(version: string): boolean {
   return /[ab]\d*$/i.test(version) || /preview/i.test(version);
 }
@@ -106,6 +125,21 @@ export function detectOS(): string | null {
   if (userAgent.includes("mac")) return "mac";
   if (userAgent.includes("linux")) return "linux";
   return null;
+}
+
+export function isRecommendedDesktopPlatform(
+  platform: string,
+  userOS: string | null,
+  availablePlatforms: string[],
+): boolean {
+  if (!userOS) return false;
+
+  const tauriPlatform = `${userOS}-tauri`;
+  if (availablePlatforms.includes(tauriPlatform)) {
+    return platform === tauriPlatform;
+  }
+
+  return platform === userOS;
 }
 
 export function formatPlatformKindLabel(kind: string): string {

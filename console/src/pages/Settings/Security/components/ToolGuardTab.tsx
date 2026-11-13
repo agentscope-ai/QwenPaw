@@ -1,5 +1,14 @@
-import { Form, Switch, Button, Card, Select } from "@agentscope-ai/design";
-import { PlusCircleOutlined } from "@ant-design/icons";
+import InlineHelp from "@/components/InlineHelp";
+import { SettingsField } from "@/components/interaction/SettingsField";
+import {
+  Form,
+  Switch,
+  Button,
+  Card,
+  Select,
+  Alert,
+} from "@agentscope-ai/design";
+import { CirclePlus as PlusCircleOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
 import type { ToolGuardConfig } from "../../../../api/modules/security";
@@ -8,10 +17,14 @@ import { RuleTable, ShellEvasionSection } from "./index";
 import styles from "../index.module.less";
 
 interface ToolGuardTabProps {
+  onValuesChange?: () => void;
   form: FormInstance;
   config: ToolGuardConfig | null;
   enabled: boolean;
   setEnabled: (val: boolean) => void;
+  sandboxEnabled: boolean;
+  setSandboxEnabled: (val: boolean) => void;
+  sandboxReason: string | null;
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
   toggleRule: (ruleId: string, currentlyDisabled: boolean) => void;
@@ -26,9 +39,13 @@ interface ToolGuardTabProps {
 
 export function ToolGuardTab({
   form,
+  onValuesChange,
   config,
   enabled,
   setEnabled,
+  sandboxEnabled,
+  setSandboxEnabled,
+  sandboxReason,
   toolOptions,
   mergedRules,
   toggleRule,
@@ -45,12 +62,9 @@ export function ToolGuardTab({
   return (
     <div className={styles.tabContent}>
       <div className={styles.sectionConfigureContainer}>
-        <p className={styles.tabDescription}>
-          {t("security.toolGuardDescription")}
-        </p>
-
         <Card className={styles.formCard}>
           <Form
+            onValuesChange={onValuesChange}
             form={form}
             layout="vertical"
             className={styles.form}
@@ -60,16 +74,44 @@ export function ToolGuardTab({
               denied_tools: config?.denied_tools ?? [],
             }}
           >
-            <Form.Item
+            <SettingsField
               label={t("security.enabled")}
               name="enabled"
               valuePropName="checked"
               tooltip={t("security.enabledTooltip")}
             >
               <Switch onChange={(val) => setEnabled(val)} />
-            </Form.Item>
+            </SettingsField>
+            <SettingsField
+              label={t("security.sandboxEnabled")}
+              valuePropName="checked"
+              tooltip={t("security.sandboxEnabledTooltip")}
+            >
+              <Switch
+                checked={sandboxEnabled}
+                onChange={(val) => setSandboxEnabled(val)}
+              />
+            </SettingsField>
+            {sandboxEnabled && sandboxReason === null && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t("security.sandboxElevatedWarning")}
+                description={t("security.sandboxElevatedDescription")}
+              />
+            )}
+            {sandboxEnabled && sandboxReason === "unelevated" && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t("security.sandboxUnelevatedWarning")}
+                description={t("security.sandboxUnelevatedDescription")}
+              />
+            )}
             <div className={styles.toolGuardRow}>
-              <Form.Item
+              <SettingsField
                 label={t("security.guardedTools")}
                 name="guarded_tools"
                 tooltip={t("security.guardedToolsTooltip")}
@@ -83,9 +125,9 @@ export function ToolGuardTab({
                   allowClear
                   style={{ width: "100%" }}
                 />
-              </Form.Item>
+              </SettingsField>
 
-              <Form.Item
+              <SettingsField
                 label={t("security.deniedTools")}
                 name="denied_tools"
                 tooltip={t("security.deniedToolsTooltip")}
@@ -99,7 +141,7 @@ export function ToolGuardTab({
                   allowClear
                   style={{ width: "100%" }}
                 />
-              </Form.Item>
+              </SettingsField>
             </div>
           </Form>
         </Card>
@@ -111,6 +153,7 @@ export function ToolGuardTab({
           <Button
             type="primary"
             icon={<PlusCircleOutlined />}
+            iconSize={16}
             onClick={openAddRule}
             disabled={!enabled}
             size="middle"
@@ -119,7 +162,7 @@ export function ToolGuardTab({
           </Button>
         </div>
 
-        <Card className={styles.tableCard}>
+        <div>
           <RuleTable
             rules={mergedRules}
             enabled={enabled}
@@ -129,19 +172,19 @@ export function ToolGuardTab({
             onEditRule={onEditRule}
             onDeleteRule={onDeleteRule}
           />
-        </Card>
+        </div>
       </div>
 
       <div className={styles.sectionContainer}>
         <div className={styles.sectionHeader}>
           <h2 className={styles.sectionTitle}>
             {t("security.shellEvasion.title")}
+            <InlineHelp subject={t("security.shellEvasion.title")}>
+              {t("security.shellEvasion.description")}
+            </InlineHelp>
           </h2>
         </div>
         <div className={styles.sectionConfigureContainer}>
-          <p className={styles.tabDescription}>
-            {t("security.shellEvasion.description")}
-          </p>
           <ShellEvasionSection
             checks={shellEvasionChecks}
             onToggle={toggleShellEvasionCheck}

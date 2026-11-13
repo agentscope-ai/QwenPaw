@@ -3,16 +3,248 @@
 
 from typing import Any, Dict, Optional
 
-from agentscope_runtime.engine.schemas.exception import (
-    AgentRuntimeErrorException,
-    ModelExecutionException,
-    ModelTimeoutException,
-    UnauthorizedModelAccessException,
-    ModelQuotaExceededException,
-    ModelContextLengthExceededException,
-    UnknownAgentException,
-    ExternalServiceException,
-)
+
+# ==================== Base Exceptions ====================
+
+
+class AppBaseException(Exception):
+    """Top-level base for QwenPaw application exceptions.
+
+    Accepts ``error_code`` / ``detail`` / arbitrary kwargs so that
+    handlers can build structured HTTP error responses.
+    """
+
+    def __init__(
+        self,
+        message: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.message = message
+        self.error_code = kwargs.pop("error_code", None)
+        self.detail = kwargs.pop("detail", None)
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+        super().__init__(message or "")
+
+
+class ConfigurationException(AppBaseException):
+    """Invalid or missing configuration."""
+
+    def __init__(
+        self,
+        message: str | None = None,
+        *,
+        config_key: str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.config_key = config_key
+        super().__init__(message=message, **kwargs)
+
+
+class AgentConfigConflictError(ConfigurationException):
+    """An agent configuration changed after it was loaded."""
+
+    ERROR_CODE = "AGENT_CONFIG_STALE"
+
+    def __init__(self, agent_id: str) -> None:
+        self.agent_id = agent_id
+        super().__init__(
+            config_key="agent",
+            message=(
+                f"Agent '{agent_id}' changed on disk; reload it and retry"
+            ),
+            error_code=self.ERROR_CODE,
+        )
+
+
+class AgentRuntimeErrorException(AppBaseException):
+    """Base for runtime/model errors carrying ``error_code`` + ``details``."""
+
+    def __init__(
+        self,
+        error_code: str | None = None,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.details = details or {}
+        super().__init__(message=message, error_code=error_code, **kwargs)
+
+
+class ModelExecutionException(AgentRuntimeErrorException):
+    """Generic model execution failure (e.g. provider returned 5xx)."""
+
+    def __init__(
+        self,
+        model: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model = model
+        super().__init__(
+            error_code="MODEL_EXECUTION_ERROR",
+            message=f"Model '{model}' execution failed",
+            details=details,
+            **kwargs,
+        )
+
+
+class ModelTimeoutException(AgentRuntimeErrorException):
+    """LLM request exceeded the configured timeout."""
+
+    def __init__(
+        self,
+        model: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model = model
+        super().__init__(
+            error_code="MODEL_TIMEOUT",
+            message=f"Model '{model}' timed out",
+            details=details,
+            **kwargs,
+        )
+
+
+class UnauthorizedModelAccessException(AgentRuntimeErrorException):
+    """401/403 from the LLM provider."""
+
+    def __init__(
+        self,
+        model: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model = model
+        super().__init__(
+            error_code="UNAUTHORIZED_MODEL_ACCESS",
+            message=f"Unauthorized access to model '{model}'",
+            details=details,
+            **kwargs,
+        )
+
+
+class ModelQuotaExceededException(AgentRuntimeErrorException):
+    """429/quota exceeded from the LLM provider."""
+
+    def __init__(
+        self,
+        model: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model = model
+        super().__init__(
+            error_code="MODEL_QUOTA_EXCEEDED",
+            message=f"Quota exceeded for model '{model}'",
+            details=details,
+            **kwargs,
+        )
+
+
+class ModelContextLengthExceededException(AgentRuntimeErrorException):
+    """Prompt exceeded the model's context window."""
+
+    def __init__(
+        self,
+        model: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model = model
+        super().__init__(
+            error_code="MODEL_CONTEXT_LENGTH_EXCEEDED",
+            message=f"Context length exceeded for model '{model}'",
+            details=details,
+            **kwargs,
+        )
+
+
+class UnknownAgentException(AgentRuntimeErrorException):
+    """Catch-all when an upstream error cannot be classified."""
+
+    def __init__(
+        self,
+        original_exception: Exception | None = None,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.original_exception = original_exception
+        msg = (
+            str(original_exception)
+            if original_exception is not None
+            else "Unknown agent error"
+        )
+        super().__init__(
+            error_code="UNKNOWN_AGENT_ERROR",
+            message=msg,
+            details=details,
+            **kwargs,
+        )
+
+
+class ExternalServiceException(AgentRuntimeErrorException):
+    """Error talking to an external dependency (e.g. a channel)."""
+
+    def __init__(
+        self,
+        service_name: str | None = None,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.service_name = service_name
+        super().__init__(
+            error_code="EXTERNAL_SERVICE_ERROR",
+            message=message or f"External service '{service_name}' error",
+            details=details,
+            **kwargs,
+        )
+
+
+class ModelNotFoundException(AgentRuntimeErrorException):
+    """Provider does not host the requested model."""
+
+    def __init__(
+        self,
+        model_name: str,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self.model_name = model_name
+        super().__init__(
+            error_code="MODEL_NOT_FOUND",
+            message=f"Model '{model_name}' not found",
+            details=details,
+            **kwargs,
+        )
+
+
+class RateLimitExceededException(AgentRuntimeErrorException):
+    """Local rate limiter (semaphore/token bucket) timed out.
+
+    Distinct from :class:`ModelQuotaExceededException`, which represents a
+    429 from the provider.
+    """
+
+    def __init__(
+        self,
+        message: str | None = None,
+        details: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            error_code="RATE_LIMIT_EXCEEDED",
+            message=message or "Rate limit exceeded",
+            details=details,
+            **kwargs,
+        )
+
+
+class AgentException(AppBaseException):
+    """Catch-all for control-flow errors raised by the runner
+    (task cancellation, etc.)."""
 
 
 # ==================== QwenPaw Business Exceptions ====================
@@ -101,6 +333,261 @@ class SkillsError(AgentRuntimeErrorException):
         super().__init__("SKILLS_ERROR", message, details)
 
 
+class HookCycleError(AgentRuntimeErrorException):
+    """Raised when ``before``/``after`` constraints contain a cycle."""
+
+    def __init__(
+        self,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__("HOOK_CYCLE_ERROR", message, details)
+
+
+class SkillConflictError(SkillsError):
+    """Raised when an import or save operation hits a renameable conflict."""
+
+    def __init__(self, detail: Dict[str, Any]) -> None:
+        super().__init__(
+            message=str(detail.get("message") or "Skill conflict"),
+            details=detail,
+        )
+        self.detail = detail
+
+
+class SkillImportCancelled(SkillsError):
+    """Raised when a skill import task is cancelled by user."""
+
+    def __init__(
+        self,
+        message: str = "Skill import cancelled by user",
+    ) -> None:
+        super().__init__(message=message)
+
+
+class SkillScanError(SkillsError):
+    """Raised when a skill fails a security scan and blocking is enabled."""
+
+    def __init__(self, result: Any) -> None:
+        self.result = result
+        findings = getattr(result, "findings", [])
+        skill_name = getattr(result, "skill_name", "unknown")
+        max_severity = getattr(result, "max_severity", None)
+        max_sev_str = (
+            getattr(max_severity, "value", "UNKNOWN")
+            if max_severity
+            else "UNKNOWN"
+        )
+
+        def _loc(f: Any) -> str:
+            ln = getattr(f, "line_number", None)
+            fp = getattr(f, "file_path", "")
+            return f"({fp}:{ln})" if ln is not None else f"({fp})"
+
+        findings_summary = "; ".join(
+            f"[{f.severity.value}] {f.title} {_loc(f)}" for f in findings[:5]
+        )
+        truncated = (
+            f" (and {len(findings) - 5} more)" if len(findings) > 5 else ""
+        )
+        msg = (
+            f"Security scan of skill '{skill_name}' found "
+            f"{len(findings)} issue(s) "
+            f"(max severity: {max_sev_str}): "
+            f"{findings_summary}{truncated}"
+        )
+        super().__init__(message=msg)
+
+
+# ==================== Command Execution Exceptions ====================
+
+
+class CommandExecutionError(AgentRuntimeErrorException):
+    """Raised when a shell command exits with a non-zero return code."""
+
+    def __init__(
+        self,
+        command: "Any",
+        message: str,
+        *,
+        returncode: Optional[int] = None,
+        stdout: str = "",
+        stderr: str = "",
+    ) -> None:
+        self.command = (
+            list(command) if not isinstance(command, list) else command
+        )
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        super().__init__(
+            "COMMAND_EXECUTION_ERROR",
+            message,
+            details={
+                "command": self.command,
+                "returncode": returncode,
+                "stdout": stdout[:500] if stdout else "",
+                "stderr": stderr[:500] if stderr else "",
+            },
+        )
+
+
+class ProcessLaunchError(AgentRuntimeErrorException):
+    """Raised when a subprocess cannot be started."""
+
+    def __init__(
+        self,
+        command: "Any",
+        message: str,
+    ) -> None:
+        self.command = (
+            list(command) if not isinstance(command, list) else command
+        )
+        super().__init__(
+            "PROCESS_LAUNCH_ERROR",
+            message,
+            details={"command": self.command},
+        )
+
+
+# ==================== Sandbox / Security Exceptions ====================
+
+
+class SandboxViolationError(AppBaseException):
+    """Raised when a tool call violates sandbox boundaries."""
+
+    def __init__(self, message: str = "Sandbox violation") -> None:
+        super().__init__(message=message, error_code="SANDBOX_VIOLATION")
+
+
+# ==================== Channel Exceptions ====================
+
+
+class QQApiError(ChannelError):
+    """HTTP error returned by QQ Bot API."""
+
+    def __init__(self, path: str, status: int, data: Any) -> None:
+        self.path = path
+        self.status = status
+        self.data = data
+        super().__init__(
+            channel_name="qq",
+            message=f"QQ API error: {path} returned {status}",
+            details={"path": path, "status": status, "data": data},
+        )
+
+
+# ==================== ACP Exceptions ====================
+
+
+class ACPError(ExternalServiceException):
+    """Base for Agent Communication Protocol errors."""
+
+    def __init__(self, message: str, *, agent: Optional[str] = None) -> None:
+        self.agent = agent
+        super().__init__(
+            service_name="acp",
+            message=message,
+            details={"agent": agent} if agent else None,
+        )
+
+
+class ACPConfigurationError(ACPError):
+    """ACP configuration is missing or invalid."""
+
+
+class ACPTransportError(ACPError):
+    """ACP transport-level failure (network, connection)."""
+
+
+class ACPProtocolError(ACPError):
+    """ACP protocol violation (malformed message, unexpected state)."""
+
+
+class ACPSessionError(ACPError):
+    """ACP session error (not found, expired, invalid state)."""
+
+
+# ==================== Backup Exceptions ====================
+
+
+class BackupConflictError(AppBaseException):
+    """Raised when an imported backup's ID already exists on disk."""
+
+    def __init__(self, existing_meta: Any) -> None:
+        self.existing_meta = existing_meta
+        meta_id = getattr(existing_meta, "id", "unknown")
+        super().__init__(
+            message=f"backup_conflict: {meta_id}",
+            error_code="BACKUP_CONFLICT",
+        )
+
+
+class BackupValidationError(AppBaseException):
+    """Raised for user-actionable backup validation failures."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        details: Optional[Dict[str, object]] = None,
+    ) -> None:
+        self.code = code
+        self.details = details
+        super().__init__(
+            message=message,
+            error_code=f"BACKUP_VALIDATION_{code}",
+        )
+
+
+# ==================== Misc Runtime Exceptions ====================
+
+
+class PrdValidationError(AppBaseException):
+    """Raised when prd.json does not conform to the expected schema."""
+
+    def __init__(self, message: str = "PRD validation failed") -> None:
+        super().__init__(message=message, error_code="PRD_VALIDATION_ERROR")
+
+
+class RestartInProgressError(AgentStateError):
+    """Raised when /daemon restart is invoked while another restart runs."""
+
+    def __init__(self, message: str = "Restart already in progress") -> None:
+        super().__init__(
+            session_id="",
+            message=message,
+        )
+
+
+class DirectUrlDownloadRejectedError(AgentRuntimeErrorException):
+    """Raised when direct URL download cannot be proven small enough."""
+
+    def __init__(
+        self,
+        reason: str,
+        content_length: Optional[int] = None,
+        status: Optional[int] = None,
+    ) -> None:
+        self.content_length = content_length
+        self.status = status
+        super().__init__(
+            "DIRECT_URL_DOWNLOAD_REJECTED",
+            reason,
+            details={
+                "content_length": content_length,
+                "status": status,
+            },
+        )
+
+
+class LspError(AgentRuntimeErrorException):
+    """Raised when the LSP server returns a JSON-RPC error or dies."""
+
+    def __init__(self, message: str = "LSP error") -> None:
+        super().__init__("LSP_ERROR", message)
+
+
 # ==================== LLM API Exception Converter ====================
 
 _ERROR_SUMMARY_MAX_LEN = 200
@@ -136,6 +623,11 @@ def _append_error_detail(
     summary = _extract_error_summary(exc)
     if summary:
         converted.message = f"{converted.message}. Reason: {summary}"
+    from .utils.image_resize import image_pixel_limit_hint
+
+    image_hint = image_pixel_limit_hint(exc)
+    if image_hint:
+        converted.message = f"{converted.message}. {image_hint}"
     return converted
 
 
@@ -184,6 +676,7 @@ def _is_model_related_error(exc: Exception) -> bool:
         "rate limit",
         "quota",
         "context length",
+        f"context_length",
         "authentication",
         "unauthorized",
         "forbidden",
@@ -201,7 +694,7 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     exc: Exception,
     model_name: Optional[str] = None,
 ) -> AgentRuntimeErrorException:
-    """Convert exceptions to agentscope_runtime exceptions.
+    """Wrap a model SDK exception in :class:`AgentRuntimeErrorException`.
 
     Args:
         exc: Original exception
@@ -303,7 +796,6 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
         return _append_error_detail(
             ModelTimeoutException(
                 model,
-                timeout=60,
                 details=details,
             ),
             exc,
@@ -312,7 +804,9 @@ def convert_model_exception(  # pylint: disable=too-many-return-statements
     if any(
         kw in error_message
         for kw in [
-            "context",
+            f"context length",
+            f"context_length",
+            f"context limit",
             "maximum context",
             "context window",
             "too many tokens",

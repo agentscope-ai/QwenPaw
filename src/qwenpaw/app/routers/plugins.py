@@ -3,79 +3,332 @@
 """Plugin API routes: list plugins with UI metadata and serve plugin
 static files.  Also provides runtime install / uninstall endpoints."""
 
-import inspect
+import asyncio
+import http.client
 import json
 import logging
 import mimetypes
-import shutil
+import re
+import ssl
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from types import SimpleNamespace
+from typing import Any, Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from ..utils import schedule_agent_reload
+from ...plugins.dependency_upgrade import (
+    DependencyUpgradeRequired,
+    dependency_upgrades,
+)
+from ...plugins.dependency_gate import SharedDependencyError
+from ...market.registry import MarketProviderBusyError
+from ...installation_origin import read_plugin_origin
+from ...utils.io_utils import run_sync_io
+from ...plugins.activity import PluginBusyError
+from ...plugins.registry import MemoryBackendInUseError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
+
+def dependency_http_error(exc):
+    """Keep upgrade decisions machine-readable for every install client."""
+    if isinstance(exc, DependencyUpgradeRequired):
+        return HTTPException(
+            status_code=409,
+            detail={
+                "code": "DEPENDENCY_UPGRADE_REQUIRED",
+                "message": str(exc),
+                "operation": exc.operation,
+            },
+        )
+    code = exc.reason_code or "DEPENDENCY_PLAN_UNVERIFIED"
+    instructions = {
+        "DEPENDENCY_UNSATISFIED": "Resolve the missing dependency requirements, then retry installation.",
+        "DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED": (
+            "The dependency environment changed; verify the active "
+            "environment, then retry installation."
+        ),
+        "DEPENDENCY_REPAIR_REQUIRED": "Complete the pending dependency repair before retrying installation.",
+        "DEPENDENCY_RESTART_REQUIRED": (
+            "Restart the backend to release the affected dependencies, "
+            "then retry installation."
+        ),
+    }
+    logger.info("Plugin dependency refusal: code=%s", _log_safe(code))
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": code,
+            "message": str(exc),
+            "instructions": [
+                instructions.get(
+                    code,
+                    "Review the dependency preparation error before retrying installation.",
+                ),
+            ],
+        },
+    )
+
+
+def _upgrade_manager(request):
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    return dependency_upgrades(loader)
+
+
+@router.get("/dependency-upgrades/{operation_id}")
+async def dependency_upgrade_status(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).status,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/dependency-upgrades/{operation_id}/apply")
+async def apply_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await _upgrade_manager(request).apply(operation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (SharedDependencyError, DependencyUpgradeRequired) as exc:
+        raise dependency_http_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "DEPENDENCY_UPGRADE_BLOCKED", "message": str(exc)},
+        ) from exc
+
+
+@router.delete("/dependency-upgrades/{operation_id}")
+async def cancel_dependency_upgrade(operation_id: str, request: Request):
+    try:
+        return await asyncio.to_thread(
+            _upgrade_manager(request).cancel,
+            operation_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+def _interrupt_options(interrupt_tasks: bool) -> dict[str, Any]:
+    """Keep existing callers unchanged unless interruption is explicit."""
+    return {"interrupt_tasks": True} if interrupt_tasks else {}
+
+
+def _log_safe(value: object) -> str:
+    """Strip CR/LF so request-derived values cannot forge log entries."""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
+# Marker file dropped into a plugin's install directory when it was
+# installed from the AgentScope plugin market.  Remembers the scoped
+# market id (e.g. ``@owner/name``) so update checks can match the
+# installed plugin back to its market entry exactly instead of
+# re-deriving identity from the free-form ``author`` field, which
+# frequently differs from the market owner login (#8176).
+_MARKET_MARKER_FILE = ".qwenpaw-market.json"
+
+# ``{market}/plugins/{owner}/{name}/archive/zip/{ref}`` download URLs
+# (the shape both ``buildMarketDownloadUrl`` and the update flow use).
+_MARKET_ARCHIVE_URL_RE = re.compile(
+    r"^/plugins/(?P<owner>[^/\s]+)/(?P<name>[^/\s]+)/archive/zip/[^/\s]+$",
+)
+
+
+def _market_id_from_source(source: str) -> Optional[str]:
+    """Return the scoped market id for an official-market archive URL.
+
+    Any other source (local path, third-party host, non-archive market
+    path) returns ``None`` so provenance is only recorded when the
+    plugin verifiably came from the official market.
+    """
+    value = str(source or "").strip()
+    if not value.startswith(("http://", "https://")):
+        return None
+    parsed = urlsplit(value)
+    market_host = urlsplit(_PLUGIN_MARKET_BASE_URL).hostname or ""
+    if not market_host or (parsed.hostname or "") != market_host:
+        return None
+    match = _MARKET_ARCHIVE_URL_RE.match(parsed.path)
+    if match is None:
+        return None
+    return f"@{match.group('owner')}/{match.group('name')}"
+
+
+def _read_market_id(plugin_dir: Path) -> Optional[str]:
+    """Read the recorded market id from a plugin's install directory."""
+    try:
+        payload = json.loads(
+            (plugin_dir / _MARKET_MARKER_FILE).read_text(encoding="utf-8"),
+        )
+    except (OSError, ValueError, TypeError):
+        return None
+    market_id = payload.get("market_id") if isinstance(payload, dict) else None
+    if isinstance(market_id, str) and market_id.strip():
+        return market_id.strip()
+    return None
+
+
+async def _stamp_market_provenance(source_path: Path, source: str) -> None:
+    """Record market provenance inside a freshly extracted plugin tree.
+
+    Called before the loader copies the tree into the plugins directory,
+    so the marker is carried into the install, replaced on update, and
+    removed with the plugin on uninstall.  Non-market sources are left
+    untouched.
+    """
+    market_id = _market_id_from_source(source)
+    if market_id is None:
+        return
+    payload = json.dumps(
+        {"schema_version": 1, "market_id": market_id},
+        sort_keys=True,
+    )
+
+    def _write() -> None:
+        (source_path / _MARKET_MARKER_FILE).write_text(
+            payload,
+            encoding="utf-8",
+        )
+
+    await asyncio.to_thread(_write)
+
+
+class UnquiescentUnloadError(RuntimeError):
+    """Unload / uninstall could not finish runtime or disk cleanup."""
+
+    def __init__(self, plugin_id: str, report, *, loaded: bool) -> None:
+        self.plugin_id = plugin_id
+        self.report = report
+        self.loaded = loaded
+        super().__init__(
+            unload_http_detail(plugin_id, report, loaded=loaded)["message"],
+        )
+
+
+def unload_http_detail(
+    plugin_id: str,
+    report,
+    *,
+    loaded: bool,
+    kind: str = "Plugin",
+    message: str | None = None,
+) -> dict:
+    """Structured 409 body shared by unload and DELETE uninstall."""
+    return {
+        "id": plugin_id,
+        "loaded": loaded,
+        "clean": bool(getattr(report, "clean", False)),
+        "quiescent": bool(getattr(report, "quiescent", False)),
+        "needs_restart": bool(getattr(report, "needs_restart", True)),
+        "errors": list(getattr(report, "errors", None) or []),
+        "message": message
+        or (
+            f"{kind} '{plugin_id}' cleanup is incomplete."
+            if not getattr(report, "clean", False)
+            and getattr(report, "quiescent", False)
+            else f"{kind} '{plugin_id}' did not go quiescent."
+        ),
+    }
+
+
+def memory_in_use_detail(
+    plugin_id: str,
+    exc: BaseException,
+    *,
+    loaded: bool,
+    kind: str = "Plugin",
+) -> dict:
+    """Structured 409 when a memory backend still holds the plugin."""
+    return {
+        "id": plugin_id,
+        "loaded": loaded,
+        "clean": False,
+        "quiescent": False,
+        "needs_restart": True,
+        "errors": [str(exc)],
+        "message": f"{kind} '{plugin_id}': {exc}",
+    }
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
 def _list_plugins_from_disk() -> list[dict]:
-    """Read plugin manifests directly from the plugins directory on disk.
-
-    Used as a fallback when the plugin loader has not finished
-    initialising (e.g. the frontend opens before the backend startup
-    coroutine completes).  Returns the same shape as the normal list
-    endpoint so the frontend does not need to handle a different schema.
-    """
+    """List installed plugins, including those that could not be loaded."""
     from ...config.utils import get_plugins_dir
+    from ...plugins.architecture import PluginManifest
 
     plugins_dir: Path = get_plugins_dir()
     if not plugins_dir.exists():
         return []
 
+    from ...plugins.loader import _is_disabled_plugin_dir
+
     result: list[dict] = []
     for item in sorted(plugins_dir.iterdir()):
         if not item.is_dir():
+            continue
+        if _is_disabled_plugin_dir(item):
             continue
         manifest_path = item / "plugin.json"
         if not manifest_path.exists():
             continue
         try:
             with open(manifest_path, encoding="utf-8") as f:
-                manifest = json.load(f)
-        except Exception as exc:  # noqa: BLE001
+                manifest = PluginManifest.from_dict(json.load(f))
+        except Exception as exc:
             logger.warning("Failed to read %s: %s", manifest_path, exc)
             continue
 
-        plugin_id = manifest.get("id", item.name)
-        frontend_entry = manifest.get("entry", {}).get("frontend")
+        from ...plugins.settings import is_plugin_enabled
 
-        from ...plugins.architecture import PluginManifest
-
-        disk_manifest = PluginManifest.from_dict(manifest)
-
+        raw = _plugin_config_row(manifest.id)
         result.append(
             {
-                "id": plugin_id,
-                "name": manifest.get("name", plugin_id),
-                "version": manifest.get("version", "0.0.0"),
-                "description": manifest.get("description", ""),
-                "author": manifest.get("author", ""),
-                "enabled": True,
+                "id": manifest.id,
+                "name": manifest.name,
+                "version": manifest.version,
+                "description": manifest.description,
+                "author": manifest.author,
+                "enabled": is_plugin_enabled(raw),
                 "loaded": False,
-                "plugin_type": disk_manifest.plugin_type,
-                "frontend_entry": frontend_entry,
+                "plugin_type": manifest.plugin_type,
+                "frontend_entry": manifest.entry.frontend,
+                "sdk_harnesses": "harnesses"
+                in (manifest.sdk or {}).get("capabilities", []),
+                "market_id": _read_market_id(item),
+                "installation_origin": read_plugin_origin(
+                    plugins_dir,
+                    manifest.id,
+                ),
             },
         )
     return result
+
+
+def _plugin_config_row(plugin_id: str) -> dict:
+    from ...config.utils import load_config
+
+    return dict((load_config().plugins or {}).get(plugin_id) or {})
 
 
 def _safe_extract_zip(
@@ -91,15 +344,9 @@ def _safe_extract_zip(
     Raises:
         ValueError: If any member would escape extract_path
     """
-    extract_resolved = extract_path.resolve()
-    for member in zip_ref.namelist():
-        member_path = (extract_path / member).resolve()
-        if not member_path.is_relative_to(extract_resolved):
-            raise ValueError(
-                f"Zip Slip detected: {member} would extract "
-                "outside the target directory",
-            )
-    zip_ref.extractall(extract_path)
+    from ...plugins.archive import safe_extract_zip
+
+    safe_extract_zip(zip_ref, extract_path)
 
 
 def _find_plugin_dir(base: Path) -> Path:
@@ -125,314 +372,73 @@ def _find_plugin_dir(base: Path) -> Path:
     )
 
 
-async def _post_load_setup(  # pylint: disable=too-many-branches
+async def _load_plugin_with_optional_force_reinstall(
+    loader,
     request: Request,
-    plugin_id: str,
-) -> None:
-    """Perform post-load integration for a newly loaded plugin.
+    source_path: Path,
+    *,
+    force: bool,
+    interrupt_tasks: bool = False,
+    reload_agents: bool = True,
+    pawport_owner: dict | None = None,
+    recover_incomplete: bool = False,
+    installation_source: str = "",
+):
+    """Load a plugin, optionally unloading first under one lifecycle lock.
 
-    Registers newly created providers / control-commands and executes
-    startup hooks.  Schedules a reload for every configured agent so
-    tool changes take effect immediately.
+    Force-reinstall is handled inside
+    :meth:`PluginLoader.load_plugin_from_path` so this router never reads
+    ``plugin.json`` from a user-supplied path (CodeQL path-injection).
 
-    Args:
-        request: Current FastAPI request (for app.state access)
-        plugin_id: ID of the plugin that was just loaded
+    The full install transaction — unload (if force), load, and activate —
+    runs under one
+    :meth:`PluginLoader.plugin_lifecycle` critical section.
+
+    Dropped tools are removed at the activate commit point from the
+    provision inventory, not from ``plugin.json`` meta.
     """
-    loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is None:
-        return
+    from ...config.utils import get_plugins_dir
 
-    registry = loader.registry
+    del request, reload_agents
 
-    # Register any providers the plugin registered
-    provider_manager = getattr(
-        request.app.state,
-        "provider_manager",
-        None,
-    )
-    if provider_manager is not None:
-        for pid, reg in registry.get_all_providers().items():
-            if reg.plugin_id != plugin_id:
-                continue
-            try:
-                provider_manager.register_plugin_provider(
-                    provider_id=pid,
-                    provider_class=reg.provider_class,
-                    label=reg.label,
-                    base_url=reg.base_url,
-                    metadata=reg.metadata,
-                )
-            except Exception as exc:
-                logger.warning(
-                    f"Could not register provider '{pid}': {exc}",
-                )
-
-    # Register any control commands the plugin registered
-    try:
-        from ...app.runner.control_commands import register_command
-        from ...app.channels.command_registry import CommandRegistry
-
-        command_registry = CommandRegistry()
-        for cmd_reg in registry.get_control_commands():
-            if cmd_reg.plugin_id != plugin_id:
-                continue
-            try:
-                register_command(cmd_reg.handler)
-                command_registry.register_command(
-                    f"/{cmd_reg.handler.command_name}",
-                    priority_level=cmd_reg.priority_level,
-                )
-            except Exception as exc:
-                logger.warning(
-                    f"Could not register control command "
-                    f"'{cmd_reg.handler.command_name}': {exc}",
-                )
-    except Exception as exc:
-        logger.warning(f"Control command setup skipped: {exc}")
-
-    # Execute startup hooks for the new plugin
-    for hook in registry.get_startup_hooks():
-        if hook.plugin_id != plugin_id:
-            continue
-        try:
-            result = hook.callback()
-            if inspect.iscoroutine(result) or inspect.isawaitable(result):
-                await result
-        except Exception as exc:
-            logger.error(
-                f"Startup hook '{hook.hook_name}' failed: {exc}",
-            )
-
-    # Sync the plugin's tools into every agent's builtin_tools config
-    _sync_plugin_tools_to_agents(loader, plugin_id)
-
-    # Schedule a background reload for every configured agent
-    _schedule_all_agents_reload(request)
-
-
-def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
-    """Add plugin tool entries to all existing agents.
-
-    Supports both old (``meta.tool_name``) and new (``meta.tools[]``)
-    manifest formats.
-
-    Args:
-        loader: PluginLoader instance
-        plugin_id: Plugin whose tools should be synced
-    """
-    record = loader.get_loaded_plugin(plugin_id)
-    if record is None:
-        return
-
-    meta: dict = record.manifest.meta or {}
-    tool_names: list[str] = []
-
-    old_name = meta.get("tool_name")
-    if old_name and isinstance(old_name, str):
-        tool_names.append(old_name)
-
-    for tool in meta.get("tools", []):
-        if isinstance(tool, dict) and tool.get("name"):
-            tool_names.append(tool["name"])
-
-    if not tool_names:
-        return
-
-    try:
-        from ...config.utils import load_config
-        from ...config.config import (
-            BuiltinToolConfig,
-            load_agent_config,
-            save_agent_config,
+    def _before_force_unload(plugin_id: str) -> None:
+        logger.info(
+            "Force-reinstall: unloading '%s' before re-installing",
+            plugin_id,
         )
+        del plugin_id
 
-        config = load_config()
-        if not config.agents or not config.agents.profiles:
-            return
+    from ...plugins.dependency_upgrade import install_with_upgrade
 
-        for agent_id in config.agents.profiles:
-            try:
-                agent_cfg = load_agent_config(agent_id)
-                changed = False
-                for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
-                        name=tool_name,
-                        enabled=False,
-                        config={},
-                    )
-                    changed = True
-                if changed:
-                    save_agent_config(agent_id, agent_cfg)
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to sync tools to agent '{agent_id}': {exc}",
-                )
-    except Exception as exc:
-        logger.warning(f"Tool sync skipped: {exc}")
-
-
-def _remove_plugin_tools_from_agents(plugin_id: str, meta: dict) -> None:
-    """Remove plugin tool entries from all agents.
-
-    Args:
-        plugin_id: Plugin being uninstalled (for logging)
-        meta: Plugin manifest ``meta`` section
-    """
-    tool_names: list[str] = []
-
-    old_name = meta.get("tool_name")
-    if old_name and isinstance(old_name, str):
-        tool_names.append(old_name)
-
-    for tool in meta.get("tools", []):
-        if isinstance(tool, dict) and tool.get("name"):
-            tool_names.append(tool["name"])
-
-    if not tool_names:
-        return
-
-    try:
-        from ...config.utils import load_config
-        from ...config.config import load_agent_config, save_agent_config
-
-        config = load_config()
-        if not config.agents or not config.agents.profiles:
-            return
-
-        for agent_id in config.agents.profiles:
-            try:
-                agent_cfg = load_agent_config(agent_id)
-                changed = False
-                for tool_name in tool_names:
-                    if tool_name in agent_cfg.tools.builtin_tools:
-                        del agent_cfg.tools.builtin_tools[tool_name]
-                        changed = True
-                if changed:
-                    save_agent_config(agent_id, agent_cfg)
-            except Exception as exc:
-                logger.warning(
-                    f"Failed to remove tools from agent '{agent_id}': {exc}",
-                )
-    except Exception as exc:
-        logger.warning(
-            f"Tool removal from agents skipped for '{plugin_id}': {exc}",
-        )
-
-
-def _schedule_all_agents_reload(request: Request) -> None:
-    """Schedule a reload for every configured agent.
-
-    Args:
-        request: FastAPI request (for app.state access)
-    """
-    try:
-        from ...config.utils import load_config
-
-        config = load_config()
-        if not config.agents or not config.agents.profiles:
-            return
-        for agent_id in config.agents.profiles:
-            schedule_agent_reload(request, agent_id)
-    except Exception as exc:
-        logger.warning(f"Could not schedule agent reloads: {exc}")
-
-
-def _post_unload_cleanup(
-    request: Request,
-    plugin_id: str,
-    provider_ids: list,
-    command_names: list,
-) -> None:
-    """Clean up runtime registrations after a plugin has been unloaded.
-
-    Removes the plugin's providers from ``provider_manager`` and its
-    control commands from both the handler registry and the priority
-    registry.  Called after ``loader.unload_plugin()`` so that UI lists
-    and command routing reflect the removal immediately.
-
-    Args:
-        request: FastAPI request (for ``app.state`` access).
-        plugin_id: ID of the unloaded plugin (for logging).
-        provider_ids: Provider IDs that were registered by this plugin.
-        command_names: Command names that were registered by this plugin.
-    """
-    # ── Providers ────────────────────────────────────────────────────────
-    provider_manager = getattr(
-        request.app.state,
-        "provider_manager",
-        None,
+    return await install_with_upgrade(
+        loader,
+        source_path=source_path,
+        install_dir=get_plugins_dir(),
+        force=force,
+        **_interrupt_options(interrupt_tasks),
+        before_force_unload=_before_force_unload if force else None,
+        pawport_owner=pawport_owner,
+        recover_incomplete=recover_incomplete,
+        installation_source=installation_source,
     )
-    if provider_manager is not None:
-        for pid in provider_ids:
-            try:
-                provider_manager.unregister_plugin_provider(pid)
-            except Exception as exc:
-                logger.warning(
-                    f"Could not unregister provider '{pid}' "
-                    f"for plugin '{plugin_id}': {exc}",
-                )
-
-    # ── Control commands ─────────────────────────────────────────────────
-    if command_names:
-        try:
-            from ...app.runner.control_commands import (
-                unregister_command as unregister_handler,
-            )
-            from ...app.channels.command_registry import CommandRegistry
-
-            command_registry = CommandRegistry()
-            for cmd_name in command_names:
-                try:
-                    unregister_handler(cmd_name)
-                except Exception as exc:
-                    logger.warning(
-                        f"Could not unregister handler '{cmd_name}': {exc}",
-                    )
-                try:
-                    command_registry.unregister_command(f"/{cmd_name}")
-                except Exception as exc:
-                    logger.warning(
-                        f"Could not unregister priority for"
-                        f" '/{cmd_name}': {exc}",
-                    )
-        except Exception as exc:
-            logger.warning(
-                f"Command cleanup skipped for plugin '{plugin_id}': {exc}",
-            )
 
 
-def _collect_plugin_runtime_ids(
-    registry,
-    plugin_id: str,
-) -> tuple:
-    """Collect provider IDs and command names registered by a plugin.
+def _extract_plugin_zip_bytes(content: bytes, temp_dir: Path) -> Path:
+    """Write ZIP bytes, safely extract, return plugin dir (sync I/O)."""
+    zip_path = temp_dir / "plugin.zip"
+    zip_path.write_bytes(content)
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        _safe_extract_zip(zf, temp_dir)
+    zip_path.unlink(missing_ok=True)
+    return _find_plugin_dir(temp_dir)
 
-    Must be called *before* ``loader.unload_plugin()`` clears the
-    registry entries.
 
-    Args:
-        registry: ``PluginRegistry`` instance.
-        plugin_id: Plugin whose registrations should be collected.
-
-    Returns:
-        ``(provider_ids, command_names)`` tuple of lists.
-    """
-    provider_ids = [
-        pid
-        for pid, reg in registry.get_all_providers().items()
-        if reg.plugin_id == plugin_id
-    ]
-    command_names = [
-        cmd_reg.handler.command_name
-        for cmd_reg in registry.get_control_commands()
-        if cmd_reg.plugin_id == plugin_id
-    ]
-    return provider_ids, command_names
+def _extract_downloaded_plugin_zip(zip_path: Path, temp_dir: Path) -> Path:
+    """Safely extract an on-disk ZIP and return the plugin dir (sync I/O)."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        _safe_extract_zip(zf, temp_dir)
+    zip_path.unlink(missing_ok=True)
+    return _find_plugin_dir(temp_dir)
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
@@ -440,42 +446,45 @@ def _collect_plugin_runtime_ids(
 
 @router.get(
     "",
-    summary="List loaded plugins",
-    description="Return all loaded plugins with optional UI metadata.",
+    summary="List installed plugins",
+    description="Return installed plugins with their runtime state.",
 )
 async def list_plugins(request: Request):
-    """Return every loaded plugin with basic metadata and entry points.
-
-    If the plugin loader has not yet finished initialising (backend
-    still starting up when the frontend first requests the list), the
-    response is built by scanning the plugins directory on disk.
-    """
+    """Keep failed installations visible and removable in the installed UI."""
     loader = getattr(request.app.state, "plugin_loader", None)
-
+    result = {
+        item["id"]: item
+        for item in await asyncio.to_thread(_list_plugins_from_disk)
+    }
     if loader is None:
-        logger.debug(
-            "[plugins] plugin_loader not ready, falling back to disk scan",
-        )
-        return _list_plugins_from_disk()
+        return list(result.values())
 
-    result = []
-    for _plugin_id, record in loader.get_all_loaded_plugins().items():
+    from ...plugins.settings import is_plugin_enabled
+
+    for plugin_id, record in loader.get_all_loaded_plugins().items():
         manifest = record.manifest
-        result.append(
-            {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
-        )
+        raw = _plugin_config_row(plugin_id)
+        result[manifest.id] = {
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "author": manifest.author,
+            "enabled": is_plugin_enabled(raw),
+            "loaded": True,
+            "status": getattr(record, "status", "active"),
+            "diagnostics": list(record.diagnostics or []),
+            "plugin_type": manifest.plugin_type,
+            "frontend_entry": manifest.entry.frontend,
+            "market_id": _read_market_id(record.source_path),
+            "installation_origin": await run_sync_io(
+                read_plugin_origin,
+                record.source_path.parent,
+                manifest.id,
+            ),
+        }
 
-    return result
+    return list(result.values())
 
 
 @router.get(
@@ -498,6 +507,109 @@ class InstallPluginRequest(BaseModel):
 
     source: str
     force: bool = False
+    interrupt_tasks: bool = False
+
+
+async def install_plugin_source(
+    source: str,
+    *,
+    app,
+    force: bool = False,
+    interrupt_tasks: bool = False,
+    reload_agents: bool = True,
+    pawport_owner: dict | None = None,
+    recover_incomplete: bool = False,
+):
+    """Install through the native plugin lifecycle used by the HTTP route."""
+    request = SimpleNamespace(app=app)
+    loader = getattr(app.state, "plugin_loader", None)
+    if loader is None:
+        raise RuntimeError("Plugin loader is not ready yet.")
+
+    normalized = str(source or "").strip()
+    temp_dir: Optional[Path] = None
+    if normalized.startswith("bundled:"):
+        from ...plugins.official_channels import async_bundled_channel_source
+
+        async with async_bundled_channel_source(
+            normalized.removeprefix("bundled:"),
+            retain=loader.retains_preparation_source,
+        ) as source_path:
+            return await _load_plugin_with_optional_force_reinstall(
+                loader,
+                request,
+                source_path,
+                force=force,
+                reload_agents=reload_agents,
+            )
+    try:
+        if normalized.startswith(("http://", "https://")):
+            temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
+            zip_path = temp_dir / "plugin.zip"
+            logger.info("Downloading plugin from %s", _log_safe(normalized))
+            await _async_download(normalized, zip_path)
+            source_path = await asyncio.to_thread(
+                _extract_downloaded_plugin_zip,
+                zip_path,
+                temp_dir,
+            )
+        else:
+            source_path = await asyncio.to_thread(Path(normalized).resolve)
+            if not await asyncio.to_thread(source_path.exists):
+                raise FileNotFoundError(f"Path not found: {normalized}")
+        await _stamp_market_provenance(source_path, normalized)
+        return await _load_plugin_with_optional_force_reinstall(
+            loader,
+            request,
+            source_path,
+            force=force,
+            installation_source=(
+                normalized
+                if normalized.startswith(("http://", "https://"))
+                else ""
+            ),
+            **_interrupt_options(interrupt_tasks),
+            reload_agents=reload_agents,
+            pawport_owner=pawport_owner,
+            recover_incomplete=recover_incomplete,
+        )
+    finally:
+        if temp_dir is not None:
+            await loader.cleanup_preparation_source(temp_dir)
+
+
+async def uninstall_plugin_source(
+    plugin_id: str,
+    *,
+    app,
+    reload_agents: bool = True,
+    interrupt_tasks: bool = False,
+) -> None:
+    """Uninstall through the native plugin lifecycle.
+
+    ``reload_agents`` is kept for callers (e.g. portability). Uninstall
+    must not rebuild agents; live workspaces are updated by revoke.
+    """
+    del reload_agents
+    loader = getattr(app.state, "plugin_loader", None)
+    if loader is None:
+        raise RuntimeError("Plugin loader is not ready yet.")
+    async with loader.plugin_lifecycle(plugin_id):
+        from ...plugins.lifecycle import UnloadMode
+
+        report = await loader.lifecycle.unload(
+            plugin_id,
+            UnloadMode.UNINSTALL,
+            delete_files=True,
+            **_interrupt_options(interrupt_tasks),
+        )
+        still_loaded = loader.get_loaded_plugin(plugin_id) is not None
+        if not report.clean or not report.quiescent or still_loaded:
+            raise UnquiescentUnloadError(
+                plugin_id,
+                report,
+                loaded=still_loaded,
+            )
 
 
 @router.post(
@@ -519,78 +631,28 @@ async def install_plugin(
     reloaded in the background so that newly registered tools can be
     used without a server restart.
     """
-    loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is None:
+    if getattr(request.app.state, "plugin_loader", None) is None:
         raise HTTPException(
             status_code=503,
             detail="Plugin loader is not ready yet. Try again shortly.",
         )
 
-    source = body.source.strip()
-    is_url = source.startswith(("http://", "https://"))
-    temp_dir: Optional[Path] = None
-
     try:
-        if is_url:
-            # Download and extract the zip archive
-            temp_dir = Path(tempfile.mkdtemp())
-            zip_path = temp_dir / "plugin.zip"
-            logger.info(f"Downloading plugin from {source}")
-            await _async_download(source, zip_path)
-
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                _safe_extract_zip(zf, temp_dir)
-            zip_path.unlink(missing_ok=True)
-            source_path = _find_plugin_dir(temp_dir)
-        else:
-            source_path = Path(source).resolve()
-            if not source_path.exists():
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Path not found: {source}",
-                )
-
-        from ...config.utils import get_plugins_dir
-
-        # Force-reinstall: unload the existing plugin first so that
-        # load_plugin_from_path can proceed without a conflict.
-        if body.force:
-            manifest_path = source_path / "plugin.json"
-            if manifest_path.exists():
-                raw = json.loads(
-                    manifest_path.read_text(encoding="utf-8"),
-                )
-                existing_id = raw.get("id")
-                if (
-                    existing_id
-                    and loader.get_loaded_plugin(existing_id) is not None
-                ):
-                    logger.info(
-                        f"Force-reinstall: unloading '{existing_id}'"
-                        " before re-installing",
-                    )
-                    _f_pids, _f_cmds = _collect_plugin_runtime_ids(
-                        loader.registry,
-                        existing_id,
-                    )
-                    await loader.unload_plugin(
-                        existing_id,
-                        delete_files=False,
-                    )
-                    _post_unload_cleanup(
-                        request,
-                        existing_id,
-                        _f_pids,
-                        _f_cmds,
-                    )
-
-        record = await loader.load_plugin_from_path(
-            source_path=source_path,
-            install_dir=get_plugins_dir(),
+        record = await install_plugin_source(
+            body.source,
+            app=request.app,
+            force=body.force,
+            **_interrupt_options(body.interrupt_tasks),
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except MarketProviderBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (FileNotFoundError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -600,21 +662,23 @@ async def install_plugin(
             status_code=500,
             detail=f"Plugin installation failed: {exc}",
         ) from exc
-    finally:
-        if temp_dir and temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-    await _post_load_setup(request, record.manifest.id)
-
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
+        "diagnostics": list(record.diagnostics or []),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+            f"Plugin '{record.manifest.name}' installation: {record.status}."
         ),
     }
 
@@ -633,6 +697,7 @@ async def upload_plugin(
     request: Request,
     file: UploadFile = File(..., description="Plugin ZIP archive"),
     force: bool = False,
+    interrupt_tasks: bool = False,
 ):
     """Install and hot-load a plugin from an uploaded ZIP file."""
     loader = getattr(request.app.state, "plugin_loader", None)
@@ -648,58 +713,32 @@ async def upload_plugin(
             detail="Only .zip archives are accepted.",
         )
 
-    temp_dir = Path(tempfile.mkdtemp())
+    temp_dir = Path(await asyncio.to_thread(tempfile.mkdtemp))
     try:
-        zip_path = temp_dir / "plugin.zip"
         content = await file.read()
-        zip_path.write_bytes(content)
+        source_path = await asyncio.to_thread(
+            _extract_plugin_zip_bytes,
+            content,
+            temp_dir,
+        )
 
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            _safe_extract_zip(zf, temp_dir)
-        zip_path.unlink(missing_ok=True)
-
-        source_path = _find_plugin_dir(temp_dir)
-
-        from ...config.utils import get_plugins_dir
-
-        # Force-reinstall: unload existing plugin before re-installing
-        if force:
-            manifest_path = source_path / "plugin.json"
-            if manifest_path.exists():
-                raw = json.loads(
-                    manifest_path.read_text(encoding="utf-8"),
-                )
-                existing_id = raw.get("id")
-                if (
-                    existing_id
-                    and loader.get_loaded_plugin(existing_id) is not None
-                ):
-                    logger.info(
-                        f"Force-reinstall: unloading '{existing_id}'"
-                        " before re-installing",
-                    )
-                    _u_pids, _u_cmds = _collect_plugin_runtime_ids(
-                        loader.registry,
-                        existing_id,
-                    )
-                    await loader.unload_plugin(
-                        existing_id,
-                        delete_files=False,
-                    )
-                    _post_unload_cleanup(
-                        request,
-                        existing_id,
-                        _u_pids,
-                        _u_cmds,
-                    )
-
-        record = await loader.load_plugin_from_path(
-            source_path=source_path,
-            install_dir=get_plugins_dir(),
+        # Load + post-load setup share one lifecycle lock.
+        record = await _load_plugin_with_optional_force_reinstall(
+            loader,
+            request,
+            source_path,
+            force=force,
+            **_interrupt_options(interrupt_tasks),
         )
     except HTTPException:
         raise
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
     except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except MarketProviderBusyError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (FileNotFoundError, RuntimeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -710,20 +749,25 @@ async def upload_plugin(
             detail=f"Plugin installation failed: {exc}",
         ) from exc
     finally:
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
-    await _post_load_setup(request, record.manifest.id)
+        await loader.cleanup_preparation_source(temp_dir)
 
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
+        "loaded": record.status == "active",
+        "status": record.status,
+        "enabled": record.enabled,
+        "diagnostics": list(record.diagnostics or []),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+            f"Plugin '{record.manifest.name}' installation: {record.status}."
         ),
     }
 
@@ -732,12 +776,15 @@ async def upload_plugin(
     "/{plugin_id}",
     summary="Uninstall a plugin",
     description=(
-        "Unload and permanently delete a plugin.  All agents are "
-        "reloaded in the background so tool changes take effect "
-        "immediately."
+        "Unload and permanently delete a plugin, including plugins "
+        "that are not currently loaded (disabled or FAILED)."
     ),
 )
-async def uninstall_plugin(plugin_id: str, request: Request):
+async def uninstall_plugin(
+    plugin_id: str,
+    request: Request,
+    interrupt_tasks: bool = False,
+):
     """Unload and delete a plugin by ID."""
     loader = getattr(request.app.state, "plugin_loader", None)
     if loader is None:
@@ -746,28 +793,40 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             detail="Plugin loader is not ready yet.",
         )
 
-    record = loader.get_loaded_plugin(plugin_id)
-    if record is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Plugin '{plugin_id}' is not loaded.",
-        )
-
-    meta: dict = record.manifest.meta or {}
-
-    # Collect provider / command IDs *before* unload clears the registry
-    provider_ids, command_names = _collect_plugin_runtime_ids(
-        loader.registry,
-        plugin_id,
-    )
-
     try:
-        await loader.unload_plugin(plugin_id, delete_files=True)
+        await uninstall_plugin_source(
+            plugin_id,
+            app=request.app,
+            **_interrupt_options(interrupt_tasks),
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except MarketProviderBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except UnquiescentUnloadError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=unload_http_detail(
+                exc.plugin_id,
+                exc.report,
+                loaded=exc.loaded,
+            ),
+        ) from exc
+    except MemoryBackendInUseError as exc:
+        still_loaded = loader.get_loaded_plugin(plugin_id) is not None
+        raise HTTPException(
+            status_code=409,
+            detail=memory_in_use_detail(
+                plugin_id,
+                exc,
+                loaded=still_loaded,
+            ),
+        ) from exc
     except Exception as exc:
         logger.error(
-            f"Plugin uninstall failed for '{plugin_id}': {exc}",
+            f"Plugin uninstall failed for '{_log_safe(plugin_id)}': {exc}",
             exc_info=True,
         )
         raise HTTPException(
@@ -775,18 +834,116 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             detail=f"Plugin uninstallation failed: {exc}",
         ) from exc
 
-    # Clean up providers and commands from runtime registries
-    _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
-
-    # Remove tool entries from all agents
-    _remove_plugin_tools_from_agents(plugin_id, meta)
-
-    # Schedule agent reloads so tools disappear immediately
-    _schedule_all_agents_reload(request)
-
     return {
         "id": plugin_id,
         "message": f"Plugin '{plugin_id}' uninstalled successfully.",
+    }
+
+
+@router.post(
+    "/{plugin_id}/unload",
+    summary="Unload a plugin without deleting user data",
+    description=(
+        "Remove the plugin from the process (mode=unload). "
+        "agent.json and config.plugins are left unchanged."
+    ),
+)
+async def unload_plugin_keep_config(
+    plugin_id: str,
+    request: Request,
+    interrupt_tasks: bool = False,
+):
+    """Callable entry for ``unload(mode=unload)``."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    from ...plugins.lifecycle import UnloadMode
+
+    try:
+        async with loader.plugin_lifecycle(plugin_id):
+            report = await loader.lifecycle.unload(
+                plugin_id,
+                UnloadMode.UNLOAD,
+                delete_files=False,
+                **_interrupt_options(interrupt_tasks),
+            )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except MemoryBackendInUseError as exc:
+        still_loaded = loader.get_loaded_plugin(plugin_id) is not None
+        raise HTTPException(
+            status_code=409,
+            detail=memory_in_use_detail(
+                plugin_id,
+                exc,
+                loaded=still_loaded,
+            ),
+        ) from exc
+    still_loaded = loader.get_loaded_plugin(plugin_id) is not None
+    payload = unload_http_detail(
+        plugin_id,
+        report,
+        loaded=still_loaded,
+    )
+    if not report.quiescent or still_loaded:
+        raise HTTPException(status_code=409, detail=payload)
+    return {
+        **payload,
+        "message": f"Plugin '{plugin_id}' unloaded.",
+    }
+
+
+@router.post(
+    "/{plugin_id}/repair-dependencies",
+    summary="Repair plugin dependencies",
+    description=(
+        "Explicitly install missing plugin dependencies, then load. "
+        "Shared dependency replacements require review and controlled apply; "
+        "loaded code may require a backend restart."
+    ),
+)
+async def repair_plugin_dependencies(plugin_id: str, request: Request):
+    """User-triggered dependency repair (boot never installs)."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    try:
+        record = await loader.repair_dependencies(plugin_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (DependencyUpgradeRequired, SharedDependencyError) as exc:
+        raise dependency_http_error(exc) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            "Repair dependencies failed for '%s': %s",
+            _log_safe(plugin_id),
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Repair failed: {exc}",
+        ) from exc
+    return {
+        "id": plugin_id,
+        "status": record.status,
+        "enabled": record.enabled,
+        "diagnostics": list(record.diagnostics or []),
+        "message": (
+            f"Plugin '{plugin_id}' repaired."
+            if record.status != "failed"
+            else f"Plugin '{plugin_id}' still failed."
+        ),
     }
 
 
@@ -799,13 +956,19 @@ async def get_plugin_status(plugin_id: str, request: Request):
     """Return the runtime status of a plugin."""
     loader = getattr(request.app.state, "plugin_loader", None)
 
+    from ...plugins.settings import is_plugin_enabled
+
+    raw = _plugin_config_row(plugin_id)
+    enabled = is_plugin_enabled(raw)
     if loader is not None:
         record = loader.get_loaded_plugin(plugin_id)
         if record is not None:
             return {
                 "id": plugin_id,
                 "loaded": True,
-                "enabled": record.enabled,
+                "enabled": enabled,
+                "status": getattr(record, "status", "active"),
+                "diagnostics": list(record.diagnostics or []),
                 "version": record.manifest.version,
             }
 
@@ -814,12 +977,217 @@ async def get_plugin_status(plugin_id: str, request: Request):
 
     plugin_dir = get_plugins_dir() / plugin_id
     if plugin_dir.is_dir() and (plugin_dir / "plugin.json").exists():
-        return {"id": plugin_id, "loaded": False, "enabled": False}
+        return {
+            "id": plugin_id,
+            "loaded": False,
+            "enabled": enabled,
+        }
 
     raise HTTPException(
         status_code=404,
         detail=f"Plugin '{plugin_id}' not found.",
     )
+
+
+@router.get(
+    "/{plugin_id}",
+    summary="Get a plugin",
+    description="Return one plugin's runtime status, or 404 if missing.",
+)
+async def get_plugin(plugin_id: str, request: Request):
+    """Return one plugin. Missing ids are 404, never 405."""
+    return await get_plugin_status(plugin_id, request)
+
+
+class UpdatePluginConfigRequest(BaseModel):
+    """Replace the plugin-facing config without reimporting the module."""
+
+    config: dict
+    confirm_legacy: bool = False
+    interrupt_tasks: bool = False
+
+
+class SetPluginEnabledRequest(BaseModel):
+    """Enable or disable a plugin via ``config.plugins.<id>.enabled``."""
+
+    enabled: bool
+    interrupt_tasks: bool = False
+
+
+@router.put(
+    "/{plugin_id}/config",
+    summary="Update plugin configuration",
+    description=(
+        "Rebuild the plugin's runtime contributions from a new config "
+        "without reimporting the module. Legacy uninstall hooks require "
+        "``confirm_legacy=true``."
+    ),
+)
+async def update_plugin_config(
+    plugin_id: str,
+    body: UpdatePluginConfigRequest,
+    request: Request,
+):
+    """Apply a new plugin config, rolling back on a half-finished register."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    try:
+        report = await loader.lifecycle.update_config(
+            plugin_id,
+            body.config,
+            confirm_legacy=body.confirm_legacy,
+            **_interrupt_options(body.interrupt_tasks),
+        )
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    if report.requires_confirmation:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "legacy_uninstall_hook",
+                "message": (
+                    report.errors[0]
+                    if report.errors
+                    else "legacy uninstall hook requires confirmation"
+                ),
+                "legacy_hooks": report.legacy_hooks,
+                "requires_confirmation": True,
+            },
+        )
+    if not report.ok:
+        if report.needs_restart or report.conflict:
+            status = 409
+        elif report.unchanged:
+            status = 404
+        else:
+            status = 400
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "message": (
+                    report.errors[0]
+                    if report.errors
+                    else "config update failed"
+                ),
+                "errors": report.errors,
+                "unchanged": report.unchanged,
+                "needs_restart": report.needs_restart,
+                "quiescent": report.quiescent,
+            },
+        )
+    return {
+        "id": plugin_id,
+        "ok": True,
+        "message": f"Plugin '{plugin_id}' config updated.",
+    }
+
+
+@router.post(
+    "/{plugin_id}/enabled",
+    summary="Enable or disable a plugin",
+    description=(
+        "Persist ``enabled`` in config.plugins. Disabling unloads the "
+        "instance without deleting files; enabling loads it from disk."
+    ),
+)
+async def set_plugin_enabled(
+    plugin_id: str,
+    body: SetPluginEnabledRequest,
+    request: Request,
+):
+    """Toggle whether a plugin is loaded on this host."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+    from ...config.utils import get_plugins_dir
+
+    plugin_dir = get_plugins_dir() / plugin_id
+    if not (plugin_dir / "plugin.json").is_file():
+        if loader.get_loaded_plugin(plugin_id) is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Plugin '{plugin_id}' not found.",
+            )
+    try:
+        if not body.enabled:
+            result = await loader.lifecycle.set_enabled(
+                plugin_id,
+                False,
+                **_interrupt_options(body.interrupt_tasks),
+            )
+            clean = getattr(result, "clean", True)
+            quiescent = getattr(result, "quiescent", True)
+            needs_restart = getattr(result, "needs_restart", False)
+            still_loaded = loader.get_loaded_plugin(plugin_id) is not None
+            payload = {
+                "id": plugin_id,
+                "enabled": False,
+                "loaded": still_loaded,
+                "clean": clean,
+                "quiescent": quiescent,
+                "needs_restart": needs_restart,
+                "errors": list(getattr(result, "errors", []) or []),
+            }
+            if not quiescent or still_loaded:
+                from ...plugins.settings import is_plugin_enabled
+
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        **payload,
+                        "enabled": is_plugin_enabled(
+                            _plugin_config_row(plugin_id),
+                        ),
+                        "message": (
+                            f"Plugin '{plugin_id}' did not go quiescent."
+                        ),
+                    },
+                )
+            return {
+                **payload,
+                "message": f"Plugin '{plugin_id}' disabled.",
+            }
+        record = await loader.lifecycle.set_enabled(plugin_id, True)
+        return {
+            "id": plugin_id,
+            "enabled": bool(getattr(record, "enabled", False))
+            and getattr(record, "status", None) == "active",
+            "loaded": getattr(record, "status", None) == "active",
+            "status": getattr(record, "status", "failed"),
+            "diagnostics": list(
+                getattr(record, "diagnostics", None)
+                or getattr(record, "errors", []),
+            ),
+            "needs_restart": getattr(record, "needs_restart", False),
+            "message": (
+                f"Plugin '{plugin_id}' enable result: "
+                f"{getattr(record, 'status', 'failed')}."
+            ),
+        }
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except Exception as exc:
+        logger.error(
+            "Failed to set enabled=%s for plugin '%s': %s",
+            _log_safe(body.enabled),
+            _log_safe(plugin_id),
+            _log_safe(exc),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update plugin enabled state: {exc}",
+        ) from exc
 
 
 @router.get(
@@ -862,6 +1230,13 @@ async def serve_plugin_ui_file(
             )
         source_path = candidate
 
+    from ...utils.io_utils import run_sync_io
+
+    return await run_sync_io(_plugin_file_response, source_path, file_path)
+
+
+def _plugin_file_response(source_path: Path, file_path: str):
+    """Resolve/stat one static file without touching loader state."""
     full_path = (source_path / file_path).resolve()
 
     if not full_path.is_relative_to(source_path.resolve()):
@@ -877,10 +1252,23 @@ async def serve_plugin_ui_file(
     elif full_path.suffix == ".css":
         content_type = "text/css"
 
-    if content_type:
-        return FileResponse(str(full_path), media_type=content_type)
+    # Content-hashed chunks are safe to cache long-term; entry files must
+    # revalidate on every request or browsers keep serving stale bundles
+    # after a plugin hot update.
+    hashed_asset = re.search(r"-[A-Za-z0-9_]{8,}\.[a-z0-9]+$", full_path.name)
+    cache_control = (
+        "public, max-age=31536000, immutable" if hashed_asset else "no-cache"
+    )
+    headers = {"Cache-Control": cache_control}
 
-    return FileResponse(str(full_path))
+    if content_type:
+        return FileResponse(
+            str(full_path),
+            media_type=content_type,
+            headers=headers,
+        )
+
+    return FileResponse(str(full_path), headers=headers)
 
 
 # ── Plugin market proxy ───────────────────────────────────────────────────
@@ -898,6 +1286,9 @@ async def search_market_plugins(
     page_size: int = 20,
     search: Optional[str] = None,
     category: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    is_featured: Optional[bool] = None,
+    is_trending: Optional[bool] = None,
 ):
     """Proxy plugin search to AgentScope Platform to avoid CORS."""
     import httpx
@@ -910,6 +1301,12 @@ async def search_market_plugins(
         params["search"] = search
     if category:
         params["category"] = category
+    if sort_by:
+        params["sort_by"] = sort_by
+    if is_featured is not None:
+        params["is_featured"] = is_featured
+    if is_trending is not None:
+        params["is_trending"] = is_trending
 
     try:
         async with httpx.AsyncClient(
@@ -932,7 +1329,7 @@ async def search_market_plugins(
 # ── Internal async helpers ────────────────────────────────────────────────
 
 
-_DOWNLOAD_TIMEOUT = 60  # seconds per read chunk; total limit is implicit
+_DOWNLOAD_TIMEOUT = 60  # seconds per socket operation; no total limit
 
 _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 
@@ -940,20 +1337,20 @@ _MAX_DOWNLOAD_BYTES = 500 * 1024 * 1024  # 500 MB safety cap
 async def _async_download(url: str, dest: Path) -> None:
     """Download a URL to a file using a thread pool.
 
-    Streams the response in chunks with a per-operation socket timeout
-    so a stalled server cannot hang the request indefinitely.
+    Streams the response in chunks with a per-operation socket timeout.
+    This does not impose a total download time limit.
 
     Args:
         url: HTTP(S) URL to download
         dest: Destination file path
 
     Raises:
-        RuntimeError: If the download exceeds the size cap or times out.
+        RuntimeError: If the download exceeds the size cap, times out,
+            or fails with a network or HTTP protocol error.
     """
-    import asyncio
 
     def _download() -> None:
-        with urllib.request.urlopen(  # noqa: S310
+        with urllib.request.urlopen(
             url,
             timeout=_DOWNLOAD_TIMEOUT,
         ) as resp:
@@ -971,4 +1368,13 @@ async def _async_download(url: str, dest: Path) -> None:
                         )
                     fh.write(chunk)
 
-    await asyncio.to_thread(_download)
+    try:
+        await asyncio.to_thread(_download)
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        ConnectionError,
+        ssl.SSLError,
+        http.client.HTTPException,
+    ) as exc:
+        raise RuntimeError(f"Plugin download failed: {exc}") from exc

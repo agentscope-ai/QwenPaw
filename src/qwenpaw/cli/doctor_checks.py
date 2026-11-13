@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """Read-only diagnostics for `qwenpaw doctor` (no config or disk mutations)."""
+
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
 # pylint: disable=too-many-return-statements
 import asyncio
-import importlib
-import importlib.util
 import json
 import ntpath
 import os
@@ -19,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from ..utils.io_utils import run_sync_io
 from ..__version__ import __version__
 from ..agents.skill_system import (
     get_workspace_skills_dir,
@@ -41,14 +41,11 @@ from ..config.utils import (
     _read_config_data,
     get_config_path,
     get_jobs_path,
-    get_playwright_chromium_executable_path,
-    is_running_in_container,
 )
 from ..constant import (
     HEARTBEAT_FILE,
     JOBS_FILE,
     MEMORY_DIR,
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
     PROJECT_NAME,
     SECRET_DIR,
     WORKING_DIR,
@@ -57,7 +54,6 @@ from ..constant import (
 from ..utils.logging import LOG_FILE_BASENAME
 from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
-
 
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
 APP_LOG_BASENAME = LOG_FILE_BASENAME
@@ -121,6 +117,28 @@ def check_app_log_writable() -> tuple[bool, str]:
         f"log file does not exist and parent directory is not writable: "
         f"{parent}",
     )
+
+
+def check_browser_readiness(cfg: Config) -> tuple[bool, str]:
+    """Report the active browser track and its minimum runtime dependency."""
+    if cfg.browser.experimental:
+        try:
+            from ..browser.runtime.links import registered_links
+
+            return (
+                True,
+                "unified browser track; "
+                f"{len(registered_links())} control link(s) registered",
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return False, f"unified browser control links unavailable: {exc}"
+    try:
+        from playwright.async_api import async_playwright
+
+        del async_playwright
+        return True, "stable browser track; Playwright importable"
+    except ImportError:
+        return False, "stable browser track requires Playwright"
 
 
 def check_agent_workspace_writable(cfg: Config) -> tuple[bool, str]:
@@ -214,11 +232,8 @@ def environment_summary_lines(
         )
     lines.append(f"working_dir: {WORKING_DIR}")
     wd_qp = os.getenv("QWENPAW_WORKING_DIR")
-    wd_legacy = os.getenv("COPAW_WORKING_DIR")
     if wd_qp:
         lines.append(f"QWENPAW_WORKING_DIR (env): {wd_qp}")
-    elif wd_legacy:
-        lines.append(f"COPAW_WORKING_DIR (env, legacy): {wd_legacy}")
     lines.append(f"sqlite library: {sqlite3.sqlite_version}")
     try:
         ver_tuple = tuple(
@@ -530,100 +545,6 @@ def _playwright_chromium_bundle_present() -> bool:
     return False
 
 
-def browser_automation_notes(cfg: Config | None) -> list[str]:
-    """``browser_use`` / Playwright readiness (read-only hints).
-
-    Does not start a browser; only checks imports, typical paths, and
-    workspace ``browser/user_data`` layout.
-    """
-    notes: list[str] = []
-
-    if importlib.util.find_spec("playwright") is None:
-        notes.append(
-            "browser_use needs the Playwright Python package — install with: "
-            f"'{sys.executable}' -m pip install playwright && "
-            f"'{sys.executable}' -m playwright install chromium",
-        )
-        return notes
-
-    try:
-        importlib.import_module("playwright.async_api")
-    except ImportError:
-        notes.append(
-            "playwright is installed but async_api failed to import — "
-            "reinstall the playwright package for this Python.",
-        )
-        return notes
-
-    use_default = (
-        EnvVarLoader.get_str("QWENPAW_BROWSER_USE_DEFAULT", "1")
-        .strip()
-        .lower()
-    )
-    if use_default in ("0", "false", "no", "off"):
-        notes.append(
-            "QWENPAW_BROWSER_USE_DEFAULT is off — browser_use will not "
-            "prefer the OS default Chrome/Edge path; bundled or scanned "
-            "Chromium paths apply.",
-        )
-
-    if is_running_in_container():
-        notes.append(
-            "Container environment: use headless browser_use unless you add "
-            "display forwarding; install Chromium in the image or run "
-            f"'{sys.executable}' -m playwright install chromium "
-            "if launches fail.",
-        )
-
-    exe = get_playwright_chromium_executable_path()
-    if not exe and sys.platform != "darwin":
-        if not _playwright_chromium_bundle_present():
-            notes.append(
-                "No system Chrome/Chromium path found and no Playwright "
-                "chromium cache detected — run "
-                f"'{sys.executable}' -m playwright install chromium' or "
-                "install Chrome/Edge, or set "
-                f"{PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV}.",
-            )
-    elif not exe and sys.platform == "darwin":
-        if not _playwright_chromium_bundle_present():
-            notes.append(
-                "No Chrome/Edge/Chromium on PATH — browser_use falls back to "
-                "WebKit on macOS; install Chrome/Edge or run "
-                f"'{sys.executable}' -m playwright install chromium' if you "
-                "need Chromium specifically.",
-            )
-
-    if sys.platform.startswith("linux") and not is_running_in_container():
-        if not (os.environ.get("DISPLAY") or "").strip():
-            notes.append(
-                "DISPLAY is unset — headed browser_use (visible window) "
-                "may fail; use the default headless mode or configure "
-                "X11/Wayland.",
-            )
-
-    if cfg is not None:
-        for agent_id, ref in cfg.agents.profiles.items():
-            ws = Path(ref.workspace_dir).expanduser()
-            ud = ws / "browser" / "user_data"
-            try:
-                if ud.is_file():
-                    notes.append(
-                        f"{agent_id}: {ud} exists as a file — remove or "
-                        "rename it so browser_use can use a profile "
-                        "directory.",
-                    )
-                elif ud.is_dir() and not os.access(ud, os.W_OK):
-                    notes.append(
-                        f"{agent_id}: {ud} is not writable — persistent "
-                        "browser profiles may fail.",
-                    )
-            except OSError:
-                pass
-
-    return notes
-
-
 def security_baseline_notes(cfg: Config) -> list[str]:
     """Non-fatal security hints."""
     notes: list[str] = []
@@ -645,14 +566,10 @@ def security_baseline_notes(cfg: Config) -> list[str]:
     return notes
 
 
-def _embedding_has_credentials(emb_api_key: str) -> bool:
-    if (emb_api_key or "").strip():
+def _embedding_has_credentials(backend: str, emb_api_key: str) -> bool:
+    if backend == "ollama":
         return True
-    return bool(
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("DASHSCOPE_API_KEY")
-        or os.getenv("ANTHROPIC_API_KEY"),
-    )
+    return bool((emb_api_key or "").strip())
 
 
 def memory_embedding_notes(cfg: Config) -> list[str]:
@@ -666,6 +583,7 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
         emb = ac.running.reme_light_memory_config.embedding_model_config
         ms = ac.running.reme_light_memory_config.auto_memory_search_config
         if ms.enabled and not _embedding_has_credentials(
+            emb.backend,
             emb.api_key,
         ):
             notes.append(
@@ -673,8 +591,8 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
                 "reme_light_memory_config.auto_memory_search_config.enabled "
                 "is on but no embedding API key is set in "
                 "reme_light_memory_config.embedding_model_config.api_key "
-                "and no common OPENAI_/DASHSCOPE_/ANTHROPIC_ "
-                "API key env was found.",
+                "and no matching provider API key environment variable "
+                "was found.",
             )
     return notes
 
@@ -1224,7 +1142,7 @@ async def check_enabled_agents_model_connections(
     from ..providers.provider_manager import ProviderManager
 
     mgr = ProviderManager.get_instance()
-    active_slot = mgr.get_active_model()
+    active_slot = await run_sync_io(mgr.get_active_model)
     lines: list[str] = []
     notes: list[str] = []
     all_ok = True
@@ -1254,7 +1172,7 @@ async def check_enabled_agents_model_connections(
             lines.append(f"{agent_id}: FAIL — invalid model slot ({source})")
             continue
 
-        provider = mgr.get_provider(pid)
+        provider = await run_sync_io(mgr.get_provider, pid)
         if provider is None:
             all_ok = False
             lines.append(f"{agent_id}: FAIL — provider not found: {pid!r}")

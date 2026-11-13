@@ -14,6 +14,7 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from config.settings import config
+from pages.skill_pool_page import SkillPoolPage
 from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,12 @@ BASE_URL = config.server.base_url
 def navigate_to_skill_pool(page: Page):
     """Navigate to the skill pool page."""
     page.goto(f"{BASE_URL}/skill-pool", wait_until="domcontentloaded", timeout=60000)
-    # Explicitly wait for skill cards to render rather than only relying on a fixed timeout
+    # Wait for the current page shell; the pool can legitimately be empty.
     try:
-        page.wait_for_selector('.qwenpaw-card', timeout=15000)
+        page.wait_for_selector(
+            SkillPoolPage.PAGE_CONTAINER,
+            timeout=15000,
+        )
     except Exception:
         logger.warning("Timed out waiting for skill cards; page may have no data or be slow")
     page.wait_for_timeout(1000)
@@ -84,24 +88,18 @@ class TestSkillPoolSearch:
         navigate_to_skill_pool(page)
 
         log_test_step("Verify search input exists")
-        search_input = page.locator(
-            'input[placeholder*="筛选"], input[placeholder*="搜索"], '
-            'input[placeholder*="search"], input[placeholder*="Search"], '
-            'input[placeholder*="filter"], '
-            '.qwenpaw-select-selection-search-input, '
-            '.qwenpaw-input-search input'
-        ).first
+        search_input = page.locator(SkillPoolPage.SEARCH_INPUT).first
         expect(search_input).to_be_visible(timeout=5000)
         logger.info("Search input exists")
 
         log_test_step("Record skill count before search")
         # Wait for cards to finish loading before counting, to avoid async data not yet arriving
         try:
-            page.wait_for_selector('.qwenpaw-card', timeout=10000)
+            page.wait_for_selector(SkillPoolPage.SKILL_CARD, timeout=10000)
             page.wait_for_timeout(500)
         except Exception:
             logger.warning("Did not see skill cards, page may have no data")
-        skill_cards = page.locator('.qwenpaw-card').all()
+        skill_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
         initial_count = len(skill_cards)
         logger.info(f"Skill count before search: {initial_count}")
         if initial_count == 0:
@@ -110,21 +108,10 @@ class TestSkillPoolSearch:
             return
 
         log_test_step("Enter search keyword")
-        # Search input is a qwenpaw-select component (readonly input); click parent container to trigger dropdown
-        is_readonly = search_input.get_attribute("readonly") is not None
-        if is_readonly:
-            select_container = page.locator('.qwenpaw-select').first
-            select_container.click()
-            page.wait_for_timeout(500)
-            page.keyboard.type("nonexistent_skill_xyz")
-            page.wait_for_timeout(1500)
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        else:
-            search_input.fill("nonexistent_skill_xyz")
-            page.wait_for_timeout(1500)
+        search_input.fill("nonexistent_skill_xyz")
+        page.wait_for_timeout(1500)
 
-        filtered_cards = page.locator('.qwenpaw-card').all()
+        filtered_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
         filtered_count = len(filtered_cards)
         logger.info(f"Skill count after search: {filtered_count}")
         assert filtered_count <= initial_count, \
@@ -132,22 +119,10 @@ class TestSkillPoolSearch:
         logger.info("Search filter is effective")
 
         log_test_step("Clear search to restore list")
-        if is_readonly:
-            clear_btn = page.locator('.qwenpaw-select-clear').first
-            if clear_btn.count() > 0:
-                clear_btn.click()
-            else:
-                select_container = page.locator('.qwenpaw-select').first
-                select_container.click()
-                page.wait_for_timeout(300)
-                page.keyboard.press("Control+a")
-                page.keyboard.press("Backspace")
-                page.keyboard.press("Escape")
-        else:
-            search_input.clear()
+        search_input.clear()
         page.wait_for_timeout(1500)
 
-        restored_cards = page.locator('.qwenpaw-card').all()
+        restored_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
         restored_count = len(restored_cards)
         logger.info(f"Skill count after clearing search: {restored_count}")
         logger.info("List restored after clearing search")
@@ -483,7 +458,7 @@ class TestSkillPoolZipImport:
             logger.info(f"File input accept={accept_attr}")
 
             log_test_step("4. Record initial skill count")
-            initial_cards = page.locator('.qwenpaw-card').all()
+            initial_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
             initial_count = len(initial_cards)
             logger.info(f"Initial skill count: {initial_count}")
 
@@ -538,7 +513,7 @@ This is a test skill uploaded via zip for E2E testing.
                 skill_uploaded = True
                 logger.info(f"Uploaded skill appeared in the skill pool list: {skill_name}")
             except Exception:
-                updated_cards = page.locator('.qwenpaw-card').all()
+                updated_cards = page.locator(SkillPoolPage.SKILL_CARD).all()
                 updated_count = len(updated_cards)
                 logger.info(f"Skill count after upload: {updated_count} (initial: {initial_count})")
                 if updated_count > initial_count:
@@ -554,7 +529,9 @@ This is a test skill uploaded via zip for E2E testing.
             # Cleanup: delete the uploaded test skill
             if skill_uploaded:
                 try:
-                    target_card = page.locator(f'.qwenpaw-card:has-text("{skill_name}")').first
+                    target_card = page.locator(
+                        f'{SkillPoolPage.SKILL_CARD}:has-text("{skill_name}")'
+                    ).first
                     if target_card.is_visible():
                         # Try to find delete button on the card
                         target_card.hover()
@@ -644,3 +621,128 @@ class TestSkillPoolBuiltinImport:
                 logger.info("No dialog appeared after click, may be running in background")
 
         log_test_result(test_name, True, 0)
+
+
+# ============================================================================
+# SYNC-001 P1  Skill card shows sync status + one automation action
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.skill_pool
+@pytest.mark.skill_sync
+class TestSkillAutoSyncCard:
+    """SYNC-001: a pool skill card carries a sync-status badge and, on hover,
+    the single automation quick action."""
+
+    SKILL_NAME = "e2e_sync_card_skill"
+
+    @pytest.mark.test_id("SYNC-001")
+    def test_skill_card_sync_badge_and_button(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        test_name = request.node.name
+        pool = SkillPoolPage(page)
+        try:
+            log_test_step("1. Seed a pool skill via API (no LLM)")
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+            assert SkillPoolPage.seed_pool_skill(
+                api_context, self.SKILL_NAME
+            ), "Failed to seed pool skill"
+
+            log_test_step("2. Open the Skill Pool page (card view is default)")
+            pool.open()
+
+            log_test_step("3. Locate the seeded skill card")
+            card = pool.find_card_by_name(self.SKILL_NAME)
+            assert card is not None, f"Seeded card not found: {self.SKILL_NAME}"
+            expect(card).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("4. Card shows its current sync status")
+            expect(
+                card.locator(pool.STATUS_BADGE).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("5. Hovering the card reveals the automation action")
+            pool.hover_card(card)
+            expect(
+                card.locator(pool.AUTOMATION_BUTTON).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+
+
+# ============================================================================
+# SYNC-002 P1  Edit-drawer Auto Sync switch reveals targets + persists on Save
+# ============================================================================
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.skill_pool
+@pytest.mark.skill_sync
+class TestSkillAutoSyncDrawer:
+    """SYNC-002: in the edit drawer, turning the Auto Sync switch ON reveals the
+    target-agent select; clicking Save persists it (card shows the Auto Sync
+    tag afterwards). The switch is staged — nothing persists until Save."""
+
+    SKILL_NAME = "e2e_sync_drawer_skill"
+
+    @pytest.mark.test_id("SYNC-002")
+    def test_auto_sync_switch_reveals_targets_and_persists(
+        self,
+        page: Page,
+        api_context,
+        request: pytest.FixtureRequest,
+    ):
+        test_name = request.node.name
+        pool = SkillPoolPage(page)
+        try:
+            log_test_step("1. Seed a pool skill (auto_sync defaults off)")
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
+            assert SkillPoolPage.seed_pool_skill(
+                api_context, self.SKILL_NAME
+            ), "Failed to seed pool skill"
+
+            log_test_step("2. Open the Skill Pool page and the skill's edit drawer")
+            pool.open()
+            pool.open_edit_drawer(self.SKILL_NAME)
+
+            log_test_step("3. Auto Sync switch visible; target select hidden")
+            expect(
+                page.locator(pool.AUTO_SYNC_SWITCH).first
+            ).to_be_visible(timeout=pool.timeout)
+            target_before = page.locator(pool.TARGET_SELECT_PLACEHOLDER)
+            assert (
+                target_before.count() == 0
+                or not target_before.first.is_visible()
+            ), "Target-agent select should be hidden while Auto Sync is off"
+
+            log_test_step("4. Turn Auto Sync ON → target-agent select appears")
+            pool.toggle_auto_sync_switch()
+            expect(
+                page.locator(pool.TARGET_SELECT_PLACEHOLDER).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_step("5. Save → the drawer closes")
+            pool.save_drawer()
+            expect(
+                page.locator(pool.DRAWER).first
+            ).to_be_hidden(timeout=pool.timeout)
+
+            log_test_step("6. The card now shows the Auto Sync tag (persisted)")
+            card = pool.find_card_by_name(self.SKILL_NAME)
+            assert card is not None, "Card missing after save"
+            expect(
+                card.locator(pool.AUTOMATION_TAG).first
+            ).to_be_visible(timeout=pool.timeout)
+
+            log_test_result(test_name, True, 0)
+            logger.info(f"Test {test_name} passed")
+        finally:
+            SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)

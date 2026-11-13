@@ -3,22 +3,40 @@
 
 import asyncio
 import json
+import logging
 import re
 import time
-from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
 import httpx
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
+from ...config.config import load_agent_config
 from ...config.utils import read_last_api
-from ...utils.http import trust_env_for_url
+from ...constant import (
+    DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS,
+    DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
+)
+from ...runtime.tool_registry import tool_descriptor
+from ...utils.runtime_api import (
+    api_client,
+    async_api_client,
+    read_runtime_api,
+)
+from ...utils.timeout import (
+    parse_positive_timeout_seconds as _parse_positive_timeout_seconds,
+)
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
+AGENT_CHAT_STOP_TIMEOUT = 3.0
+MAX_SPAWN_BATCH_SIZE = 10
+MAX_SPAWN_BATCH_CONCURRENCY = 3
 
 
 def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
@@ -26,13 +44,14 @@ def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
 
     Priority:
     1. Explicit ``base_url`` argument
-    2. Last recorded API host/port from config
-    3. Built-in localhost fallback
+    2. Hub-managed runtime endpoint
+    3. Last recorded API host/port from config
+    4. Built-in localhost fallback
     """
     if base_url:
         return base_url.rstrip("/")
 
-    last_api = read_last_api()
+    last_api = read_runtime_api() or read_last_api()
     if last_api:
         host, port = last_api
         return f"http://{host}:{port}"
@@ -47,8 +66,55 @@ def _normalize_api_base_url(base_url: Optional[str]) -> str:
     return base
 
 
-def _tool_text_response(text: str) -> ToolResponse:
-    return ToolResponse(content=[TextBlock(type="text", text=text)])
+def _tool_text_response(text: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
+        content=[TextBlock(type="text", text=text)],
+    )
+
+
+def _cooperative_cancel_response(tool_name: str) -> ToolChunk | None:
+    """Return an ERROR result for a coordinator-owned single-tool cancel.
+
+    A parent task cancellation means the whole agent turn is stopping and
+    must keep propagating ``CancelledError``.  A cooperative cancellation
+    raised by ``cancellable_wait`` has no pending task cancellation, so it is
+    safe to expose it as a normal tool error and let the agent loop continue.
+    """
+    from ...tool_calls import (
+        CancelReason,
+        format_cancel_message,
+        get_call_context,
+    )
+
+    ctx = get_call_context()
+    current_task = asyncio.current_task()
+    if (
+        ctx is None
+        or not ctx.cancel_event.is_set()
+        or (current_task is not None and current_task.cancelling())
+    ):
+        return None
+
+    if ctx.cancel_reason not in (
+        CancelReason.USER,
+        CancelReason.TIMEOUT,
+        CancelReason.AGENT,
+    ):
+        return None
+    reason = ctx.cancel_reason.value
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.ERROR,
+        content=[
+            TextBlock(
+                type="text",
+                text=format_cancel_message(tool_name, ctx.cancel_reason),
+            ),
+        ],
+        metadata={"cancel_reason": reason},
+    )
 
 
 def _json_text(data: Any) -> str:
@@ -68,10 +134,9 @@ def create_agent_api_client(
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
     normalized = _normalize_api_base_url(base_url)
-    return httpx.Client(
+    return api_client(
         base_url=normalized,
         timeout=default_timeout,
-        trust_env=trust_env_for_url(normalized),
     )
 
 
@@ -126,7 +191,7 @@ def ensure_agent_identity_prefix(
 
 
 def parse_agent_sse_line(line: str) -> Optional[Dict[str, Any]]:
-    """Parse a single SSE line emitted by /agent/process."""
+    """Parse a single SSE line emitted by /console/chat."""
     stripped = line.strip()
     if stripped.startswith("data: "):
         try:
@@ -266,7 +331,7 @@ def stream_agent_chat(
     with create_agent_api_client(base_url, default_timeout=timeout) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -286,12 +351,16 @@ def collect_final_agent_chat_response(
     to_agent: str,
     timeout: int,
 ) -> Optional[Dict[str, Any]]:
-    """Collect the last SSE payload from inter-agent chat."""
+    """Collect the last non-metadata SSE payload from inter-agent chat.
+
+    Skips trailing ``turn_usage`` events so the caller receives
+    the actual agent response instead of usage telemetry.
+    """
     response_data: Optional[Dict[str, Any]] = None
     with create_agent_api_client(base_url) as client:
         with client.stream(
             "POST",
-            "/agent/process",
+            "/console/chat",
             json=request_payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
@@ -300,9 +369,118 @@ def collect_final_agent_chat_response(
             for line in response.iter_lines():
                 if line:
                     parsed = parse_agent_sse_line(line)
-                    if parsed:
+                    if parsed and parsed.get("type") != "turn_usage":
                         response_data = parsed
     return response_data
+
+
+async def collect_final_agent_chat_response_async(
+    base_url: Optional[str],
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    timeout: float,
+) -> Optional[Dict[str, Any]]:
+    """Async SSE collect so coordinator cancel closes the HTTP stream.
+
+    Unlike the sync ``to_thread`` path, cancelling this coroutine exits
+    ``AsyncClient`` context managers and aborts the in-flight request.
+    """
+    normalized = _normalize_api_base_url(base_url)
+    response_data: Optional[Dict[str, Any]] = None
+    async with async_api_client(
+        base_url=normalized,
+        timeout=httpx.Timeout(timeout),
+    ) as client:
+        async with client.stream(
+            "POST",
+            "/console/chat",
+            json=request_payload,
+            headers=_request_headers(to_agent),
+        ) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if line:
+                    parsed = parse_agent_sse_line(line)
+                    if parsed and parsed.get("type") != "turn_usage":
+                        response_data = parsed
+    return response_data
+
+
+async def stop_agent_chat_async(
+    base_url: Optional[str],
+    session_id: str,
+    to_agent: str,
+    timeout: float = AGENT_CHAT_STOP_TIMEOUT,
+    cancel_reason: Optional[str] = None,
+    initiator: Optional[str] = None,
+) -> bool:
+    """Stop an inter-agent chat running on the target agent.
+
+    The console chat stream continues after its HTTP subscriber disconnects.
+    Cancelling ``chat_with_agent`` must therefore call the target agent's
+    explicit Stop endpoint instead of only closing the collection stream.
+
+    ``initiator`` carries the caller session that gave up so the target's
+    logs can attribute the stop (GH-8252).
+    """
+    normalized = _normalize_api_base_url(base_url)
+    async with async_api_client(
+        base_url=normalized,
+        timeout=httpx.Timeout(timeout),
+    ) as client:
+        params = {"chat_id": session_id}
+        if cancel_reason:
+            params["cancel_reason"] = cancel_reason
+        if initiator:
+            params["initiator"] = initiator
+        response = await client.post(
+            "/console/chat/stop",
+            params=params,
+            headers=_request_headers(to_agent),
+        )
+        response.raise_for_status()
+        payload = response.json()
+    return bool(payload.get("stopped")) if isinstance(payload, dict) else False
+
+
+async def _stop_cancelled_agent_chat(
+    session_id: str,
+    to_agent: str,
+    tool_name: str = "chat_with_agent",
+) -> None:
+    """Best-effort stop of a target chat after caller cancellation."""
+    from ...tool_calls import get_call_context
+
+    ctx = get_call_context()
+    cancel_reason = (
+        ctx.cancel_reason.value
+        if ctx is not None and ctx.cancel_reason is not None
+        else None
+    )
+    initiator = ctx.session_id if ctx is not None else None
+    try:
+        stopped = await asyncio.shield(
+            stop_agent_chat_async(
+                None,
+                session_id,
+                to_agent,
+                cancel_reason=cancel_reason,
+                initiator=initiator,
+            ),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "Failed to stop target agent chat after cancellation: %s",
+            exc,
+            exc_info=True,
+        )
+        return
+    if not stopped:
+        logger.warning(
+            "%s cancellation did not confirm target chat stop: %s",
+            tool_name,
+            session_id,
+        )
 
 
 def submit_agent_chat_task(
@@ -318,11 +496,19 @@ def submit_agent_chat_task(
         payload["timeout"] = task_timeout
     with create_agent_api_client(base_url) as client:
         response = client.post(
-            "/agent/process/task",
+            "/console/chat/task",
             json=payload,
             headers=_request_headers(to_agent),
             timeout=timeout,
         )
+        if response.status_code == 409:
+            try:
+                detail = response.json().get("detail")
+            except (AttributeError, ValueError):
+                detail = None
+            return {
+                "error": detail or "A task is already running for this chat",
+            }
         response.raise_for_status()
         return response.json()
 
@@ -336,7 +522,7 @@ def get_agent_chat_task_status(
     """Get the current status for a background inter-agent chat task."""
     with create_agent_api_client(base_url) as client:
         response = client.get(
-            f"/agent/process/task/{task_id}",
+            f"/console/chat/task/{task_id}",
             headers=_request_headers(to_agent),
             timeout=timeout,
         )
@@ -363,19 +549,32 @@ def format_background_submission_text(
     session_id: str,
 ) -> str:
     """Format background submission result as plain text."""
+    error = task_result.get("error")
+    if error:
+        return f"ERROR: {error}"
+
     task_id = task_result.get("task_id")
     if not task_id:
         return "ERROR: No task_id returned from server"
 
-    return "\n".join(
+    lines = [
+        f"[TASK_ID: {task_id}]",
+        f"[SESSION: {session_id}]",
+    ]
+    timeout = task_result.get("timeout")
+    if timeout is not None:
+        lines.append(f"[TIMEOUT: {timeout}s]")
+    lines.extend(
         [
-            f"[TASK_ID: {task_id}]",
-            f"[SESSION: {session_id}]",
             "",
             "Task submitted successfully.",
-            "Check status with: check_agent_task(" f"task_id='{task_id}')",
+            "The subagent is working autonomously"
+            " \u2014 do NOT poll immediately.",
+            "Wait at least 30 seconds, then check with:",
+            f"  check_agent_task(task_id='{task_id}')",
         ],
     )
+    return "\n".join(lines)
 
 
 def format_background_status_text(
@@ -412,6 +611,11 @@ def format_background_status_text(
         started_at = result.get("started_at", "N/A")
         parts.append("Task is still running...")
         parts.append(f"Started at: {started_at}")
+        parts.append("")
+        parts.append(
+            "Do NOT poll again immediately."
+            " Wait at least 30 seconds before next check.",
+        )
     elif status == "pending":
         parts.append("Task is pending in queue...")
     elif status == "submitted":
@@ -421,13 +625,20 @@ def format_background_status_text(
     return "\n".join(parts)
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="ListAgents",
+    ui_description="List configured agents from the local API",
+    ui_icon="🤖",
+)
 async def list_agents(
     base_url: Optional[str] = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """List all configured agents from the QwenPaw service.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A tool response containing the agent list as json text. Each agent
             has its id, name, description and workspace directory.
     """
@@ -435,18 +646,37 @@ async def list_agents(
     return _tool_text_response(_json_text(result))
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="to_agent",
+    policy_name="ChatWithAgent",
+    ui_description=(
+        "Send a message to another configured agent and wait for "
+        "the response"
+    ),
+    ui_icon="💬",
+)
 async def chat_with_agent(
     to_agent: str,
     text: str,
     session_id: Optional[str] = None,
     timeout: int = 300,
-) -> ToolResponse:
+) -> ToolChunk:
     """Send a foreground message to another configured agent.
 
     This tool waits for the target agent to finish and returns the final text
     response in a single tool result. It is intended for direct inter-agent
     consultation where the caller expects an immediate reply rather than a
     background task handle.
+
+    Cancellation semantics: when this call is cancelled (timeout, user stop,
+    or shutdown), the target agent's session is explicitly stopped as well,
+    cascading to the target's own in-flight sub-calls (its
+    ``chat_with_agent`` / ``spawn_subagent`` foreground children). A whole
+    call chain therefore ends within the same second, and the cancelled
+    target keeps only its persisted partial turn. This is intentional so a
+    given-up consultation does not leave orphaned downstream work.
 
     Args:
         to_agent (`str`):
@@ -458,12 +688,14 @@ async def chat_with_agent(
             Existing session ID to continue a previous conversation. If not
             provided, a new session ID is generated automatically.
         timeout (`int`, optional):
-            Foreground wait timeout in seconds. Callers should estimate how
-            long the target agent may need to finish to reduce avoidable
-            timeout failures.
+            Foreground wait timeout in seconds (default 300). When it
+            expires the target session is stopped (see above), so callers
+            should estimate how long the target agent may need. For
+            long-running work prefer ``submit_to_agent`` (background, no
+            foreground cap) or pass a larger explicit timeout.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing the final agent reply. Successful
             responses include a ``[SESSION: ...]`` header followed by the reply
             text so the caller can reuse the same session in later turns.
@@ -503,13 +735,19 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        normalized_to_agent,
-        timeout,
-    )
+    try:
+        response_data = await _collect_foreground_agent_chat(
+            request_payload,
+            normalized_to_agent,
+            final_session_id,
+            timeout,
+            tool_name="chat_with_agent",
+        )
+    except asyncio.CancelledError:
+        cancel_response = _cooperative_cancel_response("chat_with_agent")
+        if cancel_response is None:
+            raise
+        return cancel_response
     if not response_data:
         return _tool_text_response("(No response received)")
 
@@ -518,12 +756,20 @@ async def chat_with_agent(
     )
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="to_agent",
+    policy_name="SubmitToAgent",
+    ui_description="Submit a background task to another configured agent",
+    ui_icon="📨",
+)
 async def submit_to_agent(
     to_agent: str,
     text: str,
     session_id: Optional[str] = None,
-    task_timeout: Optional[float] = None,
-) -> ToolResponse:
+    task_timeout: float | int | str | None = None,
+) -> ToolChunk:
     """Submit a background message to another configured agent.
 
     This tool is the background-task counterpart to ``chat_with_agent``. It
@@ -539,12 +785,16 @@ async def submit_to_agent(
         session_id (`str`, optional):
             Existing session ID to continue a previous conversation in the
             background. If not provided, a new session ID is generated.
-        task_timeout (`float`, optional):
-            Task execution timeout in seconds. Overrides the server-side
-            default stream_task_timeout for this specific task.
+        task_timeout (`float | int | str`, optional):
+            Task execution timeout in seconds. Numeric strings (e.g.
+            ``"1800"``) are accepted for LLM mis-serialization. When
+            omitted, the backend ``POST /console/chat/task`` applies
+            ``DEFAULT_STREAM_TASK_TIMEOUT_SECONDS`` (3600). Must be a
+            positive value when provided; pass a larger explicit value for
+            long-running tasks.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing ``[TASK_ID: ...]`` and
             ``[SESSION: ...]`` headers. The returned task ID can be passed to
             ``check_agent_task`` to inspect progress or fetch the final result.
@@ -559,6 +809,16 @@ async def submit_to_agent(
         return _tool_text_response(
             "ERROR: 'text' is required for submission",
         )
+
+    parsed_timeout: Optional[int] = None
+    if task_timeout is not None:
+        try:
+            parsed_timeout = _parse_positive_timeout_seconds(
+                task_timeout,
+                field_name="task_timeout",
+            )
+        except ValueError as exc:
+            return _tool_text_response(f"ERROR: {exc}")
 
     target_exists = await asyncio.to_thread(
         agent_exists,
@@ -594,16 +854,24 @@ async def submit_to_agent(
         request_payload,
         normalized_to_agent,
         int(DEFAULT_AGENT_API_TIMEOUT),
-        task_timeout,
+        parsed_timeout,
     )
     return _tool_text_response(
         format_background_submission_text(result, final_session_id),
     )
 
 
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    target_param="task_id",
+    policy_name="CheckAgentTask",
+    ui_description="Check the status of a background agent task",
+    ui_icon="⏳",
+)
 async def check_agent_task(
     task_id: str,
-) -> ToolResponse:
+) -> ToolChunk:
     """Check the status of a background inter-agent task.
 
     This tool queries a previously submitted background task by its task ID.
@@ -616,7 +884,7 @@ async def check_agent_task(
             The background task ID returned by ``submit_to_agent``.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A text response containing a ``[TASK_ID: ...]`` header and current
             task status. Completed tasks also include the resolved session ID
             and final agent text when available.
@@ -634,6 +902,43 @@ async def check_agent_task(
         to_agent=None,
         timeout=10,
     )
+    # Background fork workers: commit on success, mark failed otherwise.
+    if isinstance(result, dict) and result.get("status") == "finished":
+        task_result = result.get("result")
+        if isinstance(task_result, dict):
+            try:
+                from ..fork_project import (
+                    finalize_fork_for_task,
+                    mark_fork_failed_for_task,
+                )
+                from ...config.context import get_current_workspace_dir
+
+                ws = get_current_workspace_dir()
+                if task_result.get("status") == "completed":
+                    await asyncio.to_thread(
+                        finalize_fork_for_task,
+                        normalized_task_id,
+                        workspace_dir=ws,
+                    )
+                else:
+                    err = task_result.get("error") or {}
+                    reason = (
+                        err.get("message", "background task failed")
+                        if isinstance(err, dict)
+                        else "background task failed"
+                    )
+                    await asyncio.to_thread(
+                        mark_fork_failed_for_task,
+                        normalized_task_id,
+                        workspace_dir=ws,
+                        reason=str(reason),
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Fork finalize/fail on check_agent_task failed for %s",
+                    normalized_task_id,
+                    exc_info=True,
+                )
     return _tool_text_response(
         format_background_status_text(normalized_task_id, result),
     )
@@ -644,42 +949,411 @@ def _generate_subagent_session_id() -> str:
     return f"sub-{str(uuid4())[:8]}"
 
 
-async def spawn_subagent(
+def _json_safe_channel_meta(value: Any) -> Any:
+    """Keep channel routing metadata safe to include in an HTTP payload."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        safe: dict[str, Any] = {}
+        for key, raw_value in value.items():
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe[str(key)] = safe_value
+        return safe
+    if isinstance(value, (list, tuple)):
+        safe_list = []
+        for raw_value in value:
+            safe_value = _json_safe_channel_meta(raw_value)
+            if safe_value is not None:
+                safe_list.append(safe_value)
+        return safe_list
+    return None
+
+
+def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
+    """Build approval routing metadata without changing child identity."""
+    from ...app.agent_context import (
+        get_current_approval_route,
+        get_current_channel,
+        get_current_root_session_id,
+        get_current_session_id,
+        get_current_user_id,
+    )
+
+    inherited = get_current_approval_route() or {}
+    context: dict[str, Any] = {
+        "root_session_id": (
+            inherited.get("root_session_id")
+            or get_current_root_session_id()
+            or get_current_session_id()
+            or ""
+        ),
+        "root_agent_id": current_agent_id,
+        "parent_session_id": get_current_session_id() or "",
+        "user_id": inherited.get("user_id") or get_current_user_id() or "",
+        "channel": inherited.get("channel") or get_current_channel() or "",
+        "_spawn_subagent": True,
+    }
+    safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
+    if isinstance(safe_meta, dict) and safe_meta:
+        context["channel_meta"] = safe_meta
+    if inherited.get("approval_level"):
+        context["approval_level"] = inherited["approval_level"]
+
+    # Subagents do not share the parent's chat, so the parent's resolved
+    # project-dir list is handed down explicitly. Fork workers override
+    # it (worktree wins the primary slot); everyone else uses it as the
+    # session-slot snapshot (source "inherited").
+    from ...config.context import get_current_project_dirs
+
+    parent_dirs = get_current_project_dirs()
+    if parent_dirs:
+        context["inherited_project_dirs"] = [
+            {"path": str(entry.path), "label": entry.label}
+            for entry in parent_dirs
+        ]
+    return context
+
+
+def _coerce_json_list(value: Any, field_name: str) -> Optional[list[Any]]:
+    """Coerce a tool arg to ``list``; accept JSON-array strings from LLMs.
+
+    Returns ``None`` when *value* is ``None``.  Raises ``ValueError`` for
+    non-list values (after optional JSON decode of strings).
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(
+                f"'{field_name}' must be a list or a JSON array string",
+            )
+        try:
+            parsed = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise ValueError(
+                f"'{field_name}' must be a list or a JSON array string",
+            ) from exc
+        if not isinstance(parsed, list):
+            raise ValueError(
+                f"'{field_name}' JSON value must be an array, "
+                f"got {type(parsed).__name__}",
+            )
+        return parsed
+    raise ValueError(
+        f"'{field_name}' must be a list or a JSON array string",
+    )
+
+
+def _normalize_str_list(
+    value: Any,
+    field_name: str,
+) -> Optional[list[str]]:
+    """Validate an optional list[str] tool argument.
+
+    Accepts a real ``list[str]`` or a JSON array string (common LLM
+    mis-serialization).  Returns ``None`` when *value* is ``None``.
+    Raises ``ValueError`` when the value is not a list of strings
+    (prevents ``list("abc")`` character-splitting on mistaken string
+    inputs that are not JSON arrays).
+    """
+    if value is None:
+        return None
+    coerced = _coerce_json_list(value, field_name)
+    assert coerced is not None
+    if not all(isinstance(item, str) for item in coerced):
+        raise ValueError(
+            f"'{field_name}' must be a list of strings or null",
+        )
+    return list(coerced)
+
+
+def _coerce_bool(
+    value: Any,
+    default: bool = False,
+    *,
+    field_name: str = "value",
+) -> bool:
+    """Parse a bool tool field; reject ambiguous truthiness.
+
+    ``bool("false")`` / ``bool("null")`` are ``True`` in Python — only
+    accept explicit bool / ``0|1`` / known true/false strings.  Anything
+    else raises ``ValueError`` (no ``bool(value)`` fallthrough).
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("true", "1", "yes", "on"):
+            return True
+        if text in ("false", "0", "no", "off"):
+            return False
+    raise ValueError(
+        f"'{field_name}' must be a boolean "
+        f"(or 0/1 / true/false / yes/no / on/off)",
+    )
+
+
+def _foreground_wait_seconds(parsed_timeout: Optional[int]) -> int:
+    """HTTP wait for spawn foreground; omit uses the spawn-only default."""
+    if parsed_timeout is None:
+        return int(DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS)
+    return parsed_timeout
+
+
+def _foreground_http_timeout(wait_seconds: int) -> float:
+    """Keep foreground HTTP alive while the Coordinator owns its deadline."""
+    from ...tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        get_call_context,
+    )
+
+    if get_call_context() is not None:
+        return float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+    return float(wait_seconds)
+
+
+async def _collect_foreground_agent_chat(
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    session_id: str,
+    wait_seconds: int,
+    *,
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Collect a foreground agent chat with a shared cancel contract."""
+    from ...tool_calls import cancellable_wait
+
+    try:
+        return await cancellable_wait(
+            collect_final_agent_chat_response_async(
+                None,
+                request_payload,
+                to_agent,
+                _foreground_http_timeout(wait_seconds),
+            ),
+            fallback_secs=float(wait_seconds),
+            as_kill_deadline=True,
+        )
+    except asyncio.CancelledError:
+        await _stop_cancelled_agent_chat(
+            session_id,
+            to_agent,
+            tool_name=tool_name,
+        )
+        raise
+
+
+def _watchdog_timeout_from_submit_result(task_result: Any) -> int:
+    """Prefer the ``/chat/task`` echo; never invent a third default.
+
+    Must use :data:`DEFAULT_STREAM_TASK_TIMEOUT_SECONDS` — the same
+    symbol as ``resolve_stream_task_timeout``. Do not hardcode 3600.
+    """
+    raw = None
+    if isinstance(task_result, dict):
+        raw = task_result.get("timeout")
+    if raw is not None:
+        try:
+            return _parse_positive_timeout_seconds(
+                raw,
+                field_name="timeout",
+            )
+        except ValueError:
+            pass
+    return int(DEFAULT_STREAM_TASK_TIMEOUT_SECONDS)
+
+
+def _normalize_batch(
+    value: Any,
+) -> Optional[list[Dict[str, Any]]]:
+    """Normalize ``batch`` to ``list[dict]`` or ``None``.
+
+    Accepts a real list or a JSON array string.  Empty placeholders are
+    treated as "field not supplied" so Responses-compatible models that
+    emit ``""``, ``[]``, or ``"[]"`` can still use single-task mode.
+    This compatibility rule stays batch-specific because empty values
+    have security-relevant meanings for fields such as ``allowed_tools``.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    coerced = _coerce_json_list(value, "batch")
+    if not coerced:
+        return None
+    return coerced  # type: ignore[return-value]
+
+
+async def _build_subagent_request_context(
+    current_agent_id: str,
+    allowed_tools: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
+    extra: Optional[dict] = None,
+) -> dict[str, Any]:
+    """Build request_context with approval routing + tool/skill filters."""
+    rc = _build_spawn_request_context(current_agent_id)
+    try:
+        agent_config = await asyncio.to_thread(
+            load_agent_config,
+            current_agent_id,
+        )
+        subagent_model = agent_config.subagent_model
+        if subagent_model is not None:
+            rc["model_slot_override"] = subagent_model.model_dump()
+    except Exception:  # pylint: disable=broad-exception-caught
+        # Subagents must remain usable when an optional per-agent model
+        # override cannot be loaded from a stale or synthetic test identity.
+        pass
+    if extra:
+        rc.update(extra)
+    if allowed_tools is not None:
+        rc["subagent_allowed_tools"] = list(allowed_tools)
+    if skills is not None:
+        rc["subagent_skills"] = list(skills)
+    return rc
+
+
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="SpawnSubagent",
+    ui_description="Spawn an ephemeral sub-task within the current workspace",
+    ui_icon="🔀",
+)
+async def spawn_subagent(  # pylint: disable=too-many-return-statements
     task: str,
-    fork: bool = False,
-    background: bool = False,
-    timeout: int = 600,
-) -> ToolResponse:
+    fork: bool | str | int = False,
+    background: bool | str | int = False,
+    timeout: int | float | str | None = None,
+    allowed_tools: Optional[list[str] | str] = None,
+    skills: Optional[list[str] | str] = None,
+    batch: Optional[list[Dict[str, Any]] | str] = None,
+) -> ToolChunk:
     """Spawn an ephemeral subagent within the CURRENT workspace.
 
-    The subagent runs as a one-shot task and cannot be resumed.
-    Results flow back as text summary; file changes (fork mode)
-    are isolated in a git branch.
+    The subagent starts a **fresh conversation context** — it does NOT
+    inherit the parent agent's dialogue history, accumulated state, or
+    in-progress tool calls.  It shares the same agent identity,
+    workspace, and (by default) the full set of available tools and
+    skills.  Use ``allowed_tools`` / ``skills`` to restrict what a
+    subagent can access.
 
-    Unlike ``chat_with_agent`` (which calls a *different* agent),
-    this tool targets the same agent identity and workspace.
+    Unlike ``chat_with_agent`` (which targets a *different* configured
+    agent), this tool creates a disposable one-shot worker under the
+    current agent's identity.
 
     Args:
-        task: Description of the sub-task to perform.
-        fork: If True, the subagent inherits parent session state.
-            If the project is a git repo, it also runs in an
-            isolated worktree. Works without coding mode (falls
-            back to workspace; no worktree if not a git repo).
-            If False (default), starts with a fresh empty session.
-        background: If True, submit as background task and return
-            immediately with a task_id. Use check_agent_task(task_id)
-            to poll status and retrieve the result.
-        timeout: Foreground wait timeout in seconds (default 600).
+        task: Description of the sub-task.  This becomes the sole user
+            message in the subagent's conversation.  Always required by
+            the signature; pass an empty string when using ``batch``.
+        fork: Controls two independent features:
+            1. **Session state inheritance** — the subagent receives a
+               copy of the parent's persisted session state.
+            2. **Git worktree isolation** — if the project directory is
+               a git repository, the subagent works in a dedicated
+               worktree so its file changes cannot conflict with the
+               parent or other subagents.
+            When False (default), the subagent starts with an empty
+            session and works in the original project directory.
+            A JSON/string boolean (e.g. ``"false"``) is also accepted
+            for LLM mis-serialization; ambiguous values return ERROR.
+        background: If True, submit as a background task and return
+            immediately with a task_id.  The subagent typically runs for
+            **minutes, not seconds** — do NOT poll immediately.  Wait at
+            least 30 seconds before the first ``check_agent_task`` call,
+            and use 30-60 second intervals between subsequent polls.
+            Prefer ``background=False`` (foreground) when only spawning
+            a single subagent — it blocks until completion, eliminating
+            the need to poll entirely.  String booleans are accepted
+            like ``fork``; ambiguous values return ERROR.
+        timeout: Time budget in seconds.  Numeric strings (e.g.
+            ``"1800"``) are accepted for LLM mis-serialization; invalid
+            values return ERROR.  Foreground: parent HTTP wait on
+            ``/console/chat``; omit uses
+            ``DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS`` (600).
+            Background: task execution budget on ``/console/chat/task``;
+            omit leaves the field unset so the server applies
+            ``DEFAULT_STREAM_TASK_TIMEOUT_SECONDS`` (3600).  An explicit
+            positive value applies in both modes.  Ignored entirely in
+            batch mode (use per-item ``timeout``).
+        allowed_tools: Tool-name whitelist.  Only the listed tools are
+            available to the subagent.  ``None`` (default) inherits the
+            parent's full tool set.  An empty list denies all tools.
+            A JSON array string is also accepted (LLM mis-serialization).
+            Ignored in batch mode (use per-item ``allowed_tools``).
+        skills: Skill-name whitelist.  Only the listed SKILL.md files
+            are loaded for the subagent.  ``None`` (default) inherits
+            all skills resolved for this workspace.  A JSON array
+            string is also accepted.  Ignored in batch mode (use
+            per-item ``skills``).
+        batch: List of task specs for batch mode.  When provided,
+            ``task`` must be an empty string.  Each dict must contain a
+            ``task`` key; optional keys: ``fork``, ``timeout``,
+            ``allowed_tools``, ``skills`` (top-level ``fork`` /
+            ``timeout`` / ``allowed_tools`` / ``skills`` /
+            ``background`` are ignored in batch mode).
+            A JSON array string is also accepted so schema validation
+            does not reject common LLM stringification.  All subagents
+            run as background tasks.  Maximum length is
+            ``MAX_SPAWN_BATCH_SIZE`` (10); concurrent dispatches are
+            capped at ``MAX_SPAWN_BATCH_CONCURRENCY`` (3).
 
     Returns:
-        Foreground: subagent result text with [SESSION: <id>].
-        Background: [TASK_ID: <id>] + [SESSION: <id>].
+        Foreground (single): subagent result text with [SESSION: <id>].
+        Background (single): [TASK_ID: <id>] + [SESSION: <id>].
         Fork foreground: also [FORK_BRANCH: <branch>] if changes.
+        Batch: per-subagent [TASK_ID: ...] + [SESSION: ...].
     """
+    try:
+        batch = _normalize_batch(batch)
+    except ValueError as exc:
+        return _tool_text_response(f"ERROR: {exc}")
+
+    if batch is not None:
+        if task and task.strip():
+            return _tool_text_response(
+                "ERROR: 'task' and 'batch' are mutually exclusive. "
+                "Pass task='' with 'batch' for multiple subagents.",
+            )
+        # Top-level fork/background/timeout/allowed_tools/skills are
+        # ignored in batch mode — do not normalize/coerce them here or
+        # LLM placeholder strings would block dispatch.
+        return await _spawn_batch(batch)
+
     if not task or not task.strip():
         return _tool_text_response(
-            "ERROR: 'task' is required for spawn_subagent",
+            "ERROR: 'task' is required for spawn_subagent "
+            "(use task='' only with batch=...)",
         )
+
+    try:
+        allowed_tools = _normalize_str_list(
+            allowed_tools,
+            "allowed_tools",
+        )
+        skills = _normalize_str_list(skills, "skills")
+        fork = _coerce_bool(fork, default=False, field_name="fork")
+        background = _coerce_bool(
+            background,
+            default=False,
+            field_name="background",
+        )
+        parsed_timeout: Optional[int] = None
+        if timeout is not None:
+            parsed_timeout = _parse_positive_timeout_seconds(
+                timeout,
+                field_name="timeout",
+            )
+    except ValueError as exc:
+        return _tool_text_response(f"ERROR: {exc}")
 
     from ...app.agent_context import get_current_agent_id
 
@@ -697,9 +1371,16 @@ async def spawn_subagent(
             current_agent_id=current_agent_id,
             subagent_session_id=subagent_session_id,
             background=background,
-            timeout=timeout,
+            timeout=parsed_timeout,
+            allowed_tools=allowed_tools,
+            skills=skills,
         )
 
+    request_context = await _build_subagent_request_context(
+        current_agent_id,
+        allowed_tools=allowed_tools,
+        skills=skills,
+    )
     request_payload = {
         "session_id": subagent_session_id,
         "input": [
@@ -708,7 +1389,7 @@ async def spawn_subagent(
                 "content": [{"type": "text", "text": task}],
             },
         ],
-        "request_context": {},
+        "request_context": request_context,
     }
 
     if background:
@@ -718,6 +1399,7 @@ async def spawn_subagent(
             request_payload,
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
+            parsed_timeout,
         )
         return _tool_text_response(
             format_background_submission_text(
@@ -726,12 +1408,12 @@ async def spawn_subagent(
             ),
         )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
+    response_data = await _collect_foreground_agent_chat(
         request_payload,
         current_agent_id,
-        timeout,
+        subagent_session_id,
+        _foreground_wait_seconds(parsed_timeout),
+        tool_name="spawn_subagent",
     )
     if not response_data:
         return _tool_text_response(
@@ -744,6 +1426,146 @@ async def spawn_subagent(
             session_id=subagent_session_id,
         ),
     )
+
+
+def _chunk_text(chunk: ToolChunk) -> str:
+    """Extract plain text from a ToolChunk, if present."""
+    if not chunk.content:
+        return ""
+    block = chunk.content[0]
+    text = getattr(block, "text", None)
+    return text if isinstance(text, str) else str(block)
+
+
+async def _spawn_batch(
+    specs: list[Dict[str, Any]],
+) -> ToolChunk:
+    """Dispatch multiple subagents in parallel as background tasks."""
+    if not isinstance(specs, list) or not specs:
+        return _tool_text_response(
+            "ERROR: 'batch' must be a non-empty list",
+        )
+    if len(specs) > MAX_SPAWN_BATCH_SIZE:
+        return _tool_text_response(
+            f"ERROR: batch size {len(specs)} exceeds "
+            f"maximum of {MAX_SPAWN_BATCH_SIZE}",
+        )
+    normalized: list[Dict[str, Any]] = []
+    for i, spec in enumerate(specs):
+        if (
+            not isinstance(spec, dict)
+            or not str(
+                spec.get("task", ""),
+            ).strip()
+        ):
+            return _tool_text_response(
+                f"ERROR: batch[{i}] must be a dict with a "
+                f"non-empty 'task' field",
+            )
+        try:
+            normalized.append(
+                {
+                    **spec,
+                    "allowed_tools": _normalize_str_list(
+                        spec.get("allowed_tools"),
+                        f"batch[{i}].allowed_tools",
+                    ),
+                    "skills": _normalize_str_list(
+                        spec.get("skills"),
+                        f"batch[{i}].skills",
+                    ),
+                    # Validate fork/timeout before any dispatch so a bad
+                    # value cannot partially spawn siblings (gather).
+                    "fork": _coerce_bool(
+                        spec.get("fork"),
+                        default=False,
+                        field_name=f"batch[{i}].fork",
+                    ),
+                    "timeout": (
+                        None
+                        if spec.get("timeout") is None
+                        else _parse_positive_timeout_seconds(
+                            spec.get("timeout"),
+                            field_name=f"batch[{i}].timeout",
+                        )
+                    ),
+                },
+            )
+        except ValueError as exc:
+            return _tool_text_response(f"ERROR: {exc}")
+
+    from ...app.agent_context import get_current_agent_id
+
+    current_agent_id = get_current_agent_id()
+    if not current_agent_id:
+        return _tool_text_response(
+            "ERROR: unable to resolve current agent ID",
+        )
+
+    sem = asyncio.Semaphore(MAX_SPAWN_BATCH_CONCURRENCY)
+
+    async def _dispatch_one(spec: Dict[str, Any]) -> str:
+        session_id = _generate_subagent_session_id()
+        task_text = spec["task"]
+        spec_fork = bool(spec["fork"])
+        spec_timeout = spec["timeout"]
+        spec_allowed = spec.get("allowed_tools")
+        spec_skills = spec.get("skills")
+
+        async with sem:
+            if spec_fork:
+                chunk = await _spawn_forked_subagent(
+                    task=task_text,
+                    current_agent_id=current_agent_id,
+                    subagent_session_id=session_id,
+                    background=True,
+                    timeout=spec_timeout,
+                    allowed_tools=spec_allowed,
+                    skills=spec_skills,
+                )
+                return _chunk_text(chunk)
+
+            rc = await _build_subagent_request_context(
+                current_agent_id,
+                allowed_tools=spec_allowed,
+                skills=spec_skills,
+            )
+            payload = {
+                "session_id": session_id,
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": task_text},
+                        ],
+                    },
+                ],
+                "request_context": rc,
+            }
+            result = await asyncio.to_thread(
+                submit_agent_chat_task,
+                None,
+                payload,
+                current_agent_id,
+                int(DEFAULT_AGENT_API_TIMEOUT),
+                spec_timeout,
+            )
+            return format_background_submission_text(result, session_id)
+
+    results = await asyncio.gather(
+        *[_dispatch_one(s) for s in normalized],
+        return_exceptions=True,
+    )
+
+    lines: list[str] = []
+    for i, r in enumerate(results):
+        prefix = f"[{i + 1}/{len(specs)}]"
+        if isinstance(r, Exception):
+            lines.append(f"{prefix} ERROR: {r}")
+        else:
+            lines.append(f"{prefix} {r}")
+
+    return _tool_text_response("\n\n".join(lines))
 
 
 async def _call_fork_api(
@@ -765,9 +1587,9 @@ async def _call_fork_api(
         "channel": channel,
     }
     try:
-        async with httpx.AsyncClient(
+        async with async_api_client(
+            base_url=url,
             timeout=30.0,
-            trust_env=trust_env_for_url(url),
         ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
@@ -776,56 +1598,17 @@ async def _call_fork_api(
         return {"error": str(exc)}
 
 
-async def _maybe_cleanup_worktree(
-    worktree_path: str,
-    project_dir: str,
-) -> bool:
-    """Remove the worktree if it has no uncommitted changes.
-
-    Returns True if cleaned up, False if kept (has changes).
-    """
-    import subprocess as _subprocess
-
-    def _cleanup() -> bool:
-        try:
-            result = _subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-            if result.returncode != 0 or result.stdout.strip():
-                return False
-            remove_result = _subprocess.run(
-                [
-                    "git",
-                    "worktree",
-                    "remove",
-                    "--force",
-                    worktree_path,
-                ],
-                cwd=project_dir,
-                capture_output=True,
-                timeout=30,
-                check=False,
-            )
-            return remove_result.returncode == 0
-        except Exception:  # noqa: BLE001
-            return False
-
-    return await asyncio.to_thread(_cleanup)
-
-
 async def _spawn_forked_subagent(
     task: str,
     current_agent_id: str,
     subagent_session_id: str,
     background: bool,
-    timeout: int,
-) -> ToolResponse:
+    timeout: Optional[int],
+    allowed_tools: Optional[list[str]] = None,
+    skills: Optional[list[str]] = None,
+) -> ToolChunk:
     """Fork path: call /api/fork/agent then dispatch subagent."""
+    # pylint: disable=too-many-branches,too-many-statements
     from ...app.agent_context import (
         get_current_session_id,
         get_current_user_id,
@@ -855,9 +1638,56 @@ async def _spawn_forked_subagent(
     worktree_path = fork_result.get("worktree_path", "")
     worktree_branch = fork_result.get("worktree_branch", "")
 
-    request_context: dict = {}
+    from ..fork_project import (
+        FORK_WORKER_COMMIT_PROTOCOL,
+        bind_fork_task,
+        finalize_fork_worktree_or_fail,
+        get_active_fork_scope,
+        mark_fork_failed,
+        register_fork,
+    )
+    from ...config.context import get_current_workspace_dir
+
+    # Workers must commit; inject protocol even when the caller forgot.
+    worker_task = task
+    if worktree_path and FORK_WORKER_COMMIT_PROTOCOL not in task:
+        worker_task = f"{FORK_WORKER_COMMIT_PROTOCOL}\n\n{task}"
+
+    fork_extra: dict[str, Any] | None = None
+    fork_scope_id = ""
     if worktree_path:
-        request_context["fork_project_dir"] = worktree_path
+        # ``fork_project_dir`` is the spawn-level key; also set the ACP
+        # project-directory meta key so AgentBuilder / ContextVars rebind
+        # tools/cwd to the worktree.
+        from ..acp.meta import ACP_PROJECT_DIR_META_KEY
+
+        workspace_dir = get_current_workspace_dir()
+        registered = await asyncio.to_thread(
+            register_fork,
+            worktree_path,
+            worktree_branch,
+            session_id=fork_session_id,
+            workspace_dir=workspace_dir,
+        )
+        if not registered:
+            return _tool_text_response(
+                "ERROR: failed to register fork for merge verification "
+                f"(branch={worktree_branch or '?'}). Aborting spawn so "
+                "the merge gate cannot be bypassed.",
+            )
+        fork_scope_id = get_active_fork_scope(workspace_dir)
+        fork_extra = {
+            "fork_project_dir": worktree_path,
+            ACP_PROJECT_DIR_META_KEY: worktree_path,
+            "fork_worktree_branch": worktree_branch,
+            "fork_scope_id": fork_scope_id,
+        }
+    request_context = await _build_subagent_request_context(
+        current_agent_id,
+        allowed_tools=allowed_tools,
+        skills=skills,
+        extra=fork_extra,
+    )
 
     request_payload: dict = {
         "session_id": fork_session_id,
@@ -866,7 +1696,7 @@ async def _spawn_forked_subagent(
         "input": [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": task}],
+                "content": [{"type": "text", "text": worker_task}],
             },
         ],
         "request_context": request_context,
@@ -879,7 +1709,30 @@ async def _spawn_forked_subagent(
             request_payload,
             current_agent_id,
             int(DEFAULT_AGENT_API_TIMEOUT),
+            # Explicit budget as-is; omit None so /chat/task applies default.
+            timeout,
         )
+        task_id = result.get("task_id") if isinstance(result, dict) else None
+        if worktree_path and task_id:
+            await asyncio.to_thread(
+                bind_fork_task,
+                worktree_path,
+                worktree_branch,
+                str(task_id),
+                expected_scope=fork_scope_id or None,
+            )
+            # Poller fallback if the console completion hook is unavailable.
+            # finalize_fork_worktree is claim/idempotent so overlapping
+            # console-hook / check_agent_task paths are safe.
+            asyncio.create_task(
+                _watch_background_fork_finalize(
+                    str(task_id),
+                    worktree_path,
+                    worktree_branch,
+                    timeout=_watchdog_timeout_from_submit_result(result),
+                    expected_scope=fork_scope_id or None,
+                ),
+            )
         submission_text = format_background_submission_text(
             result,
             fork_session_id,
@@ -892,40 +1745,55 @@ async def _spawn_forked_subagent(
             )
         return _tool_text_response(submission_text)
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        current_agent_id,
-        timeout,
-    )
+    wait_seconds = _foreground_wait_seconds(timeout)
 
-    # Resolve project_dir for cleanup (coding_mode or workspace)
-    from ...config.config import load_agent_config
-
-    _project_dir = ""
-    if worktree_path:
-        try:
-            _cfg = load_agent_config(current_agent_id)
-            _cm = _cfg.coding_mode
-            if _cm and _cm.enabled and _cm.project_dir:
-                _project_dir = str(
-                    Path(_cm.project_dir).resolve(),
+    try:
+        response_data = await _collect_foreground_agent_chat(
+            request_payload,
+            current_agent_id,
+            fork_session_id,
+            wait_seconds,
+            tool_name="spawn_subagent",
+        )
+    except asyncio.CancelledError:
+        if worktree_path:
+            try:
+                await asyncio.to_thread(
+                    mark_fork_failed,
+                    worktree_path,
+                    worktree_branch,
+                    reason="Forked subagent cancelled",
+                    expected_scope=fork_scope_id or None,
                 )
-            else:
-                _project_dir = str(
-                    Path(_cfg.workspace_dir).resolve(),
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to mark cancelled fork as failed: %s",
+                    worktree_path,
+                    exc_info=True,
                 )
-        except Exception:  # noqa: BLE001
-            _project_dir = ""
+        raise
 
-    cleaned = False
-    if worktree_path and _project_dir:
-        cleaned = await _maybe_cleanup_worktree(
+    # Only commit on a successful worker response (avoid half-baked commits).
+    finalize_ok = False
+    if worktree_path and response_data:
+        finalize_ok = await asyncio.to_thread(
+            finalize_fork_worktree_or_fail,
             worktree_path,
-            _project_dir,
+            worktree_branch,
+            message=f"fork worker {worktree_branch or fork_session_id}",
+            expected_scope=fork_scope_id or None,
+        )
+    elif worktree_path:
+        await asyncio.to_thread(
+            mark_fork_failed,
+            worktree_path,
+            worktree_branch,
+            reason="No response from forked subagent",
+            expected_scope=fork_scope_id or None,
         )
 
+    # Do not auto-remove the worktree on the sync path: the controller
+    # needs [FORK_BRANCH:] to merge, and cleanup would hide that signal.
     if not response_data:
         return _tool_text_response(
             "(No response received from forked subagent)",
@@ -936,11 +1804,88 @@ async def _spawn_forked_subagent(
         session_id=fork_session_id,
     )
 
-    if not cleaned and worktree_path:
+    # Only advertise [FORK_BRANCH:] when finalize succeeded; a failed
+    # finalize is marked in the registry and must not look merge-ready.
+    if worktree_path and finalize_ok:
         result_text += (
             f"\n\n[FORK_BRANCH: {worktree_branch}]"
-            "\nThe forked worktree has changes. "
-            "Review and merge manually."
+            "\nForked worktree retained for merge; clean up after "
+            "`git merge` succeeds."
+        )
+    elif worktree_path:
+        result_text += (
+            f"\n\n[FORK_FINALIZE_FAILED: {worktree_branch}]"
+            "\nFork was marked failed; do not merge until re-run succeeds."
         )
 
     return _tool_text_response(result_text)
+
+
+async def _watch_background_fork_finalize(
+    task_id: str,
+    worktree_path: str,
+    worktree_branch: str,
+    *,
+    timeout: int,
+    expected_scope: str | None = None,
+) -> None:
+    """Poll until the background task finishes or *timeout* elapses.
+
+    ``timeout`` is the effective execution budget from the submit
+    response (or ``DEFAULT_STREAM_TASK_TIMEOUT_SECONDS`` if the echo is
+    missing). Console completion hook remains primary.
+    """
+    from ..fork_project import (
+        finalize_fork_worktree_or_fail,
+        mark_fork_failed,
+    )
+
+    deadline = time.time() + max(30, int(timeout) + 30)
+    delay = 2.0
+    while time.time() < deadline:
+        await asyncio.sleep(delay)
+        delay = min(delay * 1.5, 30.0)
+        try:
+            status = await asyncio.to_thread(
+                get_agent_chat_task_status,
+                None,
+                task_id,
+                to_agent=None,
+                timeout=10,
+            )
+        except Exception:  # noqa: BLE001
+            continue
+        if status.get("status") != "finished":
+            continue
+        result = status.get("result") or {}
+        if result.get("status") == "completed":
+            await asyncio.to_thread(
+                finalize_fork_worktree_or_fail,
+                worktree_path,
+                worktree_branch,
+                message=f"fork worker {worktree_branch}",
+                expected_scope=expected_scope,
+            )
+        else:
+            err = result.get("error") or {}
+            reason = (
+                err.get("message", "background task failed")
+                if isinstance(err, dict)
+                else "background task failed"
+            )
+            await asyncio.to_thread(
+                mark_fork_failed,
+                worktree_path,
+                worktree_branch,
+                reason=str(reason),
+                expected_scope=expected_scope,
+            )
+        return
+
+    await asyncio.to_thread(
+        mark_fork_failed,
+        worktree_path,
+        worktree_branch,
+        reason="finalize watchdog timeout",
+        expected_scope=expected_scope,
+    )

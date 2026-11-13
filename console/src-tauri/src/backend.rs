@@ -1,130 +1,69 @@
-//! Backend sidecar lifecycle for the Tauri desktop app.
+//! Native desktop client for a shared, independently owned Agent Host.
 
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Mutex,
+use std::{
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Mutex,
+    },
+    time::Duration,
 };
 
+use futures_util::StreamExt;
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
-use tauri_plugin_shell::process::CommandChild;
 
 mod command;
-mod events;
+pub(crate) mod daemon;
+pub(crate) mod runtime;
+mod status;
 
-/// Shared sidecar process state managed by Tauri.
+use status::{Phase, Snapshot, Status};
+
+pub(crate) const OTHER_CLIENTS_ERROR: &str =
+    "Other clients are still using QwenPaw. Close them before stopping the service.";
+
 #[derive(Default)]
 pub(crate) struct BackendState {
-    inner: Mutex<BackendInner>,
+    connection: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    runtime: Mutex<Option<runtime::Runtime>>,
     generation: AtomicU64,
-}
-
-#[derive(Default)]
-struct BackendInner {
-    child: Option<CommandChild>,
-    port: Option<u16>,
-    error: Option<String>,
+    stopping: AtomicBool,
+    lifecycle: tokio::sync::Mutex<()>,
+    status: Status,
 }
 
 impl BackendState {
-    fn with_inner<R>(&self, f: impl FnOnce(&mut BackendInner) -> R) -> R {
-        let mut inner = self.inner.lock().expect("backend state poisoned");
-        f(&mut inner)
-    }
-
-    fn next_generation(&self) -> u64 {
-        self.generation.fetch_add(1, Ordering::SeqCst) + 1
-    }
-
     fn is_current(&self, generation: u64) -> bool {
         self.generation.load(Ordering::SeqCst) == generation
     }
 
-    fn port(&self) -> Option<u16> {
-        self.with_inner(|inner| inner.port)
-    }
-
-    fn error(&self) -> Option<String> {
-        self.with_inner(|inner| inner.error.clone())
-    }
-
-    fn set_error(&self, message: String) {
-        self.with_inner(|inner| {
-            inner.error = Some(message);
-        });
-    }
-
-    fn set_error_if_current(&self, generation: u64, message: String) {
-        if self.is_current(generation) {
-            self.set_error(message);
+    fn detach(&self) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some(connection) = self
+            .connection
+            .lock()
+            .expect("backend connection poisoned")
+            .take()
+        {
+            connection.abort();
         }
-    }
-
-    fn set_port_if_current(&self, generation: u64, port: u16) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
-                inner.port = Some(port);
-                inner.error = None;
-            });
-        }
-    }
-
-    fn clear_startup_state(&self) {
-        self.with_inner(|inner| {
-            inner.port = None;
-            inner.error = None;
-        });
-    }
-
-    fn clear_child_if_current(&self, generation: u64) {
-        if self.is_current(generation) {
-            self.with_inner(|inner| {
-                inner.child.take();
-            });
-        }
-    }
-
-    fn stop(&self) {
-        self.next_generation();
-        let child = self.with_inner(|inner| inner.child.take());
-        if let Some(child) = child {
-            let pid = child.pid();
-            log::info!("[backend] stopping process pid={pid}");
-            if let Err(err) = child.kill() {
-                log::warn!("[backend] failed to stop process: {err}");
-            }
-        }
+        generation
     }
 }
 
 #[tauri::command]
-pub(crate) fn backend_port(state: tauri::State<'_, BackendState>) -> Option<u16> {
-    state.port()
+pub(crate) fn agent_host_state(state: tauri::State<'_, BackendState>) -> Snapshot {
+    state.status.snapshot()
 }
 
-/// Returns startup failures consumed by the bootstrap gate.
-///
-/// This is not a long-lived backend health signal after the WebView navigates to
-/// the backend-hosted console.
+/// Retry rediscovers a matching runtime, replacing only an older version.
 #[tauri::command]
-pub(crate) fn backend_startup_error(state: tauri::State<'_, BackendState>) -> Option<String> {
-    state.error()
-}
-
-/// Stops the current sidecar, starts a fresh one, and returns its API port.
-#[tauri::command]
-pub(crate) fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
-    stop(&app);
-    start(&app);
-
+pub(crate) async fn restart_backend(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<BackendState>();
-    match state.error() {
-        Some(err) => Err(err),
-        None => Ok(()),
-    }
+    let _operation = state.lifecycle.lock().await;
+    attach(&app).await
 }
 
-/// Installs backend-related plugins and starts the sidecar during app setup.
 pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.handle().plugin(
         tauri_plugin_log::Builder::default()
@@ -135,52 +74,235 @@ pub(crate) fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Erro
                     file_name: Some("qwenpaw-desktop".into()),
                 }),
             ])
-            .level(log::LevelFilter::Info)
+            .level(desktop_log_level())
             .build(),
     )?;
-
-    start(app.handle());
+    if let Err(err) = crate::computer_use_runtime::prepare(app.handle()) {
+        log::warn!("[computer-use] control endpoint unavailable: {err}");
+    }
+    let app = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(err) = restart_backend(app).await {
+            log::error!("[backend] connection failed: {err}");
+        }
+    });
     Ok(())
 }
 
-/// Terminates the current sidecar process, if one is running.
-pub(crate) fn stop(app: &tauri::AppHandle) {
-    app.state::<BackendState>().stop();
+/// Closing this native client releases its connection, not the shared server.
+pub(crate) fn detach(app: &tauri::AppHandle) {
+    let state = app.state::<BackendState>();
+    let generation = state.detach();
+    state
+        .status
+        .publish(app, generation, Phase::Stopped, None, None);
 }
 
-/// Starts the sidecar and records startup failures for the frontend retry UI.
-fn start(app: &tauri::AppHandle) {
-    let state = app.state::<BackendState>();
-    let generation = state.next_generation();
-    state.clear_startup_state();
+pub(crate) fn console_port(app: &tauri::AppHandle) -> Option<u16> {
+    app.state::<BackendState>()
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .as_ref()
+        .map(|runtime| runtime.port)
+}
 
-    let command = match command::create(app) {
-        Ok(command) => command,
-        Err(message) => {
-            state.set_error(message);
-            return;
+pub(crate) async fn other_clients(app: &tauri::AppHandle) -> Result<usize, String> {
+    let runtime = app
+        .state::<BackendState>()
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .clone();
+    match runtime {
+        Some(runtime) => runtime.other_clients().await,
+        None => Ok(0),
+    }
+}
+
+/// This is an explicit global operation, never part of ordinary client exit.
+pub(crate) async fn stop_and_wait(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<BackendState>();
+    let _operation = state.lifecycle.lock().await;
+    let runtime = state
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .clone();
+    let runtime = runtime.ok_or("No connected runtime to stop")?;
+    state.stopping.store(true, Ordering::SeqCst);
+    let generation = state.generation.load(Ordering::SeqCst);
+    state
+        .status
+        .publish(app, generation, Phase::Stopping, Some(runtime.port), None);
+    let result = runtime.stop().await.map(|_| ());
+    state.stopping.store(false, Ordering::SeqCst);
+    match &result {
+        Ok(()) => detach(app),
+        Err(error) if error == OTHER_CLIENTS_ERROR => {
+            state
+                .status
+                .publish(app, generation, Phase::Ready, Some(runtime.port), None)
+        }
+        Err(error) => {
+            state
+                .status
+                .publish(app, generation, Phase::Failed, None, Some(error.clone()))
         }
     }
-    .env("PYTHONUTF8", "1")
-    .env("PYTHONIOENCODING", "utf-8")
-    .env("PYTHONUNBUFFERED", "1")
-    .env("PYTHONFAULTHANDLER", "1")
-    .env("QWENPAW_DESKTOP_APP", "1");
+    result
+}
 
-    log::info!("[backend] starting generation={generation}");
+async fn connect(
+    app: &tauri::AppHandle,
+    generation: u64,
+) -> Result<(runtime::Runtime, reqwest::Response), String> {
+    let state = app.state::<BackendState>();
+    let mut waiting = false;
+    loop {
+        if !state.is_current(generation) || crate::tray::is_quitting(app) {
+            return Err("Desktop client is closing".into());
+        }
+        match runtime::connect(app).await {
+            Err(error) if error == crate::updates::coordination::UPDATING => {
+                if !waiting {
+                    state
+                        .status
+                        .publish(app, generation, Phase::Stopping, None, None);
+                    waiting = true;
+                }
+                // runtime::connect released the launch lock. Cancellation or
+                // a failed update can now unblock us without a manual retry.
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            result => return result,
+        }
+    }
+}
 
-    let (rx, child) = match command.spawn() {
-        Ok(child) => child,
-        Err(err) => {
-            state.set_error(format!("failed to spawn backend: {err}"));
-            return;
+async fn attach(app: &tauri::AppHandle) -> Result<(), String> {
+    if crate::tray::is_quitting(app) {
+        return Err("Desktop client is closing".into());
+    }
+    let state = app.state::<BackendState>();
+    let generation = state.detach();
+    state
+        .status
+        .publish(app, generation, Phase::Starting, None, None);
+    let (runtime, response) = match connect(app, generation).await {
+        Ok(connection) => connection,
+        Err(message) => {
+            if state.is_current(generation) {
+                state
+                    .status
+                    .publish(app, generation, Phase::Failed, None, Some(message.clone()));
+            }
+            return Err(message);
         }
     };
-
-    let child_pid = child.pid();
-    log::info!("[backend] spawned generation={generation} pid={child_pid}");
-    state.with_inner(|inner| {
-        inner.child = Some(child);
+    if !state.is_current(generation) || crate::tray::is_quitting(app) {
+        return Ok(());
+    }
+    let port = runtime.port;
+    *state.runtime.lock().expect("backend runtime poisoned") = Some(runtime);
+    state
+        .status
+        .publish(app, generation, Phase::Ready, Some(port), None);
+    let handle = app.clone();
+    let connection = tokio::spawn(async move {
+        let mut response = response;
+        loop {
+            let mut stream = response.bytes_stream();
+            while let Ok(Some(Ok(_))) =
+                tokio::time::timeout(Duration::from_secs(15), stream.next()).await
+            {}
+            let state = handle.state::<BackendState>();
+            if !state.is_current(generation) || state.stopping.load(Ordering::SeqCst) {
+                return;
+            }
+            state
+                .status
+                .publish(&handle, generation, Phase::Starting, None, None);
+            match connect(&handle, generation).await {
+                Ok((runtime, connected)) if state.is_current(generation) => {
+                    state.status.publish(
+                        &handle,
+                        generation,
+                        Phase::Ready,
+                        Some(runtime.port),
+                        None,
+                    );
+                    *state.runtime.lock().expect("backend runtime poisoned") = Some(runtime);
+                    response = connected;
+                }
+                Ok(_) => return,
+                Err(error) => {
+                    if state.is_current(generation) {
+                        state
+                            .status
+                            .publish(&handle, generation, Phase::Failed, None, Some(error));
+                    }
+                    return;
+                }
+            }
+        }
     });
-    events::watch(app.clone(), generation, rx);
+    *state
+        .connection
+        .lock()
+        .expect("backend connection poisoned") = Some(connection);
+    Ok(())
+}
+
+fn desktop_log_level() -> log::LevelFilter {
+    if std::env::var("QWENPAW_DESKTOP_DEBUG").is_ok_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    }) {
+        log::LevelFilter::Debug
+    } else {
+        log::LevelFilter::Info
+    }
+}
+
+pub(crate) fn runtime_for_update(
+    app: &tauri::AppHandle,
+    directory: &std::path::Path,
+) -> Result<Option<runtime::Runtime>, String> {
+    let state = app.state::<BackendState>();
+    if let Some(runtime) = state
+        .runtime
+        .lock()
+        .expect("backend runtime poisoned")
+        .as_ref()
+    {
+        if runtime.uses_directory(directory) {
+            return Ok(Some(runtime.clone()));
+        }
+    }
+    runtime::Runtime::read(directory)
+}
+
+pub(crate) fn suspend_for_update(app: &tauri::AppHandle) {
+    app.state::<BackendState>()
+        .stopping
+        .store(true, Ordering::SeqCst);
+}
+
+pub(crate) async fn recover_after_update(app: &tauri::AppHandle) {
+    if !app
+        .state::<BackendState>()
+        .stopping
+        .swap(false, Ordering::SeqCst)
+    {
+        return;
+    }
+    if let Err(error) = crate::computer_use_runtime::prepare(app) {
+        log::warn!("[updates] Computer Use recovery failed: {error}");
+    }
+    if let Err(error) = restart_backend(app.clone()).await {
+        log::warn!("[updates] runtime recovery failed: {error}");
+    }
 }

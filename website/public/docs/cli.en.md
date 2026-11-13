@@ -52,6 +52,23 @@ qwenpaw app --log-level debug           # Verbose logging
 
 > **Note:** The `--workers` option is deprecated for stability reasons. QwenPaw is designed to run with a single worker process. Multi-worker mode can cause issues with in-memory state management and WebSocket connections. This option will be removed in a future version.
 
+### qwenpaw tui
+
+Open the bundled terminal chat UI. It runs QwenPaw through the current Python
+environment, so it is useful for development installs and shell-first
+workflows.
+
+```bash
+qwenpaw                         # Open the TUI with the active agent
+qwenpaw tui --agent writer      # Open the TUI with a specific agent
+qwenpaw .                       # Bind this TUI session to the current project
+qwenpaw tui /path/to/repo       # Bind this TUI session to another project
+```
+
+Passing a project directory enables Coding Mode for that TUI session and uses
+the directory as the active project. This is session-scoped; it does not write
+to `agent.json` or change the project selected in the Console.
+
 ### Console
 
 Once `qwenpaw app` is running, open `http://127.0.0.1:8088/` in your browser to
@@ -268,7 +285,7 @@ Manage environment variables used by tools and skills at runtime.
 ```bash
 qwenpaw env list
 qwenpaw env set TAVILY_API_KEY "tvly-xxxxxxxx"
-qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"
+qwenpaw env set GITHUB_TOKEN "ghp_xxxxxxxx"  # fine-grained PATs starting with github_pat_ are also supported
 qwenpaw env delete TAVILY_API_KEY
 ```
 
@@ -290,25 +307,17 @@ subcommand); use `remove` to uninstall custom channels (no `uninstall`).
 
 **Alias:** You can use `qwenpaw channel` (singular) as a shorthand for `qwenpaw channels`.
 
-| Command                          | What it does                                                                                                      |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `qwenpaw channels list`          | Show all channels and their status (secrets masked)                                                               |
-| `qwenpaw channels send`          | Send a one-way message to a user/session via a channel (requires all 5 parameters)                                |
-| `qwenpaw channels install <key>` | Install a channel into `custom_channels/`: create stub or use `--path`/`--url`                                    |
-| `qwenpaw channels add <key>`     | Install and add to config; built-in channels only get config entry; supports `--path`/`--url`                     |
-| `qwenpaw channels remove <key>`  | Remove a custom channel from `custom_channels/` (built-ins cannot be removed); `--keep-config` keeps config entry |
-| `qwenpaw channels config`        | Interactively enable/disable channels and fill in credentials                                                     |
+| Command                   | What it does                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| `qwenpaw channels list`   | Show all channels and their status (secrets masked)                                |
+| `qwenpaw channels send`   | Send a one-way message to a user/session via a channel (requires all 5 parameters) |
+| `qwenpaw channels config` | Interactively enable/disable channels and fill in credentials                      |
 
 **Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
 
 ```bash
 qwenpaw channels list                    # See default agent's channels
 qwenpaw channels list --agent-id abc123  # See specific agent's channels
-qwenpaw channels install my_channel      # Create custom channel stub
-qwenpaw channels install my_channel --path ./my_channel.py
-qwenpaw channels add dingtalk            # Add DingTalk to config
-qwenpaw channels remove my_channel       # Remove custom channel (and from config by default)
-qwenpaw channels remove my_channel --keep-config   # Remove module only, keep config entry
 qwenpaw channels config                  # Configure default agent
 qwenpaw channels config --agent-id abc123 # Configure specific agent
 ```
@@ -544,6 +553,19 @@ qwenpaw cron create \
   --target-session "session_id" \
   --text "What are my todo items?"
 
+# Agent: run in the background without channel delivery
+qwenpaw cron create \
+  --agent-id abc123 \
+  --type agent \
+  --schedule-type cron \
+  --name "Refresh search index" \
+  --cron "0 * * * *" \
+  --channel console \
+  --target-user "your_user_id" \
+  --target-session "session_id" \
+  --text "Refresh the search index." \
+  --silent
+
 # Scheduled one-time task (no repeat)
 qwenpaw cron create \
   --type text \
@@ -598,6 +620,7 @@ JSON structure matches the output of `qwenpaw cron get <job_id>`.
 | `--timezone`                                           | user timezone | Schedule timezone (defaults to `user_timezone` from config)                 |
 | `--enabled` / `--no-enabled`                           | enabled       | Create enabled or disabled                                                  |
 | `--mode`                                               | `final`       | `stream` (incremental) or `final` (complete response)                       |
+| `--silent` / `--no-silent`                             | disabled      | Run an `agent` task without delivering its response to the channel          |
 | `--save-result-to-inbox` / `--no-save-result-to-inbox` | server rules  | Save execution results to Inbox (if omitted, server-side defaults are used) |
 | `--repeat-every-days`                                  | no repeat     | `--schedule-type scheduled` only; repeat every N days                       |
 | `--repeat-end-type`                                    | `never`       | For repeated scheduled jobs: `never` / `until` / `count`                    |
@@ -656,31 +679,67 @@ Extend QwenPaw's capabilities with skills (PDF reading, web search, etc.).
 
 ### qwenpaw skills
 
-| Command                    | What it does                                              |
-| -------------------------- | --------------------------------------------------------- |
-| `qwenpaw skills install`   | Install a skill from a supported URL source               |
-| `qwenpaw skills uninstall` | Remove a skill from the skill pool or one agent workspace |
-| `qwenpaw skills list`      | Show all skills and their enabled/disabled status         |
-| `qwenpaw skills config`    | Interactively enable/disable skills (checkbox UI)         |
-| `qwenpaw skills info`      | Show local details for one workspace skill                |
-
-**Multi-Agent Support:** All commands support the `--agent-id` parameter (defaults to `default`).
+| Usage                                  | Positional arguments                                        | Options                                                                                                                                                                 |
+| -------------------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qwenpaw skills list`                  | None                                                        | `--agent-id ID` (default `default`) or `--pool`; workspaces support `--status all\|enabled\|disabled` (default `all`), while the Pool does not support status filtering |
+| `qwenpaw skills config`                | None                                                        | `--agent-id ID` (default `default`); workspace only                                                                                                                     |
+| `qwenpaw skills enable SKILL_NAME...`  | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                     |
+| `qwenpaw skills disable SKILL_NAME...` | One or more exact workspace skill names                     | `--agent-id ID` (default `default`)                                                                                                                                     |
+| `qwenpaw skills info SKILL_NAME`       | One exact skill name                                        | `--agent-id ID` (default `default`) or `--pool`                                                                                                                         |
+| `qwenpaw skills install LOCATION`      | A supported skill URL or local skill directory              | `--pool` (default for URLs), `--agent-id ID`, or `--workspace PATH` (local directories only); `--enable/--no-enable` is workspace-only (default enabled); `--json`      |
+| `qwenpaw skills uninstall SKILL_NAME`  | One exact skill name                                        | `--pool` removes it from the Pool; `--agent-id ID` removes it from that workspace; they are mutually exclusive; for compatibility, omitting both still targets the Pool |
+| `qwenpaw skills test SKILL`            | A local skill directory or exact name in the selected scope | `--agent-id ID` (default `default` for names), `--pool`, or `--workspace PATH`; `--base-url URL` for agent command checks; `--json` returns structured output           |
 
 ```bash
-qwenpaw skills install https://skills.sh/owner/repo/skill  # Import into the local skill pool
+qwenpaw skills install https://skills.sh/owner/repo/skill --pool  # Import into the local skill pool
 qwenpaw skills install https://skills.sh/owner/repo/skill --agent-id abc123  # Import directly into a specific agent workspace
-qwenpaw skills uninstall skill-creator  # Remove from the local skill pool
+qwenpaw skills install ./my_skill --agent-id abc123  # Import a locally authored or unpacked skill
+qwenpaw skills uninstall skill-creator --pool  # Remove from the local skill pool
 qwenpaw skills uninstall skill-creator --agent-id abc123  # Remove from a specific agent workspace
-qwenpaw skills list                   # See default agent's skills
+qwenpaw skills list --status enabled      # Show only enabled skills for the default agent
+qwenpaw skills list --pool                # List the shared Pool (which has no enabled state)
 qwenpaw skills list --agent-id abc123 # See specific agent's skills
-qwenpaw skills config                 # Configure default agent
+qwenpaw skills config                 # Configure installed skills interactively
 qwenpaw skills config --agent-id abc123 # Configure specific agent
+qwenpaw skills enable pdf docx --agent-id abc123  # Batch-enable exact names
+qwenpaw skills disable pdf --agent-id abc123      # Disable without uninstalling
 qwenpaw skills info [skill_name]               # See default agent's skill details
+qwenpaw skills info [skill_name] --pool        # See details in the Pool
 qwenpaw skills info [skill_name] --agent-id abc123 # See specific agent's skill details
+
+# Validate an installed skill
+qwenpaw skills test my_skill --agent-id abc123
+
+# Check a local directory without selecting an agent
+qwenpaw skills test ./my_skill
+
+# Also check target MCP configuration and command names
+qwenpaw skills test ./my_skill --agent-id abc123
+
+# Machine-readable checks using an explicit workspace
+qwenpaw skills test ./my_skill --workspace /path/to/workspace --json
 ```
 
-In the interactive UI: ↑/↓ to navigate, Space to toggle, Enter to confirm.
-A preview of changes is shown before applying.
+`install` downloads a skill from a URL, or copies and registers a local directory
+in the workspace. Local installs never overwrite existing skills and require
+`--agent-id` or `--workspace`; these options and `--pool` are mutually exclusive.
+
+`test` checks package format, security, and declared dependencies without
+executing the skill. `test` and `install` support `--json`; results include
+`ok`, and failures return a nonzero exit code.
+
+Security checks, including make-skill publication, follow
+`security.skill_scanner.mode`: `block` rejects unsafe results, `warn` warns
+and allows continuing, and `off` skips scanning. `QWENPAW_SKILL_SCAN_MODE`
+overrides this setting.
+
+In the `skills config` checkbox, type a contiguous substring to narrow the
+choices immediately instead of stepping through them one by one. Use ↑/↓ to
+navigate, Space to toggle, and Enter to confirm. Enabled choices
+remain selected while hidden by a filter. A preview is shown before applying.
+`config`, `enable`, and `disable` are workspace-only because the shared Pool
+has no enabled state. For commands that support `--pool`, it cannot be combined
+with `--agent-id`.
 
 > For built-in skill details and custom skill authoring, see [Skills](./skills).
 
@@ -761,7 +820,7 @@ See [Config & Working Directory](./config) and [Multi-Agent](./multi-agent) for 
 | `qwenpaw agents`    | `list` · `create` · `delete` · `chat`                                                |    Partial ¹     |
 | `qwenpaw cron`      | `list` · `get` · `state` · `create` · `delete` · `pause` · `resume` · `run`          |     **Yes**      |
 | `qwenpaw chats`     | `list` · `get` · `create` · `update` · `delete`                                      |     **Yes**      |
-| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `info`                                 |        No        |
+| `qwenpaw skills`    | `install` · `uninstall` · `list` · `config` · `enable` · `disable` · `info` · `test` |        No        |
 | `qwenpaw task`      | —                                                                                    |        No        |
 | `qwenpaw auth`      | `reset-password`                                                                     |        No        |
 | `qwenpaw plugin`    | `install` · `list` · `info` · `uninstall` · `validate`                               |        No        |

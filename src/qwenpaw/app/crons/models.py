@@ -148,24 +148,41 @@ class DispatchSpec(BaseModel):
     channel: str = Field(default=DEFAULT_CHANNEL)
     target: DispatchTarget
     mode: Literal["stream", "final"] = Field(default="stream")
+    silent: bool = Field(
+        default=False,
+        description=(
+            "Run an agent task without delivering its events to the channel."
+        ),
+    )
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class JobRuntimeSpec(BaseModel):
     max_concurrency: int = Field(default=1, ge=1)
     timeout_seconds: int = Field(default=120, ge=1)
-    misfire_grace_seconds: int = Field(default=60, ge=0)
+    misfire_grace_seconds: int = Field(default=600, ge=0)
     share_session: bool = Field(
-        default=True,
+        default=False,
         description=(
             "Whether to share session with target user. "
-            "If False, creates isolated context with unique run ID."
+            "If False, executions use one dedicated visible cron-sourced "
+            "chat for this job."
+        ),
+    )
+    tool_safety: bool = Field(
+        default=False,
+        description=(
+            "Tool execution safety for this cron job. "
+            "When enabled (True), uses AUTO mode — risky tools require "
+            "approval (may block unattended execution). "
+            "When disabled (False), uses OFF mode — all tools execute "
+            "without approval checks, suitable for trusted automated tasks."
         ),
     )
 
 
 class CronJobRequest(BaseModel):
-    """Passthrough payload to runner.stream_query(request=...).
+    """Passthrough payload to workspace.stream_query(request=...).
 
     This is aligned with AgentRequest(extra="allow"). We keep it permissive.
     """
@@ -200,6 +217,10 @@ class CronJobSpec(BaseModel):
         if self.task_type == "text":
             if not (self.text and self.text.strip()):
                 raise ValueError("task_type is text but text is empty")
+            if self.dispatch.silent:
+                raise ValueError(
+                    "silent delivery is only supported for agent tasks",
+                )
             self.request = None
         elif self.task_type == "agent":
             if self.request is None:
@@ -223,7 +244,7 @@ class CronJobSpec(BaseModel):
 
 
 class JobsFile(BaseModel):
-    version: int = 1
+    version: int = 2
     jobs: list[CronJobSpec] = Field(default_factory=list)
 
 

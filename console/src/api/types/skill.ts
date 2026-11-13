@@ -1,3 +1,5 @@
+import type { InstallationOrigin } from "./community";
+
 export type SkillSyncStatus =
   | "-"
   | "synced"
@@ -6,39 +8,56 @@ export type SkillSyncStatus =
   | "conflict";
 
 export interface SkillSpec {
+  installation_origin?: InstallationOrigin | null;
   name: string;
   description?: string;
   version_text?: string;
-  content: string;
   source: string;
   enabled?: boolean;
   channels?: string[];
+  preload?: boolean;
   tags?: string[];
-  config?: Record<string, unknown>;
   last_updated?: string;
   emoji?: string;
+}
+
+export interface SkillDetail extends SkillSpec {
+  content: string;
+  config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
+}
+
+export interface SkillRequirements {
+  require_bins: string[];
+  require_envs: string[];
+  require_mcps: string[];
 }
 
 export interface PoolSkillSpec {
+  installation_origin?: InstallationOrigin | null;
   name: string;
   description?: string;
   version_text?: string;
-  content: string;
   source: string;
-  protected: boolean;
   external?: boolean;
   external_path?: string;
-  commit_text?: string;
   sync_status?: SkillSyncStatus | "";
-  latest_version_text?: string;
-  builtin_language?: string;
-  available_builtin_languages?: string[];
   tags?: string[];
-  config?: Record<string, unknown>;
   last_updated?: string;
   emoji?: string;
+  auto_sync?: boolean;
+  auto_update?: boolean;
+}
+
+export interface PoolSkillDetail extends PoolSkillSpec {
+  content: string;
+  config?: Record<string, unknown>;
   installed_from?: string;
+  requirements?: SkillRequirements;
+  builtin_language?: string;
+  available_builtin_languages?: string[];
+  auto_sync_targets?: string[] | null;
 }
 
 export interface BuiltinLanguageSpec {
@@ -52,8 +71,7 @@ export interface BuiltinLanguageSpec {
 export interface WorkspaceSkillSummary {
   agent_id: string;
   agent_name?: string;
-  workspace_dir: string;
-  skills: SkillSpec[];
+  skill_names: string[];
 }
 
 export interface BuiltinImportSpec {
@@ -86,6 +104,49 @@ export interface BuiltinUpdateNotice {
   removed: BuiltinRemovedSpec[];
 }
 
+export interface PoolAutomationUpdate {
+  skill: string;
+  language?: string;
+  from_version?: string;
+  to_version?: string;
+  reason?: string;
+  detail?: string;
+}
+
+export interface PoolAutomationSync {
+  skill: string;
+  agents?: string[];
+}
+
+export interface PoolAutomationResult {
+  pool_updated: PoolAutomationUpdate[];
+  pool_failed: PoolAutomationUpdate[];
+  synced: PoolAutomationSync[];
+  sync_failed: PoolAutomationSync[];
+  checked: {
+    auto_update: number;
+    auto_sync: number;
+  };
+}
+
+export interface SkillAutomationUpdate {
+  auto_update?: boolean;
+  auto_sync?: {
+    enabled: boolean;
+    targets?: string[] | null;
+  };
+}
+
+export interface SkillAutomationResponse {
+  updated: boolean;
+  auto_update: boolean;
+  auto_sync: {
+    enabled: boolean;
+    targets: string[] | null;
+  };
+  automation: PoolAutomationResult;
+}
+
 export interface HubSkillSpec {
   slug: string;
   name: string;
@@ -116,4 +177,28 @@ export interface HubInstallTaskResponse {
   } | null;
   created_at: number;
   updated_at: number;
+}
+
+export interface SkillPoolDownloadRequest {
+  skill_name: string;
+  targets: Array<{ workspace_id: string }>;
+  all_workspaces?: boolean;
+  overwrite?: boolean;
+  preview_only?: boolean;
+}
+
+export type PoolDownloadState =
+  | "running"
+  | "cancelling"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface PoolDownloadJob {
+  job_id: string;
+  state: PoolDownloadState;
+  error: string | null;
+  /** Structured outcome: scan findings when rejected, downloaded workspaces
+   * when completed. */
+  result?: Record<string, unknown> | null;
 }

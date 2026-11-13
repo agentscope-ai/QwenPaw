@@ -5,11 +5,10 @@ Verifies that ``/api/agents/{agentId}/...`` paths route correctly to
 the same handlers as global ``/api/...`` paths (alias endpoints) and
 that real agent-scoped endpoints resolve agent context properly.
 
-Covers 13 P0 endpoints across five domains:
+Covers agent-scoped endpoints across the following domains:
 
   - **plugins** (alias): install / upload / uninstall + real install
   - **console/inbox** (alias): seed → list → mark-read → delete
-  - **workspace** (real): upload invalid / valid zip
   - **mcp-oauth** (real): revoke unknown client
   - **workspace/transcribe** (alias): disabled, unsupported extension
   - **workspace/transcription-provider-type** (alias): roundtrip, invalid
@@ -17,19 +16,15 @@ Covers 13 P0 endpoints across five domains:
 """
 from __future__ import annotations
 
-import io
-import time
-import zipfile
 
-import httpx
 import pytest
 
 from tests.integration.helpers import (
-    LOADER_READY_TIMEOUT,
     OFFICIAL_PLUGINS_DIR,
     PLUGIN_HTTP_TIMEOUT,
     clean_inbox,
     create_agent,
+    default_http_timeout,
     delete_agent_quietly,
     delete_plugin_quietly,
     make_event,
@@ -38,21 +33,12 @@ from tests.integration.helpers import (
     wait_until_plugin_loader_ready,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 
 
 # ------------------------------------------------------------------ #
 # file-local helpers (not shared)
 # ------------------------------------------------------------------ #
-
-
-def _build_workspace_zip(files: dict[str, str]) -> bytes:
-    """Build an in-memory zip containing the given path→content map."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name, content in files.items():
-            zf.writestr(name, content)
-    return buf.getvalue()
 
 
 # ------------------------------------------------------------------ #
@@ -122,12 +108,13 @@ def test_plugins_upload_non_zip_rejected(app_server) -> None:
 def test_plugins_uninstall_unknown(app_server) -> None:
     """Test purpose:
     - Verify DELETE /api/agents/{agentId}/plugins/{plugin_id} with
-      an unknown plugin returns 404 ``not loaded``.
+      an unknown plugin returns 404 ``not installed``.
+      Installed plugins may be uninstalled even when they are not loaded.
 
     Test flow:
     1. Wait for plugin loader readiness.
     2. DELETE agent-scoped plugins/<nonexistent_id>.
-    3. Assert 404 and detail mentions ``not loaded``.
+    3. Assert 404 and detail mentions ``not installed``.
 
     API endpoints:
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
@@ -139,25 +126,25 @@ def test_plugins_uninstall_unknown(app_server) -> None:
         timeout=PLUGIN_HTTP_TIMEOUT,
     )
     assert resp.status_code == 404, app_server.logs_tail()
-    assert "not loaded" in resp.json().get("detail", "")
+    assert "not installed" in resp.json().get("detail", "")
 
 
 @pytest.mark.integration
 @pytest.mark.p0
 def test_plugins_install_real_via_agentscoped(app_server) -> None:
     """Test purpose:
-    - Verify a real plugin (bundled ``cloudpaw``) can be installed and
-      uninstalled through the agent-scoped path. This is the happy-path
-      proof that the agent-scoped routing delivers to the full install
+    - Verify a real dependency-free plugin can be installed and uninstalled
+      through the agent-scoped path. This is the happy-path proof that the
+      agent-scoped routing delivers to the full install
       pipeline (hot-load → list → unload).
 
     Test flow:
     1. Wait for plugin loader readiness.
     2. POST /api/agents/default/plugins/install with the local
-       cloudpaw bundle source.
-    3. Assert 200, ``id == "cloudpaw"``, ``loaded == True``.
-    4. GET /api/agents/default/plugins — assert cloudpaw in list.
-    5. DELETE /api/agents/default/plugins/cloudpaw — assert 200.
+       thinking-log middleware source.
+    3. Assert 200, the expected plugin id, and ``loaded == True``.
+    4. GET /api/agents/default/plugins and assert the plugin is listed.
+    5. DELETE the plugin through the agent-scoped path and assert 200.
     6. finally: best-effort cleanup.
 
     API endpoints:
@@ -165,33 +152,23 @@ def test_plugins_install_real_via_agentscoped(app_server) -> None:
     - GET  /api/agents/{agentId}/plugins
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
     """
-    plugin_id = "cloudpaw"
-    source_path = OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
+    plugin_id = "middleware-demo-thinking-log"
+    source_path = (
+        OFFICIAL_PLUGINS_DIR / "middleware-demo" / "thinking-log-middleware"
+    )
     assert source_path.is_dir(), f"missing source: {source_path}"
 
     try:
         wait_until_plugin_loader_ready(app_server)
-        deadline = time.time() + LOADER_READY_TIMEOUT
-        resp = None
-        while True:
-            try:
-                resp = app_server.api_request(
-                    "POST",
-                    scoped("default", "/plugins/install"),
-                    json={
-                        "source": str(source_path),
-                        "force": False,
-                    },
-                    timeout=PLUGIN_HTTP_TIMEOUT,
-                )
-            except httpx.TimeoutException:
-                if time.time() >= deadline:
-                    raise
-                time.sleep(0.5)
-                continue
-            if resp.status_code != 503 or time.time() >= deadline:
-                break
-            time.sleep(0.5)
+        resp = app_server.api_request(
+            "POST",
+            scoped("default", "/plugins/install"),
+            json={
+                "source": str(source_path),
+                "force": False,
+            },
+            timeout=PLUGIN_HTTP_TIMEOUT,
+        )
         assert resp.status_code == 200, (
             f"install via agent-scoped: {resp.status_code} | "
             f"{resp.text} | logs: {app_server.logs_tail()}"
@@ -314,93 +291,6 @@ def test_inbox_seed_list_read_delete_lifecycle(app_server) -> None:
         assert remaining == {"scoped-inbox-01", "scoped-inbox-02"}
     finally:
         clean_inbox(app_server.working_dir)
-
-
-# ------------------------------------------------------------------ #
-# workspace — real agent-scoped endpoints
-# ------------------------------------------------------------------ #
-
-
-@pytest.mark.integration
-@pytest.mark.p0
-def test_workspace_upload_invalid_content_type(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/agents/{agentId}/workspace/upload with a
-      non-zip content type is rejected with 400.
-
-    Test flow:
-    1. Create a test agent.
-    2. POST workspace/upload with content-type ``text/plain``.
-    3. Assert 400 and detail mentions ``zip``.
-    4. Delete test agent.
-
-    API endpoints:
-    - POST /api/agents/{agentId}/workspace/upload
-    """
-    agent_id = "integ_ws_upload_bad_ct_01"
-    create_agent(app_server, agent_id)
-    try:
-        resp = app_server.api_request(
-            "POST",
-            scoped(agent_id, "/workspace/upload"),
-            files={
-                "file": (
-                    "bad.zip",
-                    b"not a zip",
-                    "text/plain",
-                ),
-            },
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert resp.status_code == 400, app_server.logs_tail()
-        assert "zip" in resp.json().get("detail", "").lower()
-    finally:
-        delete_agent_quietly(app_server, agent_id)
-
-
-@pytest.mark.integration
-@pytest.mark.p0
-def test_workspace_upload_valid_zip_merges(app_server) -> None:
-    """Test purpose:
-    - Verify POST /api/agents/{agentId}/workspace/upload with a valid
-      zip returns ``{"success": true}`` and the files are merged into
-      the agent workspace. This is the happy-path coverage for the real
-      agent-scoped workspace upload.
-
-    Test flow:
-    1. Create a test agent.
-    2. Build a zip containing ``test_marker.txt``.
-    3. POST workspace/upload with ``application/zip``.
-    4. Assert 200 and ``success == True``.
-    5. Delete test agent.
-
-    API endpoints:
-    - POST /api/agents/{agentId}/workspace/upload
-    """
-    agent_id = "integ_ws_upload_ok_01"
-    create_agent(app_server, agent_id)
-    try:
-        zip_bytes = _build_workspace_zip(
-            {
-                "test_marker.txt": "agent-scoped upload test",
-            },
-        )
-        resp = app_server.api_request(
-            "POST",
-            scoped(agent_id, "/workspace/upload"),
-            files={
-                "file": (
-                    "workspace.zip",
-                    zip_bytes,
-                    "application/zip",
-                ),
-            },
-            timeout=_HTTP_TIMEOUT,
-        )
-        assert resp.status_code == 200, app_server.logs_tail()
-        assert resp.json().get("success") is True
-    finally:
-        delete_agent_quietly(app_server, agent_id)
 
 
 # ------------------------------------------------------------------ #

@@ -9,18 +9,20 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
 from ..acp.tool_adapter import (
     format_close_response,
     format_final_assistant_response,
     format_permission_suspended_response,
     format_stream_snapshot_response,
+    render_assistant_text,
     render_event_text,
     response_text,
 )
@@ -70,14 +72,24 @@ def _get_acp_service() -> Any:
     from ...app.agent_context import get_current_agent_id
     from ...config.config import ACPConfig
     from ...config.config import load_agent_config
+
+    # pylint: disable=no-name-in-module
+    # ``get_acp_service`` / ``init_acp_service`` are exposed via the
+    # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
+
+    get_service = cast(Callable[[str], Any], get_acp_service)
+    init_service = cast(
+        Callable[[str, ACPConfig], Any],
+        init_acp_service,
+    )
 
     agent_id = get_current_agent_id()
     agent_config = load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
-    service = get_acp_service(agent_id)
+    service = get_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
-        service = init_acp_service(agent_id, acp_config)
+        service = init_service(agent_id, acp_config)
     return service
 
 
@@ -205,9 +217,11 @@ async def _set_runner_state_status(
 def _copy_content_text(blocks: list[TextBlock], limit: int = 12000) -> str:
     parts = [
         str(
-            block.get("text")
-            if isinstance(block, dict)
-            else getattr(block, "text", ""),
+            (
+                block.get("text")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
+            ),
         )
         for block in blocks
     ]
@@ -272,7 +286,7 @@ async def _get_runner_session_state(
     return "open"
 
 
-async def _format_acp_runner_states_response() -> ToolResponse:
+async def _format_acp_runner_states_response() -> ToolChunk:
     runners = _get_available_acp_runners()
     if not runners:
         return response_text(
@@ -315,7 +329,7 @@ async def _format_acp_runner_states_response() -> ToolResponse:
     return response_text("\n".join(lines))
 
 
-async def _format_runner_status_response(runner_name: str) -> ToolResponse:
+async def _format_runner_status_response(runner_name: str) -> ToolChunk:
     available_runners = _get_available_acp_runners()
     if runner_name not in available_runners:
         return response_text(
@@ -359,7 +373,7 @@ async def _format_runner_status_response(runner_name: str) -> ToolResponse:
     return response_text(f"{status_text}\n\n{permission_text}")
 
 
-async def _format_all_runner_status_response() -> ToolResponse:
+async def _format_all_runner_status_response() -> ToolChunk:
     return await _format_acp_runner_states_response()
 
 
@@ -481,6 +495,29 @@ async def _run_action(
     raise ValueError(f"unsupported action: {action_name}")
 
 
+def _text_already_streamed(
+    event: Optional[dict[str, Any]],
+    streamed_text: list[str],
+) -> bool:
+    """Return True when *event*'s text was already delivered incrementally.
+
+    A turn's assistant text reaches this tool twice: as streamed deltas, and
+    again as the complete text on the closing event.  Rendering the closing
+    event's body as well would hand the caller the same answer twice, so the
+    final block keeps only its header when the text is already out.  A partial
+    overlap (e.g. a cancelled turn) deliberately does not suppress, since
+    losing text is worse than repeating some of it.
+    """
+    if not isinstance(event, dict):
+        return False
+    if str(event.get("type") or "").lower() != "text":
+        return False
+    body = str(event.get("text") or "").strip()
+    if not body:
+        return False
+    return body in "".join(streamed_text)
+
+
 async def _stream_action_responses(
     *,
     service: Any,
@@ -490,19 +527,40 @@ async def _stream_action_responses(
     message_text: str,
     execution_cwd: Path,
     max_runtime: Optional[float] = None,
-) -> AsyncGenerator[ToolResponse, None]:
+) -> AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-branches,too-many-statements
-    response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
+    response_queue: asyncio.Queue[ToolChunk] = asyncio.Queue()
     flush_interval = 1.0
     pending_items: list[str] = []
     seen_stream_items: set[str] = set()
+    text_buffer: list[str] = []
+    streamed_text: list[str] = []
     header_sent = False
     flush_task: Optional[asyncio.Task[None]] = None
     final_text_event: Optional[dict[str, Any]] = None
     final_fallback_event: Optional[dict[str, Any]] = None
 
+    def drain_text_buffer() -> None:
+        """Coalesce buffered text deltas into a single ``[assistant]`` item.
+
+        A runner's text arrives as deltas of one assistant message and chunk
+        sizes vary widely -- kimi-cli streams a few words per notification.
+        Emitting one item per delta repeated the ``[assistant]`` marker for
+        every fragment, so deltas are joined and rendered once per flush.
+        """
+        if not text_buffer:
+            return
+        raw = "".join(text_buffer)
+        text_buffer.clear()
+        rendered = render_assistant_text(raw)
+        if rendered is None:
+            return
+        streamed_text.append(raw)
+        pending_items.append(rendered)
+
     async def flush_snapshot() -> None:
         nonlocal header_sent
+        drain_text_buffer()
         if not pending_items:
             return
         snapshot = [
@@ -555,6 +613,19 @@ async def _stream_action_responses(
             return
         event = dict(message)
         event_type = str(event.get("type") or "").lower()
+
+        if event_type == "text":
+            chunk = event.get("text")
+            if isinstance(chunk, str) and chunk:
+                text_buffer.append(chunk)
+                await ensure_flush_task()
+            final_text_event = event
+            return
+
+        # Any non-text event ends the current assistant message, so drain the
+        # buffer first to preserve the ordering the runner produced.
+        drain_text_buffer()
+
         text = render_event_text(event)
         if text:
             normalized = str(text).strip()
@@ -563,9 +634,7 @@ async def _stream_action_responses(
                 pending_items.append(text)
                 await ensure_flush_task()
 
-        if event_type == "text":
-            final_text_event = event
-        elif event_type == "error":
+        if event_type == "error":
             final_fallback_event = event
 
     run_task = asyncio.create_task(
@@ -580,7 +649,14 @@ async def _stream_action_responses(
         ),
     )
     loop = asyncio.get_running_loop()
-    deadline = (
+    from ...tool_calls import arm_kill_deadline, get_call_context
+
+    _tc_ctx = get_call_context()
+    # Publish max_runtime onto kill_deadline so coordinator keep_foreground
+    # does not treat a shorter offload hook timeout as a hard kill.
+    if _tc_ctx is not None and max_runtime is not None and max_runtime > 0:
+        arm_kill_deadline(_tc_ctx, float(max_runtime))
+    fallback_deadline = (
         loop.time() + max_runtime
         if max_runtime is not None and max_runtime > 0
         else None
@@ -588,6 +664,12 @@ async def _stream_action_responses(
 
     try:
         while True:
+            # Re-read kill_deadline each iteration so extend / no_deadline
+            # from the coordinator take effect (do not freeze a local copy).
+            if _tc_ctx is not None:
+                deadline = _tc_ctx.kill_deadline
+            else:
+                deadline = fallback_deadline
             if run_task.done():
                 await flush_snapshot()
                 await settle_flush_task()
@@ -626,7 +708,6 @@ async def _stream_action_responses(
                             f'runner="{runner_name}", '
                             'message="continue") with higher max_runtime.'
                         ),
-                        stream=True,
                         is_last=True,
                     )
                     return
@@ -673,11 +754,16 @@ async def _stream_action_responses(
         )
         return
 
-    event = final_text_event or final_fallback_event or run_result.get("event")
+    # ``finish_prompt`` returns the complete assistant text while
+    # ``final_text_event`` holds only the last streamed delta, so prefer the
+    # former: a runner that fragments its output must not end on a fragment.
+    complete_event = run_result.get("event") or final_text_event
+    event = complete_event or final_fallback_event
     yield format_final_assistant_response(
         runner_name=runner_name,
         execution_cwd=execution_cwd,
         final_event=event,
+        suppress_body=_text_already_streamed(event, streamed_text),
     )
 
 
@@ -704,7 +790,7 @@ async def _handle_immediate_action(
     *,
     action_name: str,
     runner_name: str,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     if action_name == "list":
         return await _format_acp_runner_states_response()
     if action_name == "status":
@@ -777,7 +863,7 @@ async def _validate_runner_start(
     action_name: str,
     chat_id: str,
     runner_name: str,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     if action_name != "start":
         return None
     start_error = await _validate_start_request(
@@ -792,7 +878,7 @@ async def _validate_runner_start(
         "failed",
         error=start_error,
     )
-    return response_text(start_error, stream=True)
+    return response_text(start_error)
 
 
 async def _cancel_runner_turn(
@@ -814,7 +900,7 @@ async def _cancel_runner_turn(
         )
 
 
-def _interrupted_response(runner_name: str) -> ToolResponse:
+def _interrupted_response(runner_name: str) -> ToolChunk:
     return response_text(
         (
             f"ACP conversation with runner '{runner_name}' was "
@@ -823,7 +909,6 @@ def _interrupted_response(runner_name: str) -> ToolResponse:
             f'delegate_external_agent(action="message", '
             f'runner="{runner_name}", message="continue").'
         ),
-        stream=True,
         is_last=True,
     )
 
@@ -835,7 +920,7 @@ async def _run_streaming_agent_action(
     message_text: str,
     execution_cwd: Path,
     timeout_seconds: Optional[float],
-) -> AsyncGenerator[ToolResponse, None]:
+) -> AsyncGenerator[ToolChunk, None]:
     service = None
     chat_id = ""
     state = None
@@ -890,22 +975,31 @@ async def _run_streaming_agent_action(
         raise
     except ImportError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP mode not available: {e}.", stream=True)
+        yield response_text(f"ACP mode not available: {e}.")
     except ValueError as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"Error: {e}", stream=True)
+        yield response_text(f"Error: {e}")
     except Exception as e:
         await _set_failed_runner_state(state, e)
-        yield response_text(f"ACP execution error: {e}", stream=True)
+        yield response_text(f"ACP execution error: {e}")
 
 
+@tool_descriptor(
+    async_execution=True,
+    enabled_by_default=False,
+    tool_type="internal",
+    target_param="runner",
+    policy_name="DelegateExternalAgent",
+    ui_description="Delegate work to an external ACP agent runner",
+    ui_icon="📡",
+)
 async def delegate_external_agent(
     action: str,
     runner: str = "",
     message: str = "",
     cwd: str = "",
     max_runtime: Optional[float] = 300,
-) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
+) -> ToolChunk | AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-return-statements
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
@@ -965,7 +1059,7 @@ async def delegate_external_agent(
             `message="continue")`.
 
     Returns:
-        `AsyncGenerator[ToolResponse, None]`:
+        `AsyncGenerator[ToolChunk, None]`:
             Streaming tool responses for external agent progress, permission
             requests, status, or errors.
     """

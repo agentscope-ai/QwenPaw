@@ -1,0 +1,110 @@
+@import (reference) "../../styles/sessionHeaders.less";
+
+.header {
+  .session-header();
+}
+
+.header:hover {
+  .session-header-hover();
+
+  .more {
+    opacity: 1;
+  }
+}
+
+.source {
+  margin-top: 8px;
+  background: color-mix(in srgb, var(--app-accent) 5%, transparent);
+  color: var(--app-accent);
+}
+
+.pinned {
+  background: var(--app-fill-faint);
+}
+
+.chevron,
+.kindIcon,
+.more,
+.pinMark,
+.lockMark {
+  .session-header-icon();
+}
+
+.chevron {
+  transition: transform 0.16s ease;
+}
+
+.collapsed {
+  transform: rotate(-90deg);
+}
+
+.label {
+  .session-header-label();
+}
+
+.count {
+  .session-header-count();
+}
+
+.pinMark {
+  color: var(--app-accent);
+  transition: opacity 0.15s ease;
+}
+
+.lockMark {
+  color: var(--app-text-quaternary);
+}
+
+.more {
+  position: absolute;
+  right: 7px;
+  width: var(--app-hit-desktop);
+  height: var(--app-hit-desktop);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.managed:hover,
+.managed:focus-within {
+  .count,
+  .pinMark {
+    opacity: 0;
+  }
+}
+
+.more:hover {
+  background: var(--app-fill);
+}
+
+.more:focus-visible {
+  outline: var(--app-focus-ring-width) solid var(--app-focus-ring);
+  outline-offset: var(--app-focus-ring-offset);
+}
+
+.renameInput {
+  min-width: 0;
+  flex: 1;
+  height: var(--app-control-sm);
+  font-size: 11px;
+}
+
+@media (hover: none), (max-width: 768px) {
+  .more {
+    position: static;
+    width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+    opacity: 1;
+  }
+
+  .managed:hover,
+  .managed:focus-within {
+    .count,
+    .pinMark {
+      opacity: 1;
+    }
+  }
+}

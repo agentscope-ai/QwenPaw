@@ -1,0 +1,115 @@
+import { getApiUrl } from "../config";
+import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
+import { responseErrorMessage } from "../error";
+import { requestWithPluginBusyConfirmation } from "../pluginBusy";
+
+export interface PawAppInfo {
+  installation_origin?: InstallationOrigin | null;
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  /** Per-locale descriptions from plugin.json, e.g. { "zh-CN": "..." }. */
+  description_i18n?: Record<string, string>;
+  author: string;
+  category: string;
+  icon: string;
+  icon_url?: string;
+  status: string;
+  home_page: string | null;
+  entry_page?: string;
+  launch_scope?: string;
+  dir: string;
+  settings: unknown[];
+  permissions: Record<string, unknown>;
+  backends: Record<string, unknown>;
+}
+
+export interface PawAppListResponse {
+  apps: PawAppInfo[];
+  total: number;
+}
+
+export interface PawAppIframeResponse {
+  app_id: string;
+  iframe_url: string | null;
+  error?: string;
+}
+
+export const pawappApi = {
+  /**
+   * List all installed PawApps.
+   */
+  async list(): Promise<PawAppListResponse> {
+    const res = await fetch(getApiUrl("/pawapps"), {
+      headers: buildAuthHeaders(),
+    });
+    if (!res.ok) throw new Error(`Failed to list PawApps: ${res.statusText}`);
+    return res.json();
+  },
+
+  /**
+   * Get details of a specific PawApp.
+   */
+  async get(appId: string): Promise<PawAppInfo> {
+    const res = await fetch(
+      getApiUrl(`/pawapps/${encodeURIComponent(appId)}`),
+      {
+        headers: buildAuthHeaders(),
+      },
+    );
+    if (!res.ok)
+      throw new Error(`Failed to get PawApp ${appId}: ${res.statusText}`);
+    return res.json();
+  },
+
+  /**
+   * Get the iframe URL for a PawApp.
+   */
+  async getIframeUrl(appId: string): Promise<PawAppIframeResponse> {
+    const res = await fetch(
+      getApiUrl(`/pawapps/${encodeURIComponent(appId)}/iframe`),
+      {
+        headers: buildAuthHeaders(),
+      },
+    );
+    if (!res.ok)
+      throw new Error(
+        `Failed to get iframe URL for ${appId}: ${res.statusText}`,
+      );
+    return res.json();
+  },
+
+  /**
+   * Uninstall a PawApp by ID (deletes its directory under ~/.copaw/apps).
+   */
+  async uninstall(appId: string): Promise<void> {
+    const res = await requestWithPluginBusyConfirmation(
+      (interruptTasks) =>
+        fetch(
+          getApiUrl(
+            `/pawapps/${encodeURIComponent(appId)}${
+              interruptTasks ? "?interrupt_tasks=true" : ""
+            }`,
+          ),
+          { method: "DELETE", headers: buildAuthHeaders() },
+        ),
+      "uninstall",
+    );
+    if (!res.ok) {
+      throw new Error(
+        await responseErrorMessage(res, `Uninstall failed (${res.status})`),
+      );
+    }
+  },
+
+  /**
+   * Get the static file URL for a PawApp asset.
+   */
+  getStaticUrl(appId: string, filePath: string): string {
+    return getApiUrl(
+      `/pawapps/${encodeURIComponent(appId)}/static/${filePath}`,
+    );
+  },
+};

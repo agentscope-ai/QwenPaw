@@ -1,0 +1,454 @@
+# -*- coding: utf-8 -*-
+"""An OpenAI Responses API provider implementation."""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
+from agentscope.model import ChatModelBase, OpenAIResponseModel
+
+from .adapters.usage import UsageStream, cache_usage
+from .capping_formatter import _CappingOpenAIResponseFormatter
+from .openai_provider import OpenAIProvider
+from .provider import ModelConnectionResult
+from ..utils.logging import sanitize_log_value
+
+logger = logging.getLogger(__name__)
+
+_NONE_REASONING_EFFORT_MODELS = frozenset(
+    {
+        "gpt-5.5",
+        "gpt-5.5-2026-04-23",
+        "gpt-5.6",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+    },
+)
+
+
+def _supports_none_reasoning_effort(model_name: str) -> bool:
+    """Whether a documented model accepts ``reasoning.effort=none``."""
+    canonical_name = model_name.rsplit("/", 1)[-1].lower()
+    return canonical_name in _NONE_REASONING_EFFORT_MODELS
+
+
+def _extract_response_text(response: Any) -> str:
+    """Extract aggregated output text from a Responses API
+    response object.
+
+    Prefers the SDK's built-in ``output_text`` property when
+    available (concatenates all output_text parts); falls back
+    to manual traversal for plain-dict / SimpleNamespace mocks.
+    """
+    agg = getattr(response, "output_text", None)
+    if agg is not None:
+        return agg
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", None) != "message":
+            continue
+        for part in getattr(item, "content", []):
+            if getattr(part, "type", None) == "output_text":
+                return getattr(part, "text", "") or ""
+    return ""
+
+
+def _extract_reasoning_text(response: Any) -> str:
+    """Extract concatenated reasoning summary text from a
+    Responses API response.
+
+    Reasoning items have ``type == "reasoning"`` with a
+    ``summary`` list whose elements carry a ``.text``
+    attribute.
+    """
+    parts: list[str] = []
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", None) != "reasoning":
+            continue
+        for s in getattr(item, "summary", []):
+            text = getattr(s, "text", "")
+            if text:
+                parts.append(text)
+    return " ".join(parts)
+
+
+class OpenAIResponseModelCompat(OpenAIResponseModel):
+    """OpenAIResponseModel with extra-kwargs injection and tool schema
+    sanitization.
+
+    * ``extra_generate_kwargs`` — merged into every ``_call_api`` call
+      (provider-level kwargs like ``extra_body``).
+    * ``_format_tools`` — sanitizes incompatible JSON Schema values and
+      defaults Responses function tools to non-strict mode.
+    """
+
+    def __init__(
+        self,
+        *,
+        extra_generate_kwargs: dict[str, Any] | None = None,
+        request_policy: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._request_policy = request_policy
+        super().__init__(**kwargs)
+
+    def _parse_completion_response(self, start_datetime, response):
+        """Retain Responses cache writes as well as cache reads."""
+        parsed = super()._parse_completion_response(start_datetime, response)
+        cache_usage(parsed.usage, getattr(response, f"usage", None))
+        return parsed
+
+    async def _parse_stream_response(self, start_datetime, response):
+        """Read counters from the completed response exactly once."""
+        captured = UsageStream(response)
+        async for parsed in super()._parse_stream_response(
+            start_datetime,
+            captured,
+        ):
+            cache_usage(parsed.usage, captured.usage, captured.headers)
+            yield parsed
+
+    async def _call_api(
+        self,
+        model_name: str,
+        messages: Any,
+        tools: list[dict] | None = None,
+        tool_choice: Any | None = None,
+        **generate_kwargs: Any,
+    ) -> Any:
+        max_tokens = generate_kwargs.pop("max_tokens", None)
+        if (
+            max_tokens is not None
+            and "max_output_tokens" not in generate_kwargs
+        ):
+            generate_kwargs["max_output_tokens"] = max_tokens
+        merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._request_policy is not None:
+            merged = self._request_policy(model_name, f"responses", merged)
+        disable_thinking = merged.pop("disable_thinking", False)
+        inherited_max_tokens = merged.pop("max_tokens", None)
+        if (
+            inherited_max_tokens is not None
+            and "max_output_tokens" not in merged
+        ):
+            merged["max_output_tokens"] = inherited_max_tokens
+        if disable_thinking:
+            merged.pop("reasoning", None)
+            if _supports_none_reasoning_effort(model_name):
+                merged["reasoning"] = {"effort": "none"}
+        return await super()._call_api(
+            model_name,
+            messages,
+            tools,
+            tool_choice,
+            **merged,
+        )
+
+    def _format_tools(
+        self,
+        tools: list[dict] | None,
+        tool_choice: Any | None,
+    ) -> tuple[list[dict] | None, Any]:
+        from .openai_chat_model_compat import _sanitize_tool_schemas
+
+        if tools:
+            tools = _sanitize_tool_schemas(tools)
+        formatted_tools, formatted_choice = super()._format_tools(
+            tools,
+            tool_choice,
+        )
+        if formatted_tools:
+            for tool in formatted_tools:
+                tool.setdefault("strict", False)
+        return formatted_tools, formatted_choice
+
+
+class OpenAIResponseProvider(OpenAIProvider):
+    """Provider that uses the OpenAI Responses API instead of
+    Chat Completions.
+
+    Inherits connection/discovery logic from ``OpenAIProvider``
+    but creates ``OpenAIResponseModel`` instances via
+    ``get_chat_model_instance``.
+
+    Multimodal probing is overridden to use the Responses API
+    endpoint (``client.responses.create``) so the probe result
+    accurately reflects what the Responses API actually
+    supports.  This prevents false-positive ``supports_video``
+    results that occur when probing via Chat Completions on
+    providers where the Responses API does not support video
+    (e.g. DashScope).
+    """
+
+    wire_protocol = f"responses"
+
+    async def check_model_connection(
+        self,
+        model_id: str,
+        timeout: float = 5,
+    ) -> ModelConnectionResult:
+        """Check if a model is reachable via the Responses API."""
+        from openai import APIError
+
+        model_id = (model_id or "").strip()
+        if not model_id:
+            return ModelConnectionResult(
+                success=False,
+                message="Empty model ID",
+            )
+
+        client = self._client(timeout=timeout)
+        try:
+            res = await client.responses.create(
+                model=model_id,
+                input="ping",
+                timeout=timeout,
+                max_output_tokens=20,
+                stream=True,
+            )
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.close()
+            return ModelConnectionResult(success=True)
+        except APIError as exc:
+            status = getattr(exc, "status_code", None)
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "API error when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+                http_status=status if isinstance(status, int) else None,
+            )
+        except Exception as exc:
+            return ModelConnectionResult(
+                success=False,
+                message=(
+                    "Unknown exception when connecting to model "
+                    f"'{model_id}': {self.connection_error_message(exc)}"
+                ),
+            )
+        finally:
+            await self._close_client(client)
+
+    # Responses API's max_output_tokens includes reasoning
+    # tokens, so reasoning models (o-series, gpt-5) can
+    # exhaust the budget on thinking alone.  1024 gives enough
+    # headroom for a one-word color answer after reasoning.
+    _PROBE_TOKEN_BUDGET = 1024
+
+    async def _probe_image_support(
+        self,
+        model_id: str,
+        timeout: float = 15,
+    ) -> tuple[bool, str]:
+        """Probe image support via the Responses API."""
+        from openai import APIError
+
+        from .multimodal_prober import (
+            _IMAGE_PROBE_PROMPT,
+            _PROBE_IMAGE_B64,
+            _is_media_keyword_error,
+            evaluate_image_probe_answer,
+        )
+
+        logger.info(
+            "Image probe (responses) start: model=%s url=%s",
+            sanitize_log_value(model_id),
+            self.base_url,
+        )
+        start_time = time.monotonic()
+        client = self._client(timeout=timeout)
+        try:
+            res = await client.responses.create(
+                model=model_id,
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_image",
+                                "image_url": (
+                                    "data:image/png;base64,"
+                                    f"{_PROBE_IMAGE_B64}"
+                                ),
+                            },
+                            {
+                                "type": "input_text",
+                                "text": _IMAGE_PROBE_PROMPT,
+                            },
+                        ],
+                    },
+                ],
+                max_output_tokens=self._PROBE_TOKEN_BUDGET,
+                timeout=timeout,
+            )
+            answer = _extract_response_text(res).lower().strip()
+            reasoning = _extract_reasoning_text(res).lower().strip()
+            return evaluate_image_probe_answer(
+                answer,
+                model_id,
+                start_time,
+                reasoning,
+            )
+        except APIError as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe error: model=%s %s %.2fs",
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
+                elapsed,
+            )
+            status = getattr(e, "status_code", None)
+            if status == 400 or _is_media_keyword_error(e):
+                return False, f"Image not supported: {e}"
+            return False, f"Probe inconclusive: {e}"
+        except Exception as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Image probe error: model=%s %s %.2fs",
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
+                elapsed,
+            )
+            return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
+
+    async def _try_video_url(
+        self,
+        model_id: str,
+        video_url: str,
+        timeout: float,
+        *,
+        start_time: float,
+    ) -> tuple[bool | None, str] | None:
+        """Try a single video URL via the Responses API.
+
+        Returns None to signal the caller should try the next
+        format.
+        """
+        from openai import APIError
+
+        from .multimodal_prober import (
+            _PROBE_VIDEO_URL,
+            _is_media_keyword_error,
+            evaluate_video_probe_answer,
+        )
+
+        is_http = video_url == _PROBE_VIDEO_URL
+        req_timeout = timeout * 3 if is_http else timeout
+        client = self._client(timeout=req_timeout)
+        try:
+            res = await client.responses.create(
+                model=model_id,
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_video",
+                                "video_url": video_url,
+                            },
+                            {
+                                "type": "input_text",
+                                "text": (
+                                    "What is the single "
+                                    "dominant color shown in "
+                                    "this video? Reply with "
+                                    "ONLY the color name, "
+                                    "nothing else."
+                                ),
+                            },
+                        ],
+                    },
+                ],
+                max_output_tokens=self._PROBE_TOKEN_BUDGET,
+                timeout=req_timeout,
+            )
+            answer = _extract_response_text(res)
+            reasoning = _extract_reasoning_text(res)
+            return evaluate_video_probe_answer(
+                answer,
+                model_id,
+                start_time,
+                reasoning=reasoning,
+                is_http=is_http,
+            )
+        except APIError as e:
+            status = getattr(e, "status_code", None)
+            if status == 400:
+                logger.debug(
+                    "Video probe format rejected (400): %s",
+                    sanitize_log_value(e),
+                )
+                return None
+            elapsed = time.monotonic() - start_time
+            is_kw = getattr(e, f"status_code", None) in {
+                400,
+                422,
+            } and _is_media_keyword_error(e)
+            label = "not supported" if is_kw else "inconclusive"
+            logger.warning(
+                "Video probe error: model=%s %s %.2fs",
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
+                elapsed,
+            )
+            return (False if is_kw else None), f"Video {label}: {e}"
+        except Exception as e:
+            elapsed = time.monotonic() - start_time
+            logger.warning(
+                "Video probe error: model=%s %s %.2fs",
+                sanitize_log_value(model_id),
+                sanitize_log_value(e),
+                elapsed,
+            )
+            return False, f"Probe failed: {e}"
+        finally:
+            await self._close_client(client)
+
+    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential import OpenAICredential
+
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
+
+        merged_headers = self._build_default_headers()
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        parameters = OpenAIResponseModel.Parameters(
+            max_tokens=gen_kwargs.pop("max_tokens", None),
+            temperature=gen_kwargs.pop("temperature", None),
+        )
+
+        client_kwargs: dict[str, Any] = {}
+        if merged_headers:
+            client_kwargs["default_headers"] = merged_headers
+
+        return OpenAIResponseModelCompat(
+            credential=credential,
+            model=model_id,
+            parameters=parameters,
+            stream=True,
+            context_size=self._get_context_size(model_id),
+            client_kwargs=client_kwargs,
+            extra_generate_kwargs=gen_kwargs or None,
+            request_policy=self.prepare_request,
+            formatter=_CappingOpenAIResponseFormatter(
+                max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    ),
+                ),
+            ),
+        )

@@ -1,0 +1,2003 @@
+import { ConfigAutoSaveContext } from "../configAutoSaveContext";
+import { Form } from "@agentscope-ai/design";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import React, { useEffect, useState, type ReactNode } from "react";
+
+import { agentsApi, api } from "@/api";
+import { useAgentStore } from "@/stores/agentStore";
+import { useEmbeddingVerificationStore } from "@/stores/embeddingVerificationStore";
+import { renderWithProviders } from "@/test/common_setup";
+import { ReMeLightMemoryCard } from "./ReMeLightMemoryCard";
+import { isValidDreamCronShape } from "./dreamCron";
+import { EmbeddingModelCard } from "./EmbeddingModelCard";
+import { MemoryMaintenanceContext } from "../memoryMaintenanceContext";
+import { handleRerankerFieldsChange } from "../rerankerVisibility";
+import { useReMeRuntimeStatus } from "../useReMeRuntimeStatus";
+import {
+  getEmbeddingConfigFingerprint,
+  getEmbeddingServiceFingerprint,
+  isEmbeddingEnabled,
+} from "./embeddingUtils";
+
+vi.mock("@agentscope-ai/design", async () =>
+  vi.importActual<typeof import("antd")>("antd"),
+);
+
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("react-i18next")>()),
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { resolvedLanguage: "zh-CN", language: "zh-CN" },
+  }),
+}));
+
+const memoryStatus = {
+  components: {},
+  components_total: "0 B",
+  process_rss: "1.00 KiB",
+  runtime: {
+    worker: {
+      status: "idle" as const,
+      queue_pending: 0,
+      tasks_running: 0,
+    },
+    auto_memory: {
+      enabled: true,
+      interval: 5,
+    },
+    tasks: [],
+    recent: {
+      last_error: null,
+    },
+    reindexing: false,
+    embedding_reindex_required: false,
+    embedding_reindex_undo_available: false,
+  },
+};
+
+const unknownRuntime = { type: "unknown" as const };
+const unknownDiagnostics = { type: "unknown" as const };
+const noopStatusCheck = async () => {};
+const persistedDashScopeEmbeddingConfig = {
+  backend: "dashscope" as const,
+  model_name: "text-embedding-v4",
+  api_key: "secret",
+  base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  dimensions: 1024,
+  enable_cache: true,
+  use_dimensions: true,
+  max_cache_size: 1000,
+  max_input_length: 8192,
+  max_batch_size: 10,
+  health_check_timeout: 15,
+};
+
+function RuntimeProvider({ children }: { children: ReactNode }) {
+  const [localReindexing, setLocalReindexing] = useState(false);
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
+  const remoteReindexing =
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: localReindexing || remoteReindexing,
+        setReindexing: setLocalReindexing,
+        openMemorySettings: vi.fn(),
+        runtimeStatus,
+        diagnosticsStatus,
+        checkMemoryStatus,
+        rerankerExpanded,
+        setRerankerExpanded,
+        configLoadRevision: 0,
+      }}
+    >
+      {children}
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function StaticMemoryProvider({
+  children,
+  configLoadRevision = 0,
+}: {
+  children: ReactNode;
+  configLoadRevision?: number;
+}) {
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded,
+        setRerankerExpanded,
+        configLoadRevision,
+      }}
+    >
+      {children}
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+/**
+ * Mirrors the AgentConfigPage wiring for the validation-visibility path: the
+ * rerankerExpanded state lives in the memory maintenance context and the form
+ * uses the shared onFieldsChange handler, so collapsed errors surface the
+ * section instead of failing the save silently.
+ */
+function RerankerVisibilityForm({
+  base_url = "",
+  model_name = "",
+  formRef,
+}: {
+  base_url?: string;
+  model_name?: string;
+  formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+}) {
+  const [form] = Form.useForm();
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
+  formRef.current = form;
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded,
+        setRerankerExpanded,
+        configLoadRevision: 0,
+      }}
+    >
+      <Form
+        form={form}
+        onFieldsChange={handleRerankerFieldsChange(form, setRerankerExpanded)}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            dream_cron_enabled: false,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            reranker_config: {
+              enabled: true,
+              base_url,
+              model_name,
+              api_key: "",
+              candidate_multiplier: 3,
+              timeout: 10,
+            },
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+      </Form>
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function MemoryForm({
+  withRuntimeStatus = false,
+  autoFinEnabled = false,
+  includeImages = false,
+  onValuesChange,
+}: {
+  withRuntimeStatus?: boolean;
+  autoFinEnabled?: boolean;
+  includeImages?: boolean;
+  onValuesChange?: (changedValues: unknown) => void;
+}) {
+  const [form] = Form.useForm();
+  const Provider = withRuntimeStatus ? RuntimeProvider : StaticMemoryProvider;
+  return (
+    <Provider>
+      <Form
+        form={form}
+        onValuesChange={onValuesChange}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            auto_memory_include_images: includeImages,
+            dream_cron_enabled: false,
+            auto_fin_cron_enabled: autoFinEnabled,
+            auto_fin_cron: "0 18 * * *",
+            auto_fin_topics: "黄金,机器人,半导体",
+            auto_fin_window_hours: 24,
+            auto_memory_search_config: { enabled: false, max_results: 5 },
+            embedding_model_config: {},
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+      </Form>
+    </Provider>
+  );
+}
+
+function EmbeddingForm() {
+  const [form] = Form.useForm();
+  return (
+    <Form
+      form={form}
+      initialValues={{
+        reme_light_memory_config: { embedding_model_config: {} },
+      }}
+    >
+      <EmbeddingModelCard />
+    </Form>
+  );
+}
+
+function ConfiguredEmbeddingForm({
+  modelName = "text-embedding-v4",
+}: {
+  modelName?: string;
+}) {
+  const [form] = Form.useForm();
+  return (
+    <Form
+      form={form}
+      initialValues={{
+        reme_light_memory_config: {
+          embedding_model_config: {
+            backend: "openai",
+            model_name: modelName,
+            api_key: "secret",
+            dimensions: 1024,
+            enable_cache: true,
+            health_check_timeout: 15,
+          },
+        },
+      }}
+    >
+      <EmbeddingModelCard />
+    </Form>
+  );
+}
+
+function ReindexingEmbeddingForm() {
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: true,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function PersistedEmbeddingForm() {
+  const config = {
+    backend: "openai" as const,
+    model_name: "text-embedding-v4",
+    api_key: "secret",
+    dimensions: 1024,
+    enable_cache: true,
+  };
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(config),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function PersistedDashScopeEmbeddingForm() {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    form.setFieldsValue({
+      reme_light_memory_config: {
+        embedding_model_config: persistedDashScopeEmbeddingConfig,
+      },
+    });
+  }, [form]);
+
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex: false,
+        setNeedsReindex: vi.fn(),
+        reindexing: false,
+        setReindexing: vi.fn(),
+        persistedEmbeddingFingerprint: getEmbeddingConfigFingerprint(
+          persistedDashScopeEmbeddingConfig,
+        ),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: unknownRuntime,
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
+      }}
+    >
+      <Form form={form}>
+        <EmbeddingModelCard />
+      </Form>
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function NeedsReindexEmbeddingForm({ undoAvailable = true }) {
+  const [needsReindex, setNeedsReindex] = useState(true);
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex,
+        setNeedsReindex,
+        reindexing: false,
+        setReindexing: vi.fn(),
+        openMemorySettings: vi.fn(),
+        runtimeStatus: {
+          type: "healthy",
+          agentId: "bot",
+          data: {
+            ...memoryStatus.runtime,
+            embedding_reindex_undo_available: undoAvailable,
+          },
+        },
+        diagnosticsStatus: unknownDiagnostics,
+        checkMemoryStatus: noopStatusCheck,
+        rerankerExpanded: false,
+        setRerankerExpanded: vi.fn(),
+        configLoadRevision: 0,
+      }}
+    >
+      <ConfiguredEmbeddingForm />
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+function MemoryAndEmbeddingForm() {
+  const [form] = Form.useForm();
+  const [needsReindex, setNeedsReindex] = useState(false);
+  const [localReindexing, setReindexing] = useState(false);
+  const [rerankerExpanded, setRerankerExpanded] = useState(false);
+  const { runtimeStatus, diagnosticsStatus, checkMemoryStatus } =
+    useReMeRuntimeStatus(true);
+  const remoteReindexing =
+    runtimeStatus.type === "healthy" && runtimeStatus.data.reindexing;
+  return (
+    <MemoryMaintenanceContext.Provider
+      value={{
+        needsReindex,
+        setNeedsReindex,
+        reindexing: localReindexing || remoteReindexing,
+        setReindexing,
+        openMemorySettings: vi.fn(),
+        runtimeStatus,
+        diagnosticsStatus,
+        checkMemoryStatus,
+        rerankerExpanded,
+        setRerankerExpanded,
+        configLoadRevision: 0,
+      }}
+    >
+      <Form
+        form={form}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_interval: 0,
+            embedding_model_config: {
+              backend: "openai",
+              model_name: "text-embedding-v4",
+              api_key: "secret",
+              dimensions: 1024,
+            },
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+        <EmbeddingModelCard />
+      </Form>
+    </MemoryMaintenanceContext.Provider>
+  );
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  useAgentStore.setState({ selectedAgent: "default" });
+  useEmbeddingVerificationStore.setState({ verificationByAgent: {} });
+});
+
+describe("ReMe runtime status", () => {
+  it("groups the ReMe attribution and documentation with service status", () => {
+    renderWithProviders(<MemoryForm />);
+
+    const serviceStatus = screen
+      .getByText("agentConfig.memoryRuntimeStatus")
+      .closest("div");
+    const statusLabel = screen.getByText("agentConfig.memoryStatusUnknown");
+    const poweredBy = screen.getByText("agentConfig.memoryPoweredBy");
+
+    expect(serviceStatus).not.toBeNull();
+    expect(statusLabel.parentElement).toContainElement(poweredBy);
+    expect(
+      within(serviceStatus as HTMLElement).getByText(
+        "agentConfig.memoryPoweredBy",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(serviceStatus as HTMLElement).getByRole("link", { name: "ReMe" }),
+    ).toHaveAttribute("href", "https://github.com/agentscope-ai/ReMe");
+    expect(
+      within(serviceStatus as HTMLElement).getByRole("link", {
+        name: "agentConfig.memoryDocumentation",
+      }),
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
+  });
+
+  it("loads the selected agent's complete status on entry", async () => {
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValue(memoryStatus.runtime);
+    const getMemoryStatus = vi
+      .spyOn(agentsApi, "getMemoryStatus")
+      .mockResolvedValue(memoryStatus);
+    useAgentStore.setState({ selectedAgent: "bot" });
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      screen.getByText("agentConfig.memoryStatusChecking"),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledWith(
+      "bot",
+      expect.any(AbortSignal),
+    );
+    expect(getMemoryStatus).toHaveBeenCalledTimes(1);
+    expect(getMemoryStatus).toHaveBeenCalledWith(
+      "bot",
+      expect.any(AbortSignal),
+    );
+    const diagnosticsButton = screen.getByRole("button", {
+      name: /agentConfig\.memoryDiagnostics/,
+    });
+    expect(diagnosticsButton).toHaveTextContent("0 B");
+    expect(diagnosticsButton).toHaveTextContent("1.00 KiB");
+  });
+
+  it("shows the checking state while manually refreshing", async () => {
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockResolvedValueOnce(memoryStatus.runtime)
+      .mockImplementationOnce(() => pendingStatus);
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    await screen.findByText("agentConfig.memoryStatusRunning");
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusChecking"),
+    ).toBeInTheDocument();
+    expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows a failed check instead of a healthy badge", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockRejectedValue(
+      new Error("Agent is not running"),
+    );
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusCheckFailed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("agentConfig.memoryStatusRunning"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps runtime healthy when diagnostics fail", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockRejectedValue(
+      new Error("Diagnostics unavailable"),
+    );
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryDiagnostics/,
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.remeStatusFailed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+  });
+
+  it("cancels the stale check when the selected agent changes", async () => {
+    const pendingStatus = new Promise<typeof memoryStatus.runtime>(
+      () => undefined,
+    );
+    const getMemoryRuntimeStatus = vi
+      .spyOn(agentsApi, "getMemoryRuntimeStatus")
+      .mockImplementation((agentId) =>
+        agentId === "default"
+          ? pendingStatus
+          : Promise.resolve(memoryStatus.runtime),
+      );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    await waitFor(() =>
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1),
+    );
+    const firstSignal = getMemoryRuntimeStatus.mock.calls[0][1];
+
+    act(() => useAgentStore.setState({ selectedAgent: "bot" }));
+
+    await waitFor(() => {
+      expect(getMemoryRuntimeStatus).toHaveBeenLastCalledWith(
+        "bot",
+        expect.any(AbortSignal),
+      );
+    });
+    expect(firstSignal?.aborted).toBe(true);
+    expect(
+      await screen.findByText("agentConfig.memoryStatusRunning"),
+    ).toBeInTheDocument();
+  });
+
+  it("uses runtime reindex state while full diagnostics are blocked", async () => {
+    vi.useFakeTimers();
+    try {
+      const rebuildingRuntime = {
+        ...memoryStatus.runtime,
+        reindexing: true,
+      };
+      const getMemoryRuntimeStatus = vi
+        .spyOn(agentsApi, "getMemoryRuntimeStatus")
+        .mockResolvedValue(rebuildingRuntime);
+      vi.spyOn(agentsApi, "getMemoryStatus").mockImplementation(
+        () => new Promise(() => undefined),
+      );
+      const { container } = renderWithProviders(<MemoryAndEmbeddingForm />);
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      const modelInput = container.querySelector(
+        'input[placeholder="agentConfig.embeddingModelNamePlaceholder"]',
+      );
+      expect(modelInput).toBeDisabled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+
+      expect(getMemoryRuntimeStatus).toHaveBeenCalledTimes(1);
+      expect(modelInput).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows worker and auto-memory history status", async () => {
+    const busyStatus = {
+      ...memoryStatus,
+      runtime: {
+        ...memoryStatus.runtime,
+        worker: {
+          ...memoryStatus.runtime.worker,
+          status: "busy" as const,
+          queue_pending: 2,
+          tasks_running: 1,
+        },
+      },
+    };
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      busyStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(busyStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+
+    expect(
+      await screen.findByText("agentConfig.memoryStatusBusy"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryWorkerStatus.busy"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("opens task history and diagnostics from separate overview actions", async () => {
+    vi.spyOn(agentsApi, "getMemoryRuntimeStatus").mockResolvedValue(
+      memoryStatus.runtime,
+    );
+    vi.spyOn(agentsApi, "getMemoryStatus").mockResolvedValue(memoryStatus);
+
+    renderWithProviders(<MemoryForm withRuntimeStatus />);
+    const diagnosticsButton = await screen.findByRole("button", {
+      name: /agentConfig\.memoryDiagnostics/,
+    });
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /agentConfig\.memoryBackgroundTasks/,
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.memoryQueueIdleSummary"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memoryAutoMemoryEnabledSummary"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.autoMemoryRecentTasksEmpty"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(diagnosticsButton);
+
+    await waitFor(() => {
+      expect(diagnosticsButton).toHaveTextContent("0 B");
+      expect(diagnosticsButton).toHaveTextContent("1.00 KiB");
+    });
+
+    expect(
+      await screen.findByText("agentConfig.remeStatusComponentsTotal"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.remeStatusProcessRss"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("long-term memory defaults", () => {
+  it("keeps tag generation off by default and persists enabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryTagsTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: true },
+    });
+    fireEvent.click(control);
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_generate_tags: false },
+    });
+  });
+
+  it("persists the optional image setting through the memory form", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(<MemoryForm onValuesChange={onValuesChange} />);
+
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(control);
+
+    expect(control).toHaveAttribute("aria-checked", "true");
+    expect(onValuesChange).toHaveBeenLastCalledWith(
+      { reme_light_memory_config: { auto_memory_include_images: true } },
+      expect.objectContaining({
+        reme_light_memory_config: expect.objectContaining({
+          auto_memory_include_images: true,
+        }),
+      }),
+    );
+  });
+
+  it("loads an enabled image setting and allows disabling it", () => {
+    const onValuesChange = vi.fn();
+    renderWithProviders(
+      <MemoryForm includeImages onValuesChange={onValuesChange} />,
+    );
+    const control = screen.getByRole("switch", {
+      name: "agentConfig.memoryImagesTitle",
+    });
+    expect(control).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(control);
+    expect(control).toHaveAttribute("aria-checked", "false");
+    expect(onValuesChange.mock.lastCall?.[0]).toEqual({
+      reme_light_memory_config: { auto_memory_include_images: false },
+    });
+  });
+
+  it("schedules autosave when auto memory is toggled programmatically", () => {
+    const onEdit = vi.fn();
+    renderWithProviders(
+      <ConfigAutoSaveContext.Provider value={onEdit}>
+        <MemoryForm />
+      </ConfigAutoSaveContext.Provider>,
+    );
+    fireEvent.click(
+      screen.getByRole("switch", { name: "agentConfig.memoryAutoRecordTitle" }),
+    );
+    expect(onEdit).toHaveBeenCalledOnce();
+  });
+
+  it("renders defaults, sections, and collapsed Daily Paper settings", () => {
+    renderWithProviders(<MemoryForm />);
+
+    const switchInRow = (element: HTMLElement) =>
+      element.parentElement?.parentElement?.querySelector(
+        '[role="switch"]',
+      ) as HTMLElement;
+
+    expect(
+      screen.getByText("agentConfig.memoryOrganizeSectionTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.memorySearchSectionTitle"),
+    ).toBeInTheDocument();
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryDailyPaperTitle/,
+    });
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText("agentConfig.dailyPaperTopics"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.dailyPaperDocumentation",
+      }),
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
+
+    fireEvent.click(sourceToggle);
+
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByText("agentConfig.dailyPaperTopics"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.dailyPaperUseHfMirror"),
+    ).toBeInTheDocument();
+    const notificationSwitches = screen
+      .getAllByText("agentConfig.memoryNotifyTitle")
+      .map(switchInRow);
+
+    expect(notificationSwitches).toHaveLength(3);
+    notificationSwitches.forEach((control) =>
+      expect(control).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(
+      switchInRow(screen.getByText("agentConfig.memorySearchToolTitle")),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(
+      switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
+    ).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("renders collapsed Auto Fin settings beside Daily Paper", () => {
+    renderWithProviders(<MemoryForm />);
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryAutoFinTitle/,
+    });
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByText("agentConfig.autoFinWindowHours"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", {
+        name: "agentConfig.autoFinDocumentation",
+      }),
+    ).toHaveAttribute("href", "https://qwenpaw.agentscope.io/docs/memory");
+
+    fireEvent.click(sourceToggle);
+
+    expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("agentConfig.autoFinCron")).toBeInTheDocument();
+    expect(screen.getByText("agentConfig.autoFinTopics")).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.autoFinWindowHours"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "cronJobs.cronTime: 18:00" }),
+    ).toBeDisabled();
+    expect(screen.getByDisplayValue("黄金,机器人,半导体")).toBeDisabled();
+    expect(screen.getByDisplayValue("24")).toBeDisabled();
+    expect(
+      screen.getByText("agentConfig.autoFinDisclaimer"),
+    ).toBeInTheDocument();
+  });
+
+  it("expands Auto Fin settings when the initial config is enabled", async () => {
+    await act(async () => {
+      renderWithProviders(<MemoryForm autoFinEnabled />);
+    });
+
+    const sourceToggle = screen.getByRole("button", {
+      name: /agentConfig\.memoryAutoFinTitle/,
+    });
+    await waitFor(() => {
+      expect(sourceToggle).toHaveAttribute("aria-expanded", "true");
+    });
+
+    const windowInput = screen.getByDisplayValue("24");
+    expect(windowInput).toBeEnabled();
+    expect(windowInput).toHaveAttribute("aria-valuemin", "1");
+    expect(windowInput).toHaveAttribute("aria-valuemax", "168");
+  });
+});
+
+describe("embedding card separation", () => {
+  it("allows fractional health check timeout input without clamping", () => {
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    const timeoutInput = screen.getByLabelText(
+      "agentConfig.embeddingHealthCheckTimeout",
+    ) as HTMLInputElement;
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemin");
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemax");
+    expect(timeoutInput).toHaveAttribute("step", "0.001");
+    fireEvent.change(timeoutInput, { target: { value: "1.5" } });
+    fireEvent.blur(timeoutInput);
+    expect(Number(timeoutInput.value)).toBe(1.5);
+  });
+
+  it.each(["0", "-1", "300.0001"])(
+    "reports invalid health check timeout %s without rewriting it",
+    async (value) => {
+      const testEmbedding = vi.spyOn(api, "testEmbedding");
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+
+      expect(
+        await screen.findByText("agentConfig.embeddingHealthCheckTimeoutRange"),
+      ).toBeInTheDocument();
+      expect(Number(timeoutInput.value)).toBe(Number(value));
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "agentConfig.embeddingTestConnection",
+          }),
+        );
+      });
+      expect(testEmbedding).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["0.001", "300"])(
+    "tests the embedding service with valid boundary timeout %s",
+    async (value) => {
+      const testEmbedding = vi.spyOn(api, "testEmbedding").mockResolvedValue({
+        success: true,
+        configured_dimensions: 1024,
+        actual_dimensions: 1024,
+        latency_ms: 1,
+        message: "ok",
+      });
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(testEmbedding).toHaveBeenCalledWith(
+          expect.objectContaining({ health_check_timeout: Number(value) }),
+        ),
+      );
+    },
+  );
+
+  it("keeps embedding settings out of the long-term memory card", async () => {
+    renderWithProviders(<MemoryForm />);
+
+    expect(
+      screen.queryByText("agentConfig.embeddingServiceTitle"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders embedding settings in the dedicated card", () => {
+    renderWithProviders(<EmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingServiceTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexTitle"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows test results in the status overview", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingVerificationMetrics"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a successful verification after the embedding card remounts", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      screen.getByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    expect(api.testEmbedding).toHaveBeenCalledOnce();
+  });
+
+  it("does not reuse verification for different service settings", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+
+    const view = renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      ).toHaveAttribute("aria-busy", "false"),
+    );
+
+    view.unmount();
+    renderWithProviders(
+      <ConfiguredEmbeddingForm modelName="text-embedding-v5" />,
+    );
+
+    expect(
+      screen.getByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+  });
+
+  it("isolates verification by selected agent", async () => {
+    vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "another-agent" }));
+
+    expect(
+      await screen.findByText("agentConfig.embeddingNotVerified"),
+    ).toBeInTheDocument();
+
+    act(() => useAgentStore.setState({ selectedAgent: "default" }));
+
+    expect(
+      await screen.findByText("agentConfig.embeddingVerified"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows explicit embedding rebuild and undo actions when required", async () => {
+    renderWithProviders(<NeedsReindexEmbeddingForm />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeBm25Pending"),
+    ).toBeInTheDocument();
+  });
+
+  it("hides undo when a legacy pending state has no indexed snapshot", async () => {
+    renderWithProviders(<NeedsReindexEmbeddingForm undoAvailable={false} />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexNeedsRebuild"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("always shows embedding index status and the manual rebuild action", async () => {
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexMatchesConfig"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", {
+        name: "agentConfig.undoEmbeddingChange",
+      }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeHybrid"),
+    ).toBeInTheDocument();
+  });
+
+  it("disables embedding reindex while embedding is not enabled", async () => {
+    renderWithProviders(<EmbeddingForm />);
+
+    expect(
+      await screen.findByText("agentConfig.embeddingIndexDisabled"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("agentConfig.embeddingSearchModeBm25"),
+    ).toBeInTheDocument();
+  });
+
+  it("disables every embedding config field while rebuilding", () => {
+    const { container } = renderWithProviders(<ReindexingEmbeddingForm />);
+
+    const configFields = container.querySelectorAll(
+      '[role="combobox"], [role="textbox"], [role="spinbutton"], [role="switch"]',
+    );
+
+    expect(configFields.length).toBeGreaterThan(1);
+    configFields.forEach((control) => expect(control).toBeDisabled());
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexRebuilding"),
+    ).toBeInTheDocument();
+  });
+
+  it("requires unsaved embedding changes to be saved before rebuilding", async () => {
+    renderWithProviders(<PersistedEmbeddingForm />);
+
+    fireEvent.change(
+      await screen.findByLabelText("agentConfig.embeddingModelName"),
+      { target: { value: "unsaved-model" } },
+    );
+
+    expect(
+      screen.getByText("agentConfig.embeddingIndexSaveFirst"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeDisabled();
+  });
+
+  it("enables reindex for a freshly loaded DashScope config", async () => {
+    renderWithProviders(<PersistedDashScopeEmbeddingForm />);
+
+    expect(
+      await screen.findByDisplayValue("text-embedding-v4"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("agentConfig.embeddingIndexAvailable"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "agentConfig.rebuildEmbeddingIndex",
+      }),
+    ).toBeEnabled();
+  });
+});
+
+describe("reranker validation", () => {
+  function switchInRow(el: HTMLElement) {
+    return within(
+      el.closest(".ant-form-item") ??
+        el.closest("tr") ??
+        el.parentElement ??
+        el,
+    ).getByRole("switch") as HTMLElement;
+  }
+
+  function RerankerForm({
+    enabled = false,
+    base_url = "",
+    model_name = "",
+    configLoadRevision = 0,
+    formRef,
+  }: {
+    enabled?: boolean;
+    base_url?: string;
+    model_name?: string;
+    configLoadRevision?: number;
+    formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+  }) {
+    const [form] = Form.useForm();
+    formRef.current = form;
+    return (
+      <StaticMemoryProvider configLoadRevision={configLoadRevision}>
+        <Form
+          form={form}
+          initialValues={{
+            reme_light_memory_config: {
+              auto_memory_interval: 0,
+              dream_cron_enabled: false,
+              auto_memory_search_config: { enabled: false, max_results: 5 },
+              reranker_config: {
+                enabled,
+                base_url,
+                model_name,
+                api_key: "",
+                candidate_multiplier: 3,
+                timeout: 10,
+              },
+            },
+          }}
+        >
+          <ReMeLightMemoryCard />
+        </Form>
+      </StaticMemoryProvider>
+    );
+  }
+
+  it("validates base_url and model_name when reranker is enabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(2);
+  });
+
+  it("does not require base_url and model_name when reranker is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it("triggers validation when reranker switch is toggled on with empty fields", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    // Deliberately no explicit validateFields() call here: the card must
+    // surface these errors on its own once the switch flips, otherwise this
+    // regression would stay invisible.
+    await waitFor(() => {
+      const errors = form.getFieldsError([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ]);
+      expect(errors[0].errors.length).toBeGreaterThan(0);
+      expect(errors[1].errors.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("rejects fractional candidate_multiplier values", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      1.5,
+    );
+
+    const errors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0].errors[0]).toContain("rerankerCandidateMultiplierInteger");
+  });
+
+  it("clears base_url and model_name errors when reranking is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    // Trigger validation — should produce 2 errors
+    const firstErrors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(firstErrors).toHaveLength(2);
+
+    // Toggle switch off — errors should clear
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    expect(enableSwitch).toHaveAttribute("aria-checked", "true");
+
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    const secondErrors = await form
+      .validateFields([
+        ["reme_light_memory_config", "reranker_config", "base_url"],
+        ["reme_light_memory_config", "reranker_config", "model_name"],
+      ])
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(secondErrors).toHaveLength(0);
+  });
+
+  function rerankerDetailsVisible(container: HTMLElement) {
+    const details = container.querySelector("#reranker-details");
+    return details !== null && getComputedStyle(details).display !== "none";
+  }
+
+  it("expands reranker details when enabled and collapses when disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={false}
+        base_url=""
+        model_name=""
+      />,
+    );
+
+    // Initially disabled: details stay mounted but hidden
+    expect(screen.getByText("agentConfig.rerankerBaseUrl")).toBeInTheDocument();
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Toggle on: details should expand (become visible)
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Toggle off (real disable path): details should collapse again
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(
+      switchInRow(screen.getByText("agentConfig.rerankerEnabled")),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Re-enable: details expand again
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(true);
+  });
+
+  it("resets reranker expansion state when switching agents", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+
+    // Enabled by default: details expanded
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Manual collapse
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Switch to another agent: expansion state resets to the default
+    // (expanded, because the newly selected agent also has reranking enabled)
+    act(() => useAgentStore.setState({ selectedAgent: "another-agent" }));
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+
+    act(() => useAgentStore.setState({ selectedAgent: "default" }));
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+  });
+
+  it("restores reranker expansion after a reset reloads the same config", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container, rerender } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+        configLoadRevision={1}
+      />,
+    );
+
+    // Enabled by default: details expanded
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Manual collapse
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Reset reloads the persisted config, so rerankerEnabled comes back
+    // unchanged and only the load revision advances.
+    rerender(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+        configLoadRevision={2}
+      />,
+    );
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+  });
+
+  it("normalizes invalid numeric values when reranking is disabled", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    // Clear both numeric fields to invalid (null) values
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "candidate_multiplier"],
+      null,
+    );
+    form.setFieldValue(
+      ["reme_light_memory_config", "reranker_config", "timeout"],
+      null,
+    );
+
+    // Full-form validation fails while reranking is enabled
+    const firstErrors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(firstErrors.length).toBeGreaterThan(0);
+
+    // Disable reranking: numeric fields plus base_url/model_name errors clear
+    const enableSwitch = switchInRow(
+      screen.getByText("agentConfig.rerankerEnabled"),
+    );
+    await act(async () => {
+      fireEvent.click(enableSwitch);
+    });
+    expect(enableSwitch).toHaveAttribute("aria-checked", "false");
+
+    // Full-form validation must now succeed
+    const secondErrors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    expect(secondErrors).toHaveLength(0);
+
+    // Invalid numeric values were normalized to valid defaults
+    expect(
+      form.getFieldValue([
+        "reme_light_memory_config",
+        "reranker_config",
+        "candidate_multiplier",
+      ]),
+    ).toBe(3);
+    expect(
+      form.getFieldValue([
+        "reme_light_memory_config",
+        "reranker_config",
+        "timeout",
+      ]),
+    ).toBe(10);
+  });
+
+  it("full-form validation still fails after collapsing with a cleared required value", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerForm
+        formRef={formRef}
+        enabled={true}
+        base_url=""
+        model_name=""
+      />,
+    );
+    const form = formRef.current!;
+
+    // Details are expanded because reranking is enabled
+    const baseUrlInput = screen.getByPlaceholderText(
+      "agentConfig.rerankerBaseUrlPlaceholder",
+    );
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Clear a required value
+    await act(async () => {
+      fireEvent.change(baseUrlInput, { target: { value: "" } });
+    });
+    const modelNameInput = screen.getByPlaceholderText(
+      "agentConfig.rerankerModelNamePlaceholder",
+    );
+    await act(async () => {
+      fireEvent.change(modelNameInput, { target: { value: "" } });
+    });
+
+    // Collapse the details section
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Full-form validation must still fail on the (now hidden) required fields
+    const errors = await form
+      .validateFields()
+      .then(() => [])
+      .catch((e) => e.errorFields ?? []);
+    const errorNames = errors.map((e: { name: string[] }) => e.name.join("."));
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.base_url",
+    );
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.model_name",
+    );
+  });
+
+  it("expands the details when a collapsed numeric field fails validation", async () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    const { container } = renderWithProviders(
+      <RerankerVisibilityForm
+        formRef={formRef}
+        base_url="https://api.siliconflow.cn/v1"
+        model_name="BAAI/bge-reranker-v2-m3"
+      />,
+    );
+    const form = formRef.current!;
+
+    // Details are expanded because reranking is enabled
+    expect(rerankerDetailsVisible(container)).toBe(true);
+
+    // Clear both numeric fields. InputNumber commits an empty value as null
+    // (values below min are clamped back, so they cannot be made invalid by
+    // typing), and the required rule rejects it.
+    const multiplierInput = screen.getByLabelText(
+      "agentConfig.rerankerCandidateMultiplier",
+    );
+    const timeoutInput = screen.getByLabelText("agentConfig.rerankerTimeout");
+    await act(async () => {
+      fireEvent.change(multiplierInput, { target: { value: "" } });
+    });
+    await act(async () => {
+      fireEvent.change(timeoutInput, { target: { value: "" } });
+    });
+
+    // Collapse the details section
+    const toggleBtn = container.querySelector(
+      '[aria-controls="reranker-details"]',
+    )!;
+    await act(async () => {
+      fireEvent.click(toggleBtn);
+    });
+    expect(rerankerDetailsVisible(container)).toBe(false);
+
+    // Save rejects...
+    const errors = await act(async () => {
+      return await form
+        .validateFields()
+        .then(() => [])
+        .catch((e) => e.errorFields ?? []);
+    });
+    const errorNames = errors.map((e: { name: string[] }) => e.name.join("."));
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.candidate_multiplier",
+    );
+    expect(errorNames).toContain(
+      "reme_light_memory_config.reranker_config.timeout",
+    );
+
+    // ...and the details expand so the user can see what failed
+    await waitFor(() => expect(rerankerDetailsVisible(container)).toBe(true));
+  });
+});
+
+describe("isValidDreamCronShape", () => {
+  it("accepts a five-field cron expression", () => {
+    expect(isValidDreamCronShape("0 23 * * *")).toBe(true);
+    expect(isValidDreamCronShape("  0 3 * * mon-fri  ")).toBe(true);
+  });
+
+  it("rejects empty and malformed expressions", () => {
+    expect(isValidDreamCronShape("")).toBe(false);
+    expect(isValidDreamCronShape("0 23 * *")).toBe(false);
+    expect(isValidDreamCronShape("0 23 * * ?")).toBe(false);
+    expect(isValidDreamCronShape("61 * * * *")).toBe(false);
+    expect(isValidDreamCronShape("0 24 * * *")).toBe(false);
+    expect(isValidDreamCronShape("0 9 0 * *")).toBe(false);
+  });
+});
+
+describe("isEmbeddingEnabled", () => {
+  it("requires model name for every backend", () => {
+    expect(
+      isEmbeddingEnabled({ backend: "openai", model_name: "", api_key: "key" }),
+    ).toBe(false);
+    expect(isEmbeddingEnabled({ backend: "ollama", model_name: "   " })).toBe(
+      false,
+    );
+  });
+
+  it("requires api key for OpenAI-compatible backends", () => {
+    expect(
+      isEmbeddingEnabled({
+        backend: "openai",
+        model_name: "text-embedding-3-small",
+        api_key: "",
+      }),
+    ).toBe(false);
+    expect(
+      isEmbeddingEnabled({
+        backend: "dashscope",
+        model_name: "text-embedding-v3",
+        api_key: "key",
+      }),
+    ).toBe(true);
+    expect(
+      isEmbeddingEnabled({
+        backend: "dashscope_multimodal",
+        model_name: "multimodal-embedding",
+        api_key: "key",
+      }),
+    ).toBe(true);
+  });
+
+  it("requires api key for gemini", () => {
+    expect(
+      isEmbeddingEnabled({
+        backend: "gemini",
+        model_name: "gemini-embedding-001",
+        api_key: "",
+      }),
+    ).toBe(false);
+    expect(
+      isEmbeddingEnabled({
+        backend: "gemini",
+        model_name: "gemini-embedding-001",
+        api_key: "key",
+      }),
+    ).toBe(true);
+  });
+
+  it("enables ollama with a model name and no api key", () => {
+    expect(
+      isEmbeddingEnabled({
+        backend: "ollama",
+        model_name: "nomic-embed-text",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("getEmbeddingServiceFingerprint", () => {
+  const base = {
+    backend: "openai" as const,
+    api_key: "key",
+    base_url: "https://example.com/v1/",
+    model_name: "embedding-model",
+    dimensions: 1024,
+    use_dimensions: false,
+  };
+
+  it("normalizes the service URL", () => {
+    expect(getEmbeddingServiceFingerprint(base)).toBe(
+      getEmbeddingServiceFingerprint({
+        ...base,
+        base_url: " https://example.com/v1 ",
+      }),
+    );
+  });
+
+  it("ignores ReMe cache and batching settings", () => {
+    expect(
+      getEmbeddingServiceFingerprint({
+        ...base,
+        enable_cache: true,
+        max_cache_size: 10,
+        max_input_length: 100,
+        max_batch_size: 2,
+      }),
+    ).toBe(
+      getEmbeddingServiceFingerprint({
+        ...base,
+        enable_cache: false,
+        max_cache_size: 20,
+        max_input_length: 200,
+        max_batch_size: 4,
+      }),
+    );
+  });
+
+  it("ignores use_dimensions outside the OpenAI backend", () => {
+    const dashscope = {
+      ...base,
+      backend: "dashscope" as const,
+    };
+
+    expect(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingServiceFingerprint({
+        ...dashscope,
+        use_dimensions: false,
+      }),
+    );
+    expect(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: true,
+      }),
+    ).toBe(
+      getEmbeddingConfigFingerprint({
+        ...dashscope,
+        use_dimensions: false,
+      }),
+    );
+  });
+});
+
+describe("memory configuration count fields", () => {
+  function CountFieldsForm({
+    formRef,
+    interval = 5,
+  }: {
+    formRef: React.MutableRefObject<ReturnType<typeof Form.useForm>[0] | null>;
+    interval?: number | null;
+  }) {
+    const [form] = Form.useForm();
+    formRef.current = form;
+    return (
+      <StaticMemoryProvider>
+        <Form
+          form={form}
+          initialValues={{
+            reme_light_memory_config: {
+              auto_memory_interval: interval,
+              dream_cron_enabled: false,
+              auto_memory_search_config: { enabled: true, max_results: 2 },
+              embedding_model_config: persistedDashScopeEmbeddingConfig,
+              reranker_config: {
+                enabled: false,
+                candidate_multiplier: 3,
+                timeout: 10,
+              },
+            },
+          }}
+        >
+          <ReMeLightMemoryCard />
+          <EmbeddingModelCard />
+        </Form>
+      </StaticMemoryProvider>
+    );
+  }
+
+  it.each([
+    ["auto_memory_interval"],
+    ["auto_memory_search_config", "max_results"],
+    ["embedding_model_config", "dimensions"],
+    ["embedding_model_config", "max_cache_size"],
+    ["embedding_model_config", "max_input_length"],
+    ["embedding_model_config", "max_batch_size"],
+  ])("rejects a fractional count for %s before autosave", async (...fields) => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(<CountFieldsForm formRef={formRef} />);
+    const form = formRef.current!;
+    const path = ["reme_light_memory_config", ...fields];
+    await act(async () => form.setFieldValue(path, 1.5));
+    await expect(form.validateFields([path])).rejects.toMatchObject({
+      errorFields: expect.arrayContaining([
+        expect.objectContaining({
+          name: path,
+          errors: ["agentConfig.memoryPositiveIntegerRequired"],
+        }),
+      ]),
+    });
+    await act(async () => form.setFieldValue(path, 5));
+    await expect(form.validateFields([path])).resolves.toBeDefined();
+  });
+
+  it.each([null, -1])(
+    "accepts legacy disabled cadence %s",
+    async (interval) => {
+      const formRef = {
+        current: null as ReturnType<typeof Form.useForm>[0] | null,
+      };
+      renderWithProviders(
+        <CountFieldsForm formRef={formRef} interval={interval} />,
+      );
+      expect(
+        screen.getByRole("switch", {
+          name: "agentConfig.memoryAutoRecordTitle",
+        }),
+      ).not.toBeChecked();
+      await expect(
+        formRef.current!.validateFields([
+          ["reme_light_memory_config", "auto_memory_interval"],
+        ]),
+      ).resolves.toBeDefined();
+    },
+  );
+
+  it("names every memory switch including expanded external sources", () => {
+    const formRef = {
+      current: null as ReturnType<typeof Form.useForm>[0] | null,
+    };
+    renderWithProviders(<CountFieldsForm formRef={formRef} />);
+    fireEvent.click(screen.getByText("agentConfig.memoryDailyPaperTitle"));
+    fireEvent.click(screen.getByText("agentConfig.memoryAutoFinTitle"));
+    for (const toggle of screen.getAllByRole("switch")) {
+      expect(toggle).toHaveAccessibleName();
+    }
+  });
+});

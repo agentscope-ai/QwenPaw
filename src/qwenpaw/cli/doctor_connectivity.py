@@ -5,9 +5,11 @@ Failures are reported as non-fatal notes (firewalls and offline use are
 common). Built-in probes live here; custom channels can override
 :class:`~qwenpaw.app.channels.base.BaseChannel`.doctor_connectivity_notes.
 """
+
 from __future__ import annotations
 
 import socket
+import asyncio
 from typing import Any, Callable
 from urllib.parse import urlparse
 
@@ -30,6 +32,7 @@ from ..config.config import (
     XiaoYiConfig,
     WeChatConfig,
 )
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from .doctor_checks import _effective_channels_mcp, _read_workspace_agent_json
 
 ChannelProbe = Callable[[str, Any, float], list[str]]
@@ -97,12 +100,15 @@ def _probe_matrix(
 
 def _probe_telegram(
     agent_id: str,
-    _cfg: TelegramConfig,
+    cfg: TelegramConfig,
     timeout: float,
 ) -> list[str]:
-    err = _http_get_ok("https://api.telegram.org", timeout)
+    url = (cfg.base_url or "").strip().rstrip(
+        "/",
+    ) or "https://api.telegram.org"
+    err = _http_get_ok(url, timeout)
     if err:
-        return [f"{agent_id}: telegram: reach api.telegram.org — {err}"]
+        return [f"{agent_id}: telegram: reach {url} — {err}"]
     return []
 
 
@@ -118,17 +124,29 @@ def _probe_onebot(
     cfg: OneBotConfig,
     timeout: float,
 ) -> list[str]:
-    host = (cfg.ws_host or "127.0.0.1").strip()
+    # Mirrors OneBotChannel: a blank ws_host falls back to loopback,
+    # IPv6 brackets are dropped, and a whitespace token counts as unset.
+    configured_host = (cfg.ws_host or "").strip().strip("[]") or "127.0.0.1"
     port = int(cfg.ws_port or 6199)
-    if host in ("0.0.0.0", ""):
-        host = "127.0.0.1"
+    access_token = (cfg.access_token or "").strip()
+    notes: list[str] = []
+    if not is_loopback_host(configured_host) and not access_token:
+        notes.append(
+            f"{agent_id}: onebot: ws_host {configured_host} is reachable "
+            "from the network but access_token is empty — every "
+            "connection is rejected. Set access_token, or bind ws_host "
+            "to 127.0.0.1.",
+        )
+    # A wildcard bind address is not a connectable target; probe the
+    # loopback address of the same family instead.
+    host = probe_host_for_bind_host(configured_host)
     err = _tcp_check(host, port, timeout)
     if err:
-        return [
+        notes.append(
             f"{agent_id}: onebot: TCP {host}:{port} — {err} "
             "(is the reverse WebSocket server running?)",
-        ]
-    return []
+        )
+    return notes
 
 
 def _probe_feishu(
@@ -192,15 +210,10 @@ def _probe_xiaoyi(
     _cfg: XiaoYiConfig,
     timeout: float,
 ) -> list[str]:
-    from qwenpaw.app.channels.xiaoyi.constants import (
-        DEFAULT_WS_URL,
-        DEFAULT_WS_URL_BACKUP,
-    )
-
     notes: list[str] = []
     for label, raw in (
-        ("primary", DEFAULT_WS_URL),
-        ("backup", DEFAULT_WS_URL_BACKUP),
+        ("primary", "wss://hag.cloud.huawei.com/openclaw/v1/ws/link"),
+        ("backup", "wss://116.63.174.231/openclaw/v1/ws/link"),
     ):
         if not raw:
             continue
@@ -259,14 +272,112 @@ def _channel_enabled(sub: Any) -> bool:
     return bool(getattr(sub, "enabled", False))
 
 
+async def _managed_connectivity_notes(cfg, timeout):
+    """Probe installed descriptors without starting message runtimes."""
+    from ..app.channels.management import (
+        ChannelManagementService,
+        ManagementError,
+    )
+    from ..app.channels.process_supervisor import LaunchSpec
+    from ..channel_protocol.management import MANAGEMENT_CAPABILITIES
+    from ..config.utils import get_plugins_dir
+    from ..plugins.loader import PluginLoader
+    from ..plugins.registry import PluginRegistry
+    from ..plugins.official_channels import resolve_default_channel_runtime
+
+    from ..utils.io_utils import run_sync_io
+
+    handled, notes = set(), []
+    try:
+        runtime = PluginRegistry().channel_runtime or await run_sync_io(
+            resolve_default_channel_runtime,
+        )
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError):
+        runtime = None
+    loader = await PluginLoader.create(
+        [get_plugins_dir()],
+        channel_runtime=runtime,
+    )
+    service = ChannelManagementService(loader)
+    controls = set(LaunchSpec.__dataclass_fields__) - {"config", "enabled"}
+    controls.update(
+        {
+            "workspace_dir",
+            "media_dir",
+            "token_file",
+            "token_file_path",
+            "bot_token_file",
+            "context_file",
+            "context_tokens_file",
+            "entrypoint",
+            "management_entrypoint",
+            "credential_keys",
+        },
+    )
+    try:
+        await loader.load_all_plugins(
+            configs=cfg.plugins,
+            types=["channel"],
+            activate=False,
+        )
+        for agent_id, ref in cfg.agents.profiles.items():
+            raw = _read_workspace_agent_json(ref)
+            channels, _ = _effective_channels_mcp(cfg, raw)
+            for key, values in channels.model_dump().items():
+                if not isinstance(values, dict) or not values.get("enabled"):
+                    continue
+                row = loader.registry.get_channel_catalog_entry(key)
+                if (
+                    row is None
+                    or row.description_record is None
+                    or MANAGEMENT_CAPABILITIES["connection.verify"]
+                    not in row.description_record.descriptor.capabilities
+                ):
+                    continue
+                handled.add((agent_id, key))
+                config = (
+                    {"base_url": values.get("base_url", "")}
+                    if row.plugin_id == key == "wechat"
+                    else {k: v for k, v in values.items() if k not in controls}
+                )
+                try:
+                    result = await service.execute(
+                        agent_id,
+                        key,
+                        "connection.verify",
+                        {"config": config, "level": "reachability"},
+                        timeout=timeout,
+                    )
+                except ManagementError as error:
+                    reason = error.reason_code
+                    notes.append(f"{agent_id}: {key}: reachability — {reason}")
+                    continue
+                payload = result.result
+                if result.outcome != "ok":
+                    reason = result.reason_code
+                    notes.append(f"{agent_id}: {key}: reachability — {reason}")
+                elif payload["verdict"] != "passed":
+                    reason = payload["reason_code"]
+                    notes.append(f"{agent_id}: {key}: reachability — {reason}")
+    finally:
+        try:
+            await service.aclose()
+        except ManagementError as error:
+            notes.append(f"channel management cleanup — {error.reason_code}")
+    return handled, notes
+
+
 # pylint: disable-next=too-many-branches
 def collect_deep_channel_connectivity_notes(
     cfg: Config,
     timeout: float,
 ) -> list[str]:
     """Run reachability probes for each enabled channel (per agent profile)."""
-    notes: list[str] = []
+    managed, notes = asyncio.run(_managed_connectivity_notes(cfg, timeout))
     reg = get_channel_registry()
+    from ..plugins.registry import PluginRegistry
+
+    catalog = PluginRegistry().get_channel_catalog()
 
     for agent_id, ref in cfg.agents.profiles.items():
         raw = _read_workspace_agent_json(ref)
@@ -279,6 +390,8 @@ def collect_deep_channel_connectivity_notes(
             if name == "console":
                 continue
             if name == "imessage":
+                continue
+            if (agent_id, name) in managed:
                 continue
 
             cls = reg.get(name)
@@ -313,6 +426,8 @@ def collect_deep_channel_connectivity_notes(
 
         extra = getattr(ch, "__pydantic_extra__", None) or {}
         for key, val in extra.items():
+            if (agent_id, key) in managed:
+                continue
             en = False
             if isinstance(val, dict):
                 en = bool(val.get("enabled"))
@@ -322,6 +437,9 @@ def collect_deep_channel_connectivity_notes(
                 continue
             cls = reg.get(key)
             if cls is None:
+                row = catalog.get(key)
+                if row is not None and row.description_record is not None:
+                    continue
                 notes.append(
                     f"{agent_id}: plugin channel {key!r} enabled — "
                     "not in registry; add a BaseChannel subclass "

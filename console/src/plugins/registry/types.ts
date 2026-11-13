@@ -18,6 +18,13 @@
  * Both surfaces share the single audit log in `./audit.ts`.
  */
 import type React from "react";
+import type { ChatCodeBlockProps } from "../types/qwenpaw";
+
+export interface ChatCodeBlockItem {
+  id: string;
+  language: string;
+  render: React.ComponentType<ChatCodeBlockProps>;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Disposable
@@ -114,15 +121,45 @@ export interface MenuItem {
 // Route (console-wide)
 // ─────────────────────────────────────────────────────────────────────────────
 
+export type RouteDomain =
+  | "chat"
+  | "tasks"
+  | "workspace"
+  | "extensions"
+  | "settings";
+
+export type RouteScope = "global" | "agent" | "session" | "workspace";
+
+export type RouteLayout = "standard" | "workbench" | "immersive";
+
+export type RouteNavigation = "rail" | "context" | "settings" | "search-only";
+
+/**
+ * Optional semantic metadata used by the host shell. It is intentionally
+ * additive so routes registered by older plugins remain valid.
+ */
+export interface RouteMeta {
+  domain: RouteDomain;
+  title: Localized<string>;
+  description?: Localized<string>;
+  scope: RouteScope;
+  layout: RouteLayout;
+  navigation: RouteNavigation;
+}
+
 /** A registered route entry (added via builtinRoutes or QwenPaw.route.add). */
 export interface Route {
   /** Stable id, e.g. "core.chat" / "cloudpaw.a2a". */
   id: string;
   /** URL path. Supports react-router patterns, including "/chat/*". */
   path: string;
+  /** Match path casing exactly. Defaults to case-insensitive matching. */
+  caseSensitive?: boolean;
   /** Lazy or eager component. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: React.ComponentType<any>;
+  /** Optional host-shell semantics. Omit for legacy plugin compatibility. */
+  meta?: RouteMeta;
 }
 
 /**
@@ -206,13 +243,13 @@ export type ChatResponseData = Record<string, unknown>;
 
 export type ChatRequestRenderFn = (ctx: {
   data: ChatRequestData;
-  fallback: () => React.ReactElement;
+  fallback: () => React.ReactNode;
 }) => React.ReactNode;
 
 export type ChatResponseRenderFn = (ctx: {
   data: ChatResponseData;
   isLast?: boolean;
-  fallback: () => React.ReactElement;
+  fallback: () => React.ReactNode;
 }) => React.ReactNode;
 
 export type ChatRequestSlotFn = (ctx: {
@@ -243,8 +280,8 @@ export interface ChatRequestPayloadTransformItem {
 
 // Chat scalar / list field name unions are defined in `./slotKeys.ts` for
 // single-source-of-truth ergonomics; re-exported here for caller convenience.
-export type { ChatScalarField, ChatListField } from "./slotKeys";
-import type { ChatScalarField, ChatListField } from "./slotKeys";
+export type { ChatScalarField, ChatListField, ThemeTokenKey } from "./slotKeys";
+import type { ChatScalarField, ChatListField, ThemeTokenKey } from "./slotKeys";
 
 export interface ChatScalarValues {
   "welcome.greeting"?: Localized<React.ReactNode>;
@@ -319,6 +356,53 @@ export interface ChatCardItem {
   render: React.FC<Record<string, unknown>>;
 }
 
+export interface ChatApprovalData {
+  requestId: string;
+  sessionId: string;
+  rootSessionId?: string;
+  agentId: string;
+  toolName: string;
+  severity: string;
+  findingsCount: number;
+  findingsSummary: string;
+  toolParams: Record<string, unknown>;
+  createdAt: number;
+  timeoutSeconds: number;
+  sourceType: string;
+}
+
+export interface ChatApprovalRendererProps {
+  approval: ChatApprovalData;
+  onResolved: () => void;
+}
+
+export interface ChatApprovalRendererItem {
+  id: string;
+  sourceType: string;
+  render: React.FC<ChatApprovalRendererProps>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Theme tokens — plugin-facing semantic role overrides
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * One token's value in both schemes.
+ *
+ * Both members are required: a plugin that supplies only one could leave the
+ * other scheme unreadable, so the SDK rejects partial values instead of
+ * silently mixing the plugin's colour with the host's.
+ */
+export interface ThemeTokenValue {
+  light: string;
+  dark: string;
+}
+
+/** Map of semantic role → { light, dark }. Keys are validated by the SDK. */
+export type ThemeTokenOverrides = Partial<
+  Record<ThemeTokenKey, ThemeTokenValue>
+>;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Audit — unified across console + chat registries
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,6 +428,8 @@ export type AuditKind =
   | "chat.scalar.dispose"
   | "chat.list.add"
   | "chat.list.dispose"
+  | "chat.themeTokens.set"
+  | "chat.themeTokens.dispose"
   | "chat.error";
 
 export interface OverrideRecord {

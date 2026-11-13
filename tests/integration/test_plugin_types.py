@@ -20,6 +20,7 @@ uninstall → side-effect gone.
 Reuses _build_sample_plugin_zip pattern from test_plugins.py and the
 _upload_plugin_zip / _delete_plugin helpers.
 """
+
 from __future__ import annotations
 
 import io
@@ -34,6 +35,7 @@ import pytest
 from helpers import (
     LOADER_READY_TIMEOUT,
     PLUGIN_HTTP_TIMEOUT,
+    wait_cron_executed,
     wait_until_plugin_loader_ready,
 )
 
@@ -81,6 +83,7 @@ def _provider_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "provider",
         "entry": {"backend": "plugin.py"},
         "meta": {"provider_id": f"{plugin_id}-prov"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -132,6 +135,7 @@ def _hook_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "hook",
         "entry": {"backend": "plugin.py"},
         "meta": {"hook_type": "startup"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -140,7 +144,7 @@ def _command_plugin_zip(plugin_id: str) -> bytes:
     """Plugin that registers a /slash control command."""
     backend = (
         "# -*- coding: utf-8 -*-\n"
-        "from qwenpaw.app.runner.control_commands.base import (\n"
+        "from qwenpaw.runtime.commands.control.base import (\n"
         "    BaseControlCommandHandler,\n"
         ")\n"
         "\n"
@@ -170,6 +174,7 @@ def _command_plugin_zip(plugin_id: str) -> bytes:
         "plugin_type": "command",
         "entry": {"backend": "plugin.py"},
         "meta": {"command_name": f"/{plugin_id}-cmd"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -205,6 +210,7 @@ def _http_router_plugin_zip(plugin_id: str) -> bytes:
         "name": plugin_id,
         "plugin_type": "general",
         "entry": {"backend": "plugin.py"},
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(plugin_id, manifest, {"plugin.py": backend})
 
@@ -233,6 +239,7 @@ def _frontend_plugin_zip(plugin_id: str) -> bytes:
             "backend": "plugin.py",
             "frontend": "dist/index.js",
         },
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(
         plugin_id,
@@ -546,19 +553,11 @@ def test_provider_plugin_actually_serves_llm_call(app_server) -> None:
         assert run_resp.status_code == 200, app_server.logs_tail()
 
         # Poll history.
-        deadline = time.time() + 30.0
-        records: list = []
-        while time.time() < deadline:
-            hist_resp = app_server.api_request(
-                "GET",
-                f"/api/cron/jobs/{job_id}/history",
-                timeout=PLUGIN_HTTP_TIMEOUT,
-            )
-            if hist_resp.status_code == 200:
-                records = hist_resp.json()
-                if isinstance(records, list) and records:
-                    break
-            time.sleep(1.0)
+        records = wait_cron_executed(
+            app_server,
+            job_id,
+            time.time() + 30.0,
+        )
         assert records, app_server.logs_tail()
         assert (
             records[0]["status"] == "success"
@@ -734,12 +733,12 @@ def test_command_plugin_command_actually_registered(app_server) -> None:
         resp = _upload(app_server, pid, _command_plugin_zip(pid))
         assert resp.status_code == 200, app_server.logs_tail()
 
-        logs = app_server.logs_tail(8000)
+        logs = app_server.logs_tail(32000)
         # Look for either the registration log line or the
         # CommandRegistry confirmation. Both should be present.
-        assert expected_cmd in logs, (
-            f"command '{expected_cmd}' not in server logs:\n" f"{logs[-2000:]}"
-        )
+        assert (
+            expected_cmd in logs
+        ), f"command '{expected_cmd}' not in server logs:\n{logs[-2000:]}"
         # Stronger check: explicit registration confirmation.
         assert (
             "Registered plugin control command" in logs
@@ -969,24 +968,13 @@ def _composite_plugin_zip(plugin_id: str) -> bytes:
             "backend": "plugin.py",
             "frontend": "dist/index.js",
         },
+        "qwenpaw_version": {"min": "2.0.0", "max": "2.2.0"},
     }
     return _build_zip(
         plugin_id,
         manifest,
         {"plugin.py": backend, "dist/index.js": js_bundle},
     )
-
-
-def _no_entry_plugin_zip(plugin_id: str) -> bytes:
-    """Manifest without any entry point — should be rejected by loader."""
-    manifest = {
-        "id": plugin_id,
-        "version": "0.1.0",
-        "name": plugin_id,
-        "plugin_type": "general",
-        "entry": {},  # empty — no backend nor frontend
-    }
-    return _build_zip(plugin_id, manifest, {})
 
 
 @pytest.mark.integration
@@ -1029,33 +1017,5 @@ def test_composite_plugin_backend_and_frontend_both_live(app_server) -> None:
         )
         assert js_resp.status_code == 200, app_server.logs_tail()
         assert f"{pid} composite frontend" in js_resp.text, js_resp.text[:200]
-    finally:
-        _delete(app_server, pid)
-
-
-@pytest.mark.integration
-@pytest.mark.p2
-def test_plugin_upload_rejects_manifest_without_entry(app_server) -> None:
-    """Test purpose:
-    - Verify the loader rejects a manifest with no entry points
-      (entry.backend and entry.frontend both empty/missing) — should
-      return 400 with a descriptive error so users get a clear hint.
-
-    Test flow:
-    1. Upload a malformed plugin (empty entry).
-    2. Assert response status is 400 and detail mentions 'entry points'
-       or similar.
-    """
-    pid = "integ-no-entry-plugin"
-    _delete(app_server, pid)
-    try:
-        resp = _upload(app_server, pid, _no_entry_plugin_zip(pid))
-        assert (
-            resp.status_code == 400
-        ), f"expected 400, got {resp.status_code}: {resp.text}"
-        detail = (resp.json() or {}).get("detail", "").lower()
-        assert (
-            "entry" in detail or "no" in detail or "manifest" in detail
-        ), f"error detail not informative: {detail}"
     finally:
         _delete(app_server, pid)

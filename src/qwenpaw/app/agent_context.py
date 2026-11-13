@@ -3,15 +3,20 @@
 
 Provides utilities to get the correct agent instance for each request.
 """
+import asyncio
 from contextvars import ContextVar
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 from typing import Optional, TYPE_CHECKING
 from fastapi import Request
 from .multi_agent_manager import MultiAgentManager
 from ..config.utils import load_config
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from .workspace import Workspace
+    from ..services.project_directory import ResolvedProjectDirs
 
 # Context variable to store current agent ID across async calls
 _current_agent_id: ContextVar[Optional[str]] = ContextVar(
@@ -38,6 +43,11 @@ _current_user_id: ContextVar[Optional[str]] = ContextVar(
 
 _current_channel: ContextVar[Optional[str]] = ContextVar(
     "current_channel",
+    default=None,
+)
+
+_current_approval_route: ContextVar[Optional[dict]] = ContextVar(
+    "current_approval_route",
     default=None,
 )
 
@@ -78,15 +88,12 @@ async def get_agent_for_request(
         target_agent_id = request.headers.get("X-Agent-Id")
 
     # Load config once for fallback and validation
-    config = None
+    config = await run_sync_io(load_config)
     if not target_agent_id:
         # Fallback to active agent from config
-        config = load_config()
         target_agent_id = config.agents.active_agent or "default"
 
     # Check if agent exists and is enabled
-    if config is None:
-        config = load_config()
     if target_agent_id not in config.agents.profiles:
         raise HTTPException(
             status_code=404,
@@ -129,25 +136,161 @@ async def get_agent_for_request(
         ) from e
 
 
-def get_coding_dir(workspace: "Workspace") -> Path:
-    """Return the active coding project directory for *workspace*.
+def get_agent_project_dir(workspace: "Workspace") -> Path:
+    """Return the agent's default project directory.
 
-    If the agent has set a ``coding_mode.project_dir`` in its config, that
-    path is returned.  Otherwise the agent's default ``workspace_dir`` is used.
+    The Coding tools switch does not participate in directory resolution.
     """
     from ..config.config import load_agent_config
+    from ..services.project_directory import (
+        agent_project_dirs_from_config,
+        resolve_effective_project_dirs,
+    )
 
     try:
         config = load_agent_config(workspace.agent_id)
-        project_dir = (
-            config.coding_mode.project_dir if config.coding_mode else None
-        )
-    except Exception:  # noqa: BLE001
-        project_dir = None
+        project_dirs = agent_project_dirs_from_config(config)
+    except Exception:
+        project_dirs = []
 
-    if project_dir:
-        return Path(project_dir).expanduser().resolve()
-    return workspace.workspace_dir
+    return resolve_effective_project_dirs(
+        workspace.workspace_dir,
+        agent_project_dirs=project_dirs,
+    ).primary_path
+
+
+async def get_project_dir_for_request(
+    request: Request,
+    workspace: "Workspace",
+) -> Path:
+    """Resolve the effective project directory for a Files API request."""
+    from ..config.config import load_agent_config
+    from ..services.project_directory import (
+        agent_project_dirs_from_config,
+        resolve_effective_project_dirs,
+        session_project_dirs_raw_from_meta,
+    )
+
+    chat_meta = None
+    pending_override = None
+    chat_id = request.headers.get("X-Chat-Id")
+    if chat_id:
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Chat not found")
+        chat_meta = chat.meta
+    else:
+        pending_override = request.headers.get("X-Session-Project-Dir")
+
+    def _resolve() -> Path:
+        try:
+            config = load_agent_config(workspace.agent_id)
+            agent_project_dirs = agent_project_dirs_from_config(config)
+        except Exception:
+            agent_project_dirs = []
+        # Reading the override normalizes (and therefore resolve()-s)
+        # every stored path, so it belongs in here with the rest of the
+        # filesystem work rather than on the event loop.
+        resolved_session = session_project_dirs_raw_from_meta(chat_meta)
+        if not chat_id and pending_override:
+            pending_path = Path(pending_override).expanduser().resolve()
+            if not pending_path.is_dir():
+                raise NotADirectoryError(str(pending_path))
+            resolved_session = [{"path": str(pending_path), "label": None}]
+        # The plural resolver, then the primary: this used to normalize the
+        # list once to pull out the primary and once more inside the
+        # resolver. Handing the stored value straight over resolves each
+        # directory once, and keeps this answer identical to
+        # ``get_project_dirs_for_request``'s.
+        return resolve_effective_project_dirs(
+            workspace.workspace_dir,
+            agent_project_dirs=agent_project_dirs,
+            session_project_dirs=resolved_session,
+        ).primary_path
+
+    try:
+        return await asyncio.to_thread(_resolve)
+    except NotADirectoryError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
+
+
+async def get_project_dirs_for_request(
+    request: Request,
+    workspace: "Workspace",
+) -> "ResolvedProjectDirs":
+    """Resolve the effective project-directory LIST for a Files API request.
+
+    Plural counterpart of :func:`get_project_dir_for_request`. The Files API
+    needs the whole bound list, not just the primary, to decide whether a
+    requested root is one the user actually bound — that check is what keeps
+    an arbitrary ``root=project:<path>`` from reading outside the grant.
+
+    The singular function is deliberately left as-is: ``routers/git`` resolves
+    a single working directory from it and must keep seeing the primary.
+
+    A chat that has not been sent yet has nothing persisted to read, and its
+    pending selection travels as the single ``X-Session-Project-Dir`` primary,
+    so only that one directory is bound until the first message lands.
+    """
+    from ..config.config import load_agent_config
+    from ..services.project_directory import (
+        agent_project_dirs_from_config,
+        resolve_effective_project_dirs,
+        session_project_dirs_raw_from_meta,
+    )
+
+    chat_meta = None
+    pending_override = None
+    chat_id = request.headers.get("X-Chat-Id")
+    if chat_id:
+        chat = await workspace.chat_manager.get_chat(chat_id)
+        if chat is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=404, detail="Chat not found")
+        chat_meta = chat.meta
+    else:
+        pending_override = request.headers.get("X-Session-Project-Dir")
+
+    def _resolve() -> "ResolvedProjectDirs":
+        try:
+            config = load_agent_config(workspace.agent_id)
+            agent_project_dirs = agent_project_dirs_from_config(config)
+        except Exception:
+            agent_project_dirs = []
+        # Read inside the thread: the metadata reader resolve()-s every
+        # stored path, which is exactly the blocking work this to_thread
+        # exists to contain.
+        resolved_session = session_project_dirs_raw_from_meta(chat_meta)
+        if not chat_id and pending_override:
+            # Client-supplied, so it is checked here — same contract as the
+            # singular resolver, which 400s rather than silently substituting.
+            pending_path = Path(pending_override).expanduser().resolve()
+            if not pending_path.is_dir():
+                raise NotADirectoryError(str(pending_path))
+            resolved_session = [{"path": str(pending_path), "label": None}]
+        return resolve_effective_project_dirs(
+            workspace.workspace_dir,
+            agent_project_dirs=agent_project_dirs,
+            session_project_dirs=resolved_session,
+        )
+
+    try:
+        return await asyncio.to_thread(_resolve)
+    except NotADirectoryError as exc:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Project directory is unavailable: {exc}",
+        ) from exc
 
 
 def get_active_agent_id() -> str:
@@ -184,8 +327,23 @@ def get_current_agent_id() -> str:
     return get_active_agent_id()
 
 
+def peek_current_agent_id() -> str:
+    """ContextVar only; empty when unset. No config fallback."""
+    return _current_agent_id.get() or ""
+
+
 def set_current_session_id(session_id: str) -> None:
     _current_session_id.set(session_id)
+
+
+@contextmanager
+def scoped_session_id(session_id: str) -> Iterator[None]:
+    """Temporarily expose one session through the request context."""
+    token = _current_session_id.set(session_id)
+    try:
+        yield
+    finally:
+        _current_session_id.reset(token)
 
 
 def get_current_session_id() -> Optional[str]:
@@ -228,3 +386,13 @@ def set_current_channel(channel: Optional[str]) -> None:
 def get_current_channel() -> Optional[str]:
     """Get current channel from context."""
     return _current_channel.get()
+
+
+def set_current_approval_route(route: Optional[dict]) -> None:
+    """Set routing metadata used only for spawned-child approvals."""
+    _current_approval_route.set(route)
+
+
+def get_current_approval_route() -> Optional[dict]:
+    """Return routing metadata used only for spawned-child approvals."""
+    return _current_approval_route.get()

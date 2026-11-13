@@ -20,7 +20,10 @@
     "pillow>=10.0",
     "pyside6-essentials>=6.6"
   ],
-  "min_version": "1.1.5",
+  "qwenpaw_version": {
+    "min": "1.1.5",
+    "max": "2.1.0"
+  },
   "meta": {
     "desktop_url": "http://127.0.0.1:8765"
   }

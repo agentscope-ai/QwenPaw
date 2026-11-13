@@ -1,4 +1,30 @@
+import type { ThinkingControlSpec } from "@/features/thinking/types";
+export type ModelType = "chat" | "decision";
+export type ModelAvailabilityStatus =
+  | "available"
+  | "permission_denied"
+  | "model_not_found"
+  | "incompatible_api"
+  | "rate_limited"
+  | "transient_error"
+  | "unverified";
+
 export interface ModelInfo {
+  model_type?: ModelType;
+  thinking_control?: ThinkingControlSpec | null;
+  released_at?: string | null;
+  config_overrides?: string[];
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  recommendation_reason?: string;
+  ranking_id?: string | null;
+  ranking?: {
+    metric: string;
+    version: string;
+    score: number;
+    estimated: boolean;
+    source: string;
+  } | null;
   id: string;
   name: string;
   supports_multimodal: boolean | null;
@@ -6,12 +32,52 @@ export interface ModelInfo {
   supports_video: boolean | null;
   probe_source?: string | null;
   is_free?: boolean;
-  max_tokens: number;
+  is_recommended?: boolean;
+  source?: "builtin" | "discovered" | "user";
+  discovery_origin?: "api" | "catalog" | "both" | null;
+  availability_status?: ModelAvailabilityStatus;
+  max_output_length?: number | null;
+  max_output_length_source?:
+    | "api"
+    | "catalog"
+    | "adapter"
+    | "user"
+    | "template"
+    | "unknown";
+  max_output_length_updated_at?: string | null;
+  template_id?: string | null;
+  input_token_limit?: number | null;
+  billing?: "free" | "paid" | "unknown";
+  pricing?: Record<string, string>;
+  capability_provenance?: Record<string, Record<string, unknown>>;
+  auto_enabled?: boolean;
+  requires_paid_confirmation?: boolean;
+  remote_missing?: boolean;
   max_input_length: number;
+  effective_max_input_length?: number | null;
+  automatic_max_input_length?: number | null;
+  context_length_source?: string | null;
+  max_input_length_configured?: boolean;
+  max_input_length_auto_detected?: number | null;
   generate_kwargs: Record<string, unknown>;
+  relay_reasoning: boolean;
+  thinking_enabled: boolean | null;
+  thinking_budget: number | null;
+  reasoning_effort: string | null;
+  /** Per-model override: 'budget' or 'effort'. Falls back to provider-level. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Per-model override for reasoning_effort options. */
+  reasoning_effort_options?: string[] | null;
+  /** Per-model override for thinking_budget [min, max] range. */
+  thinking_budget_range?: [number, number] | null;
+  /** Backend-derived support for agent-level thinking overrides. */
+  supports_agent_thinking?: boolean | null;
 }
 
 export interface ProviderInfo {
+  model_count?: number | null;
+  enabled?: boolean;
+  seen_model_ids?: string[];
   id: string;
   name: string;
   api_key_prefix: string;
@@ -20,10 +86,17 @@ export interface ProviderInfo {
   models: ModelInfo[];
   /** User-added models (deletable). Only populated for built-in providers. */
   extra_models: ModelInfo[];
+  /** Last successful model catalog fetched from the provider API. */
+  discovered_models?: ModelInfo[];
+  models_last_synced_at?: string | null;
+  models_last_sync_error?: string | null;
+  models_syncing?: boolean;
+  hidden_model_ids?: string[];
   is_custom: boolean;
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
   support_model_discovery: boolean;
+  discovery_support_reason?: string;
   /** Whether this provider supports checking connection to the API without model configuration. */
   support_connection_check: boolean;
   /** True when the base_url should be frozen (not editable). */
@@ -49,8 +122,16 @@ export interface ProviderInfo {
   provider_group_name?: string;
   /** Variant within a group (e.g. "coding_plan_cn"). */
   provider_variant?: string;
+  /** Which thinking-parameter UI to show: 'budget' or 'effort'. null = not supported. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Valid reasoning_effort values for this provider. */
+  reasoning_effort_options?: string[];
+  /** [min, max] range for thinking_budget Slider. */
+  thinking_budget_range?: [number, number];
   /** Provider-specific metadata (e.g. base_url_options for region selection). */
   meta?: Record<string, unknown>;
+  /** Accepted API key prefixes. When present, validation accepts any prefix in this list. */
+  api_key_prefixes?: string[];
 }
 
 /** Predefined base URL option exposed via `ProviderInfo.meta.base_url_options`. */
@@ -60,13 +141,21 @@ export interface BaseUrlOption {
 }
 
 export interface ProviderConfigRequest {
+  enabled?: boolean;
   api_key?: string;
   base_url?: string;
+  /** New display name. Only applied to custom providers. */
+  name?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
   custom_headers?: Record<string, string>;
   auth_mode?: "api_key" | "auth_token";
 }
+
+export type CustomChatModelName =
+  | "OpenAIChatModel"
+  | "OpenAIResponseModel"
+  | "AnthropicChatModel";
 
 export interface ModelSlotConfig {
   provider_id: string;
@@ -74,7 +163,9 @@ export interface ModelSlotConfig {
 }
 
 export interface ActiveModelsInfo {
-  active_llm?: ModelSlotConfig;
+  active_llm: ModelSlotConfig | null;
+  default_models?: Partial<Record<ModelType, ModelSlotConfig | null>>;
+  effective_max_input_length?: number | null;
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
@@ -85,8 +176,9 @@ export interface GetActiveModelsRequest {
 }
 
 export interface ModelSlotRequest {
-  provider_id: string;
-  model: string;
+  provider_id: string | null;
+  model: string | null;
+  model_type?: ModelType;
   scope: Exclude<ActiveModelScope, "effective">;
   agent_id?: string;
 }
@@ -97,12 +189,15 @@ export interface CreateCustomProviderRequest {
   id: string;
   name: string;
   default_base_url?: string;
+  api_key?: string;
   api_key_prefix?: string;
-  chat_model?: string;
+  chat_model?: CustomChatModelName;
   models?: ModelInfo[];
 }
 
 export interface AddModelRequest {
+  model_type?: ModelType;
+  template_id?: string | null;
   id: string;
   name: string;
   is_free?: boolean;
@@ -113,9 +208,20 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_tokens?: number;
-  max_input_length?: number;
+  model_type?: ModelType;
+  thinking_control?: ThinkingControlSpec | null;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  template_id?: string | null;
+  confirm_paid?: boolean;
+  max_input_length?: number | null;
   generate_kwargs?: Record<string, unknown>;
+  relay_reasoning?: boolean;
+  thinking_enabled?: boolean | null;
+  thinking_budget?: number | null;
+  reasoning_effort?: string | null;
 }
 
 export interface LocalModelConfig {
@@ -134,6 +240,7 @@ export interface LocalModelConfigRequest {
 export interface LocalModelInfo {
   id: string;
   name: string;
+  model_type?: ModelType;
   size_bytes: number;
   downloaded: boolean;
   source: LocalDownloadSource;
@@ -186,6 +293,7 @@ export interface StartLocalServerRequest {
 export interface TestConnectionResponse {
   success: boolean;
   message: string;
+  status?: ModelAvailabilityStatus;
 }
 
 export interface TestProviderRequest {
@@ -198,35 +306,38 @@ export interface TestProviderRequest {
   auth_mode?: "api_key" | "auth_token";
 }
 
+export interface DiscoverModelsRequest {
+  api_key?: string;
+  base_url?: string;
+  chat_model?: string;
+}
+
 export interface TestModelRequest {
   model_id: string;
 }
 
 export interface DiscoverModelsResponse {
+  last_synced_at?: string | null;
   success: boolean;
   message: string;
   models: ModelInfo[];
-  added_count: number;
+  discovered_count: number;
+  error_kind?: string | null;
 }
 
 export interface ProbeMultimodalResponse {
-  supports_image: boolean;
-  supports_video: boolean;
-  supports_multimodal: boolean;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
+  supports_multimodal: boolean | null;
   image_message: string;
   video_message: string;
 }
 
 /* ---- OpenRouter extended model types ---- */
 
-export interface ExtendedModelInfo {
+export interface ExtendedModelInfo extends Partial<ModelInfo> {
   id: string;
   name: string;
-  supports_multimodal?: boolean | null;
-  supports_image?: boolean | null;
-  supports_video?: boolean | null;
-  probe_source?: string | null;
-  is_free?: boolean;
   provider: string;
   input_modalities: string[];
   output_modalities: string[];
@@ -256,4 +367,14 @@ export interface FilterModelsResponse {
   success: boolean;
   models: ExtendedModelInfo[];
   total_count: number;
+}
+
+export interface ModelPoolPage {
+  models: ModelInfo[];
+  total: number;
+  selected_count: number;
+  candidate_count: number;
+  families: string[];
+  offset: number;
+  limit: number;
 }

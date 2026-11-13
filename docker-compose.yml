@@ -11,6 +11,7 @@ volumes:
 services:
   qwenpaw:
     image: agentscope/qwenpaw:latest
+    init: true
     container_name: qwenpaw
     restart: always
     ports:

@@ -1,9 +1,13 @@
 # -*- coding: utf-8 -*-
+# pylint: disable=protected-access
 from __future__ import annotations
 
+from agentscope.model import OpenAIChatModel
 import pytest
 
 from qwenpaw.providers.ollama_provider import OllamaProvider
+from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
@@ -14,6 +18,42 @@ def _make_provider(base_url: str = "http://localhost:11434") -> OllamaProvider:
         api_key="EMPTY",
         chat_model="OpenAIChatModel",
     )
+
+
+async def test_summary_uses_declared_disable_thinking_wire(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="strict-model",
+            name="Strict model",
+            thinking_control=ThinkingControl(
+                kind="budget",
+                budget_min=1,
+                budget_max=8192,
+                supports_off=True,
+                wire="compat_budget",
+            ),
+        ),
+    ]
+    captured: dict = {}
+
+    async def capture_call(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(OpenAIChatModel, "_call_api", capture_call)
+    model = provider.get_chat_model_instance("strict-model")
+    result = await model._call_api(
+        "strict-model",
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured == {"extra_body": {"enable_thinking": False}}
 
 
 @pytest.mark.parametrize(
@@ -116,25 +156,23 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
     monkeypatch,
     base_url: str,
 ) -> None:
-    captured: dict[str, object] = {}
+    captured: list[dict] = []
 
-    class FakeOpenAIChatModelCompat:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
+    class FakeCompat:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
 
     monkeypatch.setattr(
         "qwenpaw.providers.openai_chat_model_compat.OpenAIChatModelCompat",
-        FakeOpenAIChatModelCompat,
+        FakeCompat,
     )
 
     provider = _make_provider(base_url=base_url)
     provider.get_chat_model_instance("llama3.1")
 
-    assert captured["model_name"] == "llama3.1"
-    assert captured["api_key"] == "EMPTY"
-    assert captured["stream"] is True
-    assert captured["stream_tool_parsing"] is False
-    assert captured["client_kwargs"] == {
-        "base_url": "http://localhost:11434/v1",
-    }
-    assert captured["generate_kwargs"] == {}
+    assert captured[0]["model"] == "llama3.1"
+    assert captured[0]["credential"].api_key.get_secret_value() == "EMPTY"
+    assert captured[0]["stream"] is True
+    assert str(captured[0]["credential"].base_url).rstrip("/") == (
+        "http://localhost:11434/v1"
+    )

@@ -1,0 +1,506 @@
+import { act, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { renderWithProviders } from "@/test/common_setup";
+import {
+  DEFAULT_LOOP_MODE,
+  prepareLoopModeMessage,
+  type LoopModeInfo,
+  useLoopStore,
+} from "../../stores/loopStore";
+import { LoopModeSelector } from "./LoopModeSelector";
+import { advisorModeApi } from "../../api/modules/advisorMode";
+
+const { mockUseIsMobile } = vi.hoisted(() => ({
+  mockUseIsMobile: vi.fn(() => false),
+}));
+
+vi.mock("../../hooks/useIsMobile", () => ({
+  useIsMobile: mockUseIsMobile,
+}));
+
+vi.mock("../../api/modules/advisorMode", async () => ({
+  ...(await vi.importActual<object>("../../api/modules/advisorMode")),
+  advisorModeApi: {
+    get: vi.fn(async () => ({}) as never),
+    update: vi.fn(),
+    exitSession: vi.fn(),
+  },
+}));
+vi.mock("../../api/modules/provider", () => ({
+  providerApi: { listProviders: vi.fn(async () => []) },
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: "zh" },
+  }),
+}));
+
+const goal: LoopModeInfo = {
+  id: "goal",
+  name: "goal",
+  slash_command: "goal",
+  description: "Backend goal description",
+  source: "builtin",
+};
+const custom: LoopModeInfo = {
+  id: "custom:quality",
+  name: "Quality Review",
+  slash_command: "quality",
+  description: "Keep the user's original description.",
+  source: "custom",
+};
+const ompUltraqa: LoopModeInfo = {
+  id: "plugin:ultraqa",
+  name: "ultraqa",
+  slash_command: "ultraqa",
+  description:
+    "**UltraQA** — automated QA cycle engine\n\n" +
+    "Usage:\n" +
+    '  `/ultraqa [--tests|--build|--lint|--typecheck|--custom "cmd"]`\n',
+  name_i18n: {
+    en: "UltraQA",
+    "zh-CN": "UltraQA",
+  },
+  description_i18n: {
+    en: "**UltraQA** — automated QA cycle engine",
+    "zh-CN": "**UltraQA** — 自动化 QA 循环引擎",
+  },
+  source: "plugin",
+};
+
+describe("LoopModeSelector", () => {
+  beforeEach(() => {
+    mockUseIsMobile.mockReturnValue(false);
+    useLoopStore.setState({
+      selectedModeId: "default",
+      availableModes: [DEFAULT_LOOP_MODE, goal, custom, ompUltraqa],
+      sessionState: "idle",
+      activeMode: null,
+      catalogLoading: false,
+      catalogError: false,
+    });
+  });
+
+  it("shows localized built-ins and verbatim custom modes", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector />);
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+
+    expect(
+      screen.getAllByText("loop.modes.default.name").length,
+    ).toBeGreaterThan(0);
+    expect(screen.getByText("loop.modes.goal.description")).toBeInTheDocument();
+    expect(screen.getByText("Quality Review")).toBeInTheDocument();
+    expect(
+      screen.getByText("Keep the user's original description."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Backend goal description"),
+    ).not.toBeInTheDocument();
+    const ultraqaLabels = screen.getAllByText("UltraQA");
+    expect(ultraqaLabels.length).toBeGreaterThanOrEqual(2);
+    expect(ultraqaLabels.some((node) => node.tagName === "STRONG")).toBe(true);
+    expect(screen.getByText(/自动化 QA 循环引擎/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(/automated QA cycle engine/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/\*\*UltraQA\*\*/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/`\/ultraqa/)).not.toBeInTheDocument();
+  });
+
+  it("selects a custom mode from the compact menu", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector />);
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(screen.getByText("Quality Review"));
+
+    expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
+  });
+
+  it("uses a bottom drawer for mode selection on mobile", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", { name: "loop.selectorAria" });
+    await user.click(trigger);
+
+    expect(
+      await screen.findByRole("dialog", { name: "loop.selectorTitle" }),
+    ).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".ant-popover")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("loop.modes.goal.name"));
+
+    expect(useLoopStore.getState().selectedModeId).toBe("goal");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders only the mode icon in compact mode", () => {
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", {
+      name: "loop.selectorAria",
+    });
+    expect(trigger.textContent).toBe("");
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+  });
+
+  it("shows starting before the first response event", () => {
+    useLoopStore.getState().setStartingMode(custom);
+
+    renderWithProviders(<LoopModeSelector />);
+
+    expect(screen.getByText("Quality Review")).toBeInTheDocument();
+    expect(screen.getByText("loop.starting")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "loop.selectorAria" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps an active mode icon-only in compact mode", () => {
+    useLoopStore.getState().setSessionMode(custom, "running");
+
+    const { container } = renderWithProviders(<LoopModeSelector compact />);
+
+    const activeMode = container.querySelector('[data-state="running"]');
+    expect(activeMode).not.toBeNull();
+    expect(activeMode?.textContent).toBe("");
+    expect(activeMode?.querySelectorAll("svg")).toHaveLength(1);
+    expect(activeMode).toHaveAttribute(
+      "aria-label",
+      "Quality Review loop.running",
+    );
+  });
+
+  it("shows running after the first response event", () => {
+    useLoopStore.getState().setSessionMode(custom, "running");
+
+    renderWithProviders(<LoopModeSelector />);
+
+    expect(screen.getByText("loop.running")).toBeInTheDocument();
+  });
+
+  it("shows that an active mode is waiting for the user", () => {
+    useLoopStore.getState().setSessionMode(custom, "awaiting_user");
+
+    renderWithProviders(<LoopModeSelector />);
+
+    expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
+  });
+
+  it("switches away from a completed Advisor turn without clearing the chat", async () => {
+    const user = userEvent.setup();
+    const advisor: LoopModeInfo = {
+      id: "advisor",
+      name: "advisor",
+      slash_command: "advisor",
+      description: "Advisor mode",
+      source: "builtin",
+    };
+    vi.mocked(advisorModeApi.exitSession).mockResolvedValueOnce(undefined);
+    useLoopStore
+      .getState()
+      .setAvailableModes([DEFAULT_LOOP_MODE, advisor, goal]);
+    useLoopStore.getState().setSessionMode(advisor, "awaiting_user");
+    renderWithProviders(<LoopModeSelector chatId="chat-1" />);
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(
+      screen.getByRole("option", { name: /loop.modes.goal.name/ }),
+    );
+
+    await waitFor(() =>
+      expect(useLoopStore.getState().selectedModeId).toBe("goal"),
+    );
+    expect(advisorModeApi.exitSession).toHaveBeenCalledWith("chat-1");
+    expect(useLoopStore.getState().sessionState).toBe("idle");
+  });
+
+  it("keeps Advisor active if exiting the session fails", async () => {
+    const user = userEvent.setup();
+    const advisor: LoopModeInfo = {
+      id: "advisor",
+      name: "advisor",
+      slash_command: "advisor",
+      description: "Advisor mode",
+      source: "builtin",
+    };
+    vi.mocked(advisorModeApi.exitSession).mockRejectedValueOnce(
+      new Error("busy"),
+    );
+    useLoopStore
+      .getState()
+      .setAvailableModes([DEFAULT_LOOP_MODE, advisor, goal]);
+    useLoopStore.getState().setSessionMode(advisor, "awaiting_user");
+    renderWithProviders(<LoopModeSelector chatId="chat-1" />);
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(
+      screen.getByRole("option", { name: /loop.modes.goal.name/ }),
+    );
+
+    expect(await screen.findByText("loop.switchError")).toBeInTheDocument();
+    expect(useLoopStore.getState().activeMode?.id).toBe("advisor");
+  });
+
+  it.each([
+    { change: "chats", chatId: "chat-b", agentId: "agent-a" },
+    { change: "agents", chatId: "chat-a", agentId: "agent-b" },
+  ])(
+    "ignores an Advisor exit response after changing $change",
+    async ({ chatId, agentId }) => {
+      const user = userEvent.setup();
+      const advisor: LoopModeInfo = {
+        id: "advisor",
+        name: "advisor",
+        slash_command: "advisor",
+        description: "Advisor mode",
+        source: "builtin",
+      };
+      let resolveExit!: () => void;
+      vi.mocked(advisorModeApi.exitSession).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveExit = resolve;
+          }),
+      );
+      useLoopStore
+        .getState()
+        .setAvailableModes([DEFAULT_LOOP_MODE, advisor, goal]);
+      useLoopStore.getState().setSessionMode(advisor, "awaiting_user");
+      const { rerender } = renderWithProviders(
+        <LoopModeSelector chatId="chat-a" agentId="agent-a" />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      );
+      await user.click(
+        screen.getByRole("option", { name: /loop.modes.goal.name/ }),
+      );
+      expect(advisorModeApi.exitSession).toHaveBeenCalledWith("chat-a");
+
+      rerender(<LoopModeSelector chatId={chatId} agentId={agentId} />);
+      act(() => useLoopStore.getState().resetSessionMode());
+      await act(async () => resolveExit());
+
+      expect(useLoopStore.getState().selectedModeId).toBe("default");
+      expect(prepareLoopModeMessage("hello")).toBe("hello");
+    },
+  );
+
+  it("ignores an Advisor exit response after the selector unmounts", async () => {
+    const user = userEvent.setup();
+    const advisor: LoopModeInfo = {
+      id: "advisor",
+      name: "advisor",
+      slash_command: "advisor",
+      description: "Advisor mode",
+      source: "builtin",
+    };
+    let resolveExit!: () => void;
+    vi.mocked(advisorModeApi.exitSession).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveExit = resolve;
+        }),
+    );
+    useLoopStore
+      .getState()
+      .setAvailableModes([DEFAULT_LOOP_MODE, advisor, goal]);
+    useLoopStore.getState().setSessionMode(advisor, "awaiting_user");
+    const { unmount } = renderWithProviders(
+      <LoopModeSelector chatId="chat-a" agentId="agent-a" />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(
+      screen.getByRole("option", { name: /loop.modes.goal.name/ }),
+    );
+    unmount();
+    act(() => useLoopStore.getState().setSessionMode(custom, "running"));
+    await act(async () => resolveExit());
+
+    expect(useLoopStore.getState().activeMode?.id).toBe("custom:quality");
+    expect(useLoopStore.getState().sessionState).toBe("running");
+  });
+
+  it.each([
+    { timing: "before", settlesBeforeReturn: true },
+    { timing: "after", settlesBeforeReturn: false },
+  ])(
+    "allows switching again when an old exit settles $timing returning to a chat",
+    async ({ settlesBeforeReturn }) => {
+      const user = userEvent.setup();
+      const advisor: LoopModeInfo = {
+        id: "advisor",
+        name: "advisor",
+        slash_command: "advisor",
+        description: "Advisor mode",
+        source: "builtin",
+      };
+      const resolveExits: Array<() => void> = [];
+      vi.mocked(advisorModeApi.exitSession).mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveExits.push(resolve);
+          }),
+      );
+      useLoopStore
+        .getState()
+        .setAvailableModes([DEFAULT_LOOP_MODE, advisor, goal]);
+      useLoopStore.getState().setSessionMode(advisor, "awaiting_user");
+      const { rerender } = renderWithProviders(
+        <LoopModeSelector chatId="chat-a" agentId="agent-a" />,
+      );
+
+      await user.click(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      );
+      await user.click(
+        screen.getByRole("option", { name: /loop.modes.goal.name/ }),
+      );
+      expect(resolveExits).toHaveLength(1);
+
+      rerender(<LoopModeSelector chatId="chat-b" agentId="agent-a" />);
+      act(() => useLoopStore.getState().resetSessionMode());
+      if (settlesBeforeReturn) {
+        await act(async () => resolveExits[0]());
+      }
+      rerender(<LoopModeSelector chatId="chat-a" agentId="agent-a" />);
+      act(() =>
+        useLoopStore.getState().setSessionMode(advisor, "awaiting_user"),
+      );
+
+      const goalOption = screen.getByRole("option", {
+        name: /loop.modes.goal.name/,
+      });
+      expect(goalOption).toBeEnabled();
+      await user.click(goalOption);
+      expect(resolveExits).toHaveLength(2);
+
+      if (!settlesBeforeReturn) {
+        await act(async () => resolveExits[0]());
+      }
+      expect(goalOption).toBeDisabled();
+      expect(useLoopStore.getState().activeMode?.id).toBe("advisor");
+
+      await act(async () => resolveExits[1]());
+      expect(useLoopStore.getState().selectedModeId).toBe("goal");
+      expect(useLoopStore.getState().sessionState).toBe("idle");
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // A#85096690 — session events trigger the indicator update
+  // ---------------------------------------------------------------------------
+  describe("session event triggers indicator refresh (#85096690)", () => {
+    it("transitions from idle → starting → running and updates the indicator", () => {
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+
+      // Initially idle: selector trigger is visible
+      expect(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      ).toBeInTheDocument();
+
+      // Session event: mode starting
+      act(() => {
+        useLoopStore.getState().setStartingMode(custom);
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.starting")).toBeInTheDocument();
+      expect(screen.getByText("Quality Review")).toBeInTheDocument();
+
+      // Session event: mode running
+      act(() => {
+        useLoopStore.getState().setRunningMode();
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+      expect(screen.getByText("Quality Review")).toBeInTheDocument();
+    });
+
+    it("resetSessionMode returns indicator to idle selector", () => {
+      // Start in running state
+      useLoopStore.getState().setSessionMode(custom, "running");
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+
+      // Session ends → reset
+      act(() => {
+        useLoopStore.getState().resetSessionMode();
+      });
+      rerender(<LoopModeSelector />);
+
+      // Back to idle: selector trigger visible again, no session state text
+      expect(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("loop.running")).not.toBeInTheDocument();
+      expect(screen.queryByText("Quality Review")).not.toBeInTheDocument();
+    });
+
+    it("transitions running → awaiting_user → running correctly", () => {
+      useLoopStore.getState().setSessionMode(custom, "running");
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+
+      // Switch to awaiting_user
+      act(() => {
+        useLoopStore.getState().setSessionMode(custom, "awaiting_user");
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
+
+      // Back to running
+      act(() => {
+        useLoopStore.getState().setSessionMode(custom, "running");
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+    });
+
+    it("active mode indicator shows data-state attribute matching session state", () => {
+      useLoopStore.getState().setSessionMode(goal, "running");
+      renderWithProviders(<LoopModeSelector />);
+
+      const indicator = screen
+        .getByText("loop.running")
+        .closest("[data-state]");
+      expect(indicator).toBeTruthy();
+      expect(indicator!.getAttribute("data-state")).toBe("running");
+    });
+  });
+});
+
+describe("advisor setup", () => {
+  const advisor: LoopModeInfo = {
+    id: "advisor",
+    name: "Advisor",
+    slash_command: "advisor",
+    description: "Advisor mode",
+    source: "builtin",
+  };
+
+  beforeEach(() => {
+    useLoopStore.getState().resetSessionMode();
+    useLoopStore.getState().setAvailableModes([DEFAULT_LOOP_MODE, advisor]);
+  });
+
+  it("opens the model setup right after Advisor is picked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector />);
+    expect(screen.queryByTestId("advisor-setup")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "loop.selectorAria" }));
+    await user.click(await screen.findByRole("option", { name: /advisor/i }));
+    expect(await screen.findByTestId("advisor-setup")).toBeInTheDocument();
+  });
+});

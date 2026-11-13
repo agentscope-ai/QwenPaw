@@ -1,5 +1,9 @@
+import { notifyPluginChange } from "../../utils/pluginChangeEvents";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import type { InstallationOrigin } from "../types/community";
+import { formatApiError, responseErrorMessage } from "../error";
+import { requestWithPluginBusyConfirmation } from "../pluginBusy";
 
 /** Matches the backend ``PluginType`` enum values. */
 export type PluginType =
@@ -8,12 +12,17 @@ export type PluginType =
   | "hook"
   | "command"
   | "frontend"
+  | "channel"
+  | "memory"
+  | "hub"
+  | "app"
   | "general";
 
 /**
  * A single plugin record returned by `GET /api/plugins`.
  */
 export interface PluginInfo {
+  installation_origin?: InstallationOrigin | null;
   id: string;
   name: string;
   version: string;
@@ -22,10 +31,17 @@ export interface PluginInfo {
   enabled: boolean;
   /** Whether the plugin is currently loaded in memory. */
   loaded: boolean;
+  status?: string;
   /** Primary capability type declared in plugin.json. */
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
   frontend_entry?: string;
+  /**
+   * Scoped market id (e.g. `@owner/name`) recorded when the plugin was
+   * installed from the AgentScope plugin market; absent for local,
+   * uploaded, or official-CDN installs.
+   */
+  market_id?: string;
 }
 
 export interface InstallPluginResult {
@@ -38,9 +54,125 @@ export interface InstallPluginResult {
   message: string;
 }
 
+export interface RepairPluginDependenciesResult {
+  id: string;
+  status: string;
+  enabled: boolean;
+  diagnostics: string[];
+  message: string;
+}
+
+export interface DependencyUpgradeOperation {
+  id: string;
+  plugin_id: string;
+  status:
+    | "needs_confirmation"
+    | "preparing"
+    | "applying"
+    | "waiting_restart"
+    | "succeeded"
+    | "failed"
+    | "cancelled";
+  changes: {
+    name: string;
+    current_version: string | null;
+    target_version: string;
+  }[];
+  affected_instances: {
+    plugin_id: string;
+    instance_id: string | null;
+    generation: number | null;
+    origin: string;
+    active: boolean;
+  }[];
+  requires_restart: boolean;
+  message: string;
+  result?: InstallPluginResult;
+  error?: { code: string; message: string } | null;
+  retryable?: boolean;
+  instructions?: string[];
+}
+
+interface PluginErrorDetail {
+  code?: string;
+  operation?: DependencyUpgradeOperation;
+  instructions?: string[];
+}
+
+export class PluginApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly operation?: DependencyUpgradeOperation;
+  readonly instructions: string[];
+
+  constructor(message: string, status: number, detail: PluginErrorDetail = {}) {
+    const instructions = Array.isArray(detail.instructions)
+      ? detail.instructions.filter(
+          (item): item is string => typeof item === "string" && Boolean(item),
+        )
+      : [];
+    super(
+      [message, ...instructions.filter((item) => !message.includes(item))].join(
+        "\n",
+      ),
+    );
+    this.name = "PluginApiError";
+    this.status = status;
+    this.code = detail.code;
+    this.operation = detail.operation;
+    this.instructions = instructions;
+  }
+}
+
+async function pluginResponseError(response: Response, fallback: string) {
+  const payload: unknown = await response.json().catch(() => null);
+  const detail =
+    payload && typeof payload === "object" && "detail" in payload
+      ? payload.detail
+      : null;
+  return new PluginApiError(
+    formatApiError(payload, fallback),
+    response.status,
+    detail && typeof detail === "object" ? detail : {},
+  );
+}
+
+async function requestDependencyUpgrade(
+  id: string,
+  method: "GET" | "POST" | "DELETE",
+): Promise<DependencyUpgradeOperation> {
+  const path = `/plugins/dependency-upgrades/${encodeURIComponent(id)}${
+    method === "POST" ? "/apply" : ""
+  }`;
+  const response = await fetch(getApiUrl(path), {
+    method,
+    headers: buildAuthHeaders(),
+  });
+  if (!response.ok) {
+    throw await pluginResponseError(
+      response,
+      `Dependency upgrade failed (${response.status})`,
+    );
+  }
+  return response.json();
+}
+
+export const fetchDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "GET");
+
+export const applyDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "POST");
+
+export const cancelDependencyUpgrade = (id: string) =>
+  requestDependencyUpgrade(id, "DELETE");
+
 export interface PluginStatus {
+  clean?: boolean;
+  needs_restart?: boolean;
+  errors?: string[];
   id: string;
   loaded: boolean;
+  status?: string;
   enabled: boolean;
   version?: string;
 }
@@ -62,6 +194,12 @@ export interface OfficialPluginCatalogEntry {
   installed: boolean;
   installed_version?: string;
   upgrade_available: boolean;
+}
+
+export interface PluginUpdateInfo {
+  version: string;
+  source: string;
+  name: string;
 }
 
 export interface OfficialPluginCatalog {
@@ -86,6 +224,35 @@ export async function fetchPlugins(): Promise<PluginInfo[]> {
   return response.json();
 }
 
+/** Persist enabled state through the host's existing lifecycle endpoint. */
+export async function setPluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<PluginStatus> {
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/enabled`), {
+        method: "POST",
+        headers: { ...buildAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          ...(interruptTasks ? { interrupt_tasks: true } : {}),
+        }),
+      }),
+    enabled ? "update" : "disable",
+  );
+  if (!response.ok)
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Activation failed (${response.status})`,
+      ),
+    );
+  const result = await response.json();
+  notifyPluginChange();
+  return result;
+}
+
 /**
  * Install a plugin from a local path or HTTP(S) URL via hot-reload.
  */
@@ -95,9 +262,11 @@ export async function fetchPluginCatalog(): Promise<OfficialPluginCatalog> {
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
     throw new Error(
-      body.detail ?? `Failed to load plugin catalog (${response.status})`,
+      await responseErrorMessage(
+        response,
+        `Failed to load plugin catalog (${response.status})`,
+      ),
     );
   }
 
@@ -108,21 +277,33 @@ export async function installPlugin(
   source: string,
   options?: { force?: boolean },
 ): Promise<InstallPluginResult> {
-  const response = await fetch(getApiUrl("/plugins/install"), {
-    method: "POST",
-    headers: {
-      ...buildAuthHeaders(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ source, force: options?.force ?? false }),
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(getApiUrl("/plugins/install"), {
+        method: "POST",
+        headers: {
+          ...buildAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          source,
+          force: options?.force ?? false,
+          ...(interruptTasks ? { interrupt_tasks: true } : {}),
+        }),
+      }),
+    "update",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Install failed (${response.status})`);
+    throw await pluginResponseError(
+      response,
+      `Install failed (${response.status})`,
+    );
   }
 
-  return response.json();
+  const result = await response.json();
+  notifyPluginChange();
+  return result;
 }
 
 /**
@@ -132,33 +313,79 @@ export async function uploadPlugin(file: File): Promise<InstallPluginResult> {
   const form = new FormData();
   form.append("file", file);
 
-  const response = await fetch(getApiUrl("/plugins/upload"), {
-    method: "POST",
-    headers: buildAuthHeaders(),
-    body: form,
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(
+        getApiUrl(
+          `/plugins/upload?force=true${
+            interruptTasks ? "&interrupt_tasks=true" : ""
+          }`,
+        ),
+        {
+          method: "POST",
+          headers: buildAuthHeaders(),
+          body: form,
+        },
+      ),
+    "update",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Upload failed (${response.status})`);
+    throw await pluginResponseError(
+      response,
+      `Upload failed (${response.status})`,
+    );
   }
 
-  return response.json();
+  const result = await response.json();
+  notifyPluginChange();
+  return result;
+}
+
+export async function repairPluginDependencies(
+  pluginId: string,
+): Promise<RepairPluginDependenciesResult> {
+  const response = await fetch(
+    getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/repair-dependencies`),
+    { method: "POST", headers: buildAuthHeaders() },
+  );
+  if (!response.ok) {
+    throw await pluginResponseError(
+      response,
+      `Dependency repair failed (${response.status})`,
+    );
+  }
+  const result = await response.json();
+  notifyPluginChange();
+  return result;
 }
 
 /**
  * Uninstall (hot-unload + delete) a plugin by ID.
  */
 export async function uninstallPlugin(pluginId: string): Promise<void> {
-  const response = await fetch(getApiUrl(`/plugins/${pluginId}`), {
-    method: "DELETE",
-    headers: buildAuthHeaders(),
-  });
+  const response = await requestWithPluginBusyConfirmation(
+    (interruptTasks) =>
+      fetch(
+        getApiUrl(
+          `/plugins/${pluginId}${
+            interruptTasks ? "?interrupt_tasks=true" : ""
+          }`,
+        ),
+        { method: "DELETE", headers: buildAuthHeaders() },
+      ),
+    "uninstall",
+  );
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Uninstall failed (${response.status})`,
+      ),
+    );
   }
+  notifyPluginChange();
 }
 
 /**
@@ -172,8 +399,12 @@ export async function fetchPluginStatus(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail ?? `Status fetch failed (${response.status})`);
+    throw new Error(
+      await responseErrorMessage(
+        response,
+        `Status fetch failed (${response.status})`,
+      ),
+    );
   }
 
   return response.json();

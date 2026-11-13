@@ -93,8 +93,12 @@ async def _run_task(
     output_dir: str | None,
     skills_dir: str | None = None,
 ) -> dict:
-    from agentscope.message import Msg
-    from ..agents.react_agent import QwenPawAgent
+    from types import SimpleNamespace
+
+    from agentscope.message import UserMsg
+
+    from ..runtime.builder import AgentBuilder
+    from ..schemas import AgentRequest
 
     agent_config.running.max_iters = max_iters
 
@@ -103,17 +107,37 @@ async def _run_task(
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
-        agent = QwenPawAgent(
-            agent_config=agent_config,
-            request_context=request_context,
-            workspace_dir=workspace,
+        req = AgentRequest(
+            input=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": instruction}],
+                },
+            ],
+            session_id=request_context.get("session_id", "headless-task"),
+            user_id=request_context.get("user_id", "headless"),
+            channel=request_context.get("channel", "console"),
         )
+        ctx = SimpleNamespace(
+            request=req,
+            session_id=req.session_id,
+            agent_id=request_context.get("agent_id", "default"),
+            root_session_id=req.session_id,
+            root_agent_id=request_context.get("agent_id", "default"),
+            workspace_dir=workspace,
+            workspace=None,
+            app_services=None,
+            agent_config=None,
+            session_state=None,
+        )
+        builder = AgentBuilder()
+        agent = await builder.build(ctx)
 
         t0 = time.monotonic()
         try:
             response = await asyncio.wait_for(
                 agent.reply(
-                    [Msg(name="user", role="user", content=instruction)],
+                    [UserMsg(name="user", content=instruction)],
                 ),
                 timeout=timeout,
             )
@@ -234,6 +258,7 @@ def task_cmd(
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
     from ..config.config import ModelSlotConfig
+    from ..exceptions import ConfigurationException
     from ..utils.logging import setup_logger
 
     setup_logger("info")
@@ -245,7 +270,7 @@ def task_cmd(
 
     try:
         agent_config = load_agent_config(agent_id)
-    except ValueError as exc:
+    except (ConfigurationException, ValueError) as exc:
         click.echo(f"Error loading agent config: {exc}", err=True)
         sys.exit(1)
 

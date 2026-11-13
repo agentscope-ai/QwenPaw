@@ -12,6 +12,9 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
+from contextlib import ExitStack
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -19,10 +22,11 @@ from typing import Any
 from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
+from ...installation_origin import InstallationOrigin, validated_origin
 from ...agents.skill_system.hub import (
     SkillImportCancelled,
     search_hub_skills,
@@ -33,8 +37,9 @@ from ...agents.skill_system import (
     SkillConflictError,
     SkillPoolService,
     SkillService,
+    refresh_pool_automation,
+    run_pool_auto_sync,
 )
-from ...agents.skill_system.models import SkillInfo
 from ...agents.skill_system.registry import (
     BUILTIN_SKILL_LANGUAGES,
     get_pool_builtin_sync_status,
@@ -42,27 +47,29 @@ from ...agents.skill_system.registry import (
     import_builtin_skills,
     list_builtin_import_candidates,
     list_workspaces,
-    reconcile_pool_manifest,
     reconcile_workspace_manifest,
     update_single_builtin,
 )
+from ...agents.skill_system.models import SkillRequirements
 from ...agents.skill_system.store import (
-    default_pool_manifest,
+    build_skill_metadata,
     default_workspace_manifest,
-    get_pool_skill_manifest_path,
-    get_skill_mtime,
-    get_skill_pool_dir,
     get_workspace_skill_manifest_path,
     get_workspace_skills_dir,
     mutate_json,
+    mutate_pool_manifest,
     normalize_skill_manifest_entry,
-    read_skill_from_dir,
+    read_pool_skill_automation,
+    read_skill_content_and_metadata_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
     resolve_pool_skill_dir,
+    safe_skill_dir,
     suggest_conflict_name,
+    with_cancel_checker,
 )
 from ...security.skill_scanner import SkillScanError
+from ..inbox_store import append_event as append_inbox_event
 from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
@@ -71,6 +78,133 @@ router = APIRouter(prefix="/skills", tags=["skills"])
 
 MAX_TAGS = 8
 MAX_TAG_LENGTH = 16
+# Existing Inbox filters use this released source value.
+SKILL_AUTOMATION_INBOX_SOURCE = "skill_autoupdate"
+
+
+async def _append_automation_event(
+    *,
+    event_type: str,
+    status: str,
+    severity: str,
+    title: str,
+    body: str,
+    payload: dict[str, Any],
+) -> bool:
+    try:
+        await append_inbox_event(
+            agent_id="default",
+            source_type=SKILL_AUTOMATION_INBOX_SOURCE,
+            source_id="",
+            event_type=event_type,
+            status=status,
+            severity=severity,
+            title=title,
+            body=body,
+            payload=payload,
+        )
+        return True
+    except Exception:  # pylint: disable=broad-except
+        logger.exception("Failed to append Skill Pool automation event")
+        return False
+
+
+async def post_auto_sync_inbox(result: dict[str, Any] | None) -> bool:
+    if not result:
+        return False
+    synced = [
+        item for item in (result.get("synced") or []) if item.get("agents")
+    ]
+    failed = result.get("failed") or []
+    if not synced and not failed:
+        return False
+
+    lines = [
+        f"{item['skill']} → {', '.join(item.get('agents') or [])}"
+        for item in synced
+    ]
+    lines.extend(
+        f"{item['skill']} (failed) → "
+        f"{', '.join(item.get('agents') or []) or 'unknown'}"
+        for item in failed
+    )
+    failure_count = len(failed)
+    title = (
+        f"Auto Sync: {len(synced)} synced, {failure_count} failed"
+        if failure_count
+        else f"Auto Sync: {len(synced)} skill(s) synced"
+    )
+    return await _append_automation_event(
+        event_type="auto_sync",
+        status="error" if failure_count else "success",
+        severity="error" if failure_count else "info",
+        title=title,
+        body="; ".join(lines),
+        payload={"synced": synced, "failed": failed},
+    )
+
+
+async def post_pool_automation_inbox(
+    result: dict[str, Any] | None,
+) -> bool:
+    if not result:
+        return False
+    pool_updated = result.get("pool_updated") or []
+    pool_failed = result.get("pool_failed") or []
+    synced = result.get("synced") or []
+    sync_failed = result.get("sync_failed") or []
+    if not pool_updated and not pool_failed:
+        return await post_auto_sync_inbox(
+            {"synced": synced, "failed": sync_failed},
+        )
+
+    lines = [
+        f"{item['skill']}: {item.get('from_version') or '-'} → "
+        f"{item.get('to_version') or '-'}"
+        for item in pool_updated
+    ]
+    lines.extend(
+        f"{item.get('skill', 'unknown')} (pool update failed)"
+        for item in pool_failed
+    )
+    lines.extend(
+        f"{item['skill']} → {', '.join(item.get('agents') or [])}"
+        for item in synced
+        if item.get("agents")
+    )
+    lines.extend(
+        f"{item['skill']} (sync failed) → "
+        f"{', '.join(item.get('agents') or []) or 'unknown'}"
+        for item in sync_failed
+    )
+    failure_count = len(pool_failed) + len(sync_failed)
+    return await _append_automation_event(
+        event_type="auto_update",
+        status="error" if failure_count else "success",
+        severity="error" if failure_count else "info",
+        title=(
+            f"Auto Update: {len(pool_updated)} updated, "
+            f"{failure_count} failed"
+        ),
+        body="; ".join(lines),
+        payload={
+            "pool_updated": pool_updated,
+            "pool_failed": pool_failed,
+            "synced": synced,
+            "sync_failed": sync_failed,
+        },
+    )
+
+
+async def _follow_auto_sync(skill_name: str | None = None) -> None:
+    try:
+        result = await asyncio.to_thread(
+            run_pool_auto_sync,
+            skill_name=skill_name,
+        )
+        await post_auto_sync_inbox(result)
+    except Exception:
+        logger.warning("Auto Sync follow-up failed", exc_info=True)
 
 
 def _scan_error_payload(exc: SkillScanError) -> dict[str, Any]:
@@ -116,35 +250,65 @@ def _scan_error_response(exc: SkillScanError) -> JSONResponse:
     )
 
 
-class SkillSpec(SkillInfo):
+class SkillSpec(BaseModel):
+    """Workspace skill metadata returned by list endpoints."""
+
+    name: str
+    description: str = ""
+    version_text: str = ""
+    source: str
+    installation_origin: InstallationOrigin | None = None
+    emoji: str = ""
     enabled: bool = False
     channels: list[str] = Field(default_factory=lambda: ["all"])
+    preload: bool = False
     tags: list[str] = Field(default_factory=list)
-    config: dict[str, Any] = Field(default_factory=dict)
     last_updated: str = ""
+
+
+class SkillDetail(SkillSpec):
+    """Workspace skill fields loaded only when its editor is opened."""
+
+    content: str
+    config: dict[str, Any] = Field(default_factory=dict)
     installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
 
 
-class PoolSkillSpec(SkillInfo):
-    protected: bool = False
+class PoolSkillSpec(BaseModel):
+    """Skill-pool metadata returned by list endpoints."""
+
+    name: str
+    description: str = ""
+    version_text: str = ""
+    source: str
+    installation_origin: InstallationOrigin | None = None
+    emoji: str = ""
     external: bool = False
     external_path: str = ""
-    commit_text: str = ""
     sync_status: str = ""
-    latest_version_text: str = ""
+    tags: list[str] = Field(default_factory=list)
+    last_updated: str = ""
+    auto_sync: bool = False
+    auto_update: bool = False
+
+
+class PoolSkillDetail(PoolSkillSpec):
+    """Skill-pool fields loaded only when its editor is opened."""
+
+    content: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    installed_from: str = ""
+    requirements: SkillRequirements = Field(default_factory=SkillRequirements)
     builtin_language: str = ""
     available_builtin_languages: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    config: dict[str, Any] = Field(default_factory=dict)
-    last_updated: str = ""
-    installed_from: str = ""
+    auto_sync_targets: list[str] | None = None
 
 
 class WorkspaceSkillSummary(BaseModel):
     agent_id: str
     agent_name: str = ""
-    workspace_dir: str
-    skills: list[SkillSpec] = Field(default_factory=list)
+    skill_names: list[str] = Field(default_factory=list)
 
 
 class HubSkillSpec(BaseModel):
@@ -236,6 +400,16 @@ class SkillConfigRequest(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+class AutoSyncRequest(BaseModel):
+    enabled: bool
+    targets: list[str] | None = None
+
+
+class SkillAutomationRequest(BaseModel):
+    auto_update: bool | None = None
+    auto_sync: AutoSyncRequest | None = None
+
+
 class SavePoolSkillRequest(BaseModel):
     name: str
     content: str
@@ -253,6 +427,10 @@ class SaveSkillRequest(BaseModel):
 
 
 class HubInstallRequest(BaseModel):
+    provider_key: str | None = Field(
+        default=None,
+        description="Market source key",
+    )
     bundle_url: str = Field(..., description="Skill URL")
     version: str = Field(default="", description="Optional version tag")
     enable: bool = Field(default=True, description="Enable after import")
@@ -284,11 +462,157 @@ _hub_install_runtime_tasks: dict[str, asyncio.Task] = {}
 _hub_install_cancel_events: dict[str, threading.Event] = {}
 _hub_install_lock = asyncio.Lock()
 
+_HUB_INSTALL_TASK_TTL_SECONDS = 10 * 60
+_HUB_INSTALL_TASK_MAX_HISTORY = 100
+_HUB_INSTALL_TERMINAL_STATUSES = frozenset(
+    {
+        HubInstallTaskStatus.COMPLETED,
+        HubInstallTaskStatus.FAILED,
+        HubInstallTaskStatus.CANCELLED,
+    },
+)
+
 _ALLOWED_ZIP_TYPES = {
     "application/zip",
     "application/x-zip-compressed",
     "application/octet-stream",
 }
+
+
+class PoolDownloadState(str, Enum):
+    """What a pool download job reports; nothing in between.
+
+    There is deliberately no progress state. A client shows "downloading"
+    from its own request and ``CANCELLING`` once it has asked to cancel.
+    ``RUNNING`` and ``CANCELLING`` are both non-terminal, so a client keeps
+    polling through either one until the worker writes the real outcome.
+    """
+
+    RUNNING = "running"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PoolDownloadJob(BaseModel):
+    """The handle a client polls instead of holding one request open.
+
+    ``job_id`` is opaque and carries no progress information: there is no
+    percentage, no file count and no total to render as a progress bar.
+    ``error`` is set only when the job failed, so a client can report why
+    without a second endpoint for it. ``result`` keeps the structured payload
+    that came with that outcome (scan findings for a rejected install, or the
+    downloaded workspaces for a completed one), so the console can show the
+    same detail the blocking endpoint returns in its response body.
+    """
+
+    job_id: str
+    state: PoolDownloadState = PoolDownloadState.RUNNING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+
+
+class _PoolDownloadJob(BaseModel):
+    """Server-side record of one job, richer than the handle it hands out."""
+
+    job_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    skill_name: str
+    workspace_ids: list[str] = Field(default_factory=list)
+    state: PoolDownloadState = PoolDownloadState.RUNNING
+    error: str | None = None
+    result: dict[str, Any] | None = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
+
+
+_pool_download_jobs: dict[str, _PoolDownloadJob] = {}
+_pool_download_runtime_jobs: dict[str, asyncio.Task] = {}
+_pool_download_cancel_events: dict[str, threading.Event] = {}
+_pool_download_jobs_lock = asyncio.Lock()
+
+_POOL_DOWNLOAD_JOB_TTL_SECONDS = 10 * 60
+_POOL_DOWNLOAD_JOB_MAX_HISTORY = 100
+_POOL_DOWNLOAD_TERMINAL_STATES = frozenset(
+    {
+        PoolDownloadState.COMPLETED,
+        PoolDownloadState.FAILED,
+        PoolDownloadState.CANCELLED,
+    },
+)
+
+# ``POST /pool/download`` runs its blocking body in a worker thread. Before
+# that change a copy held the event loop for its whole run, so two downloads
+# could never overlap; offloading the copy opens that door. Preflight +
+# install is a check-then-write over a workspace, so two overlapping requests
+# could both pass preflight and then one request's rollback would restore a
+# snapshot taken before the other had installed. Serialize the whole
+# check-and-install per workspace, so the second request re-preflights against
+# whatever the first one left behind.
+_pool_download_locks_guard = threading.Lock()
+_pool_download_locks: dict[str, threading.Lock] = {}
+
+
+def _pool_download_lock(workspace_id: str) -> threading.Lock:
+    with _pool_download_locks_guard:
+        lock = _pool_download_locks.get(workspace_id)
+        if lock is None:
+            lock = threading.Lock()
+            _pool_download_locks[workspace_id] = lock
+        return lock
+
+
+@dataclass(frozen=True)
+class _ResolvedDownloadTarget:
+    """One workspace a download will write to, with its directory pinned.
+
+    Resolved once per request and then reused for locking, preflight and
+    execution. Resolving ``all_workspaces`` a second time would let a
+    workspace appear in between and enter the execution plan without its
+    lock held.
+    """
+
+    workspace_id: str
+    workspace_dir: Path
+
+
+def _resolve_download_targets(
+    body: DownloadFromPoolRequest,
+) -> list[_ResolvedDownloadTarget]:
+    """Resolve every workspace a download request writes to — exactly once.
+
+    An explicit target set is taken as-is; ``all_workspaces`` is expanded
+    here so the expansion and the locks below cannot disagree.
+    """
+    if body.all_workspaces:
+        return [
+            _ResolvedDownloadTarget(
+                str(workspace["agent_id"]),
+                Path(workspace["workspace_dir"]),
+            )
+            for workspace in list_workspaces()
+        ]
+    return [
+        _ResolvedDownloadTarget(
+            target.workspace_id,
+            _workspace_dir_for_agent(target.workspace_id),
+        )
+        for target in body.targets
+    ]
+
+
+def _pool_download_lock_keys(
+    targets: list[_ResolvedDownloadTarget],
+) -> list[str]:
+    """Workspace ids to lock, in a stable order.
+
+    Sorted so two requests that touch the same set of workspaces always take
+    their locks in the same order and cannot deadlock. Derived from the
+    resolved targets rather than from the request: preflight has to run
+    inside the locks, so it cannot be what picks the keys, and resolving the
+    list again here would lock a different set than the one executed.
+    """
+    return sorted({target.workspace_id for target in targets})
 
 
 def _workspace_dir_for_agent(agent_id: str) -> Path:
@@ -380,17 +704,109 @@ async def _hub_task_set_status(
 
 async def _hub_task_get(task_id: str) -> HubInstallTask | None:
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         return _hub_install_tasks.get(task_id)
 
 
-async def _hub_task_register_runtime(task_id: str, task: asyncio.Task) -> None:
-    async with _hub_install_lock:
-        _hub_install_runtime_tasks[task_id] = task
+def _hub_task_cleanup_locked(*, now: float | None = None) -> None:
+    """Remove expired/excess finished tasks while the registry lock is held."""
+    current_time = time.time() if now is None else now
+    finished = [
+        task
+        for task_id, task in _hub_install_tasks.items()
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES
+        and task_id not in _hub_install_runtime_tasks
+    ]
+
+    expired_ids = {
+        task.task_id
+        for task in finished
+        if current_time - task.updated_at > _HUB_INSTALL_TASK_TTL_SECONDS
+    }
+    retained = [task for task in finished if task.task_id not in expired_ids]
+    excess = max(0, len(retained) - _HUB_INSTALL_TASK_MAX_HISTORY)
+    if excess:
+        retained.sort(key=lambda task: (task.updated_at, task.created_at))
+        expired_ids.update(task.task_id for task in retained[:excess])
+
+    for expired_id in expired_ids:
+        _hub_install_tasks.pop(expired_id, None)
+        _hub_install_cancel_events.pop(expired_id, None)
 
 
-async def _hub_task_pop_runtime(task_id: str) -> asyncio.Task | None:
+async def _hub_task_finish_runtime(task_id: str) -> None:
     async with _hub_install_lock:
-        return _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_runtime_tasks.pop(task_id, None)
+        _hub_install_cancel_events.pop(task_id, None)
+        task = _hub_install_tasks.get(task_id)
+        if task is not None and task.status in _HUB_INSTALL_TERMINAL_STATUSES:
+            # Retention starts when the worker actually stops, which can be
+            # later than the cancel endpoint's terminal response.
+            task.updated_at = time.time()
+        _hub_task_cleanup_locked()
+
+
+async def _pool_download_job_set_state(
+    job_id: str,
+    state: PoolDownloadState,
+    *,
+    error: str | None = None,
+    result: dict[str, Any] | None = None,
+) -> None:
+    async with _pool_download_jobs_lock:
+        job = _pool_download_jobs.get(job_id)
+        if job is None:
+            return
+        job.state = state
+        job.updated_at = time.time()
+        if error is not None:
+            job.error = error
+        if result is not None:
+            job.result = result
+
+
+async def _pool_download_job_get(job_id: str) -> _PoolDownloadJob | None:
+    async with _pool_download_jobs_lock:
+        _pool_download_jobs_cleanup_locked()
+        return _pool_download_jobs.get(job_id)
+
+
+def _pool_download_jobs_cleanup_locked(*, now: float | None = None) -> None:
+    """Remove expired/excess finished jobs while the registry lock is held."""
+    current_time = time.time() if now is None else now
+    finished = [
+        job
+        for job_id, job in _pool_download_jobs.items()
+        if job.state in _POOL_DOWNLOAD_TERMINAL_STATES
+        and job_id not in _pool_download_runtime_jobs
+    ]
+
+    expired_ids = {
+        job.job_id
+        for job in finished
+        if current_time - job.updated_at > _POOL_DOWNLOAD_JOB_TTL_SECONDS
+    }
+    retained = [job for job in finished if job.job_id not in expired_ids]
+    excess = max(0, len(retained) - _POOL_DOWNLOAD_JOB_MAX_HISTORY)
+    if excess:
+        retained.sort(key=lambda job: (job.updated_at, job.created_at))
+        expired_ids.update(job.job_id for job in retained[:excess])
+
+    for expired_id in expired_ids:
+        _pool_download_jobs.pop(expired_id, None)
+        _pool_download_cancel_events.pop(expired_id, None)
+
+
+async def _pool_download_job_finish_runtime(job_id: str) -> None:
+    async with _pool_download_jobs_lock:
+        _pool_download_runtime_jobs.pop(job_id, None)
+        _pool_download_cancel_events.pop(job_id, None)
+        job = _pool_download_jobs.get(job_id)
+        if job is not None and job.state in _POOL_DOWNLOAD_TERMINAL_STATES:
+            # Retention starts when the worker actually stops, which can be
+            # later than the cancel response that asked it to.
+            job.updated_at = time.time()
+        _pool_download_jobs_cleanup_locked()
 
 
 async def _read_validated_zip_upload(file: UploadFile) -> bytes:
@@ -436,6 +852,7 @@ async def _run_hub_install_task(
         result = await install_skill_from_hub(
             workspace_dir=workspace_dir,
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             enable=body.enable,
             target_name=body.target_name,
@@ -453,6 +870,7 @@ async def _run_hub_install_task(
                     "enabled": False,
                     "source_url": result.source_url,
                     "installed_from": result.installed_from,
+                    "installation_origin": result.installation_origin,
                 },
             )
             return
@@ -465,12 +883,16 @@ async def _run_hub_install_task(
                 "enabled": result.enabled,
                 "source_url": result.source_url,
                 "installed_from": result.installed_from,
+                "installation_origin": result.installation_origin,
             },
         )
     except SkillImportCancelled:
         if imported_skill_name:
             _cleanup_imported_skill(workspace_dir, imported_skill_name)
         await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+    except asyncio.CancelledError:
+        await _hub_task_set_status(task_id, HubInstallTaskStatus.CANCELLED)
+        raise
     except SkillScanError as exc:
         await _hub_task_set_status(
             task_id,
@@ -478,18 +900,18 @@ async def _run_hub_install_task(
             error=str(exc),
             result=_scan_error_payload(exc),
         )
-    except (ValueError, AppBaseException) as exc:
-        await _hub_task_set_status(
-            task_id,
-            HubInstallTaskStatus.FAILED,
-            error=str(exc),
-        )
     except SkillConflictError as exc:
         await _hub_task_set_status(
             task_id,
             HubInstallTaskStatus.FAILED,
             error=str(exc),
             result=exc.detail,
+        )
+    except (ValueError, AppBaseException) as exc:
+        await _hub_task_set_status(
+            task_id,
+            HubInstallTaskStatus.FAILED,
+            error=str(exc),
         )
     except RuntimeError as exc:
         await _hub_task_set_status(
@@ -504,7 +926,7 @@ async def _run_hub_install_task(
             error=f"Skill hub import failed: {exc}",
         )
     finally:
-        await _hub_task_pop_runtime(task_id)
+        await _hub_task_finish_runtime(task_id)
 
 
 def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
@@ -521,22 +943,29 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = skill_root / skill_name
-            skill = read_skill_from_dir(skill_dir, source)
-            if skill is None:
+            skill_dir = safe_skill_dir(skill_root, skill_name)
+            if not (skill_dir / "SKILL.md").is_file():
                 continue
-            dump = skill.model_dump()
-            dump["tags"] = entry.get("tags") or []
+            metadata = build_skill_metadata(
+                skill_name,
+                skill_dir,
+                source=source,
+            )
             specs.append(
                 SkillSpec(
-                    **dump,
+                    name=skill_name,
+                    description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
+                    source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
+                    emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
                     channels=entry.get("channels") or ["all"],
-                    config=entry.get("config") or {},
-                    last_updated=get_skill_mtime(skill_dir),
-                    installed_from=str(
-                        entry.get("installed_from", "") or "",
-                    ),
+                    preload=entry.get("preload") is True,
+                    tags=entry.get("tags") or [],
+                    last_updated=str(metadata.get("updated_at", "") or ""),
                 ),
             )
         except Exception:
@@ -551,7 +980,6 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
 def _build_pool_skill_specs() -> list[PoolSkillSpec]:
     manifest = read_skill_pool_manifest()
     entries = manifest.get("skills", {})
-    pool_dir = get_skill_pool_dir()
     sync_info = get_pool_builtin_sync_status(pool_skills=entries)
     specs: list[PoolSkillSpec] = []
     for skill_name, raw_entry in sorted(entries.items()):
@@ -563,44 +991,35 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
             )
         try:
             source = entry.get("source", "customized")
-            skill_dir = resolve_pool_skill_dir(skill_name) or (
-                pool_dir / skill_name
-            )
-            skill = read_skill_from_dir(skill_dir, source)
-            if skill is None:
+            skill_dir = resolve_pool_skill_dir(skill_name)
+            if skill_dir is None:
                 continue
+            metadata = build_skill_metadata(
+                skill_name,
+                skill_dir,
+                source=source,
+            )
             info = sync_info.get(skill_name, {})
-            dump = skill.model_dump(exclude={"version_text"})
-            dump["tags"] = entry.get("tags") or []
             is_external = bool(entry.get("external", False))
+            automation = read_pool_skill_automation(entry)
             specs.append(
                 PoolSkillSpec(
-                    **dump,
-                    protected=bool(entry.get("protected", False)),
+                    name=skill_name,
+                    description=str(metadata.get("description", "") or ""),
+                    version_text=metadata["version_text"],
+                    source=source,
+                    installation_origin=validated_origin(
+                        entry.get("installation_origin"),
+                    ),
+                    emoji=str(metadata.get("emoji", "") or ""),
                     external=is_external,
                     external_path=str(skill_dir) if is_external else "",
-                    version_text=str(entry.get("version_text", "") or ""),
-                    commit_text=str(entry.get("commit_text", "") or ""),
                     sync_status=str(info.get("sync_status", "") or ""),
-                    latest_version_text=str(
-                        info.get("latest_version_text", "") or "",
-                    ),
-                    builtin_language=str(
-                        entry.get("builtin_language", "") or "",
-                    ),
-                    available_builtin_languages=[
-                        str(language)
-                        for language in (
-                            info.get("available_languages")
-                            or entry.get("available_builtin_languages")
-                            or []
-                        )
-                        if str(language)
-                    ],
-                    config=entry.get("config") or {},
-                    last_updated=get_skill_mtime(skill_dir),
-                    installed_from=str(
-                        entry.get("installed_from", "") or "",
+                    tags=entry.get("tags") or [],
+                    last_updated=str(metadata.get("updated_at", "") or ""),
+                    auto_sync=automation.auto_sync,
+                    auto_update=(
+                        source == "builtin" and automation.auto_update
                     ),
                 ),
             )
@@ -611,6 +1030,126 @@ def _build_pool_skill_specs() -> list[PoolSkillSpec]:
                 exc_info=True,
             )
     return specs
+
+
+def _build_workspace_skill_detail(
+    workspace_dir: Path,
+    skill_name: str,
+) -> SkillDetail | None:
+    manifest = read_skill_manifest(workspace_dir)
+    raw_entry = manifest.get("skills", {}).get(skill_name)
+    if raw_entry is None:
+        return None
+    entry = normalize_skill_manifest_entry(raw_entry)
+    try:
+        skill_dir = safe_skill_dir(
+            get_workspace_skills_dir(workspace_dir),
+            skill_name,
+        )
+    except AppBaseException:
+        return None
+    source = str(entry.get("source", "customized") or "customized")
+    skill_data = read_skill_content_and_metadata_from_dir(
+        skill_name,
+        skill_dir,
+        source=source,
+    )
+    if skill_data is None:
+        return None
+    content, metadata = skill_data
+    return SkillDetail(
+        name=skill_name,
+        description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
+        source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
+        emoji=str(metadata.get("emoji", "") or ""),
+        enabled=bool(entry.get("enabled", False)),
+        channels=entry.get("channels") or ["all"],
+        preload=entry.get("preload") is True,
+        tags=entry.get("tags") or [],
+        last_updated=str(metadata.get("updated_at", "") or ""),
+        content=content,
+        config=entry.get("config") or {},
+        installed_from=str(entry.get("installed_from", "") or ""),
+    )
+
+
+def _build_pool_skill_detail(skill_name: str) -> PoolSkillDetail | None:
+    manifest = read_skill_pool_manifest()
+    entries = manifest.get("skills", {})
+    raw_entry = entries.get(skill_name)
+    if raw_entry is None:
+        return None
+    entry = normalize_skill_manifest_entry(raw_entry)
+    skill_dir = resolve_pool_skill_dir(skill_name)
+    if skill_dir is None:
+        return None
+    source = str(entry.get("source", "customized") or "customized")
+    skill_data = read_skill_content_and_metadata_from_dir(
+        skill_name,
+        skill_dir,
+        source=source,
+    )
+    if skill_data is None:
+        return None
+    content, metadata = skill_data
+    info = get_pool_builtin_sync_status(pool_skills=entries).get(
+        skill_name,
+        {},
+    )
+    is_external = bool(entry.get("external", False))
+    automation = read_pool_skill_automation(entry)
+    return PoolSkillDetail(
+        name=skill_name,
+        description=str(metadata.get("description", "") or ""),
+        version_text=metadata["version_text"],
+        requirements=SkillRequirements(**metadata["requirements"]),
+        source=source,
+        installation_origin=validated_origin(entry.get("installation_origin")),
+        emoji=str(metadata.get("emoji", "") or ""),
+        external=is_external,
+        external_path=str(skill_dir) if is_external else "",
+        sync_status=str(info.get("sync_status", "") or ""),
+        tags=entry.get("tags") or [],
+        last_updated=str(metadata.get("updated_at", "") or ""),
+        auto_sync=automation.auto_sync,
+        auto_update=(source == "builtin" and automation.auto_update),
+        content=content,
+        config=entry.get("config") or {},
+        installed_from=str(entry.get("installed_from", "") or ""),
+        builtin_language=str(entry.get("builtin_language", "") or ""),
+        available_builtin_languages=[
+            str(language)
+            for language in (
+                info.get("available_languages")
+                or entry.get("available_builtin_languages")
+                or []
+            )
+            if str(language)
+        ],
+        auto_sync_targets=(
+            list(automation.auto_sync_targets)
+            if automation.auto_sync_targets
+            else None
+        ),
+    )
+
+
+def _list_workspace_skill_names(workspace_dir: Path) -> list[str]:
+    """List names that the former full workspace index would have returned."""
+    manifest = read_skill_manifest(workspace_dir)
+    skill_root = get_workspace_skills_dir(workspace_dir)
+    names: list[str] = []
+    for skill_name in sorted(manifest.get("skills", {})):
+        try:
+            skill_dir = safe_skill_dir(skill_root, skill_name)
+        except AppBaseException:
+            continue
+        if (skill_dir / "SKILL.md").is_file():
+            names.append(skill_name)
+    return names
 
 
 @router.get("")
@@ -657,8 +1196,7 @@ async def list_workspace_skill_sources() -> list[WorkspaceSkillSummary]:
             WorkspaceSkillSummary(
                 agent_id=workspace["agent_id"],
                 agent_name=workspace.get("agent_name", ""),
-                workspace_dir=str(workspace_dir),
-                skills=_build_workspace_skill_specs(workspace_dir),
+                skill_names=_list_workspace_skill_names(workspace_dir),
             ),
         )
     return summaries
@@ -677,19 +1215,19 @@ async def start_install_from_hub(
     )
     cancel_event = threading.Event()
     async with _hub_install_lock:
+        _hub_task_cleanup_locked()
         _hub_install_tasks[task.task_id] = task
         _hub_install_cancel_events[task.task_id] = cancel_event
-
-    runtime_task = asyncio.create_task(
-        _run_hub_install_task(
-            task_id=task.task_id,
-            workspace_dir=workspace_dir,
-            body=request_body,
-            cancel_event=cancel_event,
-        ),
-        name=f"skill-hub-install-{task.task_id}",
-    )
-    await _hub_task_register_runtime(task.task_id, runtime_task)
+        runtime_task = asyncio.create_task(
+            _run_hub_install_task(
+                task_id=task.task_id,
+                workspace_dir=workspace_dir,
+                body=request_body,
+                cancel_event=cancel_event,
+            ),
+            name=f"skill-hub-install-{task.task_id}",
+        )
+        _hub_install_runtime_tasks[task.task_id] = runtime_task
     return task
 
 
@@ -710,11 +1248,7 @@ async def cancel_hub_install(task_id: str) -> dict[str, Any]:
                 status_code=404,
                 detail="install task not found",
             )
-        if task.status in (
-            HubInstallTaskStatus.COMPLETED,
-            HubInstallTaskStatus.FAILED,
-            HubInstallTaskStatus.CANCELLED,
-        ):
+        if task.status in _HUB_INSTALL_TERMINAL_STATUSES:
             return {"task_id": task_id, "status": task.status.value}
         cancel_event = _hub_install_cancel_events.get(task_id)
         if cancel_event is not None:
@@ -732,7 +1266,8 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
 @router.post("/pool/refresh")
 async def refresh_pool_skills() -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
-    reconcile_pool_manifest()
+    result = await asyncio.to_thread(refresh_pool_automation)
+    await post_pool_automation_inbox(result)
     return _build_pool_skill_specs()
 
 
@@ -898,6 +1433,7 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    await _follow_auto_sync(result.get("name"))
     return result
 
 
@@ -935,6 +1471,7 @@ async def upload_skill_pool_zip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result.get("conflicts"):
         raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_sync()
     return result
 
 
@@ -945,23 +1482,26 @@ async def import_skill_pool_from_hub(
     try:
         result = await import_pool_skill_from_hub(
             bundle_url=body.bundle_url,
+            provider_key=body.provider_key,
             version=body.version,
             target_name=body.target_name,
         )
     except SkillScanError as exc:
         return _scan_error_response(exc)
-    except (ValueError, AppBaseException) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except SkillConflictError as exc:
         raise HTTPException(status_code=409, detail=exc.detail) from exc
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    await _follow_auto_sync(result.name)
     return {
         "installed": True,
         "name": result.name,
         "enabled": False,
         "source_url": result.source_url,
         "installed_from": result.installed_from,
+        "installation_origin": result.installation_origin,
     }
 
 
@@ -984,22 +1524,23 @@ async def upload_workspace_skill_to_pool(
     if not result.get("success"):
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
+    if not body.preview_only:
+        await _follow_auto_sync(result.get("name"))
     return result
 
 
 def _preflight_download_conflicts(
     hub_service: SkillPoolService,
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
     overwrite: bool,
 ) -> list[dict[str, Any]]:
     """Check all targets for conflicts before downloading."""
     conflicts: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         result = hub_service.preflight_download_to_workspace(
             skill_name=skill_name,
-            workspace_dir=workspace_dir,
+            workspace_dir=target.workspace_dir,
             overwrite=overwrite,
         )
         if not result.get("success"):
@@ -1009,21 +1550,11 @@ def _preflight_download_conflicts(
     return conflicts
 
 
-def _resolve_and_preflight(
+def _preflight_download(
     body: DownloadFromPoolRequest,
-) -> tuple[list[PoolDownloadTarget], SkillPoolService]:
-    """Resolve targets and reject if any conflicts exist."""
-    targets = list(body.targets)
-    if body.all_workspaces:
-        targets = [
-            PoolDownloadTarget(workspace_id=workspace["agent_id"])
-            for workspace in list_workspaces()
-        ]
-    if not targets:
-        raise HTTPException(
-            status_code=400,
-            detail="No workspace targets provided",
-        )
+    targets: list[_ResolvedDownloadTarget],
+) -> SkillPoolService:
+    """Reject the request if any already-resolved target conflicts."""
     hub_service = SkillPoolService()
     try:
         conflicts = _preflight_download_conflicts(
@@ -1045,25 +1576,24 @@ def _resolve_and_preflight(
                 "conflicts": conflicts,
             },
         )
-    return targets, hub_service
+    return hub_service
 
 
 def _build_download_plan(
-    targets: list[PoolDownloadTarget],
+    targets: list[_ResolvedDownloadTarget],
     skill_name: str,
 ) -> list[dict[str, Any]]:
     """Build execution plan with rollback snapshots."""
     plan: list[dict[str, Any]] = []
     for target in targets:
-        workspace_dir = _workspace_dir_for_agent(target.workspace_id)
         snapshot = _snapshot_workspace_skill(
-            workspace_dir,
+            target.workspace_dir,
             str(skill_name),
         )
         plan.append(
             {
                 "workspace_id": target.workspace_id,
-                "workspace_dir": workspace_dir,
+                "workspace_dir": target.workspace_dir,
                 "snapshot": snapshot,
             },
         )
@@ -1081,7 +1611,9 @@ def _download_one_or_raise(
     """Download into one workspace; on failure roll back all and raise.
 
     A missing pool skill is a target-independent 404; any other failure is
-    a per-target 409 conflict.
+    a per-target 409 conflict. ``SkillImportCancelled`` from the copy is not
+    caught here: it falls through to the caller's rollback, which puts every
+    target back the way it was.
     """
     result = hub_service.download_to_workspace(
         skill_name=skill_name,
@@ -1111,8 +1643,69 @@ async def download_pool_skill_to_workspaces(
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
+
+    A large skill means thousands of file operations, so the blocking work runs
+    in a worker thread: doing it inline would freeze the event loop and every
+    other API for the whole copy.
+
+    Concurrent downloads into the same workspace are serialized end to end
+    (preflight included), so a second request cannot slip in behind a first
+    request's successful install and then undo it on rollback.
+
+    A rejected scan stays a 422 here. The job worker needs the exception
+    itself — treating a scan rejection as a value is what let a blocked
+    install be reported as ``completed`` — so the blocking body raises, and
+    only this endpoint turns that into the established response.
     """
-    targets, hub_service = _resolve_and_preflight(body)
+    try:
+        return await asyncio.to_thread(_download_pool_skill, body)
+    except SkillScanError as exc:
+        return _scan_error_response(exc)
+
+
+def _download_pool_skill(
+    body: DownloadFromPoolRequest,
+    *,
+    targets: list[_ResolvedDownloadTarget] | None = None,
+    cancel_checker: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """Blocking body of ``POST /pool/download``; see the route docstring.
+
+    The target list is resolved once and then drives everything: the lock
+    keys, preflight and the execution plan. The whole check-then-install runs
+    under those locks — preflight has to be inside them, or two overlapping
+    requests would both pass against the same untouched workspace and then
+    fight over it.
+
+    *targets* lets a caller that already resolved the list (the job endpoint,
+    which reports the workspace ids back to the client) hand it over instead
+    of letting it be resolved a second time here.
+
+    *cancel_checker* is armed for the whole body, so the copies inside pick it
+    up through the shared checker rather than every call in between having to
+    forward it. ``SkillImportCancelled`` leaves through the rollback below.
+    Unarmed — the plain endpoint — nothing behaves differently.
+    """
+    if targets is None:
+        targets = _resolve_download_targets(body)
+    if not targets:
+        raise HTTPException(
+            status_code=400,
+            detail="No workspace targets provided",
+        )
+    with with_cancel_checker(cancel_checker), ExitStack() as stack:
+        for key in _pool_download_lock_keys(targets):
+            stack.enter_context(_pool_download_lock(key))
+        result = _download_pool_skill_locked(body, targets)
+    return result
+
+
+def _download_pool_skill_locked(
+    body: DownloadFromPoolRequest,
+    targets: list[_ResolvedDownloadTarget],
+) -> dict[str, Any]:
+    """Install a pool skill; caller holds the per-workspace lock(s)."""
+    hub_service = _preflight_download(body, targets)
     if body.preview_only:
         return {"downloaded": []}
 
@@ -1132,11 +1725,10 @@ async def download_pool_skill_to_workspaces(
             )
     except HTTPException:
         raise
-    except SkillScanError as exc:
-        for rollback in reversed(execution_plan):
-            _restore_workspace_skill(rollback["snapshot"])
-        return _scan_error_response(exc)
     except Exception:
+        # A scan rejection, a cancellation and any copy error all leave the
+        # same cleanup: put every target back the way it was, then re-raise
+        # so the caller can report which one it was.
         for rollback in reversed(execution_plan):
             _restore_workspace_skill(rollback["snapshot"])
         raise
@@ -1149,51 +1741,122 @@ async def download_pool_skill_to_workspaces(
     return {"downloaded": downloaded}
 
 
-@router.post("/pool/import-builtin")
-async def import_pool_builtins(
-    body: ImportBuiltinRequest,
-) -> dict[str, Any]:
-    imports: list[dict[str, Any]] = (
-        [item.model_dump() for item in body.imports]
-        if body.imports
-        else [{"skill_name": skill_name} for skill_name in body.skill_names]
-    )
-    result = import_builtin_skills(
-        imports,
-        overwrite_conflicts=body.overwrite_conflicts,
-    )
-    if result.get("conflicts") and not body.overwrite_conflicts:
-        raise HTTPException(status_code=409, detail=result)
-    return result
+async def _run_pool_download_job(
+    *,
+    job_id: str,
+    body: DownloadFromPoolRequest,
+    targets: list[_ResolvedDownloadTarget],
+    cancel_event: threading.Event,
+) -> None:
+    """Worker thread wrapper for one pool download job.
+
+    Nothing here knows how to install a skill: the job runs the very same
+    blocking body as ``POST /pool/download``, which is also what takes the
+    per-workspace locks. The locks therefore live exactly as long as the job
+    does, and a job and a direct download stay mutually exclusive.
+    """
+    try:
+        result = await asyncio.to_thread(
+            _download_pool_skill,
+            body,
+            targets=targets,
+            cancel_checker=cancel_event.is_set,
+        )
+    except SkillImportCancelled:
+        # Only a cancellation that reached a file boundary lands here. One
+        # that arrives later never reaches a check, the copy finishes, and
+        # completion wins — as the cancel endpoint documents.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.CANCELLED,
+        )
+    except asyncio.CancelledError:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.CANCELLED,
+        )
+        raise
+    except HTTPException as exc:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc.detail),
+            result=exc.detail if isinstance(exc.detail, dict) else None,
+        )
+    except SkillScanError as exc:
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc),
+            result=_scan_error_payload(exc),
+        )
+    except Exception as exc:
+        # A validation error and an unexpected failure mean the same thing
+        # to a job: nothing was installed, and there is no structured payload
+        # to keep. Only the HTTP and scan cases above carry one.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.FAILED,
+            error=str(exc),
+        )
+    else:
+        # Written after any cancel request that got this far, so a cancel
+        # that landed too late cannot downgrade a finished download.
+        await _pool_download_job_set_state(
+            job_id,
+            PoolDownloadState.COMPLETED,
+            result=result,
+        )
+    finally:
+        await _pool_download_job_finish_runtime(job_id)
 
 
-@router.post("/pool/{skill_name}/update-builtin")
-async def update_pool_builtin(
-    skill_name: str,
-    body: UpdateBuiltinRequest | None = Body(default=None),
-) -> dict[str, Any]:
-    language = body.language if body is not None else ""
-    if language and language not in BUILTIN_SKILL_LANGUAGES:
+@router.post(
+    "/pool/downloads",
+    response_model=PoolDownloadJob,
+    status_code=202,
+)
+async def start_pool_download(
+    body: DownloadFromPoolRequest,
+) -> PoolDownloadJob:
+    """Start a pool download and hand back its job id.
+
+    The copy keeps running after this response, so a client polls the job
+    instead of holding one request open for the whole download. The download
+    itself is unchanged: the job runs the same blocking body as
+    ``POST /pool/download``, which is also what takes the per-workspace
+    locks, so a job and a direct download can never interleave.
+
+    Targets are resolved here rather than in the worker so that a bad target
+    is still a synchronous error, and so the job holds the locks for the
+    workspaces this response is about.
+    """
+    targets = _resolve_download_targets(body)
+    if not targets:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid language '{language}', "
-            f"must be one of {BUILTIN_SKILL_LANGUAGES}",
+            detail="No workspace targets provided",
         )
-    try:
-        return update_single_builtin(skill_name, language=language or None)
-    except (ValueError, AppBaseException) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.delete("/pool/{skill_name}")
-async def delete_pool_skill(skill_name: str) -> dict[str, Any]:
-    deleted = SkillPoolService().delete_skill(skill_name)
-    if not deleted:
-        raise HTTPException(
-            status_code=409,
-            detail="Skill pool entry cannot be deleted",
+    job = _PoolDownloadJob(
+        skill_name=body.skill_name,
+        workspace_ids=[target.workspace_id for target in targets],
+    )
+    cancel_event = threading.Event()
+    async with _pool_download_jobs_lock:
+        _pool_download_jobs_cleanup_locked()
+        _pool_download_jobs[job.job_id] = job
+        _pool_download_cancel_events[job.job_id] = cancel_event
+        runtime_job = asyncio.create_task(
+            _run_pool_download_job(
+                job_id=job.job_id,
+                body=body,
+                targets=targets,
+                cancel_event=cancel_event,
+            ),
+            name=f"skill-pool-download-{job.job_id}",
         )
-    return {"deleted": True}
+        _pool_download_runtime_jobs[job.job_id] = runtime_job
+    return PoolDownloadJob(job_id=job.job_id, state=job.state)
 
 
 @router.get("/pool/{skill_name}/config")
@@ -1210,8 +1873,6 @@ async def update_pool_skill_config(
     skill_name: str,
     body: SkillConfigRequest,
 ) -> dict[str, Any]:
-    manifest_path = get_pool_skill_manifest_path()
-
     def _update(payload: dict[str, Any]) -> bool:
         entry = payload.get("skills", {}).get(skill_name)
         if entry is None:
@@ -1219,7 +1880,7 @@ async def update_pool_skill_config(
         entry["config"] = dict(body.config)
         return True
 
-    updated = mutate_json(manifest_path, default_pool_manifest(), _update)
+    updated = mutate_pool_manifest(_update)
     if not updated:
         raise HTTPException(status_code=404, detail="Pool skill not found")
     return {"updated": True}
@@ -1227,8 +1888,6 @@ async def update_pool_skill_config(
 
 @router.delete("/pool/{skill_name}/config")
 async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
-    manifest_path = get_pool_skill_manifest_path()
-
     def _update(payload: dict[str, Any]) -> bool:
         entry = payload.get("skills", {}).get(skill_name)
         if entry is None:
@@ -1236,10 +1895,130 @@ async def delete_pool_skill_config(skill_name: str) -> dict[str, Any]:
         entry.pop("config", None)
         return True
 
-    updated = mutate_json(manifest_path, default_pool_manifest(), _update)
+    updated = mutate_pool_manifest(_update)
     if not updated:
         raise HTTPException(status_code=404, detail="Pool skill not found")
     return {"cleared": True}
+
+
+@router.get("/pool/downloads/{job_id}", response_model=PoolDownloadJob)
+async def get_pool_download_job(job_id: str) -> PoolDownloadJob:
+    """Report one job's state.
+
+    ``running`` and ``cancelling`` are both non-terminal: keep polling until
+    this answers something else, then stop.
+    """
+    job = await _pool_download_job_get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="download job not found")
+    return PoolDownloadJob(
+        job_id=job.job_id,
+        state=job.state,
+        error=job.error,
+        result=job.result,
+    )
+
+
+@router.delete("/pool/downloads/{job_id}", response_model=PoolDownloadJob)
+async def cancel_pool_download(job_id: str) -> PoolDownloadJob:
+    """Ask a running download to stop at its next file boundary.
+
+    The state that comes back is ``cancelling``, not ``cancelled``: the
+    worker is still holding the workspace locks and may still be rolling
+    back, so the terminal state is the worker's to write. A client keeps
+    polling through ``cancelling`` until the state call reports something
+    else.
+
+    Cancellation is best-effort. It is observed at file boundaries, and the
+    workspace is not touched until the last of those boundaries passes, so a
+    cancellation that lands in time leaves the previous skill and its
+    settings exactly as they were. The worker restores the workspace changes
+    it made and only then reports ``cancelled``. One that lands too late
+    loses and the download completes.
+    """
+    async with _pool_download_jobs_lock:
+        job = _pool_download_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(
+                status_code=404,
+                detail="download job not found",
+            )
+        if job.state in _POOL_DOWNLOAD_TERMINAL_STATES:
+            return PoolDownloadJob(
+                job_id=job_id,
+                state=job.state,
+                error=job.error,
+                result=job.result,
+            )
+        cancel_event = _pool_download_cancel_events.get(job_id)
+        if cancel_event is not None:
+            cancel_event.set()
+        job.state = PoolDownloadState.CANCELLING
+        job.updated_at = time.time()
+        return PoolDownloadJob(job_id=job_id, state=job.state)
+
+
+@router.post("/pool/import-builtin")
+async def import_pool_builtins(
+    body: ImportBuiltinRequest,
+) -> dict[str, Any]:
+    imports: list[dict[str, Any]] = (
+        [item.model_dump() for item in body.imports]
+        if body.imports
+        else [{"skill_name": skill_name} for skill_name in body.skill_names]
+    )
+    result = await asyncio.to_thread(
+        import_builtin_skills,
+        imports,
+        overwrite_conflicts=body.overwrite_conflicts,
+    )
+    if result.get("conflicts") and not body.overwrite_conflicts:
+        raise HTTPException(status_code=409, detail=result)
+    await _follow_auto_sync()
+    return result
+
+
+@router.post("/pool/{skill_name}/update-builtin")
+async def update_pool_builtin(
+    skill_name: str,
+    body: UpdateBuiltinRequest | None = Body(default=None),
+) -> dict[str, Any]:
+    language = body.language if body is not None else ""
+    if language and language not in BUILTIN_SKILL_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid language '{language}', "
+            f"must be one of {BUILTIN_SKILL_LANGUAGES}",
+        )
+    try:
+        result = await asyncio.to_thread(
+            update_single_builtin,
+            skill_name,
+            language=language or None,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _follow_auto_sync()
+    return result
+
+
+@router.get("/pool/{skill_name}")
+async def get_pool_skill(skill_name: str) -> PoolSkillDetail:
+    detail = _build_pool_skill_detail(skill_name)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Pool skill not found")
+    return detail
+
+
+@router.delete("/pool/{skill_name}")
+async def delete_pool_skill(skill_name: str) -> dict[str, Any]:
+    deleted = SkillPoolService().delete_skill(skill_name)
+    if not deleted:
+        raise HTTPException(
+            status_code=409,
+            detail="Skill pool entry cannot be deleted",
+        )
+    return {"deleted": True}
 
 
 def _validate_tags(tags: list[str]) -> list[str]:
@@ -1269,6 +2048,94 @@ async def update_pool_skill_tags(
             detail="Pool skill not found",
         )
     return {"updated": True, "tags": tags}
+
+
+@router.put("/pool/{skill_name}/auto-update", deprecated=True)
+@router.put("/pool/{skill_name}/auto-sync")
+async def update_pool_skill_auto_sync(
+    skill_name: str,
+    body: AutoSyncRequest,
+) -> dict[str, Any]:
+    """Toggle Auto Sync and persist its target agents.
+
+    The deprecated auto-update path retains its historical Auto Sync meaning.
+    """
+    result = await asyncio.to_thread(
+        SkillPoolService().set_skill_auto_sync,
+        skill_name,
+        enabled=body.enabled,
+        targets=body.targets,
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Pool skill not found",
+        )
+    await post_auto_sync_inbox(result)
+    return {
+        "updated": True,
+        "enabled": body.enabled,
+        "targets": body.targets,
+    }
+
+
+@router.put("/pool/{skill_name}/automation")
+async def update_pool_skill_automation(
+    skill_name: str,
+    body: SkillAutomationRequest,
+) -> dict[str, Any]:
+    """Atomically configure builtin Auto Update and workspace Auto Sync."""
+    builtin_field_set = "auto_update" in body.model_fields_set
+    if builtin_field_set and body.auto_update is None:
+        raise HTTPException(
+            status_code=422,
+            detail="auto_update must be true or false",
+        )
+    if not builtin_field_set and body.auto_sync is None:
+        raise HTTPException(
+            status_code=422,
+            detail="At least one automation setting is required",
+        )
+
+    auto_sync_targets_provided = bool(
+        body.auto_sync is not None
+        and "targets" in body.auto_sync.model_fields_set,
+    )
+    service = SkillPoolService()
+    result = await asyncio.to_thread(
+        service.set_skill_automation,
+        skill_name,
+        auto_update=(body.auto_update if builtin_field_set else None),
+        auto_sync_enabled=(
+            body.auto_sync.enabled if body.auto_sync is not None else None
+        ),
+        **(
+            {"auto_sync_targets": body.auto_sync.targets}
+            if auto_sync_targets_provided and body.auto_sync is not None
+            else {}
+        ),
+    )
+    if not result.get("success"):
+        reason = result.get("reason")
+        if reason == "not_found":
+            raise HTTPException(
+                status_code=404,
+                detail="Pool skill not found",
+            )
+        if reason == "not_builtin":
+            raise HTTPException(
+                status_code=400,
+                detail="Auto Update is only supported for builtin skills",
+            )
+        raise HTTPException(status_code=400, detail="Invalid automation")
+
+    await post_pool_automation_inbox(result.get("automation"))
+    return {
+        "updated": True,
+        "auto_update": bool(result.get("auto_update")),
+        "auto_sync": result.get("auto_sync") or {},
+        "automation": result.get("automation") or {},
+    }
 
 
 @router.post("/batch-delete")
@@ -1408,6 +2275,15 @@ async def enable_skill(
     return {"enabled": True, **result}
 
 
+@router.get("/{skill_name}")
+async def get_skill(request: Request, skill_name: str) -> SkillDetail:
+    workspace_dir = await _request_workspace_dir(request)
+    detail = _build_workspace_skill_detail(workspace_dir, skill_name)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    return detail
+
+
 @router.delete("/{skill_name}")
 async def delete_skill(
     request: Request,
@@ -1489,6 +2365,26 @@ async def update_skill_channels_endpoint(
         raise HTTPException(status_code=404, detail="Skill not found")
     schedule_agent_reload(request, workspace.agent_id)
     return {"updated": True, "channels": channels}
+
+
+@router.put("/{skill_name}/preload")
+async def update_skill_preload_endpoint(
+    request: Request,
+    skill_name: str,
+    preload: bool = Body(..., embed=True),
+) -> dict[str, Any]:
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace_dir = Path(workspace.workspace_dir)
+    updated = SkillService(workspace_dir).set_skill_preload(
+        skill_name,
+        preload,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Skill not found")
+    schedule_agent_reload(request, workspace.agent_id)
+    return {"updated": True, "preload": preload}
 
 
 @router.put("/{skill_name}/tags")

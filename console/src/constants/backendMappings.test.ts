@@ -15,10 +15,6 @@ vi.mock("../pages/Agent/Config/components/LightContextCard", () => ({
 vi.mock("../pages/Agent/Config/components/ReMeLightMemoryCard", () => ({
   ReMeLightMemoryCard: () => null,
 }));
-vi.mock("../pages/Agent/Config/components/ADBPGConfigCard", () => ({
-  ADBPGConfigCard: () => null,
-}));
-
 import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
@@ -46,9 +42,8 @@ describe("CONTEXT_MANAGER_BACKEND_MAPPINGS", () => {
 });
 
 describe("MEMORY_MANAGER_BACKEND_MAPPINGS", () => {
-  it("has expected keys", () => {
-    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("remelight");
-    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toContain("adbpg");
+  it("only contains core-owned backends", () => {
+    expect(Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS)).toEqual(["remelight"]);
   });
 
   it("each mapping has configField, label, and tabKey", () => {
@@ -76,9 +71,24 @@ describe("CONTEXT_MANAGER_BACKEND_OPTIONS", () => {
 });
 
 describe("MEMORY_MANAGER_BACKEND_OPTIONS", () => {
-  it("is derived from MEMORY_MANAGER_BACKEND_MAPPINGS", () => {
+  it("includes all mappings plus the 'none' (disabled) option", () => {
     expect(MEMORY_MANAGER_BACKEND_OPTIONS.length).toBe(
-      Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS).length,
+      Object.keys(MEMORY_MANAGER_BACKEND_MAPPINGS).length + 1,
     );
+  });
+
+  it("contains the 'none' disabled option", () => {
+    const noneOption = MEMORY_MANAGER_BACKEND_OPTIONS.find(
+      (o) => o.value === "none",
+    );
+    expect(noneOption).toBeDefined();
+    expect(noneOption!.label).toContain("disabled");
+  });
+
+  it("each option has value and label", () => {
+    for (const opt of MEMORY_MANAGER_BACKEND_OPTIONS) {
+      expect(opt).toHaveProperty("value");
+      expect(opt).toHaveProperty("label");
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { request } from "../request";
+import { request, type RequestOptions } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
 import type {
@@ -6,16 +6,24 @@ import type {
   BuiltinUpdateNotice,
   HubInstallTaskResponse,
   HubSkillSpec,
+  PoolDownloadJob,
   PoolSkillSpec,
+  PoolSkillDetail,
+  SkillAutomationResponse,
+  SkillAutomationUpdate,
+  SkillDetail,
+  SkillPoolDownloadRequest,
   SkillSpec,
   WorkspaceSkillSummary,
 } from "../types";
 
-// Declare VITE_API_BASE_URL as global (injected by Vite)
-declare const VITE_API_BASE_URL: string;
-
 // Simple in-memory cache with TTL
 const CACHE_TTL_MS = 30000; // 30 seconds
+const LIST_REQUEST_OPTIONS: RequestOptions = {
+  timeout: 120_000,
+  retries: 2,
+  retryDelay: 1_000,
+};
 const apiCache = new Map<string, { data: unknown; timestamp: number }>();
 
 function getCached<T>(key: string): T | null {
@@ -48,10 +56,11 @@ export function invalidateSkillCache(options?: {
     }
 
     // Targeted invalidation based on options
-    if (options.pool && key === "/skills/pool") {
+    if (
+      options.pool &&
+      (key === "/skills/pool" || key.startsWith("/skills/pool/"))
+    ) {
       apiCache.delete(key);
-      apiCache.delete("/skills/pool/builtin-notice");
-      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -64,8 +73,7 @@ export function invalidateSkillCache(options?: {
 }
 
 function getStreamApiUrl(): string {
-  const base = typeof VITE_API_BASE_URL === "string" ? VITE_API_BASE_URL : "";
-  return `${base}/api`;
+  return getApiUrl("").replace(/\/$/, "");
 }
 
 async function _uploadZip(
@@ -76,6 +84,7 @@ async function _uploadZip(
     target_name?: string;
     rename_map?: Record<string, string>;
   },
+  agentId?: string,
 ): Promise<Record<string, unknown>> {
   const formData = new FormData();
   formData.append("file", file);
@@ -93,7 +102,8 @@ async function _uploadZip(
   const qs = params.toString();
   const url = getApiUrl(`${endpoint}${qs ? `?${qs}` : ""}`);
 
-  const headers = buildAuthHeaders();
+  const headers = new Headers(buildAuthHeaders());
+  if (agentId) headers.set("X-Agent-Id", agentId);
 
   const response = await fetch(url, {
     method: "POST",
@@ -120,7 +130,7 @@ export const skillApi = {
     const cached = getCached<SkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const opts: RequestInit = {};
+    const opts: RequestOptions = { ...LIST_REQUEST_OPTIONS };
     if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
     const data = await request<SkillSpec[]>("/skills", opts);
     setCache(cacheKey, data);
@@ -132,7 +142,10 @@ export const skillApi = {
     const cached = getCached<WorkspaceSkillSummary[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<WorkspaceSkillSummary[]>("/skills/workspaces");
+    const data = await request<WorkspaceSkillSummary[]>(
+      "/skills/workspaces",
+      LIST_REQUEST_OPTIONS,
+    );
     setCache(cacheKey, data);
     return data;
   },
@@ -142,7 +155,10 @@ export const skillApi = {
     const cached = getCached<PoolSkillSpec[]>(cacheKey);
     if (cached) return cached;
 
-    const data = await request<PoolSkillSpec[]>("/skills/pool");
+    const data = await request<PoolSkillSpec[]>(
+      "/skills/pool",
+      LIST_REQUEST_OPTIONS,
+    );
     // Ensure data is an array
     if (!Array.isArray(data)) {
       throw new Error(
@@ -152,6 +168,18 @@ export const skillApi = {
     setCache(cacheKey, data);
     return data;
   },
+
+  getSkill: (skillName: string, agentId?: string) => {
+    const opts: RequestInit = {};
+    if (agentId) opts.headers = new Headers({ "X-Agent-Id": agentId });
+    return request<SkillDetail>(
+      `/skills/${encodeURIComponent(skillName)}`,
+      opts,
+    );
+  },
+
+  getPoolSkill: (skillName: string) =>
+    request<PoolSkillDetail>(`/skills/pool/${encodeURIComponent(skillName)}`),
 
   refreshSkills: async (agentId?: string) => {
     const opts: RequestInit = { method: "POST" };
@@ -186,8 +214,10 @@ export const skillApi = {
     content: string,
     config?: Record<string, unknown>,
     enable?: boolean,
+    agentId?: string,
   ) =>
     request<{ created: boolean; name: string }>("/skills", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
       body: JSON.stringify({
         name: skillName,
@@ -197,18 +227,22 @@ export const skillApi = {
       }),
     }),
 
-  saveSkill: (payload: {
-    name: string;
-    content: string;
-    source_name?: string;
-    config?: Record<string, unknown>;
-    overwrite?: boolean;
-  }) =>
+  saveSkill: (
+    payload: {
+      name: string;
+      content: string;
+      source_name?: string;
+      config?: Record<string, unknown>;
+      overwrite?: boolean;
+    },
+    agentId?: string,
+  ) =>
     request<{
       success: boolean;
       mode: "edit" | "rename" | "noop";
       name: string;
     }>("/skills/save", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "PUT",
       body: JSON.stringify(payload),
     }),
@@ -239,13 +273,15 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  enableSkill: (skillName: string) =>
+  enableSkill: (skillName: string, agentId?: string) =>
     request<void>(`/skills/${encodeURIComponent(skillName)}/enable`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
     }),
 
-  disableSkill: (skillName: string) =>
+  disableSkill: (skillName: string, agentId?: string) =>
     request<void>(`/skills/${encodeURIComponent(skillName)}/disable`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
     }),
 
@@ -272,10 +308,11 @@ export const skillApi = {
       body: JSON.stringify(skillNames),
     }),
 
-  batchDeleteSkills: (skillNames: string[]) =>
+  batchDeleteSkills: (skillNames: string[], agentId?: string) =>
     request<{
       results: Record<string, { success: boolean; reason?: string }>;
     }>("/skills/batch-delete", {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "POST",
       body: JSON.stringify(skillNames),
     }),
@@ -288,14 +325,16 @@ export const skillApi = {
       body: JSON.stringify(skillNames),
     }),
 
-  deleteSkill: (skillName: string) =>
+  deleteSkill: (skillName: string, agentId?: string) =>
     request<{ deleted: boolean }>(`/skills/${encodeURIComponent(skillName)}`, {
+      headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
       method: "DELETE",
     }),
 
   startHubSkillInstall: (
     payload: {
       bundle_url: string;
+      provider_key?: string;
       version?: string;
       enable?: boolean;
       target_name?: string;
@@ -314,6 +353,7 @@ export const skillApi = {
 
   importPoolSkillFromHub: (payload: {
     bundle_url: string;
+    provider_key?: string;
     version?: string;
     target_name?: string;
   }) =>
@@ -440,19 +480,56 @@ export const skillApi = {
       body: JSON.stringify(payload),
     }),
 
-  updateSkillChannels: (skillName: string, channels: string[]) =>
+  // Pool downloads as a cancellable job: the endpoint above keeps its
+  // blocking behaviour, this one returns a job the console can follow and
+  // stop without holding a request open for the whole copy.
+  startSkillPoolDownload: (payload: SkillPoolDownloadRequest) =>
+    request<PoolDownloadJob>("/skills/pool/downloads", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getSkillPoolDownload: (jobId: string, options?: RequestOptions) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      options,
+    ),
+
+  cancelSkillPoolDownload: (jobId: string) =>
+    request<PoolDownloadJob>(
+      `/skills/pool/downloads/${encodeURIComponent(jobId)}`,
+      { method: "DELETE" },
+    ),
+
+  updateSkillChannels: (
+    skillName: string,
+    channels: string[],
+    agentId?: string,
+  ) =>
     request<{ updated: boolean; channels: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/channels`,
       {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
         method: "PUT",
         body: JSON.stringify(channels),
       },
     ),
 
-  updateSkillTags: (skillName: string, tags: string[]) =>
+  updateSkillPreload: (skillName: string, preload: boolean, agentId?: string) =>
+    request<{ updated: boolean; preload: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/preload`,
+      {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
+        method: "PUT",
+        body: JSON.stringify({ preload }),
+      },
+    ),
+
+  updateSkillTags: (skillName: string, tags: string[], agentId?: string) =>
     request<{ updated: boolean; tags: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/tags`,
       {
+        headers: agentId ? new Headers({ "X-Agent-Id": agentId }) : undefined,
         method: "PUT",
         body: JSON.stringify(tags),
       },
@@ -467,44 +544,29 @@ export const skillApi = {
       },
     ),
 
-  getSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-    ),
+  updatePoolSkillAutoSync: (
+    skillName: string,
+    payload: { enabled: boolean; targets: string[] | null },
+  ) =>
+    request<{
+      updated: boolean;
+      enabled: boolean;
+      targets: string[] | null;
+    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-sync`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
-  updateSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
+  updatePoolSkillAutomation: (
+    skillName: string,
+    payload: SkillAutomationUpdate,
+  ) =>
+    request<SkillAutomationResponse>(
+      `/skills/pool/${encodeURIComponent(skillName)}/automation`,
       {
         method: "PUT",
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(payload),
       },
-    ),
-
-  deleteSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
-    ),
-
-  getPoolSkillConfig: (skillName: string) =>
-    request<{ config: Record<string, unknown> }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-    ),
-
-  updatePoolSkillConfig: (skillName: string, config: Record<string, unknown>) =>
-    request<{ updated: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      },
-    ),
-
-  deletePoolSkillConfig: (skillName: string) =>
-    request<{ cleared: boolean }>(
-      `/skills/pool/${encodeURIComponent(skillName)}/config`,
-      { method: "DELETE" },
     ),
 
   streamOptimizeSkill: async function (
@@ -577,8 +639,9 @@ export const skillApi = {
       target_name?: string;
       rename_map?: Record<string, string>;
     },
+    agentId?: string,
   ) =>
-    _uploadZip("/skills/upload", file, options) as Promise<{
+    _uploadZip("/skills/upload", file, options, agentId) as Promise<{
       imported: string[];
       count: number;
       enabled: boolean;

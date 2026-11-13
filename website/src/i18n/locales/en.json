@@ -1,24 +1,41 @@
 {
   "nav": {
     "docs": "Docs",
+    "blog": "Blog",
+    "explore": "Explore",
     "more": "More",
     "releaseNotes": "Release Notes",
+    "discussion": "QwenPaw Discussion",
+    "index": "Index",
     "qwenpaw": "Qwenpaw",
     "download": "Download",
     "github": "GitHub",
     "githubComingSoon": "Coming Soon",
     "lang": "中文",
-    "agentscopeTeam": "AgentScope"
+    "platform": "Platform",
+    "platformTitle": "AgentScope Platform",
+    "agentscopeTeam": "AgentScope",
+    "communityBenefits": "Benefits",
+    "communityBenefitsNew": "NEW",
+    "benefit1Title": "ModelStudio: 100M free tokens",
+    "benefit1Desc": "Check your free quota",
+    "benefit2Title": "Token rebate",
+    "benefit2Desc": "Up to ¥200 back",
+    "benefit3Title": "Up to ¥1M tokens",
+    "benefit3Desc": "OPC innovation subsidy",
+    "benefit4Title": "Student subsidy",
+    "benefit4Desc": "¥50 credit · win iPhone 17"
   },
   "hero": {
     "titleleft": "Your Personal",
     "titleright": "AI assistant",
     "slogan": "Works for you, grows with you",
-    "sub": "{{version}}: QwenPaw custom LLMs, safety architecture, multi-agent collaboration,",
-    "sub1": "and memory management — all upgraded, all yours.",
-    "releaseNote": "QwenPaw {{version}} is released",
+    "sub": "v2.2.0 expands agent applications and platform capabilities across the board:",
+    "sub1": "Introducing QwenPaw Hub, Mail, Data, and Creator 1.1, with better model routing, Extensions, and runtime experience.",
+    "releaseNote": "QwenPaw v2.2.0 is now available",
     "cta": "Read the docs",
-    "quickStart": "Quick Start"
+    "quickStart": "Quick Start",
+    "quickTry": "Try Now"
   },
   "follow": {
     "title": "Follow us",
@@ -50,26 +67,37 @@
     "sub": "Memory and personalization under your control.",
     "learnMore": "Learn more",
     "cards": {
-      "skills": {
-        "title": "Security Architecture",
-        "desc": "QwenPaw 1.0 adopts a three-layer defense architecture—Tool Guard, File Guard, and Skill Scanner—to protect against runtime threats, unauthorized file access, and risky skill installations across all agent operations."
+      "hub": {
+        "title": "QwenPaw Hub",
+        "desc": "Run QwenPaw for your team on infrastructure you control. Members share one sign-in address while keeping workspaces, settings, credentials, and conversations isolated, with local-process and Docker runtimes."
       },
-      "control": {
-        "title": "Multi-agent Workspaces",
-        "desc": "QwenPaw 1.0 enables multiple isolated agent workspaces to run concurrently within a single instance, each with independent configurations and memory, supporting asynchronous collaboration for complex multi-role tasks."
+      "mail": {
+        "title": "QwenPaw Mail",
+        "desc": "Let an agent monitor, search, summarize, reply to, forward, and organize email, while evolving triage rules around your preferences. Unknown recipients and sensitive actions remain under human approval."
       },
-      "apps": {
-        "title": "QwenPaw Custom Models",
-        "desc": "QwenPaw 1.0 introduces the QwenPaw-Flash series—purpose-built small models for local deployment that require no cloud dependency, offer one-click setup, and are specifically optimized for high-frequency tasks such as document processing, memory update, and information retrieval.",
-        "learnMoreHref": "https://huggingface.co/agentscope-ai"
+      "data": {
+        "title": "QwenPaw Data",
+        "desc": "Ask business questions in natural language and receive traceable answers grounded in real enterprise data. Semantic models, graph context, and governed SQL connect the full analysis workflow."
       },
-      "memory": {
-        "title": "Memory",
-        "desc": "Compress context and tool output; turn experience into reusable memory—personalization stays under your control."
+      "creator": {
+        "title": "QwenPaw Creator 1.1",
+        "desc": "Create with more mainstream image and video models, with better dialogue handling for narrative videos. Record web and desktop operation, generate with Bailian Wan3, and automate quality checks."
       },
-      "toolkit": {
-        "title": "Tools, Skills & MCP",
-        "desc": "20+ built-in tools and skills with hot reload; plug in MCP and add skills anytime—your toolkit grows with QwenPaw."
+      "modelRouting": {
+        "title": "Unified Model Routing",
+        "desc": "Configure and select models consistently with unified provider discovery, capability-aware routing, fallback policies, thinking controls, and richer Prompt Cache insights."
+      },
+      "backgroundWork": {
+        "title": "Console & Background Work",
+        "desc": "Follow agent collaboration and long-running work more easily. Grouped subagent conversations surface status, while a unified task list tracks progress and generated artifacts."
+      },
+      "extensions": {
+        "title": "Unified Extensions",
+        "desc": "Discover and manage apps, plugins, and Skills in one place. Search Skills, manage them in batches, keep built-ins updated automatically, and launch newly installed PawApps instantly."
+      },
+      "reliability": {
+        "title": "Faster, Safer, More Reliable",
+        "desc": "Start workspaces faster, reduce streaming overhead, and keep long conversations responsive, with stronger model-stream recovery, configuration persistence, File Guard, sandboxing, and desktop reliability."
       }
     }
   },
@@ -221,7 +249,8 @@
       "blog": "Blog",
       "changelog": "Changelog",
       "termsOfService": "Terms of Service",
-      "privacyPolicy": "Privacy Policy"
+      "privacyPolicy": "Privacy Policy",
+      "usagePolicy": "Usage Policy"
     },
     "social": {
       "x": "X",
@@ -230,7 +259,8 @@
       "dingtalk": "DingTalk",
       "xiaohongshu": "Xiaohongshu",
       "wechat": "WeChat",
-      "douyin": "Douyin"
+      "douyin": "Douyin",
+      "bilibili": "Bilibili"
     },
     "copyright": "© 2026 Qwenpaw PRIVATE LIMITED, All rights reserved.",
     "poweredBy": {
@@ -254,24 +284,50 @@
       "suffix": " for the Agent Skills spec and examples."
     }
   },
+  "blog": {
+    "breadcrumbHome": "Home",
+    "breadcrumbCurrent": "Blog",
+    "title": "QwenPaw Team Blog",
+    "subtitle": "Latest news, deep dives, and stories from the QwenPaw team.",
+    "latestUpdate": "Last updated {{date}}",
+    "totalPosts": "{{count}} posts",
+    "readTime": "{{minutes}} min read",
+    "sessionCount": "{{count}} developer day sessions",
+    "backToList": "Back to blog",
+    "notFound": "Post not found",
+    "empty": "No blog posts yet",
+    "views": "{{count}} views",
+    "viewsLabel": "Views",
+    "likes": "{{count}}",
+    "like": "Like",
+    "unlike": "Unlike"
+  },
   "docs": {
     "intro": "Introduction",
     "quickstart": "Quick start",
     "desktop": "Desktop App",
     "demo": "Feature Demos",
     "console": "Console",
+    "mailbox": "Mailbox Management",
+    "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
+    "import": "Import",
+    "advisorMode": "Advisor Mode",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",
     "mcp": "MCP & Built-in Tools",
+    "browser": "Browser",
     "acpServer": "ACP Integration",
-    "memory": "Memory",
+    "memory": "Long-Term Memory",
+    "embedding": "Embedding Models",
     "memoryEvolvingAndProactive": "Memory-Evolving & Proactive",
-    "codingMode": "Coding Mode",
+    "computerUse": "Computer Use",
+    "chrome": "Chrome Extension",
+    "creator": "Creator: Agentic Video Creation Platform",
     "context": "Context",
+    "loopEngineering": "Loop Engineering",
     "commands": "Magic commands",
-    "plan": "Plan mode",
     "cron": "Cron Jobs",
     "heartbeat": "Heartbeat",
     "config": "Config & working dir",
@@ -279,6 +335,9 @@
     "backup": "Backup & Restore",
     "cli": "CLI",
     "plugins": "Plugin System",
+    "pluginsMigration": "Plugin Migration Guide",
+    "hub": "QwenPaw Hub Deployment and Management",
+    "architecture": "Architecture",
     "faq": "FAQ",
     "apiTutorial": "RESTful API",
     "community": "Bug reports & community",
@@ -287,8 +346,10 @@
     "practiceAgentTeam": "Agent Team Practice",
     "groupWelcome": "Welcome",
     "groupControl": "Control",
+    "groupBrowserDesktop": "Browser & Desktop",
     "groupAgent": "Agent",
     "groupSettings": "Settings",
+    "groupHub": "Hub Deployment and Management",
     "groupPractice": "Practice",
     "groupOthers": "Others",
     "toggleSidebar": "Toggle sidebar",
@@ -458,6 +519,7 @@
   "downloads": {
     "title": "Downloads",
     "subtitle": "Get QwenPaw installers, tools, and resources",
+    "openSourceNotice": "Downloads are builds of the <repo>QwenPaw open-source project</repo>, licensed under Apache License 2.0.",
     "loading": "Loading...",
     "emptyTitle": "No downloads available yet",
     "emptyDesc": "Desktop builds are in progress. Please check back later.",
@@ -489,7 +551,7 @@
     "helpLink": "installation guide",
     "helpSuffix": "for detailed setup instructions.",
     "pluginsTitle": "Plugins",
-    "pluginsDesc": "Bundled and tool plugins discovered in the QwenPaw repository. Download a .zip package to install manually.",
+    "pluginsDesc": "Download published plugin zip packages from the QwenPaw repository and install them locally.",
     "downloadZip": "Download .zip"
   },
   "releaseNotes": {

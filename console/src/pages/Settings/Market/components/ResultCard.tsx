@@ -1,31 +1,69 @@
-import { memo, useCallback, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, Tooltip } from "@agentscope-ai/design";
+import { Download, Eye, Heart, Star } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { MarketResult } from "../../../../api/modules/market";
-import type { InstallTarget } from "../useMarketInstall";
-import { SkillIcon, sourceLabel } from "./SkillIcon";
-import { TargetToggle } from "./TargetToggle";
+import { SkillIcon } from "./SkillIcon";
+import { sourceLabel } from "./skillSources";
 import styles from "./ResultCard.module.less";
+import { CommunityFeedback } from "@/components/CommunityFeedback";
+import { skillMarketResource } from "@/utils/communityResources";
 
 interface ResultCardProps {
   item: MarketResult;
-  target: InstallTarget;
-  onTargetChange: (next: InstallTarget) => void;
   onInstall: () => void;
   onOpenDetail: () => void;
 }
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return isMobile;
+};
 
 const CURSOR_STYLE = { cursor: "pointer" } as const;
 
 export const ResultCard = memo(function ResultCard({
   item,
-  target,
-  onTargetChange,
   onInstall,
   onOpenDetail,
 }: ResultCardProps) {
   const { t } = useTranslation();
   const [hover, setHover] = useState(false);
+  const isMobile = useIsMobile();
+
+  const stats = useMemo(() => {
+    const s = item.stats ?? {};
+    const fmt = (v: string | number | undefined) =>
+      typeof v === "number" ? v.toLocaleString() : v ?? "-";
+    const rows: Array<{
+      key: string;
+      Icon: typeof Download;
+      value?: string | number;
+    }> = [
+      { key: "downloads", Icon: Download, value: s.downloads ?? s.installs },
+      { key: "stars", Icon: Star, value: s.stars },
+      { key: "likes", Icon: Heart, value: s.likes },
+      { key: "views", Icon: Eye, value: s.views },
+    ];
+    return rows
+      .filter((r) => r.key === "downloads" || r.value != null)
+      .map((r) => ({
+        key: r.key,
+        Icon: r.Icon,
+        label: t(`market.stats.${r.key}`),
+        value: fmt(r.value),
+      }));
+  }, [item.stats, t]);
 
   const showFooter = useCallback(() => setHover(true), []);
   const hideFooter = useCallback(() => setHover(false), []);
@@ -45,7 +83,16 @@ export const ResultCard = memo(function ResultCard({
     >
       <div className={styles.cardTopRow}>
         <SkillIcon url={item.icon_url} alt={item.name} source={item.source} />
-        <span className={styles.sourceBadge}>{sourceLabel(item.source)}</span>
+        <div className={styles.cardTopActions}>
+          <CommunityFeedback
+            origin={skillMarketResource(item)?.origin}
+            resourceName={item.name}
+            variant="inline"
+          />
+          <span className={styles.sourceBadge}>
+            {sourceLabel(item.source, item.source_label)}
+          </span>
+        </div>
       </div>
 
       <div className={styles.titleRow}>
@@ -58,24 +105,30 @@ export const ResultCard = memo(function ResultCard({
         {item.description || t("market.noDescription")}
       </p>
 
-      {hover && (
+      <div className={styles.statsRow}>
+        {stats.map(({ key, Icon, label, value }) => (
+          <Tooltip key={key} title={label}>
+            <span className={styles.statItem}>
+              <Icon size={13} />
+              <span className={styles.statValue}>{value}</span>
+            </span>
+          </Tooltip>
+        ))}
+      </div>
+
+      {(hover || isMobile) && (
         <div
           className={styles.cardFooter}
           onClick={stopPropagation}
           onKeyDown={stopPropagation}
         >
-          <TargetToggle
-            target={target}
-            onChange={onTargetChange}
-            size="small"
-          />
           <Button
             type="primary"
             size="small"
             onClick={onInstall}
             className={styles.installButton}
           >
-            {t("market.install")}
+            {t("common.save")}
           </Button>
         </div>
       )}

@@ -1,18 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { getApiUrl } from "@/api/config";
 import {
   fetchMarketPlugins,
   buildMarketDownloadUrl,
   type MarketPluginEntry,
+  type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
+import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
+import { runPluginInstall } from "../dependencyUpgrade";
+
+export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
-  onInstalled: () => void;
+  initialSearch?: string;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
-export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
+const MARKET_PAGE_SIZE = 20;
+
+export type MarketPluginHighlightFilter = "featured" | "trending" | undefined;
+
+export function useMarketPlugins({
+  onInstalled,
+  initialSearch = "",
+}: UseMarketPluginsOptions) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const tRef = useRef(t);
@@ -23,68 +37,237 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
   const [plugins, setPlugins] = useState<MarketPluginEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch);
   const [category, setCategory] = useState<string | undefined>(undefined);
+  const [highlightFilter, setHighlightFilter] =
+    useState<MarketPluginHighlightFilter>(undefined);
+  const [sortBy, setSortBy] = useState<MarketPluginSortBy>("downloads");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [autoLoadBlocked, setAutoLoadBlocked] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [installingId, setInstallingId] = useState<string | null>(null);
+  const [qwenpawVersion, setQwenpawVersion] = useState<string | null>(null);
+  const loadingMoreRef = useRef(false);
+  const requestControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(getApiUrl("/version"), { signal: controller.signal })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        const version =
+          typeof data === "object" && data !== null ? data.version : null;
+        setQwenpawVersion(typeof version === "string" ? version : null);
+      })
+      .catch((err) => {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        console.error("[useMarketPlugins] failed to fetch version:", err);
+        setQwenpawVersion(null);
+      });
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   const loadPlugins = useCallback(
-    async (pageNum: number, keyword: string, cat?: string) => {
-      setLoading(true);
+    async (
+      pageNum: number,
+      keyword: string,
+      cat: string | undefined,
+      highlight: MarketPluginHighlightFilter,
+      sort: MarketPluginSortBy,
+      append: boolean,
+      signal: AbortSignal,
+    ) => {
+      if (append) {
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
       try {
-        const data = await fetchMarketPlugins({
-          page_number: pageNum,
-          page_size: pageSize,
-          search: keyword || undefined,
-          category: cat || undefined,
-        });
-        setPlugins(data.plugins ?? []);
+        const highlightParams: {
+          is_featured?: boolean;
+          is_trending?: boolean;
+        } = {};
+        if (highlight === "featured") {
+          highlightParams.is_featured = true;
+        } else if (highlight === "trending") {
+          highlightParams.is_trending = true;
+        }
+        const data = await fetchMarketPlugins(
+          {
+            page_number: pageNum,
+            page_size: MARKET_PAGE_SIZE,
+            search: keyword || undefined,
+            category: cat || undefined,
+            sort_by: sort,
+            ...highlightParams,
+          },
+          { signal },
+        );
+        if (signal.aborted) return;
+        const pageEntries = data.plugins ?? [];
+        setPlugins((current) =>
+          append ? [...current, ...pageEntries] : pageEntries,
+        );
         setTotal(data.total);
-      } catch {
+        setPage(pageNum);
+        if (append) setAutoLoadBlocked(false);
+      } catch (err) {
+        if (
+          signal.aborted ||
+          (err instanceof DOMException && err.name === "AbortError")
+        ) {
+          return;
+        }
         setError(tRef.current("pluginManager.marketUnavailable"));
-        setPlugins([]);
-        setTotal(0);
+        if (append) {
+          setAutoLoadBlocked(true);
+        } else {
+          setPlugins([]);
+          setTotal(0);
+          setPage(1);
+        }
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          if (append) {
+            loadingMoreRef.current = false;
+            setLoadingMore(false);
+          } else {
+            setLoading(false);
+          }
+        }
       }
     },
-    [pageSize],
+    [],
   );
 
   useEffect(() => {
-    void loadPlugins(page, search, category);
-  }, [page, search, category, loadPlugins]);
+    requestControllerRef.current?.abort();
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+    setAutoLoadBlocked(false);
+    const controller = new AbortController();
+    requestControllerRef.current = controller;
+    void loadPlugins(
+      1,
+      search,
+      category,
+      highlightFilter,
+      sortBy,
+      false,
+      controller.signal,
+    );
+    return () => {
+      controller.abort();
+      requestControllerRef.current?.abort();
+    };
+  }, [category, highlightFilter, loadPlugins, refreshKey, search, sortBy]);
 
   const handleSearch = useCallback((keyword: string) => {
     setSearch(keyword);
-    setPage(1);
   }, []);
 
   const handleCategoryChange = useCallback((cat: string | undefined) => {
     setCategory(cat);
-    setPage(1);
+    setHighlightFilter(undefined);
   }, []);
 
-  const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
+  const handleHighlightFilterChange = useCallback(
+    (filter: MarketPluginHighlightFilter) => {
+      setHighlightFilter(filter);
+      setCategory(undefined);
+    },
+    [],
+  );
+
+  const handleSortChange = useCallback((sort: MarketPluginSortBy) => {
+    setSortBy(sort);
   }, []);
 
   const handleRefresh = useCallback(() => {
-    void loadPlugins(page, search, category);
-  }, [loadPlugins, page, search, category]);
+    setRefreshKey((current) => current + 1);
+  }, []);
+
+  const loadNextPage = useCallback(
+    (retryBlocked = false) => {
+      if (
+        loading ||
+        loadingMoreRef.current ||
+        (!retryBlocked && autoLoadBlocked) ||
+        plugins.length >= total
+      ) {
+        return;
+      }
+      loadingMoreRef.current = true;
+      const controller = new AbortController();
+      requestControllerRef.current = controller;
+      void loadPlugins(
+        page + 1,
+        search,
+        category,
+        highlightFilter,
+        sortBy,
+        true,
+        controller.signal,
+      ).finally(() => {
+        if (requestControllerRef.current === controller) {
+          requestControllerRef.current = null;
+        }
+      });
+    },
+    [
+      autoLoadBlocked,
+      category,
+      highlightFilter,
+      loadPlugins,
+      loading,
+      page,
+      plugins.length,
+      search,
+      sortBy,
+      total,
+    ],
+  );
+
+  const handleLoadMore = useCallback(() => {
+    loadNextPage();
+  }, [loadNextPage]);
+
+  const handleRetryLoadMore = useCallback(() => {
+    setAutoLoadBlocked(false);
+    loadNextPage(true);
+  }, [loadNextPage]);
+
+  const isCompatible = useCallback(
+    (entry: MarketPluginEntry) =>
+      isMarketPluginCompatible(entry, qwenpawVersion),
+    [qwenpawVersion],
+  );
 
   const handleInstall = useCallback(
     async (entry: MarketPluginEntry) => {
       setInstallingId(entry.id);
       try {
         const downloadUrl = buildMarketDownloadUrl(entry);
-        const result = await installPlugin(downloadUrl, { force: true });
+        const result = await runPluginInstall(
+          () => installPlugin(downloadUrl, { force: true }),
+          tRef.current,
+        );
+        if (result === null) return;
         message.success(
           `${tRef.current("pluginManager.installSuccess")}: ${result.name}`,
         );
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled(result);
       } catch (err) {
         const msg =
           err instanceof Error
@@ -104,13 +287,23 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
     plugins,
     total,
     page,
-    pageSize,
+    pageSize: MARKET_PAGE_SIZE,
     category,
+    highlightFilter,
+    sortBy,
+    loadingMore,
+    hasMore: plugins.length < total,
+    autoLoadBlocked,
     installingId,
+    qwenpawVersion,
+    isCompatible,
     handleSearch,
     handleCategoryChange,
-    handlePageChange,
+    handleHighlightFilterChange,
+    handleSortChange,
     handleRefresh,
+    handleLoadMore,
+    handleRetryLoadMore,
     handleInstall,
   };
 }

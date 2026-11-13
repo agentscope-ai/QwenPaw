@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 
@@ -263,6 +263,20 @@ def test_agent_running_config_has_llm_retry_defaults(
     assert agent_config.running.llm_max_retries == max(LLM_MAX_RETRIES, 1)
     assert agent_config.running.llm_backoff_base == LLM_BACKOFF_BASE
     assert agent_config.running.llm_backoff_cap == LLM_BACKOFF_CAP
+
+
+def test_agent_running_defaults_read_current_environment(monkeypatch) -> None:
+    """Unset fields resolve through EnvVarLoader when the model is built."""
+    monkeypatch.setenv("QWENPAW_LLM_MAX_RETRIES", "7")
+    monkeypatch.setenv("QWENPAW_LLM_BACKOFF_BASE", "2.5")
+    monkeypatch.setenv("QWENPAW_LLM_BACKOFF_CAP", "12")
+
+    running = AgentsRunningConfig()
+
+    assert running.llm_retry_enabled is True
+    assert running.llm_max_retries == 7
+    assert running.llm_backoff_base == 2.5
+    assert running.llm_backoff_cap == 12.0
 
 
 def test_agent_running_config_llm_retry_persists(

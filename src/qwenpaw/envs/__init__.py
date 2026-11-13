@@ -6,6 +6,7 @@ from .store import (
     load_envs_into_environ,
     save_envs,
     set_env_var,
+    update_env_vars,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "load_envs_into_environ",
     "save_envs",
     "set_env_var",
+    "update_env_vars",
 ]

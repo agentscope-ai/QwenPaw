@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -16,6 +17,12 @@ from ...providers.oauth import (
 )
 from ...providers.oauth.base import OAuthFlow
 from ...providers.provider_manager import ProviderManager
+from ...utils.logging import sanitize_log_value
+from ...utils.oauth_callback import (
+    managed_oauth_callback_url,
+    oauth_error_html as _error_html,
+    oauth_success_html as _success_html,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +63,9 @@ def _build_callback_url(
     provider_id: str,
 ) -> str:
     """Build the OAuth callback URL for this request."""
+    managed_url = managed_oauth_callback_url(request)
+    if managed_url:
+        return managed_url
     base = str(request.base_url).rstrip("/")
     return f"{base}/api/providers/{provider_id}/oauth/callback"
 
@@ -107,7 +117,22 @@ async def start_oauth(
 ) -> OAuthStartResponse:
     """Start OAuth flow. Returns authorize_url for browser popup."""
     flow = _get_flow(provider_id)
+    managed_callback = managed_oauth_callback_url(request)
     callback_url = _build_callback_url(request, provider_id)
+    parsed_callback = urlsplit(callback_url)
+    if (
+        provider_id == "openrouter"
+        and managed_callback is not None
+        and parsed_callback.scheme != "https"
+        and parsed_callback.hostname not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "OpenRouter requires HTTPS callbacks for non-localhost "
+                "deployments. Configure the Hub public_base_url with HTTPS."
+            ),
+        )
     result = flow.start(callback_url)
 
     _session_store.create(
@@ -164,7 +189,7 @@ async def oauth_callback(
         )
     except Exception as exc:
         logger.exception(
-            f"OAuth exchange failed for {provider_id}",
+            f"OAuth exchange failed for {sanitize_log_value(provider_id)}",
         )
         _session_store.fail(session_state, str(exc))
         return HTMLResponse(
@@ -175,7 +200,7 @@ async def oauth_callback(
     # Save credentials to provider config
     credential = flow.get_credential_dict(token_result)
     if credential:
-        if not manager.update_provider(provider_id, credential):
+        if not await manager.update_provider_async(provider_id, credential):
             _session_store.fail(session_state, "Provider not found")
             return HTMLResponse(
                 content=_error_html("Provider not found."),
@@ -186,8 +211,9 @@ async def oauth_callback(
             await manager.fetch_provider_models(provider_id)
         except Exception:
             logger.warning(
-                f"Model discovery failed for {provider_id} "
-                f"after OAuth, will retry on next list",
+                "Model discovery failed for "
+                f"{sanitize_log_value(provider_id)} "
+                "after OAuth, will retry on next list",
             )
         _session_store.complete(session_state, credential)
     else:
@@ -225,39 +251,3 @@ async def oauth_status(
         status=session.status,
         error=session.error,
     )
-
-
-# ----- HTML templates for popup -----
-
-
-def _success_html(provider_id: str) -> str:
-    """HTML that notifies opener and closes the popup."""
-    return f"""<!DOCTYPE html>
-<html><head><title>Authorization Successful</title></head>
-<body style="font-family:system-ui;text-align:center;padding:60px">
-<h2>Connected!</h2>
-<p>You can close this window.</p>
-<script>
-if (window.opener) {{
-  window.opener.postMessage(
-    {{type: "oauth_complete", provider: "{provider_id}"}},
-    window.location.origin
-  );
-}}
-setTimeout(function() {{ window.close(); }}, 1500);
-</script>
-</body></html>"""
-
-
-def _error_html(message: str) -> str:
-    """HTML for error display in popup."""
-    import html
-
-    safe_msg = html.escape(message)
-    return f"""<!DOCTYPE html>
-<html><head><title>Authorization Failed</title></head>
-<body style="font-family:system-ui;text-align:center;padding:60px">
-<h2>Authorization Failed</h2>
-<p>{safe_msg}</p>
-<p><a href="javascript:window.close()">Close this window</a></p>
-</body></html>"""

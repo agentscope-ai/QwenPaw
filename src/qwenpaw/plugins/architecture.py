@@ -4,9 +4,12 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from .execution_backend import BackendBinding
 
 
 class PluginType(str, Enum):
@@ -28,8 +31,22 @@ class PluginType(str, Enum):
     COMMAND = "command"
     """Registers one or more /slash control commands."""
 
+    CHANNEL = "channel"
+    """Registers a custom messaging channel."""
+
+    HUB = "hub"
+    """Registers a Skill marketplace source."""
+
+    MEMORY = "memory"
+    """Registers a memory backend required before workspace startup."""
+
     FRONTEND = "frontend"
     """Ships a frontend JS bundle loaded dynamically by the UI."""
+
+    APP = "app"
+    """A PawApp: a full app (backend router + UI page) authored with the
+    PawApp SDK and described by a ``manifest.yaml``. Loaded through the
+    same pipeline as other plugins; surfaced only in the App Center."""
 
     GENERAL = "general"
     """Fallback for plugins that do not match any specific category."""
@@ -42,6 +59,28 @@ class PluginEntryPoints(BaseModel):
 
     frontend: Optional[str] = None
     backend: Optional[str] = None
+    descriptor: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _validate_descriptor(self):
+        if self.descriptor is None:
+            return self
+        path = str(self.descriptor)
+        if (
+            path != path.strip()
+            or "\\" in path
+            or ":" in path
+            or any(part in {"", ".", ".."} for part in path.split("/"))
+            or not path.endswith(".json")
+        ):
+            raise ValueError(
+                "descriptor must be a canonical relative JSON path",
+            )
+        if self.backend is not None:
+            raise ValueError(
+                "descriptor and backend entries are mutually exclusive",
+            )
+        return self
 
 
 def _coerce_manifest_str(value: Any) -> str:
@@ -62,7 +101,7 @@ def _coerce_manifest_str(value: Any) -> str:
     return str(value) if value is not None else ""
 
 
-def _infer_type_from_meta(
+def _infer_type_from_meta(  # pylint: disable=too-many-return-statements
     meta: Dict[str, Any],
     entry: PluginEntryPoints,
 ) -> PluginType:
@@ -87,9 +126,25 @@ def _infer_type_from_meta(
         return PluginType.HOOK
     if meta.get("command_name") or meta.get("commands"):
         return PluginType.COMMAND
+    if meta.get("channel"):
+        return PluginType.CHANNEL
     if entry.frontend:
         return PluginType.FRONTEND
     return PluginType.GENERAL
+
+
+class QwenPawVersionConstraint(BaseModel):
+    """QwenPaw version compatibility range (left-closed, right-open).
+
+    Semantics: ``>=min, <max``.  When ``max`` is omitted the allowed
+    range is all patch versions of the same minor (derived as
+    ``{major}.{minor+1}.0`` from ``min``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    min: str
+    max: Optional[str] = None
 
 
 class PluginManifest(BaseModel):
@@ -114,10 +169,16 @@ class PluginManifest(BaseModel):
     version: str = Field(..., min_length=1)
     name: str = ""
     description: str = ""
+    # Per-locale descriptions (e.g. {"zh-CN": ..., "en-US": ...}) surfaced
+    # to UI listings such as the App Center; not used for loading logic.
+    description_i18n: Dict[str, str] = Field(default_factory=dict)
     author: str = ""
     entry: PluginEntryPoints = Field(default_factory=PluginEntryPoints)
     dependencies: List[str] = Field(default_factory=list)
     min_version: str = "0.1.0"
+    max_version: Optional[str] = None
+    qwenpaw_version: Optional[QwenPawVersionConstraint] = None
+    sdk: Optional[Dict[str, Any]] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 
@@ -143,6 +204,16 @@ class PluginManifest(BaseModel):
             if key in data:
                 data[key] = _coerce_manifest_str(data[key])
 
+        # ``description_i18n`` must be a str→str mapping; anything else is
+        # dropped so malformed manifests keep loading.
+        raw_i18n = data.get("description_i18n")
+        if isinstance(raw_i18n, dict):
+            data["description_i18n"] = {
+                str(k): v for k, v in raw_i18n.items() if isinstance(v, str)
+            }
+        else:
+            data.pop("description_i18n", None)
+
         # ``name`` defaults to ``id`` when missing or empty.
         if not data.get("name"):
             data["name"] = data.get("id", "")
@@ -155,6 +226,14 @@ class PluginManifest(BaseModel):
         if legacy_entry_point and not entry_data.get("backend"):
             entry_data["backend"] = legacy_entry_point
         data["entry"] = entry_data
+
+        if entry_data.get("descriptor") is not None:
+            try:
+                PluginType(data.get("type"))
+            except (ValueError, TypeError) as exc:
+                raise ValueError(
+                    "descriptor entry requires an explicit valid plugin type",
+                ) from exc
 
         # Resolve ``type``: explicit value wins; otherwise infer.  We
         # need the parsed entry/meta to infer, so do a light parse here.
@@ -190,10 +269,21 @@ class PluginManifest(BaseModel):
 
 @dataclass
 class PluginRecord:
-    """Plugin record for loaded plugins."""
+    """Loaded source and execution state.
+
+    ``enabled`` is effective execution eligibility. ``global_enabled`` keeps
+    the user's enable intent when a backend temporarily blocks execution;
+    None preserves the effective flag for legacy manually constructed rows.
+    """
 
     manifest: PluginManifest
     source_path: Path
     enabled: bool
     instance: Optional[Any] = None
     diagnostics: List[str] = field(default_factory=list)
+    status: str = "active"
+    backend_binding: Optional["BackendBinding"] = field(
+        default=None,
+        repr=False,
+    )
+    global_enabled: Optional[bool] = None

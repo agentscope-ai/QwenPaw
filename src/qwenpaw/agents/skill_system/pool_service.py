@@ -4,22 +4,33 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import shutil
+import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ...exceptions import SkillsError
+from ...installation_origin import validated_origin
+from ...utils.io_utils import write_text_atomic
 from ..utils.file_handling import read_text_file_with_encoding_fallback
 from .models import SkillInfo
 from .registry import (
+    auto_update_builtin_skills,
     ensure_skill_pool_initialized,
+    list_workspaces,
+    reconcile_pool_manifest,
+    refresh_packaged_builtin_registry,
 )
 from .store import (
     build_import_conflict,
     build_skill_metadata,
+    compute_skill_md_hash,
+    copy_pool_skill_automation,
     copy_skill_dir,
-    default_pool_manifest,
     default_workspace_manifest,
+    ensure_not_cancelled,
     extract_zip_skills,
     get_pool_skill_manifest_path,
     get_skill_pool_dir,
@@ -28,10 +39,13 @@ from .store import (
     get_workspace_skills_dir,
     import_skill_dir,
     is_ignored_skill_entry,
+    is_pool_builtin_entry,
     is_primary_pool_skill_dir,
     mutate_json,
+    mutate_pool_manifest,
     normalize_skill_dir_name,
     read_json,
+    read_pool_skill_automation,
     read_skill_from_dir,
     read_skill_manifest,
     read_skill_pool_manifest,
@@ -41,8 +55,20 @@ from .store import (
     staged_skill_dir,
     suggest_conflict_name,
     validate_skill_content,
+    write_pool_skill_automation,
     write_skill_to_dir,
 )
+
+logger = logging.getLogger(__name__)
+
+_POOL_AUTOMATION_LOCK = threading.Lock()
+
+
+class _PreserveTargets:
+    pass
+
+
+_PRESERVE_TARGETS = _PreserveTargets()
 
 
 def _register_pool_skill_entry(
@@ -53,6 +79,7 @@ def _register_pool_skill_entry(
     source: str = "customized",
     protected: bool = False,
     installed_from: str = "",
+    installation_origin: dict[str, Any] | None = None,
     config: dict[str, Any] | None = None,
     tags: Any | None = None,
     preserve_from: dict[str, Any] | None = None,
@@ -69,6 +96,13 @@ def _register_pool_skill_entry(
         protected=protected,
     )
     entry["external"] = not is_primary_pool_skill_dir(skill_dir)
+    entry["installation_origin"] = validated_origin(
+        (
+            installation_origin
+            if installation_origin is not None
+            else preserve_from.get("installation_origin")
+        ),
+    )
 
     installed_from_final = installed_from or str(
         preserve_from.get("installed_from", "") or "",
@@ -101,6 +135,8 @@ def _register_pool_skill_entry(
         ).strip()
         if builtin_source_name:
             entry["builtin_source_name"] = builtin_source_name
+
+    copy_pool_skill_automation(preserve_from, entry)
 
     payload["skills"][skill_name] = entry
 
@@ -143,6 +179,9 @@ class SkillPoolService:
                 entry.get("source", "customized"),
             )
             if skill is not None:
+                skill.installation_origin = validated_origin(
+                    entry.get("installation_origin"),
+                )
                 skills.append(skill)
         return skills
 
@@ -155,6 +194,7 @@ class SkillPoolService:
         extra_files: dict[str, Any] | None = None,
         config: dict[str, Any] | None = None,
         installed_from: str = "",
+        installation_origin: dict[str, Any] | None = None,
     ) -> str | None:
         validate_skill_content(content)
         skill_name = normalize_skill_dir_name(name)
@@ -183,16 +223,13 @@ class SkillPoolService:
                 skill_dir,
                 source="customized",
                 installed_from=installed_from,
+                installation_origin=installation_origin,
                 config=config,
                 preserve_from={},
             )
 
         try:
-            mutate_json(
-                get_pool_skill_manifest_path(),
-                default_pool_manifest(),
-                _update,
-            )
+            mutate_pool_manifest(_update)
         except Exception as exc:
             try:
                 if skill_dir.exists():
@@ -324,11 +361,7 @@ class SkillPoolService:
                             preserve_from={},
                         )
 
-                mutate_json(
-                    get_pool_skill_manifest_path(),
-                    default_pool_manifest(),
-                    _update,
-                )
+                mutate_pool_manifest(_update)
             return {
                 "imported": imported,
                 "count": len(imported),
@@ -358,11 +391,7 @@ class SkillPoolService:
             payload.get("skills", {}).pop(skill_name, None)
 
         try:
-            mutate_json(
-                get_pool_skill_manifest_path(),
-                default_pool_manifest(),
-                _update,
-            )
+            mutate_pool_manifest(_update)
         except Exception as exc:
             raise SkillsError(
                 message=(
@@ -395,11 +424,155 @@ class SkillPoolService:
             entry["tags"] = normalized
             return True
 
-        return mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
+        return mutate_pool_manifest(_update)
+
+    def set_skill_auto_sync(
+        self,
+        name: str,
+        *,
+        enabled: bool,
+        targets: list[str] | None,
+    ) -> dict[str, Any] | None:
+        """Set Auto Sync and run immediate propagation when enabled."""
+        with _POOL_AUTOMATION_LOCK:
+            configured = self._configure_skill_automation(
+                name,
+                auto_sync_enabled=enabled,
+                auto_sync_targets=targets,
+            )
+            if not configured.get("success"):
+                return None
+            if enabled:
+                return _run_pool_auto_sync_unlocked(
+                    skill_name=str(configured["skill_name"]),
+                )
+            return {"synced": [], "failed": [], "checked": 0}
+
+    def set_skill_automation(
+        self,
+        name: str,
+        *,
+        auto_update: bool | None = None,
+        auto_sync_enabled: bool | None = None,
+        auto_sync_targets: list[str]
+        | None
+        | _PreserveTargets = (_PRESERVE_TARGETS),
+    ) -> dict[str, Any]:
+        """Persist automation settings and apply newly enabled stages."""
+        with _POOL_AUTOMATION_LOCK:
+            configured = self._configure_skill_automation(
+                name,
+                auto_update=auto_update,
+                auto_sync_enabled=auto_sync_enabled,
+                auto_sync_targets=auto_sync_targets,
+            )
+            if not configured.get("success"):
+                return configured
+
+            automation = _empty_pool_automation_result()
+            if auto_update is True:
+                automation = _run_pool_automation_pipeline_unlocked(
+                    skill_name=str(configured["skill_name"]),
+                )
+            elif auto_sync_enabled is True:
+                sync_result = _run_pool_auto_sync_unlocked(
+                    skill_name=str(configured["skill_name"]),
+                )
+                automation["synced"] = sync_result["synced"]
+                automation["sync_failed"] = sync_result["failed"]
+                automation["checked"]["auto_sync"] = sync_result["checked"]
+            return {
+                "success": True,
+                "auto_update": configured["auto_update"],
+                "auto_sync": configured["auto_sync"],
+                "automation": automation,
+            }
+
+    def _configure_skill_automation(
+        self,
+        name: str,
+        *,
+        auto_update: bool | None = None,
+        auto_sync_enabled: bool | None = None,
+        auto_sync_targets: list[str]
+        | None
+        | _PreserveTargets = (_PRESERVE_TARGETS),
+    ) -> dict[str, Any]:
+        try:
+            skill_name = normalize_skill_dir_name(name)
+        except SkillsError:
+            return {"success": False, "reason": "not_found"}
+
+        pool_skills = read_skill_pool_manifest().get("skills", {})
+        current_entry = pool_skills.get(skill_name)
+        if not isinstance(current_entry, dict):
+            return {"success": False, "reason": "not_found"}
+        if auto_update is not None and not is_pool_builtin_entry(
+            current_entry,
+        ):
+            return {"success": False, "reason": "not_builtin"}
+
+        normalized_targets = (
+            tuple(
+                dict.fromkeys(
+                    str(target).strip()
+                    for target in (auto_sync_targets or [])
+                    if str(target).strip()
+                ),
+            )
+            if not isinstance(auto_sync_targets, _PreserveTargets)
+            else None
         )
+
+        def _update(payload: dict[str, Any]) -> dict[str, Any] | bool:
+            entry = payload.get("skills", {}).get(skill_name)
+            if not isinstance(entry, dict):
+                return False
+            settings = read_pool_skill_automation(entry)
+            if auto_update is not None:
+                if not is_pool_builtin_entry(entry):
+                    return False
+                settings = replace(
+                    settings,
+                    auto_update=bool(auto_update),
+                )
+
+            sync_changed = False
+            if auto_sync_enabled is not None:
+                next_enabled = bool(auto_sync_enabled)
+                sync_changed = settings.auto_sync != next_enabled
+                settings = replace(settings, auto_sync=next_enabled)
+            if not isinstance(auto_sync_targets, _PreserveTargets):
+                next_targets = normalized_targets or None
+                sync_changed = (
+                    sync_changed or settings.auto_sync_targets != next_targets
+                )
+                settings = replace(
+                    settings,
+                    auto_sync_targets=next_targets,
+                )
+
+            if settings.auto_sync and sync_changed:
+                settings = replace(settings, auto_sync_synced_hash="")
+            write_pool_skill_automation(entry, settings)
+
+            return {
+                "skill_name": skill_name,
+                "auto_update": settings.auto_update,
+                "auto_sync": {
+                    "enabled": settings.auto_sync,
+                    "targets": (
+                        list(settings.auto_sync_targets)
+                        if settings.auto_sync_targets
+                        else None
+                    ),
+                },
+            }
+
+        configured = mutate_pool_manifest(_update)
+        if not isinstance(configured, dict):
+            return {"success": False, "reason": "not_found"}
+        return {"success": True, **configured}
 
     def get_edit_target_name(
         self,
@@ -525,9 +698,11 @@ class SkillPoolService:
                     encoding="utf-8",
                 )
                 scan_skill_dir_or_raise(staged_dir, skill_name)
-            (skill_dir / "SKILL.md").write_text(
+            write_text_atomic(
+                skill_dir / "SKILL.md",
                 content,
                 encoding="utf-8",
+                new_file_mode=0o644,
             )
 
         source = (
@@ -547,11 +722,7 @@ class SkillPoolService:
                 preserve_from=current_entry,
             )
 
-        mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
-        )
+        mutate_pool_manifest(_update)
         return {
             "success": True,
             "mode": "edit",
@@ -602,16 +773,140 @@ class SkillPoolService:
             )
             payload["skills"].pop(skill_name, None)
 
-        mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
+        mutate_pool_manifest(_update)
+
+        automation = read_pool_skill_automation(entry)
+        migration = (
+            self.rename_in_workspaces(
+                skill_name,
+                final_name,
+                targets=(
+                    list(automation.auto_sync_targets)
+                    if automation.auto_sync_targets
+                    else None
+                ),
+            )
+            if automation.auto_sync
+            else {"renamed": [], "overwritten": []}
         )
         return {
             "success": True,
             "mode": "rename",
             "name": final_name,
+            "renamed": migration["renamed"],
+            "overwritten": migration["overwritten"],
         }
+
+    def rename_in_workspaces(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        targets: list[str] | None = None,
+    ) -> dict[str, list[str]]:
+        """Migrate Auto Sync copies of ``old_name`` to ``new_name``."""
+        try:
+            old_name = normalize_skill_dir_name(old_name)
+            new_name = normalize_skill_dir_name(new_name)
+        except SkillsError:
+            return {"renamed": [], "overwritten": []}
+        if old_name == new_name:
+            return {"renamed": [], "overwritten": []}
+        source_dir = resolve_pool_skill_dir(new_name)
+        if source_dir is None:
+            return {"renamed": [], "overwritten": []}
+
+        pinned = (
+            {str(t) for t in targets}
+            if isinstance(targets, list) and targets
+            else None
+        )
+        renamed: list[str] = []
+        overwritten: list[str] = []
+        for ws in list_workspaces():
+            agent_id = str(ws.get("agent_id", "") or "")
+            if pinned is not None and agent_id not in pinned:
+                continue
+            workspace_dir = Path(ws["workspace_dir"])
+            skills = read_skill_manifest(workspace_dir).get("skills", {})
+            old_entry = skills.get(old_name)
+            if not isinstance(old_entry, dict):
+                continue
+            if new_name in skills:
+                # A rename is an update: overwrite any existing target skill.
+                overwritten.append(agent_id)
+                logger.info(
+                    "rename: overwriting existing '%s' in workspace '%s'",
+                    new_name,
+                    agent_id,
+                )
+
+            workspace_skills_dir = get_workspace_skills_dir(workspace_dir)
+            target_dir = safe_skill_dir(workspace_skills_dir, new_name)
+            old_dir = safe_skill_dir(workspace_skills_dir, old_name)
+            try:
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                with staged_skill_dir(new_name) as staged_dir:
+                    copy_skill_dir(source_dir, staged_dir)
+                    scan_skill_dir_or_raise(staged_dir, new_name)
+                    copy_skill_dir(staged_dir, target_dir)
+            except Exception:
+                logger.warning(
+                    "rename: failed migrating '%s'->'%s' in workspace '%s'",
+                    old_name,
+                    new_name,
+                    agent_id,
+                    exc_info=True,
+                )
+                continue
+
+            def _update(
+                payload: dict[str, Any],
+                _old: dict[str, Any] = old_entry,
+                _target: Path = target_dir,
+            ) -> None:
+                payload.setdefault("skills", {})
+                metadata = build_skill_metadata(
+                    new_name,
+                    _target,
+                    source=str(
+                        _old.get("source", "customized") or "customized",
+                    ),
+                    protected=False,
+                )
+                ws_entry: dict[str, Any] = {
+                    "enabled": bool(_old.get("enabled", True)),
+                    "channels": _old.get("channels") or ["all"],
+                    "preload": _old.get("preload") is True,
+                    "source": metadata["source"],
+                    "installation_origin": validated_origin(
+                        _old.get("installation_origin"),
+                    ),
+                    "installed_from": str(
+                        _old.get("installed_from", "") or "",
+                    ),
+                    "config": _old.get("config") or {},
+                    "metadata": metadata,
+                    "requirements": metadata["requirements"],
+                    "updated_at": metadata["updated_at"],
+                }
+                if _old.get("builtin_language"):
+                    ws_entry["builtin_language"] = _old["builtin_language"]
+                if _old.get("tags") is not None:
+                    ws_entry["tags"] = _old["tags"]
+                payload["skills"][new_name] = ws_entry
+                payload["skills"].pop(old_name, None)
+
+            mutate_json(
+                get_workspace_skill_manifest_path(workspace_dir),
+                default_workspace_manifest(),
+                _update,
+            )
+            if old_dir.exists():
+                shutil.rmtree(old_dir, ignore_errors=True)
+            renamed.append(agent_id)
+
+        return {"renamed": renamed, "overwritten": overwritten}
 
     def upload_from_workspace(
         self,
@@ -671,16 +966,15 @@ class SkillPoolService:
                 target_dir,
                 source="customized",
                 installed_from=ws_installed_from,
+                installation_origin=validated_origin(
+                    workspace_entry.get("installation_origin"),
+                ),
                 config=ws_config if ws_config else None,
                 tags=ws_tags,
                 preserve_from={},
             )
 
-        mutate_json(
-            get_pool_skill_manifest_path(),
-            default_pool_manifest(),
-            _update,
-        )
+        mutate_pool_manifest(_update)
 
         return {"success": True, "name": final_name}
 
@@ -809,6 +1103,24 @@ class SkillPoolService:
         *,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        """Copy a pool skill into a workspace and register it.
+
+        Replacing the skill directory removes it for a moment, and a
+        concurrent ``POST /skills/refresh`` reconciles the manifest against
+        the filesystem — so the entry can be gone by the time the write below
+        runs. The write falls back to the entry this call read *before* the
+        copy, which keeps ``enabled`` / ``channels`` / ``config`` instead of
+        resetting them as if the skill were being installed for the first
+        time.
+
+        Cancellation is observed by the copies themselves, which check the
+        armed checker between whole files. That always fires before the
+        manifest write, so a cancelled download leaves the workspace holding
+        the skill it already had — including its ``enabled`` / ``channels`` /
+        ``config`` — and the caller's rollback owns the cleanup. Cancellation
+        is best-effort: one that arrives after the last copy loses, and the
+        download completes.
+        """
         try:
             skill_name = normalize_skill_dir_name(skill_name)
         except SkillsError:
@@ -850,6 +1162,10 @@ class SkillPoolService:
         with staged_skill_dir(final_name) as staged_dir:
             copy_skill_dir(source_dir, staged_dir)
             scan_skill_dir_or_raise(staged_dir, final_name)
+            # Cheap early-out before the workspace itself is replaced: a
+            # cancellation seen here costs nothing to honour, because the
+            # target directory is still exactly what it was.
+            ensure_not_cancelled()
             copy_skill_dir(staged_dir, target_dir)
 
         pool_config = entry.get("config") or {}
@@ -858,23 +1174,31 @@ class SkillPoolService:
 
         def _update(payload: dict[str, Any]) -> None:
             payload.setdefault("skills", {})
-            prior = payload["skills"].get(final_name) or {}
+            # ``existing`` is the entry read before the copy replaced the
+            # directory; a concurrent reconcile may have dropped it since.
+            prior = payload["skills"].get(final_name) or existing or {}
             metadata = build_skill_metadata(
                 final_name,
                 target_dir,
-                source="builtin"
-                if entry.get("source") == "builtin"
-                else "customized",
+                source=(
+                    "builtin"
+                    if entry.get("source") == "builtin"
+                    else "customized"
+                ),
                 protected=False,
             )
             ws_entry: dict[str, Any] = {
                 "enabled": bool(prior.get("enabled", True)),
                 "channels": prior.get("channels") or ["all"],
+                "preload": prior.get("preload") is True,
                 "source": metadata["source"],
                 "installed_from": pool_installed_from,
-                "config": prior["config"]
-                if "config" in prior
-                else pool_config,
+                "installation_origin": validated_origin(
+                    entry.get("installation_origin"),
+                ),
+                "config": (
+                    prior["config"] if "config" in prior else pool_config
+                ),
                 "metadata": metadata,
                 "requirements": metadata["requirements"],
                 "updated_at": metadata["updated_at"],
@@ -935,3 +1259,229 @@ class SkillPoolService:
             "workspace_name": workspace_identity["workspace_name"],
             "name": final_name,
         }
+
+
+# ---------------------------------------------------------------------------
+# Auto Sync: propagate changed Pool skills into target workspaces
+# ---------------------------------------------------------------------------
+
+
+def _resolve_auto_sync_targets(
+    skill_name: str,
+    entry: dict[str, Any],
+    workspaces: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    """Resolve which workspaces an Auto Sync skill targets."""
+    explicit = read_pool_skill_automation(entry).auto_sync_targets
+    if explicit:
+        wanted = set(explicit)
+        return [ws for ws in workspaces if ws.get("agent_id") in wanted]
+
+    targets: list[dict[str, str]] = []
+    for ws in workspaces:
+        try:
+            ws_manifest = read_skill_manifest(Path(ws["workspace_dir"]))
+        except Exception:
+            continue
+        if skill_name in (ws_manifest.get("skills") or {}):
+            targets.append(ws)
+    return targets
+
+
+def _push_auto_sync_skill(
+    service: SkillPoolService,
+    name: str,
+    targets: list[dict[str, str]],
+) -> dict[str, list[str]]:
+    """Push one pool skill into each target workspace.
+
+    Returns ``{"ok": [agent labels], "failed": [agent labels]}``.
+    """
+    ok: list[str] = []
+    failed: list[str] = []
+    for ws in targets:
+        label = str(ws.get("agent_name") or ws.get("agent_id", "") or "")
+        ws_dir = Path(ws["workspace_dir"])
+        try:
+            result = service.download_to_workspace(
+                skill_name=name,
+                workspace_dir=ws_dir,
+                overwrite=True,
+            )
+        except Exception:
+            failed.append(label)
+            logger.warning(
+                "auto-sync: failed to sync '%s' to workspace '%s'",
+                name,
+                ws.get("agent_id", ""),
+                exc_info=True,
+            )
+            continue
+        if result.get("success"):
+            ok.append(label)
+            logger.info(
+                "auto-sync: synced '%s' -> workspace '%s'",
+                name,
+                label,
+            )
+        else:
+            failed.append(label)
+            logger.warning(
+                "auto-sync: could not sync '%s' to workspace '%s' (%s)",
+                name,
+                ws.get("agent_id", ""),
+                result.get("reason", "unknown"),
+            )
+    return {"ok": ok, "failed": failed}
+
+
+def _detect_changed_auto_sync_skills(
+    entries: dict[str, Any],
+    skill_name: str | None,
+) -> tuple[list[tuple[str, dict[str, Any], str]], int]:
+    """Cheap detection pass for ``run_pool_auto_sync``.
+
+    Reads only each enabled skill's ``SKILL.md`` (to hash it)
+    """
+    changed: list[tuple[str, dict[str, Any], str]] = []
+    checked = 0
+    for name, raw_entry in entries.items():
+        entry = raw_entry if isinstance(raw_entry, dict) else {}
+        automation = read_pool_skill_automation(entry)
+        if not automation.auto_sync:
+            continue
+        if skill_name is not None and name != skill_name:
+            continue
+        checked += 1
+        skill_dir = resolve_pool_skill_dir(name)
+        if skill_dir is None:
+            continue
+        current_hash = compute_skill_md_hash(skill_dir)
+        if not current_hash:
+            continue
+        prior_hash = automation.auto_sync_synced_hash
+        if current_hash != prior_hash:
+            changed.append((name, entry, current_hash))
+    return changed, checked
+
+
+def _run_pool_auto_sync_unlocked(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Auto Sync changed Pool skills into their target workspaces.
+
+    Auto Sync is independent from builtin Auto Update and uses a content-hash
+    gate to avoid rewriting unchanged workspace copies.
+    """
+    manifest = read_skill_pool_manifest()
+    entries = manifest.get("skills", {})
+    changed, checked = _detect_changed_auto_sync_skills(entries, skill_name)
+    if not changed:
+        return {"synced": [], "failed": [], "checked": checked}
+
+    workspaces = list_workspaces()
+    service = SkillPoolService()
+    new_hashes: dict[str, str] = {}
+    synced: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+
+    for name, entry, current_hash in changed:
+        targets = _resolve_auto_sync_targets(name, entry, workspaces)
+        logger.info(
+            "auto-sync: '%s' content changed; syncing %d workspace(s)",
+            name,
+            len(targets),
+        )
+        push = _push_auto_sync_skill(service, name, targets)
+        if push["failed"]:
+            failed.append({"skill": name, "agents": push["failed"]})
+        else:
+            new_hashes[name] = current_hash
+            synced.append({"skill": name, "agents": push["ok"]})
+
+    if new_hashes:
+
+        def _stamp(payload: dict[str, Any]) -> None:
+            skills = payload.setdefault("skills", {})
+            for synced_name, synced_hash in new_hashes.items():
+                entry = skills.get(synced_name)
+                if isinstance(entry, dict):
+                    settings = read_pool_skill_automation(entry)
+                    write_pool_skill_automation(
+                        entry,
+                        replace(
+                            settings,
+                            auto_sync_synced_hash=synced_hash,
+                        ),
+                    )
+
+        mutate_pool_manifest(_stamp)
+
+    return {"synced": synced, "failed": failed, "checked": checked}
+
+
+def run_pool_auto_sync(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Auto Sync changed Pool skills into their target workspaces."""
+    with _POOL_AUTOMATION_LOCK:
+        return _run_pool_auto_sync_unlocked(skill_name=skill_name)
+
+
+def _run_pool_auto_update_unlocked(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Auto Update opted-in builtin skills from the packaged registry."""
+    return auto_update_builtin_skills(skill_name=skill_name)
+
+
+def run_pool_auto_update(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Auto Update opted-in builtin skills in the Pool."""
+    with _POOL_AUTOMATION_LOCK:
+        return _run_pool_auto_update_unlocked(skill_name=skill_name)
+
+
+def _empty_pool_automation_result() -> dict[str, Any]:
+    """Return the stable result shape for a no-op automation run."""
+    return {
+        "pool_updated": [],
+        "pool_failed": [],
+        "synced": [],
+        "sync_failed": [],
+        "checked": {"auto_update": 0, "auto_sync": 0},
+    }
+
+
+def _run_pool_automation_pipeline_unlocked(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    builtin_result = _run_pool_auto_update_unlocked(skill_name=skill_name)
+    sync_result = _run_pool_auto_sync_unlocked(skill_name=skill_name)
+    return {
+        "pool_updated": builtin_result.get("updated", []),
+        "pool_failed": builtin_result.get("failed", []),
+        "synced": sync_result.get("synced", []),
+        "sync_failed": sync_result.get("failed", []),
+        "checked": {
+            "auto_update": int(builtin_result.get("checked", 0) or 0),
+            "auto_sync": int(sync_result.get("checked", 0) or 0),
+        },
+    }
+
+
+def run_pool_automation_pipeline(
+    skill_name: str | None = None,
+) -> dict[str, Any]:
+    """Run Pool Auto Update followed by Auto Sync as one pipeline."""
+    with _POOL_AUTOMATION_LOCK:
+        return _run_pool_automation_pipeline_unlocked(skill_name=skill_name)
+
+
+def refresh_pool_automation() -> dict[str, Any]:
+    """Reconcile the Pool, then run its automation as one serialized task."""
+    with _POOL_AUTOMATION_LOCK:
+        refresh_packaged_builtin_registry()
+        reconcile_pool_manifest()
+        return _run_pool_automation_pipeline_unlocked()

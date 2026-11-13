@@ -3,20 +3,23 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
+    "dev": "pnpm evaluation:build && vite",
+    "build": "pnpm evaluation:build && tsc -b && node scripts/build-search-index.mjs && vite build && node scripts/spa-fallback-pages.mjs",
     "format": "tsc -b --noEmit && prettier --write .",
     "format:check": "tsc -b --noEmit && prettier --check .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "evaluation:build": "node scripts/build-evaluation-index.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",
+    "@supabase/supabase-js": "^2.110.4",
     "@types/react-syntax-highlighter": "^15.5.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fuse.js": "^7.0.0",
     "highlight.js": "^11.11.1",
     "i18next": "^25.8.20",
+    "js-yaml": "^4.3.1",
     "lucide-react": "^0.468.0",
     "mermaid": "^11.12.2",
     "motion": "^11.11.17",
@@ -26,7 +29,7 @@
     "react-dom": "^18.3.1",
     "react-i18next": "^16.5.8",
     "react-markdown": "^9.0.1",
-    "react-router-dom": "^7.0.1",
+    "react-router-dom": "^7.18.2",
     "react-syntax-highlighter": "^16.1.1",
     "rehype-highlight": "^7.0.2",
     "rehype-raw": "^7.0.0",
@@ -37,14 +40,18 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@types/highlight.js": "^10.1.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.5.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "ajv": "8.17.1",
     "prettier": "3.0.0",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.6.2",
-    "vite": "^6.0.1"
+    "vite": "^6.4.3"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

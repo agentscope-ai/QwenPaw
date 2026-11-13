@@ -1,9 +1,16 @@
-# Pack repo plugins (bundle/tool) and publish to the download CDN (OSS).
+# Pack repo plugins (bundle/tool/memory/apps/channel/hub/harness) and publish to the download CDN.
 # Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
+# The Creator plugin is excluded here: it has its own version-driven
+# pipeline (creator-release.yml) so a main release never overwrites a
+# creator zip with mid-cycle code under the same immutable URL.
 
 name: QwenPaw Plugins Release
 
 on:
+  # NOTE: legacy fallback path. The standard release flow is now release.yml
+  # (see RELEASING.md). Publishing a GitHub Release directly still triggers this
+  # OLD publish, which is NOT gated on the desktop build. Kept only as an
+  # emergency rollback until the old release workflows are removed.
   release:
     types: [published]
   workflow_dispatch:
@@ -30,15 +37,69 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Build app plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app_dir in plugins/apps/*; do
+            if [[ "$(basename "$app_dir")" == "qwenpaw-creator" ]]; then
+              echo "Skipping ${app_dir} (released via creator-release.yml)"
+              continue
+            fi
+            if [[ "$(basename "$app_dir")" == "qwenpaw-data" ]]; then
+              echo "Skipping ${app_dir} (released via qwenpaw-data-release.yml)"
+              continue
+            fi
+            if [[ -f "$app_dir/ui/package-lock.json" ]]; then
+              echo "Building ${app_dir}/ui"
+              npm --prefix "$app_dir/ui" ci
+              npm --prefix "$app_dir/ui" run build
+            fi
+          done
+
+      - name: Build OpenUI plugin
+        run: |
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend ci
+          npm --prefix plugins/bundle/qwenpaw-openui/frontend test
+
+      - name: Build memory plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for frontend_dir in plugins/memory/*/frontend; do
+            echo "Building ${frontend_dir}"
+            npm --prefix "$frontend_dir" ci
+            npm --prefix "$frontend_dir" run build
+          done
+
+      - name: Build Harness plugin frontends with public SDK
+        run: bash scripts/pack/build_harness_frontends.sh
+
+      - name: Install channel contract preflight dependencies
+        run: python -m pip install -r scripts/pack/channel-contract-requirements.txt
 
       - name: Pack plugins and build index
+        # qwenpaw-creator and qwenpaw-data are released through their own
+        # version-driven pipelines (creator-release.yml,
+        # qwenpaw-data-release.yml); qwenpaw-data additionally needs the vendored
+        # context console staged before packing. Their plugin.json
+        # pack_requires declarations make an accidental un-exclude fail
+        # this step loudly instead of shipping a broken artifact.
         run: |
           python scripts/pack/generate_plugin_metadata.py \
             --plugins-root plugins \
             --dist dist/plugins \
             --metadata-out dist/plugins/index.json \
-            --cdn-prefix /files/plugins
+            --cdn-prefix /files/plugins \
+            --exclude qwenpaw-creator \
+            --exclude qwenpaw-data
 
       - name: Install ossutil
         run: |
@@ -57,8 +118,9 @@ jobs:
 
       - name: Sync plugin zips to OSS (long-cache, immutable)
         run: |
+          # nullglob ensures empty globs expand to nothing in this bash session
           shopt -s nullglob
-          for kind in bundle tool; do
+          for kind in bundle tool memory apps channel hub harness; do
             while IFS= read -r -d '' f; do
               rel="${f#dist/plugins/}"
               echo "Uploading $f -> files/plugins/${rel}"
@@ -69,10 +131,9 @@ jobs:
                 --meta "Cache-Control:public, max-age=31536000, immutable"
             done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
           done
-          # Remove zips that no longer exist locally so deletions propagate.
-          for kind in bundle tool; do
-            kind_root="dist/plugins/${kind}"
-            # Drop legacy flat zips at {kind}/ (pre per-plugin directory layout).
+          # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
+          # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
+          for kind in bundle tool memory apps channel hub harness; do
             remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
               | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
               | sed 's|.*/||' \
@@ -83,24 +144,22 @@ jobs:
                 "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
                 --force
             done
-            for plugin_dir in "$kind_root"/*/; do
-              [ -d "$plugin_dir" ] || continue
-              plugin_id=$(basename "$plugin_dir")
-              local_names=$(find "$plugin_dir" -maxdepth 1 -type f -name '*.zip' -exec basename {} \; 2>/dev/null | sort || true)
-              remote_names=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/" -s 2>/dev/null \
-                | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/[^/]+\.zip$" \
-                | sed 's|.*/||' \
-                | sort -u || true)
-              for name in $remote_names; do
-                if ! echo "$local_names" | grep -qx "$name"; then
-                  echo "Removing stale OSS object: ${kind}/${plugin_id}/${name}"
-                  ossutil rm \
-                    "oss://qwenpaw-download/files/plugins/${kind}/${plugin_id}/${name}" \
-                    --force
-                fi
-              done
-            done
           done
+
+      - name: Merge historical versions into index
+        run: |
+          ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+            existing-index.json 2>/dev/null || echo '{}' > existing-index.json
+
+          python3 scripts/pack/merge_plugin_index.py \
+            --new dist/plugins/index.json \
+            --old existing-index.json \
+            --out dist/plugins/index.json \
+            --retire-plugin-id computer-use-tool \
+            --retire-plugin-id qwenpaw-hub \
+            --retire-plugin-id clawhub-hub \
+            --retire-plugin-id modelscope-hub \
+            --retire-plugin-id aliyun-hub
 
       - name: Upload plugins index (short-cache)
         run: |
@@ -121,23 +180,9 @@ jobs:
           }
           EOF
 
-          python3 << 'PYTHON'
-          import json
-          from datetime import datetime, timezone
-
-          with open("main-index.json", "r", encoding="utf-8") as f:
-              index = json.load(f)
-
-          index.setdefault("products", {})
-          index["products"]["plugins"] = {
-              "name": {"zh-CN": "插件", "en-US": "Plugins"},
-              "index_url": "/metadata/plugins/index.json",
-          }
-          index["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-          with open("main-index.json", "w", encoding="utf-8") as f:
-              json.dump(index, f, indent=2, ensure_ascii=False)
-          PYTHON
+          python3 scripts/pack/patch_main_index.py \
+            --index main-index.json \
+            --out   main-index.json
 
           ossutil cp main-index.json \
             "oss://qwenpaw-download/metadata/index.json" \

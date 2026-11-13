@@ -6,68 +6,250 @@ and initialize service components. Extracted from local functions to
 improve testability and code organization.
 """
 
-from typing import TYPE_CHECKING
+import asyncio
 import logging
+import threading
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable
+
+from ...utils.io_utils import run_async_to_completion, run_sync_io
+from ...agents.context.scroll.sync import (
+    invalidate_agent_migration,
+    migrate_agent_history,
+)
 
 if TYPE_CHECKING:
+    from ...agents.context.scroll.history import HistoryStore
     from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
 
-async def create_mcp_service(ws: "Workspace", mcp):
-    """Initialize MCP manager and attach to runner.
+def history_service_path(ws: "Workspace") -> Path | None:
+    """Resolve the sink only for runtimes that write Scroll history."""
+    from ...config.history_path import resolve_history_db_path
 
-    Args:
-        ws: Workspace instance
-        mcp: MCPClientManager instance
+    lcc = ws.config.running.light_context_config
+    if not ws.config.uses_scroll_history:
+        return None
+    return resolve_history_db_path(
+        ws.workspace_dir,
+        lcc.scroll_config.db_filename,
+    )
+
+
+def create_history_service(ws: "Workspace") -> "HistoryStore | None":
+    """Open one workspace-owned connection, offloaded by ServiceManager."""
+    from ...agents.context import create_scroll_history
+
+    path = history_service_path(ws)
+    if path is None:
+        invalidate_agent_migration(ws.workspace_dir)
+        return None
+    return create_scroll_history(path)
+
+
+async def prepare_history_service(ws, history, _publish) -> None:
+    """Migrate before channels start, then maintain history independently."""
+    if history is None:
+        return
+    scroll_config = ws.config.running.light_context_config.scroll_config
+    stop = threading.Event()
+    task = asyncio.create_task(
+        run_sync_io(
+            migrate_agent_history,
+            history,
+            ws.workspace_dir,
+            ws.agent_id,
+            scroll_config.history_retention_days,
+            stop,
+        ),
+    )
+    try:
+        await asyncio.shield(task)
+    except asyncio.CancelledError:
+        stop.set()
+        try:
+            await run_async_to_completion(task)
+        except (asyncio.CancelledError, Exception):
+            pass
+        raise
+
+
+def history_service_reuse_compatible(
+    ws: "Workspace",
+    history: "HistoryStore",
+) -> bool:
+    """Keep the old store only for the same enabled, unchanged database."""
+    path = history_service_path(ws)
+    return path is not None and history.matches_path(path)
+
+
+async def create_driver_service(
+    ws: "Workspace",
+    _service,
+    publish: Callable[[Any], None],
+):
+    """Create and initialize the per-workspace DriverManager.
+
+    DriverManager is the runtime for external capabilities.  MCP is wired as
+    the first concrete Driver protocol; legacy MCP config is migrated into
+    DriverCard storage and is not exposed through the old MCP runtime path.
     """
     # pylint: disable=protected-access
-    if ws._config.mcp:
-        try:
-            if getattr(ws, "defer_mcp_startup", False):
-                mcp.init_from_config_background(ws._config.mcp)
-                logger.debug(
-                    f"MCP initialization deferred for agent: {ws.agent_id}",
-                )
-            else:
-                await mcp.init_from_config(ws._config.mcp)
-                logger.debug(f"MCP initialized for agent: {ws.agent_id}")
-        except Exception as e:
-            logger.warning(f"Failed to init MCP: {e}")
-    ws._service_manager.services["runner"].set_mcp_manager(mcp)
+    from ...drivers.adapters.mcp_legacy_config import (
+        migrate_legacy_mcp_if_needed,
+    )
+    from ...drivers.credentials.store import AsyncCredentialStore
+    from ...drivers.handlers import MCPDriverHandler
+    from ...drivers.handlers.mcp import validate_mcp_endpoint
+    from ...drivers.manager import DriverManager
+    from ..approvals.driver_gate import QwenPawDriverApprovalGate
+    from ..mail.driver_config import (
+        is_managed_qwenpawmail_card,
+        sync_qwenpawmail_driver_card,
+    )
+
+    # Upgrade legacy qwenpawmail cards before DriverManager can launch them.
+    # ``load_agent_config`` has already hydrated the in-memory secrets from the
+    # encrypted store at this point.
+    mail = getattr(ws._config, "mail", None)
+    existing_mail_card = (
+        ws.workspace_dir / "drivers" / "mcp" / "qwenpawmail.yaml"
+    )
+    should_sync_mail_card = mail is not None or await asyncio.to_thread(
+        is_managed_qwenpawmail_card,
+        existing_mail_card,
+    )
+    if should_sync_mail_card and not await asyncio.to_thread(
+        sync_qwenpawmail_driver_card,
+        ws.workspace_dir,
+        mail,
+        getattr(ws._config, "backend", "qwenpaw"),
+    ):
+        logger.warning(
+            "qwenpawmail DriverCard could not be synchronized for agent %s; "
+            "mail capability remains disabled",
+            ws.agent_id,
+        )
+
+    credential_store = AsyncCredentialStore(
+        ws.workspace_dir / "credentials.yaml",
+    )
+    driver_manager = DriverManager(
+        ws.workspace_dir / "drivers",
+        credential_store,
+        approval_gate=QwenPawDriverApprovalGate(),
+    )
+    driver_manager.register_handler_type(
+        "mcp",
+        MCPDriverHandler,
+        endpoint_validator=validate_mcp_endpoint,
+    )
+    # Publish immediately after construction and before migration/start can
+    # suspend.  Cancellation can then always find and shut down the manager.
+    publish(driver_manager)
+    # Future Driver protocols should be registered here together with their
+    # endpoint validator and tests.  This PR intentionally keeps the concrete
+    # runtime surface to MCP while leaving DriverManager protocol-neutral.
+    await migrate_legacy_mcp_if_needed(ws, driver_manager)
+    await driver_manager.start()
+    logger.debug(
+        "DriverManager external capability runtime initialized for agent: %s",
+        ws.agent_id,
+    )
+    return driver_manager
     # pylint: enable=protected-access
 
 
-async def create_chat_service(ws: "Workspace", service):
-    """Create and attach chat manager, or reuse existing one.
+async def create_driver_config_watcher(
+    ws: "Workspace",
+    _service,
+    publish: Callable[[Any], None],
+):
+    """Create watcher for manual DriverCard edits.
+
+    Console/API updates call ``DriverConfigService.reload_driver_best_effort``
+    immediately.  This watcher covers the manual-edit path and works for all
+    Driver protocols instead of only MCP.
+    """
+    # pylint: disable=protected-access
+    driver_manager = ws._service_manager.services.get("driver_manager")
+    if driver_manager is None:
+        return None
+
+    from ..driver_config_watcher import DriverConfigWatcher
+
+    watcher = DriverConfigWatcher(
+        driver_manager,
+        ws.workspace_dir / "drivers",
+    )
+    publish(watcher)
+    return watcher
+    # pylint: enable=protected-access
+
+
+async def create_chat_service(
+    ws: "Workspace",
+    service,
+    publish: Callable[[Any], None],
+):
+    """Create chat manager, or reuse existing one.
 
     Args:
         ws: Workspace instance
         service: Existing ChatManager if reused, None if creating new
     """
     # pylint: disable=protected-access
-    from ..runner.manager import ChatManager
-    from ..runner.repo.json_repo import JsonChatRepository
+    from ..chats.manager import ChatManager
+    from ..chats.repo.json_repo import JsonChatRepository
+    from ...browser.runtime.links import link_for
+    from ...browser.execution.kernel import get_default_kernel_manager
+    from ...browser.tool_entrypoint import derive_workspace_id
+
+    async def close_browser_session(session_id: str) -> None:
+        await get_default_kernel_manager().close_session(
+            derive_workspace_id(ws.workspace_dir),
+            session_id,
+        )
 
     if service is not None:
-        # Reused ChatManager - just wire to new runner
         cm = service
         logger.info(f"Reusing ChatManager for {ws.agent_id}")
     else:
-        # Create new ChatManager
         chats_path = str(ws.workspace_dir / "chats.json")
         chat_repo = JsonChatRepository(chats_path)
-        cm = ChatManager(repo=chat_repo)
-        ws._service_manager.services["chat_manager"] = cm
+        cm = ChatManager(
+            repo=chat_repo,
+            on_session_closed=close_browser_session,
+        )
+        publish(cm)
         logger.info(f"ChatManager created: {chats_path}")
+    cm.set_on_session_closed(close_browser_session)
 
-    # Always wire to new runner
-    ws._service_manager.services["runner"].set_chat_manager(cm)
+    async def live_session_ids() -> set[str]:
+        chats = await cm.list_chats(archived=False)
+        return {chat.session_id for chat in chats}
+
+    chrome_link = link_for("chrome")
+    register_resolver = getattr(
+        chrome_link,
+        "register_live_session_resolver",
+        None,
+    )
+    if register_resolver is not None:
+        register_resolver(
+            derive_workspace_id(ws.workspace_dir),
+            live_session_ids,
+        )
     # pylint: enable=protected-access
 
 
-async def create_channel_service(ws: "Workspace", _):
+async def create_channel_service(
+    ws: "Workspace",
+    _,
+    publish: Callable[[Any], None],
+):
     """Create channel manager if configured.
 
     Args:
@@ -81,50 +263,120 @@ async def create_channel_service(ws: "Workspace", _):
     if not ws._config.channels:
         return None
 
-    from ...config import Config, update_last_dispatch
+    from ...config import Config, load_config, update_last_dispatch
     from ..channels.manager import ChannelManager
-    from ..channels.utils import make_process_from_runner
     from ..channels.access_control import init_access_control_store
 
-    # Initialise the access-control store for this workspace so that
-    # each workspace maintains its own access_control.json.
     init_access_control_store(ws.workspace_dir)
 
-    temp_config = Config(channels=ws._config.channels)
-    runner = ws._service_manager.services["runner"]
+    root_config = load_config()
+    temp_config = Config(
+        channels=ws._config.channels,
+        show_tool_details=root_config.show_tool_details,
+    )
 
-    def on_last_dispatch(channel, user_id, session_id):
-        update_last_dispatch(
+    async def on_last_dispatch(channel, user_id, session_id):
+        await run_sync_io(
+            update_last_dispatch,
             channel=channel,
             user_id=user_id,
             session_id=session_id,
             agent_id=ws.agent_id,
         )
 
+    def process(request, *args, **kwargs):
+        """Resolve the current entrypoint without wrapping its iterator."""
+        return ws.stream_query(request, *args, **kwargs)
+
     cm = ChannelManager.from_config(
-        process=make_process_from_runner(runner),
+        process=process,
         config=temp_config,
         on_last_dispatch=on_last_dispatch,
         workspace_dir=ws.workspace_dir,
+        defer_process_channels=True,
     )
-    ws._service_manager.services["channel_manager"] = cm
+    cm._defer_channel_start = getattr(ws, "_defer_channel_start", False)
+    publish(cm)
 
-    # Inject workspace into ChannelManager and all channels
     cm.set_workspace(ws)
+    from ..approvals import get_approval_service
 
-    # Propagate agent language to channels for i18n deny messages
+    get_approval_service().set_channel_manager(cm, agent_id=ws.agent_id)
+
     agent_language = getattr(ws._config, "language", "zh") or "zh"
     for ch in cm.channels:
         ch._language = agent_language
-
-    # Inject workspace into runner for control command handlers
-    runner.set_workspace(ws)
 
     return cm
     # pylint: enable=protected-access
 
 
-async def create_agent_config_watcher(ws: "Workspace", _):
+async def create_mail_monitor_service(
+    ws: "Workspace",
+    _,
+    publish: Callable[[Any], None],
+):
+    """Create the mail push monitor when enabled for this agent.
+
+    Started only when the agent has a personal mailbox with credentials
+    and ``mail.push.mode != "off"``.  Dedicated new mailboxes
+    (is_new_account=True, no auth_code yet) never start the monitor.
+
+    Args:
+        ws: Workspace instance
+        _: Unused service parameter
+
+    Returns:
+        MailMonitorService instance or None if not enabled
+    """
+    # pylint: disable=protected-access
+    # Mail push is only supported for the qwenpaw backend: third-party
+    # harness runtimes cannot handle the dict wake requests built by the
+    # monitor and would fail on every incoming email.
+    if getattr(ws._config, "backend", "qwenpaw") != "qwenpaw":
+        return None
+    mail = getattr(ws._config, "mail", None)
+    if mail is None or mail.push is None or mail.push.mode == "off":
+        return None
+    if mail.is_new_account:
+        return None
+    credential = mail.credential
+    if not credential.name or not credential.auth_code:
+        return None
+
+    from ..mail.monitor import MailMonitorService
+    from ...agents.utils import ensure_workspace_md_file
+
+    # The mail wake prompt asks the agent to read CONTACTS.md and
+    # MAIL_TRIAGE.md first thing, so make sure both seed files exist
+    # for workspaces created before these templates were introduced
+    # (agent CRUD APIs are the only other distribution path).
+    language = getattr(ws._config, "language", None)
+    if not language:
+        try:
+            from ...config import load_config as _load_root_config
+
+            language = _load_root_config().agents.language
+        except Exception:  # pragma: no cover - config load best-effort
+            language = None
+    for seed_name in ("CONTACTS.md", "MAIL_TRIAGE.md"):
+        ensure_workspace_md_file(ws.workspace_dir, language or "en", seed_name)
+
+    monitor = MailMonitorService(
+        agent_id=ws.agent_id,
+        workspace=ws,
+        mail_config=mail,
+    )
+    publish(monitor)
+    return monitor
+    # pylint: enable=protected-access
+
+
+async def create_agent_config_watcher(
+    ws: "Workspace",
+    _,
+    publish: Callable[[Any], None],
+):
     """Create agent config watcher if channel/cron exists.
 
     The watcher only triggers reloads via ``MultiAgentManager`` and
@@ -154,38 +406,6 @@ async def create_agent_config_watcher(ws: "Workspace", _):
         workspace_dir=ws.workspace_dir,
         workspace=ws,
     )
-    ws._service_manager.services["agent_config_watcher"] = watcher
-    return watcher
-    # pylint: enable=protected-access
-
-
-async def create_mcp_config_watcher(ws: "Workspace", _):
-    """Create MCP config watcher if MCP manager exists.
-
-    Args:
-        ws: Workspace instance
-        _: Unused service parameter
-
-    Returns:
-        MCPConfigWatcher instance or None if not needed
-    """
-    # pylint: disable=protected-access
-    mcp_mgr = ws._service_manager.services.get("mcp_manager")
-    if not mcp_mgr:
-        return None
-
-    from ..mcp.watcher import MCPConfigWatcher
-    from ...config.config import load_agent_config
-
-    def mcp_config_loader():
-        agent_config = load_agent_config(ws.agent_id)
-        return agent_config.mcp
-
-    watcher = MCPConfigWatcher(
-        mcp_manager=mcp_mgr,
-        config_loader=mcp_config_loader,
-        config_path=ws.workspace_dir / "agent.json",
-    )
-    ws._service_manager.services["mcp_config_watcher"] = watcher
+    publish(watcher)
     return watcher
     # pylint: enable=protected-access

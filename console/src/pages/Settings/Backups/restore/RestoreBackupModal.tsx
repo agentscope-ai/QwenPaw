@@ -11,18 +11,17 @@ import { useState, useEffect, useMemo } from "react";
 import {
   Modal,
   Checkbox,
-  Radio,
   Alert,
   Input,
-  Tag,
   Divider,
   Typography,
   Tooltip,
   Space,
 } from "antd";
-import { QuestionCircleOutlined } from "@ant-design/icons";
+import { CircleHelp as QuestionCircleOutlined } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "@/api";
+import { PolicySelector } from "@/components/interaction/PolicySelector";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import type {
   BackupMeta,
@@ -56,6 +55,15 @@ type TrustPrompt = {
   mode: BackupTrustMode;
   request: RestoreBackupRequest;
 };
+
+function isRestoreTimeout(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Request timeout after ") &&
+    error.message.includes(" POST /backups/") &&
+    error.message.endsWith("/restore")
+  );
+}
 
 export default function RestoreBackupModal({
   open,
@@ -213,7 +221,18 @@ export default function RestoreBackupModal({
     onClose();
   };
 
-  const showRestoreFailure = (detail: Record<string, unknown> | null) => {
+  const showRestoreFailure = (
+    detail: Record<string, unknown> | null,
+    error: unknown,
+  ) => {
+    if (isRestoreTimeout(error)) {
+      message.error({
+        content: t("backup.restoreTimedOut"),
+        duration: 8,
+      });
+      return;
+    }
+
     if (detail?.code === "restore_target_busy") {
       const lockedPaths = Array.isArray(detail.locked_paths)
         ? detail.locked_paths.filter(
@@ -241,6 +260,21 @@ export default function RestoreBackupModal({
       return;
     }
 
+    const rawDetail: unknown = detail;
+    const reason =
+      typeof rawDetail === "string"
+        ? rawDetail.trim()
+        : typeof detail?.message === "string"
+        ? detail.message.trim()
+        : "";
+    if (reason) {
+      message.error({
+        content: `${t("backup.restoreFailed")}: ${reason}`,
+        duration: 8,
+      });
+      return;
+    }
+
     message.error(t("backup.restoreFailed"));
   };
 
@@ -255,7 +289,7 @@ export default function RestoreBackupModal({
       if (trustMode) {
         setTrustPrompt({ mode: trustMode, request });
       } else {
-        showRestoreFailure(detail);
+        showRestoreFailure(detail, err);
       }
     } finally {
       setLoading(false);
@@ -272,7 +306,7 @@ export default function RestoreBackupModal({
       });
       setTrustPrompt(null);
     } catch (err: unknown) {
-      showRestoreFailure(parseErrorDetail(err));
+      showRestoreFailure(parseErrorDetail(err), err);
     } finally {
       setTrustLoading(false);
     }
@@ -308,6 +342,13 @@ export default function RestoreBackupModal({
         destroyOnHidden
         centered
         width={680}
+        styles={{
+          body: {
+            maxHeight: "min(68dvh, 680px)",
+            overflowY: "auto",
+            paddingInline: 2,
+          },
+        }}
       >
         <div className={styles.modalBody}>
           <div className={styles.backupInfoSection}>
@@ -362,7 +403,10 @@ export default function RestoreBackupModal({
               <div className={styles.workspaceDirLabel}>
                 {t("backup.defaultWorkspaceDir")}
                 <Tooltip title={t("backup.defaultWorkspaceDirHint")}>
-                  <QuestionCircleOutlined className={styles.hintIcon} />
+                  <QuestionCircleOutlined
+                    size="1em"
+                    className={styles.hintIcon}
+                  />
                 </Tooltip>
               </div>
               <Input
@@ -379,35 +423,29 @@ export default function RestoreBackupModal({
             <div className={styles.restoreModeLabel}>
               {t("backup.restoreMode")}
             </div>
-            <Radio.Group
+            <PolicySelector<RestoreMode>
+              label={t("backup.restoreMode")}
               value={restoreMode}
-              onChange={(e) => setRestoreMode(e.target.value)}
-              className={styles.radioGroup}
-            >
-              <Radio value="full" disabled={!fullBackup}>
-                <div className={styles.radioOption}>
-                  <div className={styles.radioOptionHeader}>
-                    <Text strong>{t("backup.restoreModeFull")}</Text>
-                    {!fullBackup && (
-                      <Tag color="default" className={styles.radioDisabledTag}>
-                        {t("backup.restoreModeFullDisabled")}
-                      </Tag>
-                    )}
-                  </div>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreModeFullDesc")}
-                  </Text>
-                </div>
-              </Radio>
-              <Radio value="custom">
-                <div className={styles.radioOption}>
-                  <Text strong>{t("backup.restoreModeCustom")}</Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreModeCustomDesc")}
-                  </Text>
-                </div>
-              </Radio>
-            </Radio.Group>
+              onChange={setRestoreMode}
+              options={[
+                {
+                  value: "full",
+                  label: t("backup.restoreModeFull"),
+                  description: t("backup.restoreModeFullDesc"),
+                  disabled: !fullBackup,
+                },
+                {
+                  value: "custom",
+                  label: t("backup.restoreModeCustom"),
+                  description: t("backup.restoreModeCustomDesc"),
+                },
+              ]}
+            />
+            {!fullBackup && (
+              <p className={styles.unavailableHint}>
+                {t("backup.restoreModeFullDisabled")}
+              </p>
+            )}
           </div>
 
           <div className={styles.strategySection}>
@@ -416,42 +454,23 @@ export default function RestoreBackupModal({
                 defaultValue: "Restore strategy",
               })}
             </div>
-            <Radio.Group
+            <PolicySelector<RestoreStrategy>
+              label={t("backup.restoreStrategy")}
               value={restoreStrategy}
-              onChange={(e) => setRestoreStrategy(e.target.value)}
-              className={styles.radioGroup}
-            >
-              <Radio value="preserve">
-                <div className={styles.radioOption}>
-                  <Text strong>
-                    {t("backup.restoreStrategyPreserve", {
-                      defaultValue: "Preserve local security and MCP",
-                    })}
-                  </Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreStrategyPreserveDesc", {
-                      defaultValue:
-                        "Keep this instance's security guards and MCP configuration.",
-                    })}
-                  </Text>
-                </div>
-              </Radio>
-              <Radio value="restore">
-                <div className={styles.radioOption}>
-                  <Text strong>
-                    {t("backup.restoreStrategyRestore", {
-                      defaultValue: "Restore these settings from backup",
-                    })}
-                  </Text>
-                  <Text type="secondary" className={styles.radioDesc}>
-                    {t("backup.restoreStrategyRestoreDesc", {
-                      defaultValue:
-                        "Use the backup's security and MCP configuration.",
-                    })}
-                  </Text>
-                </div>
-              </Radio>
-            </Radio.Group>
+              onChange={setRestoreStrategy}
+              options={[
+                {
+                  value: "preserve",
+                  label: t("backup.restoreStrategyPreserve"),
+                  description: t("backup.restoreStrategyPreserveDesc"),
+                },
+                {
+                  value: "restore",
+                  label: t("backup.restoreStrategyRestore"),
+                  description: t("backup.restoreStrategyRestoreDesc"),
+                },
+              ]}
+            />
           </div>
 
           {restoreMode === "full" && (

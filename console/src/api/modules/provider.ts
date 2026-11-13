@@ -1,6 +1,8 @@
 import { request } from "../request";
 import type {
   ProviderInfo,
+  ModelPoolPage,
+  ModelInfo,
   ProviderConfigRequest,
   ActiveModelsInfo,
   GetActiveModelsRequest,
@@ -13,6 +15,7 @@ import type {
   LocalModelConfigRequest,
   TestConnectionResponse,
   TestProviderRequest,
+  DiscoverModelsRequest,
   TestModelRequest,
   DiscoverModelsResponse,
   ProbeMultimodalResponse,
@@ -42,6 +45,46 @@ let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
 const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
 
 export const providerApi = {
+  getModelPool: (
+    providerId: string,
+    query: Record<string, string | number | boolean> = {},
+  ) =>
+    request<ModelPoolPage>(
+      `/models/${encodeURIComponent(providerId)}/pool?${new URLSearchParams(
+        Object.entries(query).map(([key, value]) => [key, String(value)]),
+      )}`,
+    ),
+  selectAllModels: (providerId: string, selected: boolean) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/pool/selection`,
+      { method: "PUT", body: JSON.stringify({ selected }) },
+    ),
+  updateModelPool: (
+    providerId: string,
+    modelId: string,
+    body: { selected?: boolean; seen?: boolean },
+  ) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/pool`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+  listModelTemplates: () =>
+    request<
+      { id: string; name: string; model_id: string; provider_id: string }[]
+    >("/models/model-templates"),
+  previewModelInfo: (
+    providerId: string,
+    modelId: string,
+    templateId?: string,
+  ) => {
+    const query = new URLSearchParams({ model_id: modelId });
+    if (templateId) query.set("template_id", templateId);
+    return request<ModelInfo>(
+      `/models/${encodeURIComponent(providerId)}/model-info?${query}`,
+    );
+  },
   listProviders: () => {
     if (listProvidersPromise) return listProvidersPromise;
     listProvidersPromise = request<ProviderInfo[]>("/models").finally(() => {
@@ -106,6 +149,17 @@ export const providerApi = {
       { method: "DELETE" },
     ),
 
+  setModelVisibility: (providerId: string, modelId: string, hidden: boolean) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/visibility`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ hidden }),
+      },
+    ),
+
   configureModel: (
     providerId: string,
     modelId: string,
@@ -151,7 +205,7 @@ export const providerApi = {
 
   discoverModels: (
     providerId: string,
-    body?: TestProviderRequest,
+    body?: DiscoverModelsRequest,
     save: boolean = true,
   ) => {
     const url = new URL(

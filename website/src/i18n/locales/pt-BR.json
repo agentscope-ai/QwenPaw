@@ -1,6 +1,7 @@
 {
   "nav": {
     "docs": "Documentacao",
+    "blog": "Blog",
     "more": "Mais",
     "releaseNotes": "Notas de Lancamento",
     "qwenpaw": "Qwenpaw",
@@ -221,7 +222,8 @@
       "blog": "Blog",
       "changelog": "Changelog",
       "termsOfService": "Termos de Servico",
-      "privacyPolicy": "Politica de Privacidade"
+      "privacyPolicy": "Politica de Privacidade",
+      "usagePolicy": "Política de Uso"
     },
     "social": {
       "x": "X",
@@ -252,29 +254,49 @@
       "suffix": " pela especificacao e exemplos de Agent Skills."
     }
   },
+  "blog": {
+    "breadcrumbHome": "Inicio",
+    "breadcrumbCurrent": "Blog",
+    "title": "Blog da Equipe QwenPaw",
+    "subtitle": "Novidades, analises e historias da equipe QwenPaw.",
+    "latestUpdate": "Ultima atualizacao {{date}}",
+    "totalPosts": "{{count}} posts",
+    "readTime": "{{minutes}} min de leitura",
+    "sessionCount": "{{count}} sessoes de developer day",
+    "backToList": "Voltar ao blog",
+    "notFound": "Post nao encontrado",
+    "empty": "Nenhum post ainda"
+  },
   "docs": {
     "intro": "Introducao",
     "quickstart": "Inicio rapido",
     "desktop": "App Desktop",
     "console": "Console",
+    "mailbox": "Gerenciamento de E-mail",
+    "tui": "Interface de Terminal",
     "multiAgent": "Multi-Agente",
+    "import": "Importação",
+    "advisorMode": "Modo Conselheiro",
     "models": "Modelos",
     "channels": "Canais",
     "skills": "Skills",
     "mcp": "MCP e Ferramentas Integradas",
     "acpServer": "Integracao ACP",
-    "memory": "Memoria",
+    "memory": "Memória de Longo Prazo",
+    "embedding": "Modelos de Embedding",
     "memoryEvolvingAndProactive": "Memoria Evolutiva e Proativa",
-    "codingMode": "Modo Coding",
+    "creator": "Creator: Plataforma Agentic de Criação de Vídeo",
     "context": "Contexto",
+    "loopEngineering": "Loop Engineering",
     "commands": "Comandos magicos",
-    "plan": "Modo plano",
     "heartbeat": "Heartbeat",
     "config": "Config e diretorio de trabalho",
     "security": "Seguranca",
     "backup": "Backup e Restauracao",
     "cli": "CLI",
     "plugins": "Sistema de Plugins",
+    "pluginsMigration": "Guia de Migracao de Plugins",
+    "architecture": "Arquitetura",
     "faq": "FAQ",
     "apiTutorial": "API RESTful",
     "community": "Relatorios de bugs e comunidade",
@@ -446,6 +468,7 @@
   "downloads": {
     "title": "Downloads",
     "subtitle": "Baixe instaladores, ferramentas e recursos do QwenPaw",
+    "openSourceNotice": "Os downloads são compilações do <repo>projeto QwenPaw de código aberto</repo>, licenciado sob a licença Apache 2.0.",
     "loading": "Carregando...",
     "emptyTitle": "Nenhum download disponivel ainda",
     "emptyDesc": "As compilacoes desktop estao em andamento. Volte mais tarde.",

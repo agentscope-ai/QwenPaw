@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from agentscope_runtime.engine.schemas.exception import ConfigurationException
+from qwenpaw.exceptions import ConfigurationException
 
 from .manager import CronManager
 from .models import (
@@ -109,6 +109,8 @@ async def create_job(
     created = spec.model_copy(update={"id": job_id})
     try:
         await mgr.create_or_replace_job(created)
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except (ConfigurationException, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return created
@@ -126,6 +128,8 @@ async def replace_job(
         raise HTTPException(status_code=400, detail="job_id mismatch")
     try:
         await mgr.create_or_replace_job(spec)
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except (ConfigurationException, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return spec
@@ -146,6 +150,8 @@ async def delete_job(
 async def pause_job(job_id: str, mgr: CronManager = Depends(get_cron_manager)):
     try:
         await mgr.pause_job(job_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="job not found") from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"paused": True}
@@ -158,9 +164,27 @@ async def resume_job(
 ):
     try:
         await mgr.resume_job(job_id)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="job not found") from e
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"resumed": True}
+
+
+@router.post("/jobs/{job_id}/promote", response_model=CronJobSpec)
+async def promote_imported_job(
+    job_id: str,
+    mgr: CronManager = Depends(get_cron_manager),
+):
+    """Approve an imported job while deliberately leaving it disabled."""
+    try:
+        return await mgr.promote_imported_job(job_id, actor="cron-api")
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail="job not found") from e
+    except (PermissionError, ValueError) as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.post("/jobs/{job_id}/run")
@@ -169,6 +193,8 @@ async def run_job(job_id: str, mgr: CronManager = Depends(get_cron_manager)):
         await mgr.run_job(job_id)
     except KeyError as e:
         raise HTTPException(status_code=404, detail="job not found") from e
+    except PermissionError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     return {"started": True}

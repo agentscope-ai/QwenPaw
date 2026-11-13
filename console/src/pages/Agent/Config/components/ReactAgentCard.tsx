@@ -1,21 +1,30 @@
-import { useCallback, useEffect, useState } from "react";
+import { SettingsField } from "@/components/interaction/SettingsField";
+import { NumberSlider } from "@/components/interaction/NumberSlider";
+import { Collapse } from "antd";
 import {
+  Button,
   Form,
   Input,
-  InputNumber,
   Select,
   Card,
   Alert,
   Switch,
 } from "@agentscope-ai/design";
+import { FolderOpen, LoaderCircle } from "lucide-react";
+import { useCallback, useEffect, useState, type ComponentProps } from "react";
 import { useTranslation } from "react-i18next";
-import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
-import { planApi } from "../../../../api/modules/plan";
+import { codingModeApi } from "../../../../api/modules/codingMode";
+import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
+import ProjectSelectModal from "../../../../components/ProjectSelectModal";
+import TimezoneAtlas from "./TimezoneAtlas";
+import { AgentModelCard } from "./AgentModelCard";
+import { useMemoryBackends } from "../../../../plugins/memoryBackends";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
-  CONTEXT_MANAGER_BACKEND_OPTIONS,
-  MEMORY_MANAGER_BACKEND_OPTIONS,
-} from "../../../../constants/backendMappings";
+  useCodingMode,
+  useCodingModeStore,
+} from "../../../../stores/codingModeStore";
+import { useProjectDirectoryStore } from "../../../../stores/projectDirectoryStore";
 import styles from "../index.module.less";
 
 const LANGUAGE_OPTIONS = [
@@ -34,53 +43,190 @@ interface ReactAgentCardProps {
   onTimezoneChange: (value: string) => void;
 }
 
+function ProjectDirectorySetting() {
+  const { t } = useTranslation();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const setProjectDir = useProjectDirectoryStore(
+    (state) => state.setProjectDir,
+  );
+  const [projectDirs, setProjectDirs] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const primaryDir = projectDirs[0] ?? "";
+  const primaryName =
+    primaryDir
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() || primaryDir;
+  const extraDirCount = Math.max(0, projectDirs.length - 1);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const defaults = await projectDirectoryApi.getDirs();
+      const dirs = defaults.project_dirs.length
+        ? defaults.project_dirs.map((entry) => entry.path)
+        : [defaults.workspace_dir];
+      setProjectDirs(dirs);
+      setProjectDir(
+        selectedAgent,
+        defaults.source === "workspace_fallback"
+          ? null
+          : defaults.project_dirs[0]?.path ?? null,
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedAgent, setProjectDir]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return (
+    <>
+      <SettingsField
+        label={t("agentConfig.projectDirectoryTitle")}
+        tooltip={t("agentConfig.projectDirectoryDescription")}
+        className={styles.reactAgentWideField}
+      >
+        <div className={styles.projectDirectorySetting}>
+          <FolderOpen size={17} />
+          <div className={styles.projectDirectoryPaths}>
+            <strong>{primaryName}</strong>
+            <span title={primaryDir}>{primaryDir}</span>
+          </div>
+          {extraDirCount > 0 && (
+            <em
+              className={styles.projectDirectoryCount}
+              title={t("projectDirectory.countTitle")}
+            >
+              +{extraDirCount}
+            </em>
+          )}
+          {loading ? (
+            <LoaderCircle className={styles.spin} size={16} />
+          ) : (
+            <Button size="small" onClick={() => setModalOpen(true)}>
+              {t("agentConfig.changeProjectDirectory")}
+            </Button>
+          )}
+        </div>
+      </SettingsField>
+      <ProjectSelectModal
+        agentId={selectedAgent}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onConfirm={() => {
+          setModalOpen(false);
+          void refresh();
+        }}
+      />
+    </>
+  );
+}
+
+function RuntimeSwitch({ checked, ...props }: ComponentProps<typeof Switch>) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.runtimeSwitch}>
+      <span aria-hidden="true">
+        {t(checked ? "common.enabled" : "common.disabled")}
+      </span>
+      <Switch {...props} checked={checked} />
+    </div>
+  );
+}
+
+function CodeModeSetting() {
+  const { t } = useTranslation();
+  const { codingMode } = useCodingMode();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const setCodingMode = useCodingModeStore((state) => state.setCodingMode);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const mode = await codingModeApi.get();
+      setCodingMode(selectedAgent, mode.enabled);
+    } catch {
+      setError(t("codingMode.loadFailed"));
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedAgent, setCodingMode, t]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const update = async (enabled: boolean) => {
+    setError("");
+    setSaving(true);
+    try {
+      const result = await codingModeApi.toggle(enabled);
+      setCodingMode(selectedAgent, result.enabled);
+    } catch {
+      setError(t("codingMode.updateFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsField
+      label={t("codingMode.title")}
+      tooltip={t("codingMode.toolPresentationHelp")}
+      valuePropName="checked"
+      className={styles.runtimeToggle}
+      validateStatus={error ? "error" : undefined}
+      help={error || undefined}
+    >
+      <RuntimeSwitch
+        aria-label={t("codingMode.title")}
+        disabled={loading || saving}
+        loading={loading || saving}
+        checked={codingMode}
+        onChange={(enabled) => void update(enabled)}
+      />
+    </SettingsField>
+  );
+}
+
 export function ReactAgentCard({
   language,
   savingLang,
   onLanguageChange,
   timezone,
-  savingTimezone,
   onTimezoneChange,
 }: ReactAgentCardProps) {
+  const memoryBackends = useMemoryBackends();
+  const selectedMemoryBackend =
+    Form.useWatch("memory_manager_backend") || "remelight";
+  const memoryBackendOptions = memoryBackends.map((backend) => ({
+    value: backend.id,
+    label:
+      backend.available === false
+        ? `${backend.label} (unavailable)`
+        : backend.label,
+    disabled: backend.available === false,
+  }));
+  if (!memoryBackends.some((backend) => backend.id === selectedMemoryBackend)) {
+    memoryBackendOptions.push({
+      value: selectedMemoryBackend,
+      label: `${selectedMemoryBackend} (plugin unavailable)`,
+      disabled: true,
+    });
+  }
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
-  const [planEnabled, setPlanEnabled] = useState(false);
-  const [planLoading, setPlanLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    planApi
-      .getPlanConfig()
-      .then((cfg) => {
-        if (!cancelled) setPlanEnabled(cfg.enabled);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent]);
-
-  const handlePlanToggle = useCallback(
-    async (checked: boolean) => {
-      setPlanLoading(true);
-      const prev = planEnabled;
-      setPlanEnabled(checked);
-      try {
-        const res = await planApi.updatePlanConfig({ enabled: checked });
-        setPlanEnabled(res.enabled);
-      } catch {
-        setPlanEnabled(prev);
-      } finally {
-        setPlanLoading(false);
-      }
-    },
-    [planEnabled],
-  );
 
   return (
-    <Card className={styles.formCard} title={t("agentConfig.reactAgentTitle")}>
+    <Card className={styles.formCard}>
       <div className={styles.reactAgentRow}>
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.language")}
           tooltip={t("agentConfig.languageTooltip")}
           className={styles.reactAgentField}
@@ -93,149 +239,109 @@ export function ReactAgentCard({
             disabled={savingLang}
             style={{ width: "100%" }}
           />
-        </Form.Item>
+        </SettingsField>
 
-        <Form.Item
+        <SettingsField
           label={t("agentConfig.timezone")}
           tooltip={t("agentConfig.timezoneTooltip")}
           className={styles.reactAgentField}
         >
-          <Select
-            showSearch
-            value={timezone}
-            placeholder={t("agentConfig.selectTimezone")}
-            filterOption={(input, option) =>
-              (option?.label?.toString() || "")
-                .toLowerCase()
-                .includes(input.toLowerCase())
-            }
-            options={useTimezoneOptions()}
-            onChange={onTimezoneChange}
-            loading={savingTimezone}
-            disabled={savingTimezone}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.maxIters")}
-          name="max_iters"
-          rules={[
-            { required: true, message: t("agentConfig.maxItersRequired") },
-            { type: "number", min: 1, message: t("agentConfig.maxItersMin") },
-          ]}
-          tooltip={t("agentConfig.maxItersTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            placeholder={t("agentConfig.maxItersPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandTimeout")}
-          name="shell_command_timeout"
-          rules={[
-            {
-              required: true,
-              message: t("agentConfig.shellCommandTimeoutRequired"),
-            },
-            {
-              type: "number",
-              min: 1,
-              message: t("agentConfig.shellCommandTimeoutMin"),
-            },
-          ]}
-          tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
-          className={styles.reactAgentField}
-        >
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={10}
-            placeholder={t("agentConfig.shellCommandTimeoutPlaceholder")}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.shellCommandExecutable")}
-          name="shell_command_executable"
-          tooltip={t("agentConfig.shellCommandExecutableTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Input
-            style={{ width: "100%" }}
-            placeholder={t("agentConfig.shellCommandExecutablePlaceholder")}
-            allowClear
-          />
-        </Form.Item>
+          <TimezoneAtlas value={timezone} onChange={onTimezoneChange} />
+        </SettingsField>
       </div>
 
-      <Form.Item
-        label={t("agentConfig.autoContinueOnTextOnly")}
-        name="auto_continue_on_text_only"
-        valuePropName="checked"
-        tooltip={t("agentConfig.autoContinueOnTextOnlyTooltip")}
-      >
-        <Switch />
-      </Form.Item>
+      <div className={styles.reactAgentSettings}>
+        <ProjectDirectorySetting />
+      </div>
 
-      <Form.Item
+      <AgentModelCard />
+
+      <CodeModeSetting />
+
+      <SettingsField
+        className={styles.runtimeToggle}
         label={t("agentConfig.autoGenerateSessionTitle")}
         name={["auto_title_config", "enabled"]}
         valuePropName="checked"
         tooltip={t("agentConfig.autoGenerateSessionTitleTooltip")}
       >
-        <Switch />
-      </Form.Item>
+        <RuntimeSwitch aria-label={t("agentConfig.autoGenerateSessionTitle")} />
+      </SettingsField>
 
-      <div className={styles.reactAgentRow}>
-        <Form.Item
-          label={t("agentConfig.contextManagerBackend")}
-          name="context_manager_backend"
-          tooltip={t("agentConfig.contextManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select
-            options={CONTEXT_MANAGER_BACKEND_OPTIONS}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("agentConfig.memoryManagerBackend")}
-          name="memory_manager_backend"
-          tooltip={t("agentConfig.memoryManagerBackendTooltip")}
-          className={styles.reactAgentField}
-        >
-          <Select
-            options={MEMORY_MANAGER_BACKEND_OPTIONS}
-            style={{ width: "100%" }}
-          />
-        </Form.Item>
-      </div>
-      <Alert
-        type="warning"
-        showIcon
-        message={t("agentConfig.backendRestartWarning")}
-        style={{ marginBottom: 16 }}
+      <Collapse
+        ghost
+        items={[
+          {
+            key: "runtime",
+            label: t("agentConfig.advancedRuntime", "Advanced runtime"),
+            forceRender: true,
+            children: (
+              <>
+                <div className={styles.reactAgentRow}>
+                  {" "}
+                  <SettingsField
+                    label={t("agentConfig.shellCommandTimeout")}
+                    name="shell_command_timeout"
+                    rules={[
+                      {
+                        required: true,
+                        message: t("agentConfig.shellCommandTimeoutRequired"),
+                      },
+                      {
+                        type: "number",
+                        min: 1,
+                        message: t("agentConfig.shellCommandTimeoutMin"),
+                      },
+                    ]}
+                    tooltip={t("agentConfig.shellCommandTimeoutTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <NumberSlider
+                      min={1}
+                      max={600}
+                      step={1}
+                      label={t("agentConfig.shellCommandTimeout")}
+                    />
+                  </SettingsField>
+                  <SettingsField
+                    label={t("agentConfig.shellCommandExecutable")}
+                    name="shell_command_executable"
+                    tooltip={t("agentConfig.shellCommandExecutableTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Input
+                      style={{ width: "100%" }}
+                      placeholder={t(
+                        "agentConfig.shellCommandExecutablePlaceholder",
+                      )}
+                      allowClear
+                    />
+                  </SettingsField>
+                </div>{" "}
+                <div className={styles.reactAgentRow}>
+                  <SettingsField
+                    label={t("agentConfig.memoryManagerBackend")}
+                    name="memory_manager_backend"
+                    tooltip={t("agentConfig.memoryManagerBackendTooltip")}
+                    className={styles.reactAgentField}
+                  >
+                    <Select
+                      options={memoryBackendOptions}
+                      style={{ width: "100%" }}
+                    />
+                  </SettingsField>
+                </div>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={t("agentConfig.memoryManagerBackendRestartWarning")}
+                  style={{ marginBottom: 16 }}
+                />
+              </>
+            ),
+          },
+        ]}
       />
-
-      <Form.Item
-        label={t("agentConfig.planMode", "Plan Mode")}
-        tooltip={t(
-          "agentConfig.planModeTooltip",
-          "Enable plan mode to use /plan <description> for structured task planning",
-        )}
-      >
-        <Switch
-          checked={planEnabled}
-          loading={planLoading}
-          onChange={handlePlanToggle}
-        />
-      </Form.Item>
     </Card>
   );
 }

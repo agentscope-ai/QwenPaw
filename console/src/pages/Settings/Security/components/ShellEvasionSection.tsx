@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
@@ -48,14 +49,13 @@ export function ShellEvasionSection({
               <div className={styles.shellEvasionItemInfo}>
                 <span className={styles.shellEvasionItemName}>
                   {displayName}
+                  {displayDesc && (
+                    <InlineHelp subject={displayName}>{displayDesc}</InlineHelp>
+                  )}
                 </span>
-                {displayDesc && (
-                  <span className={styles.shellEvasionItemDesc}>
-                    {displayDesc}
-                  </span>
-                )}
               </div>
               <Switch
+                aria-label={displayName}
                 size="small"
                 checked={isEnabled}
                 onChange={(val) => onToggle(checkKey, val)}

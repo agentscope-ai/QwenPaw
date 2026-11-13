@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access
+# pylint: disable=protected-access,wrong-import-position,no-name-in-module
 """Tests for non-blocking MCP startup."""
 
 from __future__ import annotations
@@ -9,8 +9,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.app.mcp.manager import MCPClientManager
-from qwenpaw.app.workspace.service_factories import create_mcp_service
+# pylint: disable=no-name-in-module
+# flake8: noqa: E402,E501
+pytest.importorskip(
+    "qwenpaw.app.mcp.manager",
+    reason=(
+        "qwenpaw.app.mcp.manager (MCPClientManager) was removed in "
+        "AgentScope 2.0; MCP lifecycle is handled by the workspace layer"
+    ),
+)
+from qwenpaw.app.mcp.manager import (  # type: ignore[import]
+    MCPClientManager,
+)
+from qwenpaw.app.workspace.service_factories import (  # type: ignore[import]
+    create_mcp_service,
+)
 from qwenpaw.app.workspace.workspace import Workspace
 from qwenpaw.config.config import MCPClientConfig, MCPConfig
 
@@ -65,7 +78,7 @@ def _enabled_mcp_config(client_count: int = 1) -> MCPConfig:
 
 @pytest.mark.asyncio
 async def test_deferred_mcp_service_uses_background_initialization(tmp_path):
-    workspace = Workspace(
+    workspace = Workspace(  # pylint: disable=unexpected-keyword-arg
         agent_id="default",
         workspace_dir=str(tmp_path),
         defer_mcp_startup=True,

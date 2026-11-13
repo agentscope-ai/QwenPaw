@@ -36,20 +36,31 @@ class HeartbeatPage(BasePage):
     
     # ========== Selector definitions ==========
 
-    # Page load indicator (no h1 on the page; use a switch or input instead)
-    PAGE_LOAD_INDICATOR = '.ant-switch, .qwenpaw-switch, input'
+    PAGE_LOAD_INDICATOR = '[role="switch"][aria-label]'
 
     # Configuration card
     CONFIG_CARD = ".ant-card, .qwenpaw-card, [class*=card]"
     CONFIG_FORM = ".ant-form, .qwenpaw-form"
 
-    # Enabled switch (match id="enabled" exactly to avoid the "active hours" switch)
-    ENABLED_SWITCH = '#enabled'
+    ENABLED_SWITCH = (
+        '[role="switch"][aria-label="Enable heartbeat"], '
+        '[role="switch"][aria-label="开启心跳"]'
+    )
     ENABLED_LABEL = '.ant-form-item:has-text("Enable"), .ant-form-item:has-text("启用"), .qwenpaw-form-item:has-text("启用"), .qwenpaw-form-item:has-text("开启")'
 
-    # Interval configuration
-    INTERVAL_INPUT = 'input[id*="interval"], input[type="number"], input.qwenpaw-input-number-input'
-    INTERVAL_UNIT_SELECT = '.qwenpaw-select:has(#everyUnit), .ant-select:has(#everyUnit), .ant-select:has-text("seconds"), .ant-select:has-text("minutes"), .ant-select:has-text("hours"), .qwenpaw-select:has-text("秒"), .qwenpaw-select:has-text("分钟"), .qwenpaw-select:has-text("小时")'
+    # Interval configuration.
+    # v2.0.0 (PR #5557) added a sibling `#timeoutSeconds` InputNumber to the
+    # same page, so the previous broad selector matched two elements and
+    # Playwright strict-mode `.fill()` failed. Anchor on `#everyNumber` —
+    # the id emitted by the frontend Form.Item name="everyNumber".
+    INTERVAL_INPUT = (
+        '[role="spinbutton"][aria-label="Hours"], '
+        '[role="spinbutton"][aria-label="小时"]'
+    )
+    INTERVAL_UNIT_SELECT = (
+        '[role="spinbutton"][aria-label="Minutes"], '
+        '[role="spinbutton"][aria-label="分钟"]'
+    )
 
     # Scheduled time
     TIME_PICKER = '.ant-picker-input > input, .qwenpaw-picker-input > input'
@@ -58,8 +69,8 @@ class HeartbeatPage(BasePage):
     # Skill configuration
     SKILL_SELECT = '.ant-select[data-placeholder*="Skill" i], .ant-select:has-text("skill"), .qwenpaw-select[data-placeholder*="技能" i], .qwenpaw-select:has-text("技能")'
 
-    # Save button (the actual UI may render "保 存" with a space)
-    SAVE_BTN = 'button:has-text("Save"), button:has-text("保存"), button:has-text("保 存")'
+    # The redesigned form persists changes through useAutoSave.
+    SAVE_BTN = 'form[class*="schedule"]'
 
     # Status indicator
     STATUS_INDICATOR = '.ant-badge-status, .qwenpaw-badge-status, .status-indicator'
@@ -102,28 +113,11 @@ class HeartbeatPage(BasePage):
     
     def get_interval(self) -> Dict[str, Any]:
         """Return the heartbeat interval configuration."""
-        interval_input = self.page.locator(self.INTERVAL_INPUT)
-        unit_select = self.page.locator(self.INTERVAL_UNIT_SELECT)
-
-        result = {"value": None, "unit": None}
-
-        if interval_input.count() > 0:
-            result["value"] = interval_input.first.input_value()
-
-        if unit_select.count() > 0:
-            # Prefer the title attribute, falling back to inner_text
-            selection_item = unit_select.first.locator('.qwenpaw-select-selection-item, .ant-select-selection-item')
-            if selection_item.count() > 0:
-                unit_text = selection_item.get_attribute('title') or selection_item.inner_text().strip()
-                result["unit"] = unit_text if unit_text else None
-            else:
-                # Fallback: take the container text and clean it up
-                raw_text = unit_select.first.inner_text().strip()
-                # Strip label text, keep only the selected value
-                if raw_text:
-                    result["unit"] = raw_text.split('\n')[0].strip() if '\n' in raw_text else raw_text
-
-        return result
+        hours = self.page.locator(self.INTERVAL_INPUT).first
+        minutes = self.page.locator(self.INTERVAL_UNIT_SELECT).first
+        hour_value = int(hours.get_attribute("aria-valuenow") or 0)
+        minute_value = int(minutes.get_attribute("aria-valuenow") or 0)
+        return {"value": hour_value * 60 + minute_value, "unit": "minutes"}
 
     def get_scheduled_time(self) -> Optional[str]:
         """Return the scheduled time."""
@@ -160,34 +154,25 @@ class HeartbeatPage(BasePage):
 
     def set_interval(self, value: int, unit: str = "minutes") -> "HeartbeatPage":
         """Set the heartbeat interval (accepts Chinese or English units)."""
-        # Set the numeric value
-        interval_input = self.page.locator(self.INTERVAL_INPUT)
-        if interval_input.count() > 0:
-            interval_input.fill(str(value))
-
-        # Pick the unit
-        if unit:
-            unit_select = self.page.locator(self.INTERVAL_UNIT_SELECT)
-            if unit_select.count() > 0:
-                unit_select.first.click()
-                self.page.wait_for_timeout(300)
-                # Try every Chinese/English alias
-                aliases = self.UNIT_ALIASES.get(unit, [unit])
-                clicked = False
-                for alias in aliases:
-                    option = self.page.locator(
-                        f'.qwenpaw-select-item-option:has-text("{alias}"), '
-                        f'.ant-select-item-option:has-text("{alias}"), '
-                        f'.qwenpaw-select-item:has-text("{alias}"), '
-                        f'.ant-select-item:has-text("{alias}")'
-                    )
-                    if option.count() > 0:
-                        option.first.click()
-                        clicked = True
-                        logger.info(f"Selected unit: {alias}")
-                        break
-                if not clicked:
-                    logger.warning(f"Unit option not found: {unit} (aliases: {aliases})")
+        total_minutes = (
+            value * 60 if unit in ("小时", "Hours", "hours") else value
+        )
+        targets = (
+            (
+                self.page.locator(self.INTERVAL_INPUT).first,
+                total_minutes // 60,
+            ),
+            (
+                self.page.locator(self.INTERVAL_UNIT_SELECT).first,
+                total_minutes % 60,
+            ),
+        )
+        for control, target in targets:
+            expect(control).to_be_visible(timeout=self.timeout)
+            control.press("Home")
+            for _ in range(target):
+                control.press("ArrowDown")
+        self.page.wait_for_timeout(800)
 
         return self
 
@@ -211,8 +196,7 @@ class HeartbeatPage(BasePage):
         return self
 
     def save_config(self) -> "HeartbeatPage":
-        """Save the configuration."""
-        self.page.locator(self.SAVE_BTN).first.click()
+        """Wait for the form's debounced auto-save to finish."""
         self.page.wait_for_timeout(1000)
         return self
 
@@ -227,19 +211,19 @@ class HeartbeatPage(BasePage):
         skill_name: Optional[str] = None,
     ) -> "HeartbeatPage":
         """End-to-end heartbeat configuration flow."""
+        self.set_interval(interval, unit)
+
         if enabled:
             self.enable_heartbeat()
         else:
             self.disable_heartbeat()
-        
-        self.set_interval(interval, unit)
-        
+
         if scheduled_time:
             self.set_scheduled_time(scheduled_time)
-        
+
         if skill_name:
             self.set_skill(skill_name)
-        
+
         self.save_config()
         return self
     
@@ -268,12 +252,15 @@ class HeartbeatPage(BasePage):
     def assert_interval(self, expected_value: int, expected_unit: str = "分钟") -> "HeartbeatPage":
         """Assert the interval configuration (accepts Chinese or English units)."""
         interval = self.get_interval()
-        assert int(interval["value"]) == expected_value, f"Interval value should be {expected_value}, got {interval['value']}"
-        actual_unit = interval["unit"] or ""
-        # Look up every alias for expected_unit
-        aliases = self.UNIT_ALIASES.get(expected_unit, [expected_unit])
-        unit_matched = any(alias in actual_unit for alias in aliases)
-        assert unit_matched, f"Interval unit should be {expected_unit} (or alias {aliases}), got {actual_unit}"
+        expected_minutes = (
+            expected_value * 60
+            if expected_unit in ("小时", "Hours", "hours")
+            else expected_value
+        )
+        assert int(interval["value"]) == expected_minutes, (
+            f"Interval should be {expected_minutes} minutes, got "
+            f"{interval['value']}"
+        )
         return self
 
     def assert_config_saved(self) -> "HeartbeatPage":

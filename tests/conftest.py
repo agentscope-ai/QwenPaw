@@ -8,6 +8,7 @@ This module provides shared fixtures for testing CoPaw components.
 All fixtures are designed to be isolated, safe, and easy to use.
 """
 
+import logging
 import os
 import shutil
 import sys
@@ -20,6 +21,16 @@ from unittest.mock import MagicMock
 import pytest
 
 from qwenpaw.providers import provider_manager as _provider_manager_module
+
+# Fixture data is loaded explicitly by tests, never collected as a suite.
+collect_ignore = ["fixtures"]
+
+
+@pytest.fixture(autouse=True)
+def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let caplog see qwenpaw records despite the app logger handler."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
+
 
 # =============================================================================
 # Third-Party Library Mocks
@@ -96,6 +107,7 @@ def temp_copaw_home(
 
     # Set isolated environment
     monkeypatch.setenv("HOME", temp_dir)
+    monkeypatch.setenv("USERPROFILE", temp_dir)
     monkeypatch.setenv("COPAW_HOME", str(temp_path / ".copaw"))
 
     # Clear sensitive tokens to prevent accidental API calls
@@ -355,8 +367,9 @@ def mock_channel_config():
 
     config = MagicMock()
     config.enabled = True
-    config.filter_tool_messages = False
-    config.filter_thinking = False
+    config.show_tool_calls = True
+    config.show_tool_results = True
+    config.show_thinking = True
     config.dm_policy = "open"
     config.group_policy = "open"
     config.require_mention = False
@@ -403,10 +416,10 @@ def mock_provider_factory():
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Configure pytest with custom markers."""
-    # Markers are already defined in pyproject.toml, but we can add
-    # additional configuration here if needed
-    pass
+    """Disable telemetry in tests and the real app subprocesses they spawn."""
+    patch = pytest.MonkeyPatch()
+    patch.setenv("QWENPAW_TELEMETRY_DISABLED", "1")
+    config.add_cleanup(patch.undo)
 
 
 def pytest_collection_modifyitems(
@@ -415,8 +428,10 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Modify test collection to add markers based on test location."""
     for item in items:
-        # Auto-mark tests based on directory
-        path_str = str(item.path)
+        # Auto-mark tests based on directory. as_posix() keeps the separator
+        # forward-slashed on Windows, where str() would yield backslashes and
+        # silently drop these tests from any -m filtered run.
+        path_str = item.path.as_posix()
         if "/unit/" in path_str:
             item.add_marker(pytest.mark.unit)
         elif "/integration/" in path_str:
@@ -454,3 +469,71 @@ def isolated_secret_dir(monkeypatch, tmp_path):
         None,
     )
     return secret_dir
+
+
+@pytest.fixture
+def mock_typesafe(monkeypatch):
+    """Route TypeSafe SDK clients created by agentscope to a handler."""
+    import httpx2
+    import typesafe_sdk
+
+    def install(handler):
+        original_client = typesafe_sdk.AsyncTypeSafeClient
+        monkeypatch.setattr(
+            typesafe_sdk,
+            "AsyncTypeSafeClient",
+            lambda **kwargs: original_client(
+                transport=httpx2.MockTransport(handler),
+                compression=False,
+                **kwargs,
+            ),
+        )
+
+    return install
+
+
+@pytest.fixture
+def installed_router_harnesses(tmp_path, monkeypatch):
+    """Activate declared Harnesses for routes requiring installed backends."""
+    import asyncio
+
+    from qwenpaw.plugins import PluginLoader
+    from qwenpaw.plugins.registry import PluginRegistry
+    from tests.unit.plugins.test_sdk_entry_contract import write_plugin
+
+    previous = PluginRegistry._instance  # pylint: disable=protected-access
+    PluginRegistry._instance = None  # pylint: disable=protected-access
+    loader = PluginLoader(plugin_dirs=[tmp_path / "router-plugins"])
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", str(tmp_path / "router-work"))
+
+    async def load():
+        for backend in ("codex", "qoder", "claude_code"):
+            root = tmp_path / "router-plugins" / f"qwenpaw-harness-{backend}"
+            manifest = write_plugin(
+                root,
+                "from qwenpaw.plugins.harnesses import "
+                "HarnessCapabilities, HarnessSpec\n"
+                "class Plugin:\n"
+                "    def register(self, context):\n"
+                "        context.register_harness(HarnessSpec(\n"
+                f"            {backend!r}, {backend!r}, "
+                "lambda context, settings: None, "
+                "HarnessCapabilities(model_selection=True, "
+                "reasoning_effort=True)))\n"
+                "plugin = Plugin()\n",
+                sdk={"version": "1.1.0", "capabilities": ["harnesses"]},
+                meta={"harnesses": [{"id": backend, "label": backend}]},
+            )
+            record = await loader.load_plugin(manifest, root, {})
+            assert record.status == "active", record.diagnostics
+
+    async def unload():
+        for plugin_id in list(loader.get_all_loaded_plugins()):
+            await loader.unload_plugin(plugin_id)
+
+    try:
+        asyncio.run(load())
+        yield loader
+    finally:
+        asyncio.run(unload())
+        PluginRegistry._instance = previous  # pylint: disable=protected-access

@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ..constant import WORKING_DIR
+from ..utils.io_utils import (
+    read_json,
+    run_sync_io,
+    unlink_async,
+    write_json_atomic,
+)
 
 _TRACE_DIR = WORKING_DIR / "inbox_traces"
 _LOCK = asyncio.Lock()
@@ -43,7 +48,7 @@ def _read_trace(run_id: str) -> dict[str, Any]:
             "meta": {},
             "events": [],
         }
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = read_json(path)
     if not isinstance(data, dict):
         raise ValueError("invalid trace file")
     data.setdefault("events", [])
@@ -51,14 +56,12 @@ def _read_trace(run_id: str) -> dict[str, Any]:
 
 
 def _write_trace(run_id: str, payload: dict[str, Any]) -> None:
-    _TRACE_DIR.mkdir(parents=True, exist_ok=True)
     path = _trace_path(run_id)
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
+    write_json_atomic(
+        path,
+        payload,
+        sort_keys=True,
     )
-    tmp_path.replace(path)
 
 
 async def create_trace(
@@ -75,7 +78,7 @@ async def create_trace(
             "meta": _to_jsonable(meta or {}),
             "events": [],
         }
-        _write_trace(run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 async def append_trace_events(
@@ -101,11 +104,11 @@ async def append_trace_events(
         return
 
     async with _LOCK:
-        payload = _read_trace(run_id)
+        payload = await run_sync_io(_read_trace, run_id)
         existing_events = payload.get("events", [])
         existing_events.extend(normalized_events)
         payload["events"] = existing_events
-        _write_trace(run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 def flatten_session_messages(content: Any) -> list[dict[str, Any]]:
@@ -125,11 +128,13 @@ def parse_session_timestamp(value: Any) -> float | None:
     if not isinstance(value, str) or not value.strip():
         return None
     raw = value.strip()
-    formats = ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S")
-    for fmt in formats:
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
         try:
-            dt = datetime.strptime(raw, fmt)
-            return dt.timestamp()
+            return datetime.strptime(raw, fmt).timestamp()
         except ValueError:
             continue
     return None
@@ -154,8 +159,8 @@ async def read_session_messages(
         )
     except Exception:  # pylint: disable=broad-except
         return []
-    memory = state.get("agent", {}).get("memory", {})
-    return flatten_session_messages(memory.get("content"))
+    agent_state = state.get("agent", {}).get("state", {})
+    return flatten_session_messages(agent_state.get("context"))
 
 
 async def append_trace_from_session_delta(
@@ -179,7 +184,9 @@ async def append_trace_from_session_delta(
         run_id,
         [
             {
-                "at": parse_session_timestamp(msg.get("timestamp")),
+                "at": parse_session_timestamp(
+                    msg.get("created_at") or msg.get("timestamp"),
+                ),
                 "event": msg,
             }
             for msg in delta
@@ -195,12 +202,12 @@ async def finalize_trace(
     error: str | None = None,
 ) -> None:
     async with _LOCK:
-        payload = _read_trace(run_id)
+        payload = await run_sync_io(_read_trace, run_id)
         payload["status"] = status
         payload["completed_at"] = time.time()
         if error is not None:
             payload["error"] = error
-        _write_trace(run_id, payload)
+        await run_sync_io(_write_trace, run_id, payload)
 
 
 async def get_trace(run_id: str) -> dict[str, Any] | None:
@@ -208,7 +215,7 @@ async def get_trace(run_id: str) -> dict[str, Any] | None:
     if not path.exists():
         return None
     async with _LOCK:
-        return _read_trace(run_id)
+        return await run_sync_io(_read_trace, run_id)
 
 
 async def delete_trace(run_id: str) -> bool:
@@ -218,5 +225,5 @@ async def delete_trace(run_id: str) -> bool:
     async with _LOCK:
         if not path.exists():
             return False
-        path.unlink(missing_ok=True)
+        await unlink_async(path)
     return True

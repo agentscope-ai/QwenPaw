@@ -8,6 +8,7 @@ import {
   DOWNLOADS_PANEL_IDS,
   DOWNLOADS_TAB_IDS,
   DownloadsHeader,
+  DownloadsOpenSourceNotice,
   type DownloadsTab,
 } from "./components/DownloadsHeader";
 import { PluginsSection } from "./components/PluginsSection";
@@ -16,7 +17,9 @@ import type { DesktopIndex, FileMetadata, MainIndex } from "./types";
 import {
   compareVersionDesc,
   detectOS,
+  isRecommendedDesktopPlatform,
   isPreviewVersion,
+  normalizeDesktopDownloadMetadata,
   orderVersionsWithDefault,
 } from "./utils";
 
@@ -44,8 +47,8 @@ const OTHER_METHODS = [
     titleKey: "downloads.cloud" as const,
     descKey: "downloads.cloudDesc" as const,
     hash: {
-      zh: "方式四部署到阿里云-ECS",
-      en: "Option-4-Deploy-to-Alibaba-Cloud-ECS",
+      zh: "方式五部署到阿里云-ECS",
+      en: "Option-5-Deploy-to-Alibaba-Cloud-ECS",
     },
   },
 ] as const;
@@ -145,6 +148,30 @@ export default function Downloads() {
     hasDesktop && (activeTab === "desktop" || !hasPlugins);
   const showPluginsPanel =
     hasPlugins && (activeTab === "plugins" || !hasDesktop);
+  const desktopPlatforms = Object.keys(desktopIndex?.platforms ?? {});
+  const sortedDesktopPlatforms = Object.fromEntries(
+    Object.entries(desktopIndex?.platforms ?? {})
+      .filter(([platform]) => platform.endsWith("-tauri"))
+      .sort(([platformA], [platformB]) => {
+        const aIsRecommended = isRecommendedDesktopPlatform(
+          platformA,
+          userOS,
+          desktopPlatforms,
+        );
+        const bIsRecommended = isRecommendedDesktopPlatform(
+          platformB,
+          userOS,
+          desktopPlatforms,
+        );
+        if (aIsRecommended !== bIsRecommended) return aIsRecommended ? -1 : 1;
+
+        const aIsTauri = platformA.endsWith("-tauri");
+        const bIsTauri = platformB.endsWith("-tauri");
+        if (aIsTauri !== bIsTauri) return aIsTauri ? -1 : 1;
+
+        return 0;
+      }),
+  ) as DesktopIndex["platforms"];
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -166,6 +193,7 @@ export default function Downloads() {
             <p className="text-base text-site-text-muted md:text-lg">
               {t("downloads.subtitle")}
             </p>
+            <DownloadsOpenSourceNotice className="mt-2" />
           </header>
         )}
 
@@ -212,11 +240,12 @@ export default function Downloads() {
                   className="mb-12"
                 >
                   <PlatformGrid>
-                    {Object.entries(desktopIndex.platforms).map(
+                    {Object.entries(sortedDesktopPlatforms).map(
                       ([platform, platformData]) => {
                         const platformVersions = (platformData.versions || [])
                           .map((fileId) => desktopIndex.files[fileId])
                           .filter((item): item is FileMetadata => Boolean(item))
+                          .map(normalizeDesktopDownloadMetadata)
                           .sort((a, b) =>
                             compareVersionDesc(a.version, b.version),
                           );
@@ -238,7 +267,11 @@ export default function Downloads() {
                             icon={
                               PLATFORM_ICONS[platform] ?? PLATFORM_ICONS.win
                             }
-                            isRecommended={platform === userOS}
+                            isRecommended={isRecommendedDesktopPlatform(
+                              platform,
+                              userOS,
+                              desktopPlatforms,
+                            )}
                           />
                         );
                       },

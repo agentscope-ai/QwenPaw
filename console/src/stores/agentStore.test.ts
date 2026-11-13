@@ -1,16 +1,28 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAgentStore } from "./agentStore";
 import type { AgentSummary } from "@/api/types/agents";
+
+const mocks = vi.hoisted(() => ({
+  listAgents: vi.fn(),
+}));
+
+vi.mock("../api/modules/agents", () => ({
+  agentsApi: {
+    listAgents: mocks.listAgents,
+  },
+}));
 
 const mockAgent = (id: string): AgentSummary =>
   ({ id, name: `Agent ${id}` }) as AgentSummary;
 
 describe("agentStore", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     // Reset to initial state before each test
     useAgentStore.setState({
       selectedAgent: "default",
       agents: [],
+      lastChatIdByAgent: {},
     });
   });
 
@@ -49,6 +61,47 @@ describe("agentStore", () => {
     useAgentStore.getState().setAgents([mockAgent("1")]);
     useAgentStore.getState().setAgents([]);
     expect(useAgentStore.getState().agents).toEqual([]);
+  });
+
+  it("deduplicates concurrent agent refresh requests", async () => {
+    let resolveRequest!: (value: { agents: AgentSummary[] }) => void;
+    mocks.listAgents.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+
+    const firstRefresh = useAgentStore.getState().refreshAgents();
+    const secondRefresh = useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledOnce();
+    resolveRequest({ agents: [mockAgent("1")] });
+    await Promise.all([firstRefresh, secondRefresh]);
+
+    expect(useAgentStore.getState().agents).toEqual([mockAgent("1")]);
+  });
+
+  it("allows a new refresh after the previous request settles", async () => {
+    mocks.listAgents.mockResolvedValue({ agents: [] });
+
+    await useAgentStore.getState().refreshAgents();
+    await useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a new refresh after the previous request fails", async () => {
+    mocks.listAgents
+      .mockRejectedValueOnce(new Error("request failed"))
+      .mockResolvedValueOnce({ agents: [mockAgent("1")] });
+
+    await expect(useAgentStore.getState().refreshAgents()).rejects.toThrow(
+      "request failed",
+    );
+    await useAgentStore.getState().refreshAgents();
+
+    expect(mocks.listAgents).toHaveBeenCalledTimes(2);
+    expect(useAgentStore.getState().agents).toEqual([mockAgent("1")]);
   });
 
   // ---------------------------------------------------------------------------
@@ -110,5 +163,42 @@ describe("agentStore", () => {
       useAgentStore.getState().updateAgent("999", { name: "Ghost" }),
     ).not.toThrow();
     expect(useAgentStore.getState().agents).toHaveLength(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // lastChatIdByAgent
+  // ---------------------------------------------------------------------------
+
+  it("setLastChatId stores chat id per agent", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBe("chat-1");
+  });
+
+  it("removeLastChatId removes the stored chat id for an agent", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    useAgentStore.getState().setLastChatId("agent-2", "chat-2");
+    useAgentStore.getState().removeLastChatId("agent-1");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+    expect(useAgentStore.getState().getLastChatId("agent-2")).toBe("chat-2");
+  });
+
+  it("removeLastChatId with non-existent id does not throw and leaves others", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    expect(() =>
+      useAgentStore.getState().removeLastChatId("agent-999"),
+    ).not.toThrow();
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBe("chat-1");
+  });
+
+  it("setLastChatId does not persist temporary local timestamp ids", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "1785114733908-0l0jmai");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+  });
+
+  it("setLastChatId removes existing entry when given a temporary local id", () => {
+    useAgentStore.getState().setLastChatId("agent-1", "chat-1");
+    useAgentStore.getState().setLastChatId("agent-1", "1785114733908-0l0jmai");
+    expect(useAgentStore.getState().getLastChatId("agent-1")).toBeUndefined();
+    expect(useAgentStore.getState().getLastChatId("agent-2")).toBeUndefined();
   });
 });

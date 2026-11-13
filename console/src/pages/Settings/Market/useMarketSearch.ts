@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { marketApi } from "../../../api/modules/market";
+import { subscribeToPluginChanges } from "../../../utils/pluginChangeEvents";
 import type {
   MarketCategory,
   MarketProviderInfo,
@@ -29,8 +30,9 @@ const resolveInitialProviders = (): Set<string> => {
 
 export interface MarketSearchState {
   providers: MarketProviderInfo[];
+  providersLoaded: boolean;
   selectedProviderKeys: Set<string>;
-  toggleProvider: (key: string) => void;
+  setSelectedProviders: (keys: string[]) => void;
   categories: MarketCategory[];
   category: string;
   setCategory: (id: string) => void;
@@ -48,6 +50,7 @@ export interface MarketSearchState {
   autoLoadMore: () => void;
   /** Set when a batch errored, so the sentinel stops auto-retrying. */
   autoLoadBlocked: boolean;
+  refresh: () => void;
   retry: () => void;
 }
 
@@ -59,6 +62,10 @@ export function useMarketSearch(): MarketSearchState {
   const { i18n } = useTranslation();
   const lang = i18n.language || "en";
   const [providers, setProviders] = useState<MarketProviderInfo[]>([]);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const providersRef = useRef<MarketProviderInfo[] | null>(null);
+  const [catalogVersion, setCatalogVersion] = useState(0);
   const [selectedProviderKeys, setSelectedProviderKeys] = useState<Set<string>>(
     resolveInitialProviders,
   );
@@ -88,48 +95,108 @@ export function useMarketSearch(): MarketSearchState {
 
   // Keep server-provided provider order (QwenPaw first) for ranking.
   const providerKeyList = useMemo(() => {
-    const ordered = providers
-      .map((p) => p.key)
-      .filter((k) => selectedProviderKeys.has(k));
-    for (const k of selectedProviderKeys) {
-      if (!ordered.includes(k)) ordered.push(k);
-    }
-    return ordered;
-  }, [providers, selectedProviderKeys]);
+    if (!providersLoaded) return [];
+    return providers
+      .filter((p) => p.available && selectedProviderKeys.has(p.key))
+      .map((p) => p.key);
+  }, [providers, providersLoaded, selectedProviderKeys]);
+
+  const hadAvailableProviders = useRef(false);
+
+  // Reconcile plugin changes without overriding explicit deselection.
+  useEffect(() => {
+    if (!providersLoaded) return;
+    const enabled = providers.filter((p) => p.available).map((p) => p.key);
+    const keepEmptySelection = hadAvailableProviders.current;
+    hadAvailableProviders.current = enabled.length > 0;
+    setSelectedProviderKeys((prev) => {
+      if (prev.size === 0 && keepEmptySelection) return prev;
+      const valid = [...prev].filter((key) => enabled.includes(key));
+      if (valid.length === prev.size && valid.length > 0) return prev;
+      if (valid.length > 0) return new Set(valid);
+      const fallback = enabled.includes("qwenpaw")
+        ? ["qwenpaw"]
+        : enabled.slice(0, 1);
+      return new Set(fallback);
+    });
+  }, [providers, providersLoaded]);
 
   const providersSeqRef = useRef(0);
-  const fetchProviders = useCallback(() => {
+  const providersRequestRef = useRef(false);
+  const fetchProviders = useCallback((forceRefresh = false) => {
+    if (!forceRefresh && providersRequestRef.current) return;
+    providersRequestRef.current = true;
     const seq = ++providersSeqRef.current;
-    setGlobalError(null);
-    setLoading(true);
+    const foreground = forceRefresh || providersRef.current === null;
+    if (foreground) {
+      ++requestSeqRef.current;
+      setGlobalError(null);
+      setProvidersLoading(true);
+    }
     marketApi
       .listMarketProviders()
       .then((list) => {
         if (seq !== providersSeqRef.current) return;
-        setProviders(list);
-        const enabled = list.filter((p) => p.available).map((p) => p.key);
-        setSelectedProviderKeys((prev) => {
-          const valid = [...prev].filter((k) => enabled.includes(k));
-          if (valid.length > 0) return new Set(valid);
-          const fallback = enabled.includes("qwenpaw")
-            ? ["qwenpaw"]
-            : enabled.slice(0, 1);
-          return new Set(fallback);
-        });
+        const changed =
+          JSON.stringify(list) !== JSON.stringify(providersRef.current);
+        if (changed || forceRefresh) {
+          ++requestSeqRef.current;
+          setCatalogVersion((version) => version + 1);
+        }
+        if (changed) {
+          providersRef.current = list;
+          setProviders(list);
+        }
+        setProvidersLoaded(true);
       })
       .catch((err: unknown) => {
         if (seq !== providersSeqRef.current) return;
+        // A background catalog check must not discard the current search.
+        if (!foreground) return;
+        ++requestSeqRef.current;
+        providersRef.current = null;
+        setProvidersLoaded(false);
         setProviders([]);
+        setResults([]);
+        setErrors([]);
+        setHasMore(false);
+        setTotalCount(0);
         setGlobalError(errorMessage(err));
+        loadingRef.current = false;
+        setLoading(false);
       })
       .finally(() => {
-        if (seq === providersSeqRef.current) setLoading(false);
+        if (seq === providersSeqRef.current) {
+          providersRequestRef.current = false;
+          setProvidersLoading(false);
+        }
       });
+  }, []);
+
+  const refresh = useCallback(() => fetchProviders(true), [fetchProviders]);
+
+  const invalidateRequests = useCallback(() => {
+    providersRequestRef.current = false;
+    ++providersSeqRef.current;
+    ++requestSeqRef.current;
   }, []);
 
   useEffect(() => {
     fetchProviders();
-  }, [fetchProviders]);
+    const unsubscribe = subscribeToPluginChanges(refresh);
+    const onFocus = () => fetchProviders();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchProviders();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      unsubscribe();
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      invalidateRequests();
+    };
+  }, [fetchProviders, refresh, invalidateRequests]);
 
   useEffect(() => {
     let alive = true;
@@ -150,22 +217,22 @@ export function useMarketSearch(): MarketSearchState {
     setCategoryState(id);
   }, []);
 
-  const toggleProvider = useCallback((key: string) => {
-    setSelectedProviderKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const setSelectedProviders = useCallback((keys: string[]) => {
+    setSelectedProviderKeys(new Set(keys));
   }, []);
 
   // Persist the provider selection so it survives a page refresh.
   useEffect(() => {
-    localStorage.setItem(
-      PROVIDERS_STORAGE_KEY,
-      JSON.stringify([...selectedProviderKeys]),
-    );
-  }, [selectedProviderKeys]);
+    if (!providersLoaded) return;
+    try {
+      localStorage.setItem(
+        PROVIDERS_STORAGE_KEY,
+        JSON.stringify([...selectedProviderKeys]),
+      );
+    } catch {
+      // Storage unavailable; keep the current selection in memory.
+    }
+  }, [selectedProviderKeys, providersLoaded]);
 
   const applyResponse = useCallback(
     (resp: MarketSearchResponse, append: boolean) => {
@@ -201,13 +268,16 @@ export function useMarketSearch(): MarketSearchState {
       cat: string,
     ) => {
       const seq = ++requestSeqRef.current;
-      // An empty query browses the providers' default listing; only
-      // bail when there are no providers to query.
-      if (Object.keys(pages).length === 0) {
+      if (!append) {
         setResults([]);
         setErrors([]);
         setHasMore(false);
         setTotalCount(0);
+      }
+      // An empty query browses the providers' default listing; only
+      // bail when there are no providers to query.
+      if (Object.keys(pages).length === 0) {
+        if (providersLoaded) setGlobalError(null);
         loadingRef.current = false;
         setLoading(false);
         return;
@@ -243,7 +313,7 @@ export function useMarketSearch(): MarketSearchState {
           }
         });
     },
-    [applyResponse, setAutoLoadBlocked],
+    [applyResponse, setAutoLoadBlocked, providersLoaded],
   );
 
   const fetchNextPages = useCallback(() => {
@@ -262,17 +332,18 @@ export function useMarketSearch(): MarketSearchState {
   }, [fetchNextPages, setAutoLoadBlocked]);
 
   const autoLoadMore = useCallback(() => {
-    if (loadingRef.current || autoLoadBlockedRef.current) return;
+    if (loadingRef.current || providersLoading || autoLoadBlockedRef.current)
+      return;
     fetchNextPages();
-  }, [fetchNextPages]);
+  }, [fetchNextPages, providersLoading]);
 
   const retry = useCallback(() => {
     if (providers.length === 0) {
-      fetchProviders();
+      refresh();
     } else {
       loadMore();
     }
-  }, [providers.length, fetchProviders, loadMore]);
+  }, [providers.length, refresh, loadMore]);
 
   // Search and category browse are mutually exclusive (same semantics
   // as the plugin market): typing a query clears the active category.
@@ -289,7 +360,8 @@ export function useMarketSearch(): MarketSearchState {
   // Reset cursors + refetch when query/providers/lang/category change.
   const lastKeyRef = useRef("");
   useEffect(() => {
-    const key = `${debouncedQuery}|${providerKeyList.join(
+    if (!providersLoaded) return;
+    const key = `${catalogVersion}|${debouncedQuery}|${providerKeyList.join(
       ",",
     )}|${lang}|${category}`;
     if (lastKeyRef.current === key) return;
@@ -305,6 +377,8 @@ export function useMarketSearch(): MarketSearchState {
     setAutoLoadBlocked(false);
     runFetch(debouncedQuery, initialPages, false, lang, category);
   }, [
+    providersLoaded,
+    catalogVersion,
     debouncedQuery,
     providerKeyList,
     lang,
@@ -315,8 +389,9 @@ export function useMarketSearch(): MarketSearchState {
 
   return {
     providers,
+    providersLoaded,
     selectedProviderKeys,
-    toggleProvider,
+    setSelectedProviders,
     categories,
     category,
     setCategory,
@@ -325,12 +400,13 @@ export function useMarketSearch(): MarketSearchState {
     results,
     errors,
     globalError,
-    loading,
+    loading: loading || providersLoading,
     totalCount,
     hasMore,
     loadMore,
     autoLoadMore,
     autoLoadBlocked,
+    refresh,
     retry,
   };
 }

@@ -59,6 +59,23 @@ describe("providerApi", () => {
     });
   });
 
+  it("keeps nullable active-model and discovery error response fields", () => {
+    const active = {
+      active_llm: null,
+      effective_max_input_length: null,
+    } satisfies import("../types/provider").ActiveModelsInfo;
+    const discovery = {
+      success: false,
+      message: "Authentication failed",
+      models: [],
+      discovered_count: 0,
+      error_kind: "authentication",
+    } satisfies import("../types/provider").DiscoverModelsResponse;
+
+    expect(active.active_llm).toBeNull();
+    expect(discovery.error_kind).toBe("authentication");
+  });
+
   it("configureProvider encodes providerId and sends PUT", async () => {
     await providerApi.configureProvider("open/ai", { api_key: "sk-xxx" });
     expect(request).toHaveBeenCalledWith(

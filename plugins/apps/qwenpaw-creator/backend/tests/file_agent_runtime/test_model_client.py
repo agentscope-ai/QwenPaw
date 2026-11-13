@@ -1,0 +1,1266 @@
+# -*- coding: utf-8 -*-
+# flake8: noqa: E501
+# pylint: disable=protected-access,use-implicit-booleaness-not-comparison
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+
+from agentscope.message import (
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    ToolResultState,
+)
+from agentscope.model import DashScopeChatModel
+from agentscope.model._model_response import ChatResponse
+import pytest
+
+from services.file_agent_runtime.model_client import (
+    MAX_RATE_LIMIT_RETRIES,
+    AgentModelError,
+    AgentStreamCallbackError,
+    AgentStreamCallbackPassthrough,
+    AgentModelTurn,
+    AgentScopeAgentChatClient,
+    AgentScopeVlmChatClient,
+    AgentToolCall,
+    CallbackAgentChatClient,
+    RateLimitExhaustedError,
+    RateLimitRetryNotice,
+    records_to_agentscope_messages,
+)
+from services.file_agent_runtime import model_client
+from services.file_agent_runtime import model_context
+from services.file_agent_runtime.model_context import (
+    ModelContextBudgetError,
+    _inline_media_relief,
+    compact_conversation_history,
+    prepare_model_messages,
+)
+
+pytestmark = pytest.mark.unit
+
+
+def test_inline_media_is_charged_as_vision_tokens_not_base64_text():
+    """A media-bearing contract message must fit the serialized budget.
+
+    Regression guard: ``size()`` used to count the whole messages JSON as
+    text, so one 2MB image inlined as a ~2.7MB Base64 data URL exceeded the
+    384KB budget by itself. Media-bearing user messages are contract content
+    that compaction may not drop, so the request was refused locally and never
+    reached the provider — the understanding record just came back empty.
+    """
+    encoded = base64.b64encode(b"\x00" * (2 * 1024 * 1024)).decode()
+    data_url = f"data:image/jpeg;base64,{encoded}"
+    messages = [
+        {"role": "system", "content": "项目创作契约"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "理解这张图"},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+
+    result = prepare_model_messages(messages, [])
+
+    # Inline media is charged, never dropped or rewritten.
+    assert result[1]["content"][1]["image_url"]["url"] == data_url
+    assert result[0]["content"] == "项目创作契约"
+
+
+def test_oversized_inline_media_is_still_refused():
+    """The vision-token charge has a floor, so media is never free."""
+    # 1MB decoded → charge = 1MB / 128 = 8KB, exactly the per-media floor.
+    encoded = base64.b64encode(b"\x00" * (1024 * 1024)).decode()
+    data_url = f"data:image/jpeg;base64,{encoded}"
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+
+    # Three floors are ~24KB of charged media. Under a 16KB budget nothing
+    # fits and there is no droppable tool group, so the guard fails closed
+    # instead of letting an oversized request reach the provider.
+    with pytest.raises(ModelContextBudgetError):
+        prepare_model_messages(messages, [], max_bytes=16 * 1024)
+
+
+def test_long_production_compacts_automatic_history_but_keeps_human_input():
+    human_sources = [
+        "initial_goal",
+        "user",
+        "review_rejection_feedback",
+        "custom",
+    ]
+    history = [
+        {
+            "role": "user",
+            "source": source,
+            "content": [{"type": "text", "text": f"{source}: 保留全部六集与对白"}],
+        }
+        for source in human_sources
+    ]
+    human_input = json.dumps(history, ensure_ascii=False)
+    for index in range(80):
+        history.append(
+            {
+                "role": "user",
+                "source": (
+                    "run_review_feedback"
+                    if index % 2
+                    else "render_review_feedback"
+                ),
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"review-{index}:" + "自动审阅结果。" * 300,
+                    },
+                ],
+            },
+        )
+    original = json.dumps(history, ensure_ascii=False)
+    current = "继续第二集。不要重做已保留视频。"
+    continuation = (
+        "CONVERSATION_HISTORY_JSON="
+        + original
+        + "\n\nCURRENT_USER_REQUEST=\n"
+        + current
+    )
+    result = prepare_model_messages(
+        [
+            {"role": "system", "content": "项目创作契约"},
+            {"role": "user", "content": continuation},
+        ],
+        [],
+    )
+    assert len(json.dumps(result, ensure_ascii=False).encode()) < 384 * 1024
+    view, request = result[1]["content"].split("\n\nCURRENT_USER_REQUEST=\n")
+    retained = json.loads(view.split("CONVERSATION_HISTORY_JSON=", 1)[1])
+    assert request == current
+    assert [
+        item for item in retained if item.get("source") in human_sources
+    ] == [item | {"metadata": {}} for item in json.loads(human_input)]
+    assert retained[-1] == history[-1] | {"metadata": {}}
+    assert retained[0]["elidedMessageCount"] > 0
+    assert json.dumps(history, ensure_ascii=False) == original
+
+    # Genuine user requirements remain protected, even when they cannot fit.
+    for item in history:
+        item["source"] = "user"
+    with pytest.raises(ModelContextBudgetError):
+        prepare_model_messages(
+            [
+                {
+                    "role": "user",
+                    "content": "CONVERSATION_HISTORY_JSON="
+                    + json.dumps(history, ensure_ascii=False)
+                    + "\n\nCURRENT_USER_REQUEST=\n"
+                    + current,
+                },
+            ],
+            [],
+        )
+
+
+def test_inline_media_relief_is_additive_across_elided_slots():
+    """Compaction carries relief incrementally, which needs additivity.
+
+    ``compact_conversation_history`` no longer re-walks every message to
+    recompute relief on each pass; it subtracts the item it just elided.
+    That is only exact because relief sums over list items and an elided
+    slot is worth zero, so the invariant itself is what this guards.
+    """
+    encoded = base64.b64encode(b"\x00" * (512 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    first = {"role": "user", "content": [media]}
+    second = {"role": "user", "content": [media, media]}
+    plain = {"role": "user", "content": "plain text"}
+    history = [first, second, plain]
+
+    whole = _inline_media_relief(history)
+    assert whole == sum(_inline_media_relief(item) for item in history)
+    assert _inline_media_relief(None) == 0
+
+    elided = [first, None, plain]
+    assert _inline_media_relief(elided) == whole - _inline_media_relief(
+        second,
+    )
+
+
+def test_media_bearing_automatic_history_is_elided_under_budget():
+    """Droppable reviews that carry inline media must actually leave.
+
+    Pins the budget accounting where relief changes mid-loop. If the
+    carried total were left un-decremented, ``json_bytes`` would shrink
+    while relief stayed huge, the check would go negative, and
+    compaction would stop after the first message — handing the provider
+    a request still over budget instead of reaching it.
+    """
+    encoded = base64.b64encode(b"\x00" * (512 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    history = [
+        {
+            "role": "user",
+            "source": "initial_goal",
+            "content": [{"type": "text", "text": "保留全部六集与对白"}],
+        },
+    ]
+    for index in range(6):
+        history.append(
+            {
+                "role": "user",
+                "source": "run_review_feedback",
+                "content": [
+                    {"type": "text", "text": f"review-{index}"},
+                    media,
+                ],
+            },
+        )
+
+    result = compact_conversation_history(history, max_bytes=4096)
+
+    assert result[0]["source"] == "context_compaction"
+    assert result[0]["elidedMessageCount"] == 6
+    assert [item.get("source") for item in result[1:]] == ["initial_goal"]
+
+
+@pytest.mark.parametrize(
+    ("project_id", "generation", "superseded"),
+    [
+        ("project-1", None, False),
+        ("project-1", 19, False),
+        ("project-2", 21, False),
+        ("project-1", 20, True),
+        ("project-1", 21, True),
+    ],
+)
+def test_new_snapshot_frees_history_space_for_script_and_skills(
+    project_id,
+    generation,
+    superseded,
+):
+    human = "Keep all six episodes and the accepted films. " + "h" * 700
+    previous = {
+        "project": {"project_id": "project-1", "description": "old" * 5200},
+        "generation": 20,
+        "etag": "old-etag",
+    }
+    history = [
+        {
+            "role": "user",
+            "source": "user",
+            "content": [{"type": "text", "text": human}],
+        },
+        {
+            "role": "tool",
+            "content": [{"type": "text", "text": json.dumps(previous)}],
+        },
+    ]
+    messages = [
+        {"role": "system", "content": "s" * 9000},
+        {
+            "role": "user",
+            "content": "CONVERSATION_HISTORY_JSON="
+            + json.dumps(history)
+            + "\n\nCURRENT_USER_REQUEST=\nContinue automatically.",
+        },
+    ]
+    calls = []
+    if generation is not None:
+        calls.append(
+            (
+                "snapshot",
+                json.dumps(
+                    {
+                        "project": {
+                            "project_id": project_id,
+                            "description": "current" * 700,
+                        },
+                        "generation": generation,
+                        "etag": "current-etag",
+                    },
+                ),
+            ),
+        )
+    calls.extend([("skill", "skill" * 1300), ("script", "script" * 1100)])
+    for call_id, content in calls:
+        messages.extend(
+            [
+                {
+                    "role": "assistant",
+                    "content": "Read " + call_id,
+                    "tool_calls": [
+                        AgentToolCall(
+                            call_id=call_id,
+                            name="read_project",
+                            arguments={},
+                        ).history_dict(),
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": content,
+                },
+            ],
+        )
+    original = json.dumps(messages)
+    result = prepare_model_messages(messages, [], max_bytes=32 * 1024)
+    continuation = result[1]["content"]
+    assert human in continuation
+    assert continuation.endswith(
+        "CURRENT_USER_REQUEST=\nContinue automatically.",
+    )
+    assert ("old" * 5200 in continuation) is not superseded
+    if superseded:
+        assert [m["tool_call_id"] for m in result if m["role"] == "tool"] == [
+            "snapshot",
+            "skill",
+            "script",
+        ]
+    assert json.dumps(messages) == original
+
+
+def _configure_text_model(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    protocol: str = "",
+) -> None:
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_api_key",
+        lambda: "test-api-key",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://model.example/v1",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_model_name",
+        lambda: "qwen3.7-plus",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_protocol",
+        lambda: protocol,
+    )
+
+
+def _tools() -> list[dict[str, object]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "read_project",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"projectId": {"type": "string"}},
+                    "required": ["projectId"],
+                },
+            },
+        },
+    ]
+
+
+def test_default_client_constructs_real_agentscope_dashscope_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _configure_text_model(monkeypatch)
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, DashScopeChatModel)
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_temperature"),
+    [("qwen3.7-plus", 0.2), ("kimi-k3", None)],
+)
+def test_kimi_k3_omits_unsupported_temperature(
+    monkeypatch: pytest.MonkeyPatch,
+    model_name: str,
+    expected_temperature: float | None,
+) -> None:
+    # DashScope rejects an explicit ``temperature`` for kimi-k3, so the client
+    # must drop it and let the gateway apply the model default; every other
+    # model keeps the Creator sampling default.
+    _configure_text_model(monkeypatch)
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_model_name",
+        lambda: model_name,
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, DashScopeChatModel)
+    assert configured.parameters.temperature == expected_temperature
+
+
+def test_temperature_refusal_rebuilds_cached_model_without_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A first-turn refusal must invalidate the cached model so the *next*
+    # Agent turn is rebuilt without a temperature. ``_configured_model()``
+    # keys only on the connection tuple, which the capability flip does not
+    # change, so the client has to drop ``model``/``_configuration`` itself.
+    # pylint: disable=protected-access
+    from models.model_capability_cache import get_capability_cache
+
+    model_config = model_client.model_config
+    _configure_text_model(monkeypatch)
+    monkeypatch.setattr(
+        model_config,
+        "get_text_model_name",
+        lambda: "brand-new-model",
+    )
+    cache = get_capability_cache()
+    key = model_config._temperature_capability_key("brand-new-model")
+    cache.clear(key)
+    try:
+        client = AgentScopeAgentChatClient()
+        first = client._configured_model()
+        assert isinstance(first, DashScopeChatModel)
+        # Before any refusal the sampling default is still sent.
+        assert first.parameters.temperature == 0.2
+
+        async def _refuse(self, *_args, **_kwargs):
+            raise RuntimeError(
+                "Parameter 'temperature'=0.2 is not supported "
+                "for brand-new-model",
+            )
+
+        monkeypatch.setattr(DashScopeChatModel, "__call__", _refuse)
+        with pytest.raises(AgentModelError):
+            asyncio.run(
+                client.complete(
+                    messages=[{"role": "user", "content": "ping"}],
+                    tools=[],
+                ),
+            )
+
+        # The refusal was learned and the cached model dropped, so the next
+        # turn rebuilds and omits the temperature entirely.
+        assert model_config.chat_temperature("brand-new-model", 0.2) is None
+        assert client.model is None
+        second = client._configured_model()
+        assert second is not first
+        assert second.parameters.temperature is None
+    finally:
+        cache.clear(key)
+
+
+@pytest.mark.parametrize(
+    ("protocol", "base_url"),
+    [
+        ("Anthropic Claude", "https://api.anthropic.com"),
+        ("MiniMax", "https://api.minimaxi.com/anthropic"),
+    ],
+)
+def test_anthropic_compatible_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+    protocol: str,
+    base_url: str,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    _configure_text_model(monkeypatch, protocol=protocol)
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: base_url,
+    )
+    assert isinstance(
+        AgentScopeAgentChatClient()._configured_model(),
+        AnthropicChatModel,
+    )
+
+
+def test_anthropic_agent_uses_model_limit_instead_of_sdk_default(monkeypatch):
+    _configure_text_model(monkeypatch, protocol="Anthropic Claude")
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_model_name",
+        lambda: "MiniMax-M2.7",
+    )
+    client = AgentScopeAgentChatClient()
+    configured = client._configured_model()
+    captured = {}
+
+    async def capture(**kwargs):
+        captured.update(kwargs)
+        raise RuntimeError("request captured before transport")
+
+    monkeypatch.setattr(configured.client.messages, "create", capture)
+    with pytest.raises(AgentModelError, match="request captured"):
+        asyncio.run(
+            client.complete(
+                messages=[{"role": "user", "content": "ping"}],
+                tools=[],
+            ),
+        )
+    assert captured["max_tokens"] == 204800
+
+
+def test_gemini_protocol_constructs_gemini_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import GeminiChatModel
+
+    _configure_text_model(
+        monkeypatch,
+        protocol="Google Gemini",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_text_base_url",
+        lambda: "https://generativelanguage.googleapis.com",
+    )
+
+    configured = AgentScopeAgentChatClient()._configured_model()
+
+    assert isinstance(configured, GeminiChatModel)
+
+
+def test_history_is_rehydrated_as_agentscope_tool_blocks() -> None:
+    messages = records_to_agentscope_messages(
+        [
+            {"role": "system", "content": "schema"},
+            {"role": "user", "content": "读取项目"},
+            {
+                "role": "assistant",
+                "content": "先读取。",
+                "tool_calls": [
+                    {
+                        "id": "call-read-1",
+                        "type": "function",
+                        "function": {
+                            "name": "read_project",
+                            "arguments": '{"projectId":"project-1"}',
+                        },
+                    },
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call-read-1",
+                "name": "read_project",
+                "content": '{"ok":false}',
+                "failed": True,
+            },
+        ],
+    )
+
+    assert messages[0].role == "system"
+    assert messages[1].role == "user"
+    assert messages[2].role == "assistant"
+    call = messages[2].content[-1]
+    assert isinstance(call, ToolCallBlock)
+    assert call.id == "call-read-1"
+    assert call.name == "read_project"
+    assert json.loads(call.input) == {"projectId": "project-1"}
+    assert messages[3].role == "assistant"
+    result = messages[3].content[0]
+    assert isinstance(result, ToolResultBlock)
+    assert result.id == call.id
+    assert result.name == call.name
+    assert result.output == '{"ok":false}'
+    assert result.state == ToolResultState.ERROR.value
+
+
+def test_vlm_anthropic_protocol_constructs_anthropic_chat_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agentscope.model import AnthropicChatModel
+
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_api_key",
+        lambda: "vlm-key",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_base_url",
+        lambda: "https://api.anthropic.com",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_model_name",
+        lambda: "claude-sonnet-4-20250514",
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_timeout_seconds",
+        lambda: 180,
+    )
+    monkeypatch.setattr(
+        model_client.model_config,
+        "get_vlm_protocol",
+        lambda: "Anthropic Claude",
+    )
+
+    configured = AgentScopeVlmChatClient()._configured_model()
+
+    assert isinstance(configured, AnthropicChatModel)
+
+
+def test_agentscope_client_streams_native_blocks_and_raw_argument_deltas() -> (
+    None
+):
+    class StreamingAgentScopeModel:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.messages = None
+            self.tools = None
+
+        async def __call__(self, messages, *, tools=None):
+            self.messages = messages
+            self.tools = tools
+
+            async def chunks():
+                yield ChatResponse(
+                    id="response-stream-1",
+                    content=[
+                        ThinkingBlock(thinking="先"),
+                        TextBlock(text="项目"),
+                        ToolCallBlock(
+                            id="call-read-1",
+                            name="read_project",
+                            input='{"project',
+                        ),
+                    ],
+                    is_last=False,
+                )
+                yield ChatResponse(
+                    id="response-stream-1",
+                    content=[
+                        ThinkingBlock(thinking="分析"),
+                        TextBlock(text="已读取"),
+                        ToolCallBlock(
+                            id="call-read-1",
+                            name="read_project",
+                            input='Id":"project-1"}',
+                        ),
+                    ],
+                    is_last=False,
+                )
+                yield ChatResponse(
+                    id="response-stream-1",
+                    content=[
+                        ThinkingBlock(thinking="先分析"),
+                        TextBlock(text="项目已读取"),
+                        ToolCallBlock(
+                            id="call-read-1",
+                            name="read_project",
+                            input='{"projectId":"project-1"}',
+                        ),
+                    ],
+                    is_last=True,
+                )
+
+            return chunks()
+
+    text_deltas: list[str] = []
+    thinking_deltas: list[str] = []
+    tool_deltas: list[tuple[str, str, str]] = []
+
+    async def on_text_delta(delta: str) -> None:
+        text_deltas.append(delta)
+
+    async def on_thinking_delta(delta: str) -> None:
+        thinking_deltas.append(delta)
+
+    async def on_tool_call_delta(
+        call_id: str,
+        name: str,
+        arguments_delta: str,
+    ) -> None:
+        tool_deltas.append((call_id, name, arguments_delta))
+
+    async def scenario():
+        provider = StreamingAgentScopeModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        turn = await client.complete(
+            messages=[
+                {"role": "system", "content": "schema"},
+                {"role": "user", "content": "读取项目"},
+            ],
+            tools=_tools(),
+            on_text_delta=on_text_delta,
+            on_thinking_delta=on_thinking_delta,
+            on_tool_call_delta=on_tool_call_delta,
+        )
+        return provider, turn
+
+    provider, turn = asyncio.run(scenario())
+
+    assert provider.messages is not None
+    assert [message.role for message in provider.messages] == [
+        "system",
+        "user",
+    ]
+    assert provider.tools == _tools()
+    assert turn == AgentModelTurn(
+        content="项目已读取",
+        thinking="先分析",
+        tool_calls=(
+            AgentToolCall(
+                call_id="call-read-1",
+                name="read_project",
+                arguments={"projectId": "project-1"},
+            ),
+        ),
+        provider_message_id="response-stream-1",
+    )
+    assert text_deltas == ["项目", "已读取"]
+    assert thinking_deltas == ["先", "分析"]
+    assert tool_deltas == [
+        ("call-read-1", "read_project", '{"project'),
+        ("call-read-1", "read_project", 'Id":"project-1"}'),
+    ]
+    assert turn.tool_calls[0].raw_arguments == '{"projectId":"project-1"}'
+    assert turn.tool_calls[0].raw_arguments_bytes == 25
+    assert turn.tool_calls[0].provider_chunk_count == 2
+    assert turn.finish_reason == "completed"
+
+
+@pytest.mark.parametrize("ending", ["text", "tool", "final", "provider_error"])
+def test_thinking_chunks_are_coalesced_without_losing_order_or_tail(
+    monkeypatch,
+    ending,
+):
+    clock = [0.0]
+    monkeypatch.setattr(model_client, "monotonic", lambda: clock[0])
+    fragments = [f"片段{i:03d}。" for i in range(120)]
+    observed = []
+
+    async def thinking(delta):
+        observed.append(("thinking", delta))
+
+    async def text(delta):
+        observed.append(("text", delta))
+
+    async def tool(_call_id, _name, delta):
+        observed.append(("tool", delta))
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for fragment in fragments:
+                    clock[0] += 0.01
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=fragment)],
+                    )
+                if ending == "provider_error":
+                    raise ValueError("invalid provider response")
+                result = (
+                    ToolCallBlock(
+                        id="read",
+                        name="read_project",
+                        input="{}",
+                    )
+                    if ending == "tool"
+                    else TextBlock(text="完成")
+                )
+                if ending != "final":
+                    yield ChatResponse(
+                        id="coalesced",
+                        is_last=False,
+                        content=[result],
+                    )
+                yield ChatResponse(
+                    id="coalesced",
+                    is_last=True,
+                    content=[
+                        ThinkingBlock(thinking="".join(fragments)),
+                        result,
+                    ],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        request = AgentScopeAgentChatClient(provider).complete(
+            messages=[],
+            tools=_tools(),
+            on_thinking_delta=thinking,
+            on_text_delta=text,
+            on_tool_call_delta=tool,
+        )
+        if ending == "provider_error":
+            with pytest.raises(
+                AgentModelError,
+                match="invalid provider response",
+            ):
+                await request
+        else:
+            turn = await request
+            assert turn.thinking == "".join(fragments)
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    thinking_parts = [delta for kind, delta in observed if kind == "thinking"]
+    assert "".join(thinking_parts) == "".join(fragments)
+    assert thinking_parts[0] == fragments[0]  # First activity is immediate.
+    assert len(thinking_parts) == 4  # 120 durable writes become four.
+    if ending in {"text", "tool"}:
+        assert all(kind == "thinking" for kind, _ in observed[:-1])
+        assert observed[-1][0] == ending
+
+
+@pytest.mark.parametrize("failure", ["cancel", "persistence"])
+def test_buffered_thinking_preserves_stop_and_persistence_failures(failure):
+    observed = []
+
+    async def callback(delta):
+        observed.append(delta)
+        if delta == "tail" and failure == "persistence":
+            raise OSError("disk write failed")
+
+    class Provider:
+        calls = 0
+
+        async def __call__(self, _messages, *, tools=None):
+            self.calls += 1
+
+            async def chunks():
+                for delta in ("first", "tail"):
+                    yield ChatResponse(
+                        id="stopped",
+                        is_last=False,
+                        content=[ThinkingBlock(thinking=delta)],
+                    )
+                if failure == "cancel":
+                    raise asyncio.CancelledError()
+                yield ChatResponse(
+                    id="stopped",
+                    is_last=True,
+                    content=[TextBlock(text="finished")],
+                )
+
+            return chunks()
+
+    async def scenario():
+        provider = Provider()
+        expected = (
+            asyncio.CancelledError
+            if failure == "cancel"
+            else AgentStreamCallbackError
+        )
+        with pytest.raises(expected):
+            await AgentScopeAgentChatClient(provider).complete(
+                messages=[],
+                tools=[],
+                on_thinking_delta=callback,
+            )
+        assert provider.calls == 1
+
+    asyncio.run(scenario())
+    assert observed == (
+        ["first"] if failure == "cancel" else ["first", "tail"]
+    )
+
+
+def test_agentscope_client_repairs_truncated_native_tool_argument_json() -> (
+    None
+):
+    class MalformedToolArgumentsModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            return ChatResponse(
+                id="response-repaired-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-read-repaired",
+                        name="read_project",
+                        input='{"projectId":"project-1","baseEtag":"etag-truncated',
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def scenario() -> AgentModelTurn:
+        client = AgentScopeAgentChatClient(
+            MalformedToolArgumentsModel(),  # type: ignore[arg-type]
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取项目"}],
+            tools=_tools(),
+        )
+
+    turn = asyncio.run(scenario())
+
+    assert turn.tool_calls == (
+        AgentToolCall(
+            call_id="call-read-repaired",
+            name="read_project",
+            arguments={
+                "projectId": "project-1",
+                "baseEtag": "etag-truncated",
+            },
+        ),
+    )
+    repaired_call = turn.tool_calls[0]
+    assert repaired_call.arguments_repaired is True
+    assert repaired_call.raw_arguments_bytes == len(
+        '{"projectId":"project-1","baseEtag":"etag-truncated'.encode(
+            "utf-8",
+        ),
+    )
+    assert repaired_call.strict_json_error is not None
+
+
+def _final_tool_call_model(raw_input: str):
+    class FinalToolCallModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            async def chunks():
+                yield ChatResponse(
+                    id="response-broken-1",
+                    content=[
+                        ToolCallBlock(
+                            id="call-jq-1",
+                            name="read_project",
+                            input=raw_input,
+                        ),
+                    ],
+                    is_last=True,
+                )
+
+            return chunks()
+
+    return FinalToolCallModel()
+
+
+def test_unrecoverable_tool_arguments_degrade_to_parse_error() -> None:
+    async def scenario():
+        client = AgentScopeAgentChatClient(
+            _final_tool_call_model('"oops'),  # type: ignore[arg-type]
+        )
+        return await client.complete(messages=[], tools=_tools())
+
+    turn = asyncio.run(scenario())
+    call = turn.tool_calls[0]
+    assert call.arguments == {}
+    assert call.parse_error is not None
+    assert "无法自动修复" in call.parse_error
+    assert "oops" in call.parse_error
+
+
+def test_agentscope_client_preserves_stream_control_exceptions() -> None:
+    class StreamingAgentScopeModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, _messages, *, tools=None):
+            del tools
+
+            async def chunks():
+                yield ChatResponse(
+                    id="response-control",
+                    content=[TextBlock(text="部分输出")],
+                    is_last=False,
+                )
+                yield ChatResponse(
+                    id="response-control",
+                    content=[TextBlock(text="完整输出")],
+                    is_last=True,
+                )
+
+            return chunks()
+
+    class StopStreaming(AgentStreamCallbackPassthrough):
+        pass
+
+    async def stop(_delta: str) -> None:
+        raise StopStreaming("run revoked")
+
+    async def scenario() -> None:
+        client = AgentScopeAgentChatClient(StreamingAgentScopeModel())  # type: ignore[arg-type]
+        with pytest.raises(StopStreaming, match="run revoked"):
+            await client.complete(
+                messages=[{"role": "user", "content": "开始"}],
+                tools=[],
+                on_text_delta=stop,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_agentscope_client_returns_unknown_native_tool_for_model_correction() -> (
+    None
+):
+    class UnknownToolModel:
+        model = "qwen3.7-plus"
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            return ChatResponse(
+                id="response-unknown-tool",
+                content=[
+                    ToolCallBlock(
+                        id="call-unknown",
+                        name="invented_tool",
+                        input='{"projectId":"project-1"}',
+                    ),
+                ],
+                is_last=True,
+            )
+
+    async def scenario():
+        client = AgentScopeAgentChatClient(  # type: ignore[arg-type]
+            UnknownToolModel(),
+        )
+        return await client.complete(
+            messages=[{"role": "user", "content": "读取"}],
+            tools=_tools(),
+        )
+
+    turn = asyncio.run(scenario())
+    assert len(turn.tool_calls) == 1
+    assert turn.tool_calls[0].name == "invented_tool"
+    assert turn.tool_calls[0].arguments == {"projectId": "project-1"}
+
+
+@pytest.mark.parametrize(
+    "markup",
+    [
+        "<function=glob_search><parameter=pattern>story/outline.md</parameter></function>",
+        '<tool_call>{"name":"read_project","arguments":{}}</tool_call>',
+    ],
+)
+def test_agentscope_client_rejects_textual_tool_markup_before_text_callback(
+    markup: str,
+) -> None:
+    class TextualToolModel:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, messages, *, tools=None):
+            del messages
+            assert tools
+            self.calls += 1
+            return ChatResponse(
+                id="response-text-tool",
+                content=[TextBlock(text=markup)],
+                is_last=True,
+            )
+
+    text_deltas: list[str] = []
+
+    async def collect(delta: str) -> None:
+        text_deltas.append(delta)
+
+    async def scenario() -> TextualToolModel:
+        provider = TextualToolModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        with pytest.raises(AgentModelError, match="ToolCallBlock"):
+            await client.complete(
+                messages=[{"role": "user", "content": "读取"}],
+                tools=_tools(),
+                on_text_delta=collect,
+            )
+        return provider
+
+    provider = asyncio.run(scenario())
+    # Markup degradation is stochastic, so the turn is retried before the
+    # run is failed: original attempt plus four retries.
+    assert provider.calls == 5
+    assert text_deltas == []
+
+
+def test_callback_client_keeps_stream_callback_failures_outside_model_errors() -> (
+    None
+):
+    async def callback(_messages, _tools) -> AgentModelTurn:
+        return AgentModelTurn(content="即将持久化")
+
+    async def fail_persistence(_delta: str) -> None:
+        raise OSError("runtime lock timeout")
+
+    async def scenario() -> None:
+        with pytest.raises(AgentStreamCallbackError) as raised:
+            await CallbackAgentChatClient(callback).complete(
+                messages=[{"role": "user", "content": "开始"}],
+                tools=[],
+                on_text_delta=fail_persistence,
+            )
+        assert isinstance(raised.value.cause, OSError)
+        assert str(raised.value.cause) == "runtime lock timeout"
+
+    asyncio.run(scenario())
+
+
+def test_agentscope_client_retries_rate_limited_turns_until_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        model_client,
+        "_rate_limit_retry_delay",
+        lambda _attempt: 0.0,
+    )
+
+    class ThrottledModel:
+        model = "qwen3.7-plus"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def __call__(self, messages, *, tools=None):
+            del messages, tools
+            self.calls += 1
+            raise RuntimeError(
+                "<429> Throttling.RateQuota: Requests rate limit exceeded",
+            )
+
+    notices: list[RateLimitRetryNotice] = []
+
+    async def on_retry(notice: RateLimitRetryNotice) -> None:
+        notices.append(notice)
+
+    async def scenario():
+        provider = ThrottledModel()
+        client = AgentScopeAgentChatClient(provider)  # type: ignore[arg-type]
+        with pytest.raises(RateLimitExhaustedError) as raised:
+            await client.complete(
+                messages=[{"role": "user", "content": "开始"}],
+                tools=_tools(),
+                on_rate_limit_retry=on_retry,
+            )
+        return provider, raised.value
+
+    provider, error = asyncio.run(scenario())
+
+    # One original attempt plus every retry, then the run is given up on.
+    assert provider.calls == MAX_RATE_LIMIT_RETRIES + 1
+    assert error.retries == MAX_RATE_LIMIT_RETRIES
+    assert [(notice.attempt, notice.max_attempts) for notice in notices] == [
+        (attempt, MAX_RATE_LIMIT_RETRIES) for attempt in range(1, 6)
+    ]
+
+
+@pytest.mark.parametrize(
+    "failure, delays, reason",
+    [
+        ("429 Too Many Requests", [2, 4], "rate_limit"),
+        ("Connection reset by peer", [1], "transient"),
+        ("empty", [0], "empty_response"),
+    ],
+    ids=["rate-limit", "connection-reset", "empty-response"],
+)
+def test_model_retry_recovery_reports_real_cause_and_backoff(
+    monkeypatch,
+    failure,
+    delays,
+    reason,
+):
+    notices = []
+    sleeps = []
+
+    async def sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(model_client.asyncio, "sleep", sleep)
+
+    class RecoveringModel:
+        model = "test-model"
+        calls = 0
+
+        async def __call__(self, messages, *, tools=None):
+            self.calls += 1
+            if self.calls <= len(delays):
+                if failure == "empty":
+                    return ChatResponse(id="empty", content=[], is_last=True)
+                raise RuntimeError(failure)
+            return ChatResponse(
+                id="recovered",
+                content=[TextBlock(text="继续生成")],
+                is_last=True,
+            )
+
+    async def on_retry(notice):
+        notices.append(notice)
+
+    provider = RecoveringModel()
+    result = asyncio.run(
+        AgentScopeAgentChatClient(provider).complete(
+            messages=[{"role": "user", "content": "继续"}],
+            tools=_tools(),
+            on_rate_limit_retry=on_retry,
+        ),
+    )
+    assert result.content == "继续生成"
+    assert provider.calls == len(delays) + 1
+    assert [(n.reason, n.attempt, n.delay_seconds) for n in notices] == [
+        (reason, attempt, delay) for attempt, delay in enumerate(delays, 1)
+    ]
+    assert sleeps == [delay for delay in delays if delay]
+
+
+def test_inline_media_relief_does_not_walk_plain_strings(monkeypatch):
+    """A string cannot lead to a data URL, so it must not cost a call.
+
+    The estimate runs over the whole history on every turn, and the walk used
+    to descend into every string it passed — including the megabytes of a
+    serialized script — to return zero each time.
+    """
+
+    original = model_context._inline_media_relief
+    visited: list = []
+
+    def counting(node):
+        visited.append(node)
+        return original(node)
+
+    monkeypatch.setattr(model_context, "_inline_media_relief", counting)
+    history = [
+        {"role": "user", "content": "beat sheet " * 4000},
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "notes " * 4000}],
+        },
+    ]
+
+    assert counting(history) == 0
+    assert [node for node in visited if isinstance(node, str)] == []
+
+    # What the walk is for still works: a data URL under a ``url`` key.
+    encoded = base64.b64encode(b"\x00" * (256 * 1024)).decode()
+    media = {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/jpeg;base64,{encoded}"},
+    }
+    assert original([{"role": "user", "content": [media]}]) > 0

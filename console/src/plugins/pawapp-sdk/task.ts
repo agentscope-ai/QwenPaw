@@ -1,0 +1,243 @@
+/**
+ * pawapp-sdk/task.ts — PawTask: long-running task with SSE event stream.
+ *
+ * Usage:
+ *   const task = paw.api.task('/generate', { script });
+ *   task.on('progress', (data) => setProgress(data.step));
+ *   task.on('image_ready', (data) => addImage(data.url));
+ *   const result = await task.result;
+ */
+import { hostFetch } from "../hostSdk/fetch";
+import type { PawTaskEventHandler, PawTaskHandle } from "./types";
+import { normalizeAppId, normalizeAppRelativePath } from "./scope";
+
+/**
+ * Create a PawTask — posts to backend to start task, then connects
+ * to SSE stream for realtime events.
+ */
+function createPawTaskWithScope(
+  appId: string,
+  path: string,
+  params?: unknown,
+  strictScope = false,
+): PawTaskHandle {
+  const listeners = new Map<string, Set<PawTaskEventHandler>>();
+  let taskId = "";
+  const abortController = new AbortController();
+  let activeReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let readerFinalizePromise: Promise<void> | null = null;
+  let settled = false;
+
+  // Promise that resolves with the final result
+  let resolveResult!: (value: unknown) => void;
+  let rejectResult!: (reason: unknown) => void;
+  const resultPromise = new Promise<unknown>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+
+  function emit(event: string, data: unknown) {
+    const handlers = listeners.get(event);
+    if (handlers) {
+      for (const handler of handlers) {
+        try {
+          handler(data);
+        } catch (e) {
+          console.error(`[PawTask] Error in ${event} handler:`, e);
+        }
+      }
+    }
+  }
+
+  function finalizeReaderOnce(): Promise<void> {
+    if (!activeReader) return Promise.resolve();
+    if (!readerFinalizePromise) {
+      const reader = activeReader;
+      readerFinalizePromise = (async () => {
+        try {
+          await reader.cancel();
+        } catch {
+          // Best-effort cleanup; preserve the task's original outcome.
+        } finally {
+          try {
+            reader.releaseLock();
+          } catch {
+            // The lock may already have been released by the stream runtime.
+          }
+        }
+      })();
+    }
+    return readerFinalizePromise;
+  }
+
+  function finalize(
+    outcome: "resolve" | "reject",
+    value: unknown,
+    terminalEvent?: { type: string; data: unknown },
+  ): boolean {
+    if (settled) return false;
+    settled = true;
+    if (terminalEvent) emit(terminalEvent.type, terminalEvent.data);
+    if (outcome === "resolve") resolveResult(value);
+    else rejectResult(value);
+    return true;
+  }
+
+  // Start the task asynchronously
+  (async () => {
+    try {
+      // POST to create task
+      const normalizedAppId = strictScope ? normalizeAppId(appId) : appId;
+      const normalized = strictScope
+        ? normalizeAppRelativePath(path)
+        : path.startsWith("/")
+        ? path
+        : `/${path}`;
+      // Use unified route: /{appId}/... -> /api/{appId}/... via getApiUrl
+      const createRes = await hostFetch(`/${normalizedAppId}${normalized}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: params != null ? JSON.stringify(params) : undefined,
+        signal: abortController.signal,
+      });
+
+      if (!createRes.ok) {
+        void createRes.body?.cancel().catch(() => undefined);
+        throw new Error(
+          `Task creation failed: ${createRes.status} ${createRes.statusText}`,
+        );
+      }
+
+      const createData = await createRes.json();
+      taskId = createData.task_id ?? createData.taskId ?? "";
+
+      if (!taskId) {
+        throw new Error("No task_id returned from backend");
+      }
+      if (settled) return;
+
+      // Connect to SSE stream using fetch-based approach
+      // (EventSource doesn't support custom auth headers)
+      const sseRes = await hostFetch(
+        `/${normalizedAppId}/task/${encodeURIComponent(taskId)}/stream`,
+        {
+          headers: {
+            Accept: "text/event-stream",
+          },
+          signal: abortController.signal,
+        },
+      );
+
+      if (!sseRes.ok || !sseRes.body) {
+        void sseRes.body?.cancel().catch(() => undefined);
+        throw new Error(`SSE connection failed: ${sseRes.status}`);
+      }
+
+      const reader = sseRes.body.getReader();
+      activeReader = reader;
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      try {
+        while (!settled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            if (settled) break;
+            if (line.startsWith("data: ")) {
+              try {
+                const eventData = JSON.parse(line.slice(6));
+                const eventType =
+                  eventData.type ?? eventData.event ?? "message";
+
+                if (eventType === "done") {
+                  finalize(
+                    "resolve",
+                    eventData.data ?? eventData.result ?? null,
+                    { type: "done", data: eventData.data ?? eventData },
+                  );
+                } else if (eventType === "error") {
+                  finalize(
+                    "reject",
+                    new Error(eventData.message ?? "Task failed"),
+                    { type: "error", data: eventData },
+                  );
+                } else {
+                  emit(eventType, eventData.data ?? eventData);
+                }
+              } catch {
+                // Non-JSON line, emit as raw
+                emit("message", line.slice(6));
+              }
+            }
+          }
+        }
+      } finally {
+        void finalizeReaderOnce();
+        activeReader = null;
+      }
+
+      // Stream ended without explicit done/error
+      finalize("resolve", null);
+    } catch (err) {
+      if (
+        (err as Error).name === "AbortError" ||
+        abortController.signal.aborted
+      ) {
+        finalize("reject", new Error("Task cancelled"));
+      } else {
+        finalize("reject", err);
+      }
+    }
+  })();
+
+  const handle: PawTaskHandle = {
+    on(event, handler) {
+      if (!listeners.has(event)) {
+        listeners.set(event, new Set());
+      }
+      listeners.get(event)!.add(handler);
+      return handle;
+    },
+    off(event, handler) {
+      listeners.get(event)?.delete(handler);
+      return handle;
+    },
+    cancel() {
+      if (!finalize("reject", new Error("Task cancelled"))) return;
+      abortController.abort();
+      void finalizeReaderOnce();
+    },
+    get result() {
+      return resultPromise;
+    },
+    get taskId() {
+      return taskId;
+    },
+  };
+
+  return handle;
+}
+
+/** Legacy path-compatible task factory. */
+export function createPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, false);
+}
+
+/** @internal Strict task factory used by permanent app-scoped handles. */
+export function createScopedPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, true);
+}

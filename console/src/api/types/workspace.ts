@@ -10,9 +10,12 @@ export interface MdFileContent {
   content: string;
 }
 
+export type MemorySection = "daily" | "digest";
+
 export interface MarkdownFile extends MdFileInfo {
   updated_at: number;
   enabled?: boolean;
+  memory_path?: string;
 }
 
 export interface DailyMemoryFile extends MdFileInfo {

@@ -11,17 +11,28 @@ Covers:
 """
 # pylint: disable=protected-access,unused-argument
 
+import asyncio
+from codecs import BOM_UTF8
+import os
+import stat
+import threading
+import time
 from unittest.mock import patch
 
 import pytest
 
 from qwenpaw.agents.tools.file_io import (
+    _append_file,
     _get_encoding_for_file,
     _resolve_file_path,
     append_file,
     edit_file,
     read_file,
     write_file,
+)
+from qwenpaw.agents.tools.utils import (
+    TRUNCATION_METADATA_KEY,
+    read_file_safe,
 )
 
 
@@ -33,11 +44,15 @@ from qwenpaw.agents.tools.file_io import (
 class TestResolveFilePath:
     """Tests for _resolve_file_path."""
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_absolute_path_unchanged(self, mock_ws):
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_absolute_path_unchanged(self, mock_base):
         import sys
+        from pathlib import Path
 
-        mock_ws.return_value = None
+        # get_tool_base_dir() always returns a Path (project → workspace
+        # → WORKING_DIR), so the stub must too: on Windows a drive-less
+        # POSIX path is *not* absolute and gets joined against the base.
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("/tmp/test.txt")
         # On Unix, path stays as-is; on Windows, it may get a
         # drive prefix (e.g. C:\tmp\test.txt)
@@ -46,25 +61,26 @@ class TestResolveFilePath:
         else:
             assert result == "/tmp/test.txt"
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_relative_path_resolved(self, mock_ws):
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_relative_path_resolved(self, mock_base):
         from pathlib import Path
 
-        mock_ws.return_value = Path("/workspace")
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("subdir/file.txt")
         assert result == str(Path("/workspace/subdir/file.txt"))
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_tilde_expansion(self, mock_ws):
-        mock_ws.return_value = None
+    @patch("qwenpaw.agents.tools.file_io.get_tool_base_dir")
+    def test_tilde_expansion(self, mock_base):
+        from pathlib import Path
+
+        mock_base.return_value = Path("/workspace")
         result = _resolve_file_path("~/test.txt")
         assert "~" not in result
         assert result.endswith("test.txt")
 
-    @patch("qwenpaw.agents.tools.file_io.get_current_workspace_dir")
-    def test_workspace_fallback_to_working_dir(self, mock_ws):
-        mock_ws.return_value = None
-        # When workspace is None, WORKING_DIR is used
+    def test_workspace_fallback_to_working_dir(self):
+        # Nothing configured: get_tool_base_dir() itself falls back to
+        # WORKING_DIR, so the resolver is left unpatched here.
         result = _resolve_file_path("file.txt")
         assert result.endswith("file.txt")
 
@@ -79,17 +95,19 @@ class TestGetEncodingForFile:
 
     @pytest.mark.parametrize(
         "ext",
-        [".csv", ".tsv", ".tab", ".txt", ".log"],
+        [f".csv", f".tsv", f".tab"],
     )
-    def test_bom_extensions(self, ext):
-        assert _get_encoding_for_file(f"data{ext}") == "utf-8-sig"
+    def test_bom_extensions(self, ext, tmp_path):
+        path = tmp_path / f"data{ext}"
+        assert _get_encoding_for_file(str(path)) == f"utf-8-sig"
 
     @pytest.mark.parametrize(
         "ext",
-        [".py", ".json", ".yaml", ".sh", ".md", ".js"],
+        [f".py", f".json", f".yaml", f".sh", f".md", f".js", f".txt", f".log"],
     )
-    def test_non_bom_extensions(self, ext):
-        assert _get_encoding_for_file(f"code{ext}") == "utf-8"
+    def test_non_bom_extensions(self, ext, tmp_path):
+        path = tmp_path / f"code{ext}"
+        assert _get_encoding_for_file(str(path)) == f"utf-8"
 
 
 # ---------------------------------------------------------------------------
@@ -105,54 +123,90 @@ class TestReadFile:
         f = tmp_path / "test.txt"
         f.write_text("hello world", encoding="utf-8")
         result = await read_file(str(f))
-        assert "hello world" in result.content[0]["text"]
+        assert "hello world" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_safe_read_uses_one_binary_snapshot(self, tmp_path):
+        """Safe reads strip a BOM and tolerate invalid trailing bytes."""
+        path = tmp_path / "snapshot.txt"
+        path.write_bytes(b"\xef\xbb\xbfhello\xff")
+
+        assert await read_file_safe(str(path)) == "hello"
+
+    @pytest.mark.asyncio
+    async def test_safe_read_normalizes_platform_newlines(self, tmp_path):
+        """Binary snapshots retain text-mode universal newline behavior."""
+        path = tmp_path / "newlines.txt"
+        path.write_bytes(b"first\r\nsecond\rthird\n")
+
+        assert await read_file_safe(str(path)) == "first\nsecond\nthird\n"
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, tmp_path):
         result = await read_file(str(tmp_path / "missing.txt"))
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_directory_error(self, tmp_path):
         result = await read_file(str(tmp_path))
-        assert "not a file" in result.content[0]["text"]
+        assert "not a file" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_with_line_range(self, tmp_path):
         f = tmp_path / "lines.txt"
         f.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
         result = await read_file(str(f), start_line=2, end_line=3)
-        text = result.content[0]["text"]
+        text = result.content[0].text
         assert "line2" in text
         assert "line3" in text
+        info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+        assert info["file_path"] == str(f)
+        assert info["file_size_bytes"] == len(
+            f.read_text(encoding="utf-8").encode("utf-8"),
+        )
+        assert info["start_line"] == 2
+        assert text.endswith(info["notice"])
+
+    @pytest.mark.asyncio
+    async def test_read_with_string_line_range(self, tmp_path):
+        f = tmp_path / "lines.txt"
+        f.write_text("line1\nline2\nline3\nline4\n", encoding="utf-8")
+
+        result = await read_file(str(f), start_line="2", end_line="3")
+
+        text = result.content[0].text
+        assert "line1" not in text
+        assert "line2" in text
+        assert "line3" in text
+        assert "line4" not in text
 
     @pytest.mark.asyncio
     async def test_read_start_line_exceeds_file(self, tmp_path):
         f = tmp_path / "short.txt"
         f.write_text("only one line\n", encoding="utf-8")
         result = await read_file(str(f), start_line=100)
-        assert "exceeds file length" in result.content[0]["text"]
+        assert "exceeds file length" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_invalid_start_line(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("data\n", encoding="utf-8")
         result = await read_file(str(f), start_line="abc")
-        assert "must be an integer" in result.content[0]["text"]
+        assert "must be an integer" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_invalid_end_line(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("data\n", encoding="utf-8")
         result = await read_file(str(f), end_line="xyz")
-        assert "must be an integer" in result.content[0]["text"]
+        assert "must be an integer" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_read_start_greater_than_end(self, tmp_path):
         f = tmp_path / "data.txt"
         f.write_text("line1\nline2\nline3\n", encoding="utf-8")
         result = await read_file(str(f), start_line=3, end_line=1)
-        assert "start_line" in result.content[0]["text"]
+        assert "start_line" in result.content[0].text
 
 
 # ---------------------------------------------------------------------------
@@ -164,26 +218,30 @@ class TestWriteFile:
     """Tests for write_file."""
 
     @pytest.mark.asyncio
-    async def test_write_new_file(self, tmp_path):
-        f = tmp_path / "new.txt"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".log"])
+    async def test_write_new_file(self, tmp_path, ext):
+        f = tmp_path / f"new{ext}"
         result = await write_file(str(f), "hello")
-        assert "Wrote" in result.content[0]["text"]
-        # .txt uses utf-8-sig which adds BOM
-        assert f.read_text(encoding="utf-8-sig") == "hello"
+        assert "Wrote" in result.content[0].text
+        assert f.read_bytes() == f"hello".encode(f"utf-8")
+        if os.name != "nt":
+            assert stat.S_IMODE(f.stat().st_mode) == 0o644
 
     @pytest.mark.asyncio
-    async def test_write_overwrites_existing(self, tmp_path):
-        f = tmp_path / "existing.txt"
-        f.write_text("old", encoding="utf-8")
-        await write_file(str(f), "new")
-        assert f.read_text(encoding="utf-8-sig") == "new"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    async def test_write_overwrites_existing(self, tmp_path, ext, encoding):
+        f = tmp_path / f"existing{ext}"
+        f.write_bytes(f"old".encode(encoding))
+        await write_file(str(f), f"green, white")
+        assert f.read_bytes() == f"green, white".encode(encoding)
 
     @pytest.mark.asyncio
     async def test_write_empty_path(self):
         result = await write_file("", "content")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )
 
     @pytest.mark.asyncio
@@ -211,31 +269,33 @@ class TestEditFile:
     """Tests for edit_file."""
 
     @pytest.mark.asyncio
-    async def test_edit_replaces_text(self, tmp_path):
-        f = tmp_path / "edit.txt"
-        f.write_text("hello world", encoding="utf-8")
-        result = await edit_file(str(f), "hello", "goodbye")
-        assert "Successfully replaced" in result.content[0]["text"]
-        assert f.read_text(encoding="utf-8-sig") == "goodbye world"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv", f".py"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    async def test_edit_replaces_text(self, tmp_path, ext, encoding):
+        f = tmp_path / f"edit{ext}"
+        f.write_bytes(f"hello world".encode(encoding))
+        result = await edit_file(str(f), f"hello", f"goodbye")
+        assert f"Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == f"goodbye world".encode(encoding)
 
     @pytest.mark.asyncio
     async def test_edit_text_not_found(self, tmp_path):
         f = tmp_path / "edit.txt"
         f.write_text("hello world", encoding="utf-8")
         result = await edit_file(str(f), "missing", "replacement")
-        assert "not found" in result.content[0]["text"]
+        assert "not found" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_edit_nonexistent_file(self, tmp_path):
         result = await edit_file(str(tmp_path / "missing.txt"), "a", "b")
-        assert "does not exist" in result.content[0]["text"]
+        assert "does not exist" in result.content[0].text
 
     @pytest.mark.asyncio
     async def test_edit_empty_path(self):
         result = await edit_file("", "a", "b")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )
 
     @pytest.mark.asyncio
@@ -244,6 +304,215 @@ class TestEditFile:
         f.write_text("aaa bbb aaa", encoding="utf-8")
         await edit_file(str(f), "aaa", "ccc")
         assert f.read_text(encoding="utf-8-sig") == "ccc bbb ccc"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_crlf_line_endings(self, tmp_path):
+        """edit_file must not rewrite a CRLF file as LF (full-file diffs)."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\r\n    return "old"\r\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\r\n    return "new"\r\n'
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_lf_line_endings(self, tmp_path):
+        """LF files stay LF after a successful edit."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b'def hi():\n    return "old"\n')
+
+        result = await edit_file(str(f), "old", "new")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b'def hi():\n    return "new"\n'
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_mixed_line_endings(self, tmp_path):
+        """One CRLF must not rewrite the other lines of an LF file."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_maps_match_across_mixed_newline(self, tmp_path):
+        """A match that covers CRLF keeps the surrounding endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\n")
+
+        result = await edit_file(str(f), "beta\ngamma", "BETA\nGAMMA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\nGAMMA\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_reuses_each_original_break_in_order(self, tmp_path):
+        """Same break count keeps each matched ending in position.
+
+        Replacing ``a\\n b\\n c`` must not copy the leading CRLF onto the
+        following LF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_reuses_endings_on_every_match(self, tmp_path):
+        """Each match reuses its own endings in one streaming pass."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nda\nb\nc\n")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\nB\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nda\nB\nc\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_folds_new_text_before_reusing_endings(
+        self,
+        tmp_path,
+    ):
+        """CRLF typed in new_text does not override original endings."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "a\nb\nc", "a\r\nB\r\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nc\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_extra_breaks_from_the_span(self, tmp_path):
+        """Added breaks follow the span when the break count changes."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"a\r\nb\nc\r\nd")
+
+        result = await edit_file(str(f), "b\nc", "B\nC\nX")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"a\r\nB\nC\nX\r\nd"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_each_distinct_line_ending(self, tmp_path):
+        """LF, CRLF, and lone CR on different lines all stay put."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"alpha\nbeta\r\ngamma\rdelta\n")
+
+        result = await edit_file(str(f), "beta", "BETA")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"alpha\nBETA\r\ngamma\rdelta\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_crlf(self, tmp_path):
+        """Breaks introduced in new_text follow a pure CRLF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\r\nold\r\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\r\nnew\r\nline\r\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_new_breaks_on_pure_lf(self, tmp_path):
+        """Breaks introduced in new_text stay LF in a pure LF file."""
+        f = tmp_path / "app.py"
+        f.write_bytes(b"keep\nold\n")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\nnew\nline\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_preserves_cr_line_endings(self, tmp_path):
+        """Lone CR files stay CR, including breaks new_text introduces."""
+        f = tmp_path / "legacy.txt"
+        f.write_bytes(b"keep\rold\r")
+
+        result = await edit_file(str(f), "old", "new\nline")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"keep\rnew\rline\r"
+
+    @pytest.mark.asyncio
+    async def test_edit_keeps_break_between_lone_cr_and_lf(self, tmp_path):
+        """Deleting text between a lone CR and an LF keeps both breaks."""
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\nb")
+
+        result = await edit_file(str(f), "a", "")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\nb"
+        assert updated == b"\r\n\nb"
+
+    @pytest.mark.asyncio
+    async def test_edit_keeps_positional_lone_cr_then_lf(self, tmp_path):
+        """Reusing a lone CR and the next LF must stay two breaks.
+
+        Positional endings used to join ``\\r`` directly to ``\\n`` and
+        collapse ``\\ra\\n`` edited as ``\\na\\n`` -> ``\\n\\n`` into one
+        CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"\ra\n")
+
+        result = await edit_file(str(f), "\na\n", "\n\n")
+
+        assert "Successfully replaced" in result.content[0].text
+        updated = f.read_bytes()
+        lf_view = updated.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+        assert lf_view == b"\n\n"
+        assert updated == b"\r\n\n"
+
+    @pytest.mark.asyncio
+    async def test_edit_styles_repeated_matches_from_one_line_ending(
+        self,
+        tmp_path,
+    ):
+        """Matches on one line share that line's ending.
+
+        Each ``a`` has no break, and ``new_text`` adds one, so every
+        replacement takes the CRLF that ends the run. A later match past
+        that CRLF takes the following LF, not the cached CRLF.
+        """
+        f = tmp_path / "mixed.txt"
+        f.write_bytes(b"aaa\r\nx\na")
+
+        result = await edit_file(str(f), "a", "b\nc")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"b\r\ncb\r\ncb\r\nc\r\nx\nb\nc"
+
+    @pytest.mark.asyncio
+    async def test_edit_normalizes_trailing_lone_cr_in_new_text(
+        self,
+        tmp_path,
+    ):
+        """A trailing lone CR in new_text must not swallow the next LF.
+
+        Folding ``new_text`` only after ``str.replace`` lets ``\\r`` join
+        the untouched ``\\n`` and collapse to one break.
+        """
+        f = tmp_path / "lf.txt"
+        f.write_bytes(b"a\nb")
+
+        result = await edit_file(str(f), "a", "\r")
+
+        assert "Successfully replaced" in result.content[0].text
+        assert f.read_bytes() == b"\n\nb"
 
 
 # ---------------------------------------------------------------------------
@@ -255,24 +524,63 @@ class TestAppendFile:
     """Tests for append_file."""
 
     @pytest.mark.asyncio
-    async def test_append_to_existing(self, tmp_path):
-        f = tmp_path / "append.txt"
-        f.write_text("line1\n", encoding="utf-8")
-        result = await append_file(str(f), "line2\n")
-        assert "Appended" in result.content[0]["text"]
-        assert f.read_text(encoding="utf-8") == "line1\nline2\n"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".csv"])
+    @pytest.mark.parametrize(f"encoding", [f"utf-8", f"utf-8-sig"])
+    @pytest.mark.parametrize(f"initial", [f"", f"first"])
+    async def test_append_to_existing(
+        self,
+        tmp_path,
+        ext,
+        encoding,
+        initial,
+    ):
+        f = tmp_path / f"append{ext}"
+        f.write_bytes(initial.encode(encoding))
+        result = await append_file(str(f), f"second")
+        assert f"Appended" in result.content[0].text
+        assert f.read_bytes() == f"{initial}second".encode(encoding)
 
     @pytest.mark.asyncio
-    async def test_append_creates_new_file(self, tmp_path):
-        f = tmp_path / "new_append.txt"
+    @pytest.mark.parametrize(f"ext", [f".txt", f".log", f".csv"])
+    async def test_append_creates_new_file(self, tmp_path, ext):
+        f = tmp_path / f"new_append{ext}"
         result = await append_file(str(f), "first line")
-        assert "Appended" in result.content[0]["text"]
-        assert f.read_text(encoding="utf-8-sig") == "first line"
+        assert "Appended" in result.content[0].text
+        bom = BOM_UTF8 if ext == f".csv" else bytes()
+        assert f.read_bytes() == bom + f"first line".encode(f"utf-8")
 
     @pytest.mark.asyncio
     async def test_append_empty_path(self):
         result = await append_file("", "content")
         assert (
-            "No" in result.content[0]["text"]
-            and "file_path" in result.content[0]["text"]
+            "No" in result.content[0].text
+            and "file_path" in result.content[0].text
         )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_appends_are_serialized_per_path(self, tmp_path):
+        f = tmp_path / "concurrent.txt"
+        active = 0
+        max_active = 0
+        guard = threading.Lock()
+
+        def delayed_append(file_path, content):
+            nonlocal active, max_active
+            with guard:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.01)
+            _append_file(file_path, content)
+            with guard:
+                active -= 1
+
+        with patch(
+            f"qwenpaw.agents.tools.file_io._append_file",
+            delayed_append,
+        ):
+            await asyncio.gather(
+                *(append_file(str(f), f"{index}\n") for index in range(8)),
+            )
+
+        assert max_active == 1
+        assert len(f.read_text(encoding="utf-8-sig").splitlines()) == 8

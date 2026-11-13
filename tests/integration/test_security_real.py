@@ -29,12 +29,13 @@ from helpers import (
     MOCK_LLM_PROVIDER_ID,
     MockLLMHandler,
     clean_inbox,
+    default_http_timeout,
     register_mock_provider,
     scoped,
     unregister_mock_provider,
 )
 
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout(15.0)
 _NEVER_FIRE_SCHEDULE = "0 0 1 1 *"
 
 
@@ -211,7 +212,8 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
     1. Register mock LLM provider.
     2. Drive MockLLM to emit a tool_call for ``execute_shell_command``
        with arguments ``{"command": "rm -rf /"}``.
-    3. Trigger an agent-type cron run.
+    3. Trigger an agent-type cron run with ``runtime.tool_safety=True``
+       so governance evaluation is enabled (default cron jobs use OFF).
     4. Poll history → expect either ``failure`` (auto-denied) or
        ``success`` with the denial surfaced as part of the response.
        The key invariant: the tool guard ran and prevented uncontrolled
@@ -255,6 +257,9 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
             },
             "mode": "stream",
         },
+        "runtime": {
+            "tool_safety": True,
+        },
         "save_result_to_inbox": False,
     }
     job_resp = app_server.api_request(
@@ -281,7 +286,17 @@ def test_tool_guard_blocks_dangerous_shell_via_agent_run(
         guard_seen = False
         while time.time() < deadline:
             logs = app_server.logs_tail(20000)
-            if "TOOL GUARD" in logs and "TOOL_CMD_DANGEROUS_RM" in logs:
+            # 2.0 uses governance layer (PolicyGuardedTool): check for
+            # governance DENY log; fall back to legacy TOOL GUARD format.
+            governance_blocked = (
+                "governance decision" in logs
+                and "action=deny" in logs
+                and "rm -rf" in logs
+            )
+            legacy_blocked = (
+                "TOOL GUARD" in logs and "TOOL_CMD_DANGEROUS_RM" in logs
+            )
+            if governance_blocked or legacy_blocked:
                 guard_seen = True
                 break
             time.sleep(1.0)

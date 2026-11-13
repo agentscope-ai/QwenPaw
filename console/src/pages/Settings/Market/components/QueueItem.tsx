@@ -2,7 +2,7 @@ import { memo, useCallback } from "react";
 import { Button } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { InstallQueueItem } from "../useMarketInstall";
-import { sourceLabel } from "./SkillIcon";
+import { sourceLabel } from "./skillSources";
 import styles from "./QueueItem.module.less";
 
 interface QueueItemProps {
@@ -26,9 +26,6 @@ export const QueueItem = memo(function QueueItem({
   const canCancel =
     !isTerminal && !(item.target === "pool" && item.status === "installing");
   const canRetry = item.status === "failed" || item.status === "cancelled";
-  const targetLabel = t(
-    item.target === "pool" ? "market.targetPool" : "market.targetWorkspace",
-  );
 
   const handleCancel = useCallback(
     () => onCancel(item.id),
@@ -55,7 +52,7 @@ export const QueueItem = memo(function QueueItem({
         </span>
       </div>
       <div className={styles.queueItemMeta}>
-        {sourceLabel(item.result.source)} → {targetLabel}
+        {sourceLabel(item.result.source, item.result.source_label)}
       </div>
       {displayMessage && (
         <div className={styles.queueItemMessage}>{displayMessage}</div>

@@ -19,7 +19,6 @@ from pydantic import ValidationError
 
 from qwenpaw.providers.provider import ModelInfo, Provider, ProviderInfo
 
-
 # ---------------------------------------------------------------------------
 # Helpers: create a "foreign" ModelInfo that shares the same schema but is
 # a different Python class — exactly what happens under dual module loading.
@@ -58,13 +57,13 @@ def _make_foreign_model_info(model_id: str, name: str):
 
 
 class _StubProvider(Provider):
-    async def check_connection(self, timeout=5):
+    async def check_connection(self, _timeout=5):
         return True, "ok"
 
-    async def fetch_models(self, timeout=5):
+    async def fetch_models(self, _timeout=5):
         return []
 
-    async def check_model_connection(self, model_id, timeout=5):
+    async def check_model_connection(self, _model_id, _timeout=5):
         return True, "ok"
 
     def get_chat_model_instance(self, model_id):
@@ -88,6 +87,7 @@ class TestGetInfoClassIdentity:
         provider = _StubProvider(
             id="test-provider",
             name="Test",
+            is_custom=True,
             # Use canonical ModelInfo for construction, then swap
             models=[ModelInfo(id="qwen-test", name="Qwen Test")],
         )
@@ -111,6 +111,7 @@ class TestGetInfoClassIdentity:
         provider = _StubProvider(
             id="test-provider",
             name="Test",
+            is_custom=True,
         )
         provider.extra_models = [foreign]
 

@@ -21,13 +21,24 @@ on:
         required: false
         type: choice
         options:
-          - ""
+          - "auto"
           - beta
           - alpha
           - rc
           - dev
           - post
           - stable
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to create the duty issue for"
+        required: true
+        type: string
+      release_type:
+        description: "Override release type (empty = auto-detect from tag)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   issues: write
@@ -44,7 +55,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
+
+      - name: Secure Python certificate dependencies
+        shell: bash
+        run: |
+          python -m pip install --upgrade "pip>=26.2.2"
+          python -m pip install --upgrade "certifi>=2026.10.19"
 
       - name: Install dependencies
         run: pip install pyyaml requests
@@ -55,10 +72,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           CURRENT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || github.event.release.tag_name }}
-          TYPE_OVERRIDE: ${{ github.event.inputs.release_type || '' }}
+            ${{ github.event_name == 'release'
+                && github.event.release.tag_name
+                || inputs.tag }}
+          TYPE_OVERRIDE: ${{ inputs.release_type || '' }}
         run: |
           python - << 'EOF'
           import os
@@ -71,6 +88,8 @@ jobs:
           repo = os.environ["REPO"]
           current_tag = os.environ["CURRENT_TAG"]
           type_override = os.environ.get("TYPE_OVERRIDE", "").strip()
+          if type_override == "auto":
+              type_override = ""
 
           # ── Classify release type ────────────────────────────────────────
           if type_override:
@@ -154,13 +173,10 @@ jobs:
           ASSIGNEES_JSON: ${{ steps.meta.outputs.assignees }}
           RELEASE_TYPE: ${{ steps.meta.outputs.release_type }}
           DUE_TIME: ${{ steps.due.outputs.due }}
-          INPUT_TAG: >-
-            ${{ github.event_name == 'workflow_dispatch'
-                && github.event.inputs.tag
-                || '' }}
+          INPUT_TAG: ${{ inputs.tag }}
         with:
           script: |
-            const isManual = context.eventName === 'workflow_dispatch';
+            const isManual = context.eventName !== 'release';
             let tag, releaseUrl;
 
             if (isManual) {
@@ -227,12 +243,13 @@ jobs:
 
             \`\`\`bash
             python -m venv /tmp/qwenpaw-test && source /tmp/qwenpaw-test/bin/activate
-            pip install qwenpaw==${version}
-            qwenpaw
+            python -m pip install --upgrade "pip>=26.2.2"
+            python -m pip install qwenpaw==${version} "certifi>=2026.10.19"
+            qwenpaw app
             \`\`\`
 
             - [ ] Install succeeds (\`pip install\` exits cleanly)
-            - [ ] Launch succeeds (\`qwenpaw\` starts, browser UI reachable)
+            - [ ] Launch succeeds (\`qwenpaw app\` starts, browser UI reachable)
             - [ ] Model configured (API key + model saved without error)
             - [ ] Basic chat works (message sent, normal reply received)
 
@@ -247,7 +264,7 @@ jobs:
             \`\`\`
 
             - [ ] Image pulled successfully
-            - [ ] Container starts, \`http://localhost:7860\` reachable
+            - [ ] Container starts, \`http://localhost:8088\` reachable
             - [ ] Model configured (API key + model saved without error)
             - [ ] Basic chat works (message sent, normal reply received)
 

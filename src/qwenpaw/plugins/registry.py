@@ -2,11 +2,14 @@
 # pylint:disable=too-many-nested-blocks
 """Central plugin registry."""
 
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Type
 from dataclasses import dataclass, field
 import logging
 
 from fastapi import APIRouter
+
+if TYPE_CHECKING:
+    from .channel_adapter import ChannelDescription
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,7 @@ class HookRegistration:
     hook_name: str
     callback: Callable
     priority: int = 100
+    reload_safe: bool = False
 
 
 @dataclass
@@ -81,6 +85,34 @@ class ControlCommandRegistration:
     plugin_id: str
     handler: Any  # BaseControlCommandHandler
     priority_level: int = 10
+
+
+@dataclass
+class MiddlewareRegistration:
+    """Middleware factory registration record."""
+
+    plugin_id: str
+    factory: Callable
+    priority: int = 100
+
+
+@dataclass
+class ChannelRegistration:
+    """Channel registration record from a plugin."""
+
+    plugin_id: str
+    channel_key: str
+    channel_class: Optional[Type] = None
+    label: str = ""
+    description: str = ""
+    config_fields: List[Dict[str, Any]] = field(default_factory=list)
+    icon: str = ""
+    doc_url: Any = ""
+    description_record: Optional["ChannelDescription"] = None
+    runtime_settings: Any = None
+    global_enabled: bool = True
+    dependency_token: Any = None
+    owns_dependency_token: bool = False
 
 
 @dataclass
@@ -101,6 +133,10 @@ class PromptSectionRegistration:
     after: str
     agent_id: Optional[str]
     provider: Callable[[Any], str]
+
+
+class MemoryBackendInUseError(RuntimeError):
+    """A live or selected memory backend prevents a lifecycle change."""
 
 
 class PluginRegistry:  # pylint:disable=too-many-public-methods
@@ -132,15 +168,87 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._uninstall_hooks: List[HookRegistration] = []
         self._workspace_created_hooks: List[HookRegistration] = []
         self._control_commands: List[ControlCommandRegistration] = []
+        from .ownership import RuntimeOwners
+
+        self.runtime_owners = RuntimeOwners()
+        from .dependency_usage import DependencyUsageRegistry
+
+        self.dependency_usage = DependencyUsageRegistry(self.runtime_owners)
+        self._channels: Dict[str, ChannelRegistration] = {}
+        self.channel_runtime = None
         self._runtime_helpers = None
         self._plugin_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_manifests: Dict[str, Dict[str, Any]] = {}
+        self._harness_states: Dict[str, str] = {}
+        self._middleware_registrations: List[MiddlewareRegistration] = []
         self._plugin_http_app: Optional[Any] = None
         self._http_router_registrations: List[HttpRouterRegistration] = []
         self._http_prefix_to_plugin: Dict[str, str] = {}
         self._prompt_sections: List[PromptSectionRegistration] = []
-        self._prompt_section_names: Set[str] = set()
+        self._prompt_section_names: set = set()
+        self._workspace_manager: Optional[Any] = None
+        self._backend_registry = None
+        from .workspace_projector import WorkspaceProjector
+
+        self.projector = WorkspaceProjector()
+        self._stop_workspaces: dict[str, Any] = {}
 
         self._initialized = True
+
+    @property
+    def backend_registry_initialized(self):
+        """Check declaration presence without importing backend machinery."""
+        return self._backend_registry is not None
+
+    @property
+    def backend_registry(self):
+        """Load only the declaration registry when harnesses are used."""
+        if self._backend_registry is None:
+            from ..runtime.backends.registry import BackendRegistry
+
+            self._backend_registry = BackendRegistry(
+                self.get_harness_manifests,
+                self.get_harness_states,
+            )
+        return self._backend_registry
+
+    def register_middleware(
+        self,
+        plugin_id: str,
+        factory: Callable,
+        priority: int = 100,
+    ) -> None:
+        """Register a middleware factory.
+
+        The factory is invoked per request during agent assembly:
+        ``factory(ctx, agent_config) -> MiddlewareBase | None``.
+
+        Args:
+            plugin_id: Plugin identifier
+            factory: Callable returning a MiddlewareBase or None
+            priority: Ordering priority (lower = outermost in onion model)
+        """
+        self._middleware_registrations.append(
+            MiddlewareRegistration(
+                plugin_id=plugin_id,
+                factory=factory,
+                priority=priority,
+            ),
+        )
+        self._middleware_registrations.sort(key=lambda r: r.priority)
+        logger.info(
+            "Registered middleware factory from plugin '%s' (priority=%d)",
+            plugin_id,
+            priority,
+        )
+
+    def get_middleware_factories(self) -> List[MiddlewareRegistration]:
+        """Get all middleware factory registrations sorted by priority.
+
+        Returns:
+            List of MiddlewareRegistration
+        """
+        return self._middleware_registrations.copy()
 
     def set_plugin_http_app(self, app: Any) -> None:
         """Attach the FastAPI application used to mount plugin HTTP routes.
@@ -152,6 +260,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             app: The root ``FastAPI`` instance.
         """
         self._plugin_http_app = app
+        from ._harness_http import install_gateway
+
+        install_gateway(self, app)
+
+    def get_plugin_http_app(self) -> Optional[Any]:
+        """Return the application that owns the native plugin lifecycle."""
+        return self._plugin_http_app
 
     def register_http_router(
         self,
@@ -337,6 +452,88 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._runtime_helpers
 
+    def set_workspace_manager(self, manager) -> None:
+        """Set the workspace manager reference.
+
+        Called once during app lifespan startup so plugins can
+        access workspace instances for registration.
+
+        Args:
+            manager: MultiAgentManager / WorkspaceRegistry instance
+        """
+        self._workspace_manager = manager
+
+    def get_workspace_manager(self):
+        """Get the workspace manager.
+
+        Returns:
+            MultiAgentManager instance or None
+        """
+        return self._workspace_manager
+
+    def register_stop_workspace(self, agent_id: str, workspace: Any) -> None:
+        """Expose a standalone workspace without replacing the app manager."""
+        existing = self._stop_workspaces.get(agent_id)
+        if existing is not None and existing is not workspace:
+            raise ValueError(f"Stop workspace already registered: {agent_id}")
+        self._stop_workspaces[agent_id] = workspace
+
+    def unregister_stop_workspace(self, agent_id: str, workspace: Any) -> None:
+        """Remove only the registration owned by this workspace."""
+        if self._stop_workspaces.get(agent_id) is workspace:
+            self._stop_workspaces.pop(agent_id)
+
+    @classmethod
+    def get_stop_handlers(
+        cls,
+        agent_id: "str | None" = None,
+    ) -> list:
+        """Collect stop handlers.
+
+        Args:
+            agent_id: If provided, only return handlers
+                registered on that workspace. Otherwise
+                return handlers from all workspaces.
+
+        Returns:
+            List of StopHandlerRegistration objects.
+        """
+        inst = cls._instance
+        if inst is None:
+            return []
+        mgr = inst.get_workspace_manager()
+        workspaces = dict(
+            getattr(
+                mgr,
+                "agents",
+                getattr(mgr, "workspaces", {}),
+            ),
+        )
+        # pylint: disable=protected-access
+        workspaces.update(inst._stop_workspaces)
+        if agent_id is not None:
+            ws = workspaces.get(agent_id)
+            if ws is None:
+                return []
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                return []
+            return list(
+                getattr(plugins, "stop_handlers", []),
+            )
+        handlers: list = []
+        for ws in workspaces.values():
+            plugins = getattr(ws, "plugins", None)
+            if plugins is None:
+                continue
+            ws_handlers = getattr(
+                plugins,
+                "stop_handlers",
+                [],
+            )
+            handlers.extend(ws_handlers)
+        return handlers
+
     def register_startup_hook(
         self,
         plugin_id: str,
@@ -411,6 +608,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._shutdown_hooks.copy()
 
+    def remove_shutdown_hook(self, hook: HookRegistration) -> None:
+        """Retire one completed callback without removing a replacement."""
+        self._shutdown_hooks = [
+            h for h in self._shutdown_hooks if h is not hook
+        ]
+
     def register_uninstall_hook(
         self,
         plugin_id: str,
@@ -461,6 +664,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         hook_name: str,
         callback: Callable,
         priority: int = 100,
+        reload_safe: bool = False,
     ):
         """Register a hook that fires when a new workspace is created.
 
@@ -473,12 +677,16 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             callback: Sync or async callback function.
                 Signature: ``(workspace_info: dict) -> None``
             priority: Priority (lower = earlier execution)
+            reload_safe: Whether the callback only restores in-memory state
+                and may run for a replacement workspace during reload. Such
+                callbacks must not perform workspace filesystem provisioning.
         """
         hook = HookRegistration(
             plugin_id=plugin_id,
             hook_name=hook_name,
             callback=callback,
             priority=priority,
+            reload_safe=reload_safe,
         )
         self._workspace_created_hooks.append(hook)
         self._workspace_created_hooks.sort(key=lambda h: h.priority)
@@ -495,6 +703,45 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._workspace_created_hooks.copy()
 
+    def get_workspace_setup_hooks(self) -> List[HookRegistration]:
+        """Get in-memory workspace setup hooks sorted by priority."""
+        return [
+            hook for hook in self._workspace_created_hooks if hook.reload_safe
+        ]
+
+    def remove_hooks_by_name(
+        self,
+        plugin_id: str,
+        hook_names: List[str],
+    ) -> None:
+        """Remove specific hooks registered by a plugin.
+
+        Removes hooks matching the given ``hook_names`` from all hook
+        lists (startup, shutdown, uninstall, workspace_created).
+
+        Args:
+            plugin_id: Plugin identifier that owns the hooks.
+            hook_names: Hook names to remove.
+        """
+        names_set = set(hook_names)
+
+        def _filter(hooks: list) -> list:
+            return [
+                h
+                for h in hooks
+                if not (h.plugin_id == plugin_id and h.hook_name in names_set)
+            ]
+
+        self._startup_hooks = _filter(self._startup_hooks)
+        self._shutdown_hooks = _filter(self._shutdown_hooks)
+        self._uninstall_hooks = _filter(self._uninstall_hooks)
+        self._workspace_created_hooks = _filter(
+            self._workspace_created_hooks,
+        )
+        logger.info(
+            f"Removed hooks {hook_names} for plugin '{plugin_id}'",
+        )
+
     def register_prompt_section(
         self,
         plugin_id: str,
@@ -510,31 +757,41 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             name: Unique section name.
             after: Host anchor this section follows.
             agent_id: Optional agent id filter; ``None`` applies globally.
-            provider: Callable receiving the agent and returning section text.
+            provider: Callable receiving the agent and returning text.
 
         Raises:
-            ValueError: If *name* has already been registered or *after*
-                does not reference a host prompt anchor.
+            ValueError: If *name* is already registered or *after* is not
+                a valid host prompt anchor.
         """
         normalized_name = name.strip()
         if not normalized_name:
             raise ValueError("Prompt section name must not be empty")
-
         if normalized_name in self._prompt_section_names:
-            raise ValueError(
-                f"Prompt section '{normalized_name}' is already registered",
+            occupant = next(
+                (
+                    item.plugin_id
+                    for item in self._prompt_sections
+                    if item.name == normalized_name
+                ),
+                "",
             )
+            from ..runtime.occupancy import occupancy_conflict
 
+            raise ValueError(
+                occupancy_conflict(
+                    "prompt section",
+                    normalized_name,
+                    occupant,
+                ),
+            )
         normalized_after = after.strip() or "workspace"
         from ..agents.prompt_builder import PromptBuilder
 
         if normalized_after not in PromptBuilder.HOST_ANCHORS:
-            msg = (
-                f"Prompt section after='{after}'"
-                " must reference a host anchor"
+            raise ValueError(
+                f"Prompt section after='{after}' must reference a"
+                " host anchor",
             )
-            raise ValueError(msg)
-
         registration = PromptSectionRegistration(
             plugin_id=plugin_id,
             name=normalized_name,
@@ -545,10 +802,8 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections.append(registration)
         self._prompt_section_names.add(normalized_name)
         logger.info(
-            "Registered prompt section '%s' from plugin '%s' after '%s'",
-            registration.name,
-            plugin_id,
-            normalized_after,
+            f"Registered prompt section '{normalized_name}' from plugin"
+            f" '{plugin_id}' after '{normalized_after}'",
         )
 
     def get_prompt_sections(self) -> List[PromptSectionRegistration]:
@@ -568,6 +823,30 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             handler: Control command handler instance
             priority_level: Command priority (default: 10 = high)
         """
+        from ..runtime.occupancy import occupancy_conflict
+        from ..runtime.commands.control import command_owner
+
+        name = str(getattr(handler, "command_name", "") or "")
+        normalized = name.lstrip("/").lower()
+        for item in self._control_commands:
+            other = str(item.handler.command_name or "").lstrip("/").lower()
+            if other == normalized and item.plugin_id != plugin_id:
+                raise ValueError(
+                    occupancy_conflict(
+                        "control_command",
+                        normalized,
+                        item.plugin_id,
+                    ),
+                )
+        live_owner = command_owner(normalized)
+        if live_owner and live_owner != plugin_id:
+            raise ValueError(
+                occupancy_conflict(
+                    "control_command",
+                    normalized,
+                    live_owner,
+                ),
+            )
         cmd_reg = ControlCommandRegistration(
             plugin_id=plugin_id,
             handler=handler,
@@ -587,6 +866,405 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         """
         return self._control_commands.copy()
 
+    def register_channel(
+        self,
+        plugin_id: str,
+        channel_key: str,
+        channel_class: Type,
+        label: str = "",
+        description: str = "",
+        config_fields: Optional[List[Dict[str, Any]]] = None,
+        icon: str = "",
+        doc_url: Any = "",
+    ) -> ChannelRegistration:
+        """Register a custom channel from a plugin.
+
+        Args:
+            plugin_id: Owning plugin id.
+            channel_key: Unique channel identifier (e.g. "slack").
+            channel_class: Channel class (must be a BaseChannel subclass).
+            label: Human-readable display name for the channel.
+            description: Short description shown in the UI.
+            config_fields: List of configuration field descriptors for
+                the frontend form. Each dict should have at least
+                ``name``, ``label``, ``type`` keys. Supported types:
+                text, password, number, switch, select.
+            icon: Optional display icon URL for the channel card. The
+                frontend falls back to the default icon when it is empty
+                or not a usable http(s) URL.
+            doc_url: Optional documentation link for the channel. May be a
+                plain http(s) URL string, or a localized mapping such as
+                ``{"zh": "...", "en": "..."}``. The Console renders a "Doc"
+                button only when it resolves to a usable http(s) URL.
+
+        Raises:
+            ValueError: If channel_key is already registered or invalid.
+            TypeError: If channel_class is not a BaseChannel subclass.
+        """
+        from ..app.channels.base import BaseChannel
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+
+        if not channel_key or not channel_key.strip():
+            raise ValueError("channel_key must be a non-empty string")
+
+        normalized_key = channel_key.strip().lower()
+
+        if normalized_key != channel_key:
+            logger.warning(
+                "Channel key %r is not normalized (lowercase, no "
+                "spaces); auto-normalizing to %r. Please update "
+                "the channel class attribute to match.",
+                channel_key,
+                normalized_key,
+            )
+            setattr(channel_class, "channel", normalized_key)
+
+        # Validate config_fields structure
+        required_field_keys = {"name", "label", "type"}
+        valid_field_types = {"text", "password", "number", "switch", "select"}
+        for field_def in config_fields or []:
+            missing = required_field_keys - field_def.keys()
+            if missing:
+                raise ValueError(
+                    f"config_field missing required keys: {missing}",
+                )
+            if field_def["type"] not in valid_field_types:
+                raise ValueError(
+                    f"unsupported config_field type: {field_def['type']}; "
+                    f"must be one of {valid_field_types}",
+                )
+
+        # Prevent overriding built-in channels
+        from .official_channel_catalog import official_channel_owners
+
+        owners = official_channel_owners()
+        if normalized_key in BUILTIN_CHANNEL_KEYS or normalized_key in owners:
+            owner = owners.get(normalized_key, "builtin")
+            raise ValueError(
+                f"Channel '{normalized_key}' is reserved by owner '{owner}' "
+                f"and cannot be registered by plugin '{plugin_id}'",
+            )
+
+        if normalized_key in self._channels:
+            owner = self._channels[normalized_key].plugin_id
+            raise ValueError(
+                f"Channel '{normalized_key}' is already registered "
+                f"by plugin '{owner}'",
+            )
+
+        if not (
+            isinstance(channel_class, type)
+            and issubclass(channel_class, BaseChannel)
+            and channel_class is not BaseChannel
+        ):
+            raise TypeError(
+                f"channel_class must be a concrete BaseChannel subclass, "
+                f"got {channel_class!r}",
+            )
+
+        self._channels[normalized_key] = ChannelRegistration(
+            plugin_id=plugin_id,
+            channel_key=normalized_key,
+            channel_class=channel_class,
+            label=label or normalized_key,
+            description=description,
+            config_fields=config_fields or [],
+            icon=(icon or "").strip(),
+            doc_url=doc_url or "",
+        )
+        logger.info(
+            f"Registered channel '{normalized_key}' from plugin "
+            f"'{plugin_id}'",
+        )
+
+        return self._channels[normalized_key]
+
+    def get_registered_channels(self) -> Dict[str, ChannelRegistration]:
+        """Get all plugin-registered channels.
+
+        Returns:
+            Dictionary of channel_key -> ChannelRegistration.
+        """
+        return {
+            key: row
+            for key, row in self._channels.items()
+            if row.channel_class is not None
+        }
+
+    def get_channel_registration(
+        self,
+        channel_key: str,
+    ) -> Optional[ChannelRegistration]:
+        """Get a single channel registration by key.
+
+        Args:
+            channel_key: Channel identifier.
+
+        Returns:
+            ChannelRegistration or None.
+        """
+        row = self._channels.get(channel_key)
+        return (
+            row
+            if row is not None
+            and (
+                row.channel_class is not None
+                or row.runtime_settings is not None
+            )
+            else None
+        )
+
+    def get_channel_catalog(self) -> Dict[str, ChannelRegistration]:
+        """Return static candidates and active class registrations."""
+        return self._channels.copy()
+
+    def get_channel_catalog_entry(
+        self,
+        channel_key: str,
+    ) -> Optional[ChannelRegistration]:
+        """Look up an owned row without claiming it is runtime-ready."""
+        return self._channels.get(channel_key)
+
+    def configure_channel_runtime(self, settings) -> None:
+        """Reserve selected keys independently of installed artifacts."""
+        if (
+            self.channel_runtime is not None
+            and self.channel_runtime != settings
+        ):
+            raise RuntimeError("CHANNEL_RUNTIME_ALREADY_CONFIGURED")
+        self.channel_runtime = settings
+
+    def has_channel_owners(self, plugin_id: str) -> bool:
+        """Compatibility query over the sole runtime custody authority."""
+        return any(
+            lease.key.kind == "channel"
+            for lease in self.runtime_owners.leases(plugin_id)
+        )
+
+    def register_channel_descriptor(
+        self,
+        plugin_id: str,
+        description: "ChannelDescription",
+        *,
+        runtime_settings=None,
+        global_enabled: bool = True,
+        dependency_token=None,
+    ) -> ChannelRegistration:
+        """Register host-owned static metadata without loading a driver."""
+        from ..app.channels.registry import BUILTIN_CHANNEL_KEYS
+
+        descriptor = description.descriptor
+        key = descriptor.channel_key
+        if plugin_id != description.plugin_id:
+            raise ValueError("Channel descriptor owner mismatch")
+        from ..app.channels.catalog import config_fields
+        from .official_channel_catalog import official_channel_owners
+
+        owner = official_channel_owners().get(key)
+        if key in BUILTIN_CHANNEL_KEYS or (owner and owner != plugin_id):
+            occupying = "builtin" if key in BUILTIN_CHANNEL_KEYS else owner
+            raise ValueError(
+                f"Channel '{key}' owner '{occupying}' conflicts with "
+                f"plugin '{plugin_id}'",
+            )
+        if key in self._channels:
+            owner = self._channels[key].plugin_id
+            raise ValueError(
+                f"Channel '{key}' is already registered by plugin '{owner}'",
+            )
+        fields = config_fields(
+            descriptor.config_schema,
+            descriptor.config_fields,
+        )
+        row = ChannelRegistration(
+            plugin_id=plugin_id,
+            channel_key=key,
+            label=descriptor.label["en"],
+            description=description.description,
+            config_fields=fields,
+            description_record=description,
+            runtime_settings=runtime_settings,
+            global_enabled=global_enabled,
+            dependency_token=dependency_token,
+        )
+        if (
+            global_enabled
+            and runtime_settings is not None
+            and dependency_token is None
+        ):
+            from .dependency_usage import DependencyDeclaration
+
+            row.dependency_token = self.dependency_usage.declare(
+                DependencyDeclaration(
+                    plugin_id,
+                    description.source_revision,
+                    description.requirements,
+                    None,
+                ),
+                pending=False,
+            )
+            row.owns_dependency_token = True
+        self._channels[key] = row
+        return row
+
+    def unregister_channel(
+        self,
+        channel_key: str,
+        *,
+        expected: Optional[ChannelRegistration] = None,
+    ) -> bool:
+        """Drop one channel registration by key."""
+        current = self._channels.get(channel_key)
+        if current is None or (
+            expected is not None and current is not expected
+        ):
+            return False
+        if current.runtime_settings is not None and any(
+            lease.key.kind == "channel" and lease.key.name == channel_key
+            for lease in self.runtime_owners.leases(current.plugin_id)
+        ):
+            from .lifecycle import QuiescenceError
+
+            raise QuiescenceError("CHANNEL_INSTANCE_STILL_OWNED")
+        del self._channels[channel_key]
+        if current.owns_dependency_token:
+            self.dependency_usage.withdraw(current.dependency_token)
+        logger.info("Unregistered channel '%s'", channel_key)
+        return True
+
+    def leftover_channel_keys(self, plugin_id: str) -> List[str]:
+        """Channel keys still owned by *plugin_id* (report-only)."""
+        return [
+            key
+            for key, reg in self._channels.items()
+            if reg.plugin_id == plugin_id
+        ]
+
+    def drop_http_router(self, plugin_id: str, prefix: str) -> None:
+        """Remove one mounted HTTP prefix for *plugin_id*."""
+        http_app = self._plugin_http_app
+        normalized = prefix.strip()
+        remaining = []
+        for reg in self._http_router_registrations:
+            if reg.plugin_id != plugin_id or reg.prefix != normalized:
+                remaining.append(reg)
+                continue
+            self._http_prefix_to_plugin.pop(reg.prefix, None)
+            if http_app is None:
+                continue
+            routes = http_app.router.routes
+            for route in reg.routes:
+                try:
+                    routes.remove(route)
+                except ValueError:
+                    logger.debug(
+                        "HTTP route %r already gone for '%s'",
+                        getattr(route, "path", route),
+                        plugin_id,
+                    )
+        self._http_router_registrations = remaining
+
+    def drop_provider(self, provider_id: str) -> None:
+        """Remove one provider registration."""
+        self._providers.pop(provider_id, None)
+
+    def drop_control_command(self, plugin_id: str, command_name: str) -> None:
+        """Remove one control-command registration."""
+        wanted = str(command_name or "").lstrip("/").lower()
+        self._control_commands = [
+            item
+            for item in self._control_commands
+            if not (
+                item.plugin_id == plugin_id
+                and str(item.handler.command_name or "").lstrip("/").lower()
+                == wanted
+            )
+        ]
+
+    def drop_middleware(
+        self,
+        plugin_id: str,
+        factory: Callable,
+        priority: int,
+    ) -> None:
+        """Remove one middleware factory registration."""
+        self._middleware_registrations = [
+            item
+            for item in self._middleware_registrations
+            if not (
+                item.plugin_id == plugin_id
+                and item.factory is factory
+                and item.priority == priority
+            )
+        ]
+
+    def drop_prompt_section(self, name: str) -> None:
+        """Remove one prompt section by name."""
+        self._prompt_sections = [
+            item for item in self._prompt_sections if item.name != name
+        ]
+        self._prompt_section_names.discard(name)
+
+    def leftover_registrations(self, plugin_id: str) -> List[str]:
+        """Ledgered rows that are still present after teardown."""
+        leftovers: List[str] = []
+        leftovers.extend(
+            f"http:{reg.prefix}"
+            for reg in self._http_router_registrations
+            if reg.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"provider:{pid}"
+            for pid, reg in self._providers.items()
+            if reg.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"channel:{key}" for key in self.leftover_channel_keys(plugin_id)
+        )
+        leftovers.extend(
+            f"control_command:{item.handler.command_name}"
+            for item in self._control_commands
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"middleware:{item.priority}"
+            for item in self._middleware_registrations
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"prompt_section:{item.name}"
+            for item in self._prompt_sections
+            if item.plugin_id == plugin_id
+        )
+        leftovers.extend(
+            f"hook:{item.hook_name}"
+            for item in (
+                self._startup_hooks
+                + self._shutdown_hooks
+                + self._uninstall_hooks
+                + self._workspace_created_hooks
+            )
+            if item.plugin_id == plugin_id
+        )
+        if plugin_id in self._plugin_manifests:
+            leftovers.append("manifest")
+        return leftovers
+
+    def _unregister_plugin_channels(self, plugin_id: str) -> None:
+        """Report leftover channel registrations; do not delete them.
+
+        Ledger teardown owns ``unregister_channel``. Rows still present
+        here are leaks for the unload report.
+        """
+        leftovers = self.leftover_channel_keys(plugin_id)
+        for key in leftovers:
+            logger.error(
+                "Channel '%s' still registered after teardown "
+                "(plugin '%s')",
+                key,
+                plugin_id,
+            )
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -599,7 +1277,37 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             manifest: Plugin manifest dictionary
         """
         self._plugin_manifests[plugin_id] = manifest
+        self.remember_harness_manifest(plugin_id, manifest)
         logger.debug(f"Registered manifest for plugin '{plugin_id}'")
+
+    def drop_plugin_manifest(self, plugin_id: str) -> None:
+        """Remove a stored manifest if present."""
+        self._plugin_manifests.pop(plugin_id, None)
+        if plugin_id in self._harness_states:
+            self._harness_states[plugin_id] = "disabled"
+
+    def remember_harness_manifest(
+        self,
+        plugin_id,
+        manifest,
+        status="disabled",
+    ):
+        """Retain discovery metadata without granting runtime admission."""
+        if (manifest.get("meta") or {}).get("harnesses") is not None:
+            self._harness_manifests[plugin_id] = manifest
+            self._harness_states[plugin_id] = status
+        else:
+            self.forget_harness_manifest(plugin_id)
+
+    def forget_harness_manifest(self, plugin_id):
+        self._harness_manifests.pop(plugin_id, None)
+        self._harness_states.pop(plugin_id, None)
+
+    def get_harness_manifests(self):
+        return {**self._harness_manifests, **self._plugin_manifests}
+
+    def get_harness_states(self):
+        return self._harness_states.copy()
 
     def get_all_plugin_manifests(self) -> Dict[str, Dict[str, Any]]:
         """Get all plugin manifests.
@@ -626,16 +1334,49 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
     def unregister_plugin(self, plugin_id: str) -> None:
         """Remove all in-memory registrations for a plugin.
 
-        Clears manifest, providers, hooks, and control commands
+        Clears manifest, providers, hooks, channels, and control commands
         that were registered under the given plugin_id.  Does not
         touch disk or agent configurations.
 
         Args:
             plugin_id: Plugin identifier to remove
         """
-        self._unregister_plugin_http_routes(plugin_id)
+        from qwenpaw.memory import memory_registry
+        from qwenpaw.market import market_registry
 
-        self._plugin_manifests.pop(plugin_id, None)
+        self.assert_memory_backends_not_in_use(plugin_id)
+        market_registry.unregister_owner(plugin_id)
+
+        self._unregister_plugin_http_routes(plugin_id)
+        self._unregister_plugin_channels(plugin_id)
+
+        try:
+            removed_memory = memory_registry.unregister_owner(plugin_id)
+            for backend_id in removed_memory:
+                logger.info(
+                    "Unregistered memory backend '%s' for plugin '%s'",
+                    backend_id,
+                    plugin_id,
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Memory backend ownership release skipped for plugin %s",
+                plugin_id,
+                exc_info=True,
+            )
+
+        try:
+            from .api import release_tool_ownership_for_plugin
+
+            release_tool_ownership_for_plugin(plugin_id)
+        except Exception:  # noqa: BLE001
+            logger.debug(
+                "Tool ownership release skipped for plugin %s",
+                plugin_id,
+                exc_info=True,
+            )
+
+        self.drop_plugin_manifest(plugin_id)
 
         providers_to_remove = [
             pid
@@ -665,13 +1406,19 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._control_commands = [
             c for c in self._control_commands if c.plugin_id != plugin_id
         ]
-        removed_names = {
-            s.name for s in self._prompt_sections if s.plugin_id == plugin_id
-        }
-        self._prompt_section_names -= removed_names
+        self._middleware_registrations = [
+            r
+            for r in self._middleware_registrations
+            if r.plugin_id != plugin_id
+        ]
+        removed_sections = [
+            s for s in self._prompt_sections if s.plugin_id == plugin_id
+        ]
         self._prompt_sections = [
             s for s in self._prompt_sections if s.plugin_id != plugin_id
         ]
+        for s in removed_sections:
+            self._prompt_section_names.discard(s.name)
         logger.info(
             f"Unregistered all entries for plugin '{plugin_id}'",
         )
@@ -769,3 +1516,41 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         except Exception as e:
             logger.error(f"Failed to save tool config: {e}")
             raise
+
+    def assert_memory_backends_not_in_use(self, plugin_id: str) -> None:
+        """Protect selected, starting, and draining memory backends."""
+        from qwenpaw.memory import memory_registry
+
+        owned_memory = set(memory_registry.owned_by(plugin_id))
+        if not owned_memory:
+            return
+        selected_agent_ids: set[str] = set()
+        if self._workspace_manager is not None:
+            workspaces = getattr(
+                self._workspace_manager,
+                "agents",
+                getattr(self._workspace_manager, "workspaces", {}),
+            )
+            selected_agent_ids.update(
+                workspace.agent_id
+                for workspace in workspaces.values()
+                if getattr(
+                    getattr(
+                        getattr(workspace, "_config", None),
+                        "running",
+                        None,
+                    ),
+                    "memory_manager_backend",
+                    None,
+                )
+                in owned_memory
+            )
+        in_use = memory_registry.begin_owner_unload(
+            plugin_id,
+            tuple(selected_agent_ids),
+        )
+        if in_use:
+            raise MemoryBackendInUseError(
+                f"Cannot unload plugin '{plugin_id}'; memory backend is "
+                f"in use by agents: {', '.join(sorted(in_use))}",
+            )

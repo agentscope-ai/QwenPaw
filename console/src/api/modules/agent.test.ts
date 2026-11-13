@@ -33,7 +33,7 @@ describe("agentApi", () => {
   it("agentApi sends POST to /agent/process with body", async () => {
     const body = { message: "hello", session_id: "s1" };
     await agentApi.agentApi(body as any);
-    expect(request).toHaveBeenCalledWith("/agent/process", {
+    expect(request).toHaveBeenCalledWith("/console/chat", {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -68,8 +68,31 @@ describe("agentApi", () => {
     expect(request).toHaveBeenCalledWith("/workspace/running-config", {
       method: "PUT",
       body: JSON.stringify(config),
+      timeout: 10 * 60 * 1000,
     });
     expect(result).toEqual(config);
+  });
+
+  it("testEmbedding sends unsaved embedding config", async () => {
+    const config = {
+      backend: "openai" as const,
+      api_key: "key",
+      base_url: "https://example.com/v1",
+      model_name: "embedding-model",
+      dimensions: 1024,
+      enable_cache: true,
+      use_dimensions: false,
+      max_cache_size: 10000,
+      max_input_length: 8192,
+      max_batch_size: 10,
+      health_check_timeout: 45,
+    };
+    await agentApi.testEmbedding(config);
+    expect(request).toHaveBeenCalledWith("/workspace/embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: 95 * 1000,
+    });
   });
 
   it("updateAgentLanguage sends PUT with language in body", async () => {
@@ -110,6 +133,23 @@ describe("agentApi", () => {
     expect(request).toHaveBeenCalledWith("/workspace/transcription-provider", {
       method: "PUT",
       body: JSON.stringify({ provider_id: "openai" }),
+    });
+  });
+
+  it("getTranscriptionModel calls GET /workspace/transcription-model", async () => {
+    vi.mocked(request).mockResolvedValue({ transcription_model: "whisper-1" });
+    const result = await agentApi.getTranscriptionModel();
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model");
+    expect(result).toEqual({ transcription_model: "whisper-1" });
+  });
+
+  it("updateTranscriptionModel sends PUT with transcription_model", async () => {
+    await agentApi.updateTranscriptionModel("FunAudioLLM/SenseVoiceSmall");
+    expect(request).toHaveBeenCalledWith("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({
+        transcription_model: "FunAudioLLM/SenseVoiceSmall",
+      }),
     });
   });
 });

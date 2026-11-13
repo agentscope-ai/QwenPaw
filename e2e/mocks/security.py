@@ -11,7 +11,7 @@ _MOCK_TOOL_GUARD = {
     "denied_tools": [],
     "custom_rules": [],
     "disabled_rules": [],
-    "auto_denied_rules": [],
+    "auto_denied_rules": ["SAFETY_CHECKS_DESTRUCTIVE_COMMAND"],
     "shell_evasion_checks": {"enabled": False, "blocked_commands": []},
 }
 

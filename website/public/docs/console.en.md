@@ -15,6 +15,8 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Manage MCP clients
 - Modify runtime configuration
 - Manage multiple agents
+- Import conversations and tool settings from Codex and Qoder
+- Connect mailboxes and review automatic new-mail processing
 - Configure LLM providers and select models
 - Manage environment variables required by tools
 - Manage security options for tools and skills
@@ -28,6 +30,58 @@ walk through each feature in order.
 > **Not seeing the Console?** Make sure the frontend has been built. See
 > [CLI](./cli).
 
+## Reverse-proxy subpath deployment
+
+To serve the Console at a path such as `https://example.com/qwenpaw/`, set
+the build-time variables in `console/.env.production.local`:
+
+```dotenv
+VITE_CONSOLE_BASENAME=/qwenpaw
+VITE_API_BASE_URL=/qwenpaw
+```
+
+Build from the repository root:
+
+```bash
+cd console
+npm install
+npm run build
+```
+
+`VITE_CONSOLE_BASENAME` sets the router prefix and the asset URL prefix
+(for example, `/qwenpaw/assets/`). Leading and trailing slashes are normalized;
+nested prefixes such as `/apps/qwenpaw` are supported. If it is unset or empty,
+the existing root and `/console` routes remain available and assets stay at
+`/assets/`. Set it to `/` for an explicitly root-only router.
+
+`VITE_API_BASE_URL` independently sets the backend URL before `/api`. Use
+`/qwenpaw` when the proxy also exposes the API at `/qwenpaw/api/`; leave it empty
+when the API is served at `/api/`, or set it to the backend's external origin.
+These variables are embedded during the build. Changing the server environment
+afterward requires rebuilding the frontend.
+
+Point `QWENPAW_CONSOLE_STATIC_DIR` to the absolute path of the resulting
+`console/dist` directory in the environment that runs `qwenpaw app`. This also
+lets a pip/uv installation serve the custom build without replacing package
+files. For Docker, include the custom build in the image or mount it and set
+`QWENPAW_CONSOLE_STATIC_DIR` to its path inside the container.
+
+Configure the proxy to strip `/qwenpaw` before forwarding every request,
+including SPA deep links, assets, API requests, and WebSockets. For example,
+with Caddy:
+
+```caddyfile
+example.com {
+    redir /qwenpaw /qwenpaw/ 308
+    handle_path /qwenpaw/* {
+        reverse_proxy 127.0.0.1:8088
+    }
+}
+```
+
+Open `https://example.com/qwenpaw/`. Forwarding the prefix unchanged would make
+asset requests reach the SPA fallback and return HTML instead of JavaScript.
+
 ---
 
 ## Chat
@@ -40,11 +94,28 @@ This is where you talk to QwenPaw. It is the default page when the Console opens
 
 **Choose a model:**
 Use the control at the **top-right** of the chat page to pick the model for the
-current agent.
+current conversation. This selection is saved with the conversation and leaves
+the agent default unchanged. Clear the conversation override in the selector to
+inherit the agent default again.
+
+Normal replies, manual `/compact`, `/history` context limits, and automatic
+chat-title generation follow this selection. Reasoning preferences are stored
+separately for each provider/model in the conversation. Image/video capability
+checks and on-demand probes follow the model executing the turn, including a
+configured fallback model when one is used.
 
 **Send a message:**
 Type in the input box at the bottom, then press **Enter** or click the send
 button (↑). QwenPaw replies in real time.
+
+**Quote a response:**
+Select text in an assistant reply (including code), then click **Quote to follow-up**.
+On touch screens, long-press to select text; keyboard users can press
+**Alt+Shift+Q** after selecting. **Escape** dismisses the action.
+The selected text is appended to your current draft as an editable Markdown
+blockquote (`>`), with line breaks and indentation preserved. Add your question
+and send normally; the quote is part of your user message. Drafts stay separate
+for each conversation and agent.
 
 **Voice input:**
 The composer supports **voice input** (browser and OS microphone permission
@@ -74,7 +145,7 @@ row to delete it.
 > Sidebar: **Inbox → Inbox**
 
 Inbox is the centralized place to handle approvals and review execution results
-from cron jobs and heartbeat runs.
+from cron jobs, heartbeat runs, and automatic new-mail processing.
 
 **Unread indicator:**
 The Inbox entry shows an unread dot. Open Inbox regularly to avoid missing
@@ -95,6 +166,19 @@ with approval popups in chat.
 For cron jobs and heartbeat, users can choose whether execution results should
 be pushed to Inbox. Click a message to view execution details, including traces.
 
+After new-mail automation is enabled for an agent, each message not blocked by
+mail access control creates an event here. When processing finishes, Inbox also
+shows the final summary and tool execution trace. The first monitor start only establishes the current UID
+baseline; it does not process historical messages. See
+[Mailbox Management](./mailbox#Automate-New-Mail) for the full pipeline.
+
+**Mail access control:**
+When mailbox access control is enabled, Inbox shows a **Mail access control**
+entry and pending count. Review unknown senders per agent; approve, block, or
+dismiss them; and maintain exact-address or `*@example.com` domain allowlists
+and blocklists. Approving a pending sender processes every message saved in that
+pending record; failed work remains in a retry queue that survives restarts.
+
 ![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
 
 ---
@@ -106,7 +190,7 @@ be pushed to Inbox. Click a message to view execution details, including traces.
 Manage messaging channels (Console, DingTalk, Feishu, Discord, QQ, WeChat,
 iMessage, etc.): enable/disable and credentials.
 
-![Channels](https://img.alicdn.com/imgextra/i4/O1CN01cqMycR1SeczjROAHu_!!6000000002272-2-tps-3822-2070.png)
+![Channels](https://img.alicdn.com/imgextra/i2/O1CN01ieCEb91uiZfJ6Zz5V_!!6000000006071-2-tps-3810-2064.png)
 
 **Enable a channel:**
 
@@ -239,12 +323,26 @@ Edit files that define QwenPaw's persona and behavior — `SOUL.md`, `AGENTS.md`
 If `MEMORY.md` exists, click the **▶** arrow to expand date-based entries. Click a
 date to view or edit that day's memory.
 
-**Download workspace:**
-Click **Download** to export the entire workspace as a `.zip` to your machine.
+**Browse memory tags:**
+With ReMe Light, select **Tags** beside Workspace, Profile, Daily and Knowledge
+Base to see tags and their file counts. Select a tag to browse matching files,
+or click a tag in a memory file's preview to open the same list. Results are
+paginated, and opening a result reuses the existing file editor.
+Tag browsing searches the existing memory index, which automatically indexes
+the configured daily and digest directories. A preview tag can find related
+indexed memories even when the current workspace file is outside those
+directories; that file will not appear unless it has been indexed. Other
+memory backends do not expose the Tags tab or clickable preview tags.
 
-**Upload/restore workspace:**
-Click **Upload** → choose a `.zip` (max 100 MB). Existing workspace files will be
-replaced. Useful for migration and backup restore.
+**Workspace backup and restore:**
+Use **Settings → Backup** to create, export, import, and restore backups.
+See [Backup & Restore](./backup).
+
+The legacy `GET /api/workspace/download` and `POST /api/workspace/upload`
+endpoints, including their `/api/agents/{agentId}/workspace/...` variants,
+have been removed. API clients must migrate to the `/api/backups` APIs.
+Legacy workspace ZIPs are not compatible with the backup format; extract
+individual files locally and upload them through Files if needed.
 
 ---
 
@@ -269,36 +367,27 @@ Click a skill card for the full description.
 **Edit a skill:**
 Click a skill card → turn off content preview → edit → **Save**.
 
-**Create a custom skill:**
+**Add a skill:**
 
-1. Click **Create Skill**.
-2. Enter a skill name (e.g. `weather_query`) and skill content in Markdown (must
-   include `name` and `description`).
-3. Click **Create**; the new skill appears in the list.
+The **Add Skill** dropdown at the top right is the unified entry for every way
+of adding a skill:
 
-**Load from skill pool:**
-
-1. Click **Load from skill pool**.
-2. In the dialog, pick skills to add to the current agent.
-3. Click **Confirm**.
+- **Create Skill**: enter a skill name (e.g. `weather_query`) and skill content
+  in Markdown (must include `name` and `description`), then click **Create**.
+- **Load from Skill Pool**: pick skills to add to the current agent in the
+  dialog, then click **Confirm**.
+- **Upload via Zip**: choose a local skill **zip** file to import.
+- **Upload via URL**: paste a skill URL (the dialog lists supported sources
+  with example URLs — click one to fill it in), then click **Confirm**.
+- **Browse Market**: the page switches to the embedded Skill Market; search or
+  filter by category, then click **Save** on a card to install it into the
+  current agent. Click **Back** (or use browser back) to return to the list.
 
 **Sync to skill pool:**
 
-1. Click **Sync to skill pool**.
+1. Click **Sync to Skill Pool**.
 2. Select skills to push to the pool.
 3. Click **Confirm**.
-
-**Upload a skill:**
-
-1. Click **Upload via zip**.
-2. Choose a skill **zip** file.
-3. Click **Open**; on success the skill appears in the list.
-
-**Import from Skills Hub:**
-
-1. Click **Import from Skills Hub** at the top.
-2. Enter the skill URL, then import.
-3. Wait for completion; the skill appears enabled in the list.
 
 **Delete a skill:**
 Click **Delete** on the card and confirm. If the skill is enabled, it is
@@ -317,6 +406,11 @@ off, this agent cannot call that tool in chat.
 
 Use **Enable all** / **Disable all** at the top for batch changes. Changes apply
 to the **current agent** immediately.
+
+The **browser** tool card carries one extra button that switches between the
+**New (Beta)** and **Legacy (compat)** browser implementations. It is written to
+the global configuration, applies to every agent, and takes effect only after a
+service restart — see [Browser](./browser).
 
 ---
 
@@ -338,7 +432,7 @@ The new client appears in the list.
 
 > Sidebar: **Workspace → Configuration**
 
-![Runtime Config](https://img.alicdn.com/imgextra/i1/O1CN011l1EnX1YbmDvsXolR_!!6000000003078-2-tps-3822-2070.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i4/O1CN01MC8p7m1iSICDbWOFr_!!6000000004411-2-tps-3810-2064.png)
 
 This page configures **runtime parameters for the current agent**, grouped in
 cards. Click **Save** at the bottom (**Reset** reloads from the server).
@@ -349,10 +443,19 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max auto-search results, etc.
-- **Embedding model** — Whether to enable embedding cache, etc.
+- **Long-term memory** — Select ReMeLight, disabled memory, or an installed
+  memory-backend plugin. The selector is populated from the runtime registry;
+  the selected plugin can add its own configuration tab. ReMeLight exposes
+  Auto-Memory cadence; Auto-Dream, Daily Paper, and Auto Fin schedules and Inbox
+  delivery; automatic memory search; and index maintenance.
+- **Embedding model** — Embedding service, dimensions, cache, health checks, and pending-rebuild state.
 
-For mechanics, see [Context](./context) and [Config & working directory](./config).
+Saving a backend selection or plugin-owned memory configuration schedules an
+Agent reload. If a previously selected plugin is unavailable, the Console keeps
+the selection visible as unavailable instead of silently changing the Agent to
+another memory store.
+
+For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embedding Models](./embedding), and [Config & working directory](./config).
 
 ---
 
@@ -369,6 +472,13 @@ when multiple agents collaborate — write a clear role.
 on; this page edits each agent's metadata (name, description, custom workspace
 path, etc.). See [Multi-Agent](./multi-agent).
 
+For a native QwenPaw agent, this page also configures **Email Management**.
+Connect an existing personal mailbox or prepare a dedicated mailbox for later
+registration, then keep automation off or wake the agent for every new message.
+Mail access control is available when automation is on. Third-party agent
+backends do not support mail configuration. See
+[Mailbox Management and Automation](./mailbox) for setup and supported providers.
+
 ---
 
 ## Models
@@ -377,7 +487,7 @@ path, etc.). See [Multi-Agent](./multi-agent).
 
 Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i4/O1CN01rePoH21MabpCZyWr1_!!6000000001451-2-tps-3822-2070.png)
+![Models](https://img.alicdn.com/imgextra/i2/O1CN012UbhBA1lVuAQm9Cb3_!!6000000004825-2-tps-3810-2064.png)
 
 On this page you can:
 
@@ -399,10 +509,12 @@ Global skill management. More detail: [Skills](./skills).
 On this page you can:
 
 - Broadcast skills to specific agents
-- Update built-in skills to the latest version
-- Upload skills via zip
-- Import skills from Skills Hub
-- Create skills
+- Update built-in skills to the current packaged version
+- Configure built-in **Auto Update** (packaged version → Skill Pool) and
+  **Auto Sync** (Skill Pool → agent workspaces) independently in skill details
+- Add skills through the **Add Skill** entry: Create Skill, Upload via
+  Zip, Upload via URL, or Browse Market (clicking **Save** in the market saves
+  into the pool)
 - Edit skills
 - Delete skills
 
@@ -440,6 +552,35 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Import
+
+The **Import** page brings supported local Codex and Qoder conversations, memory,
+Skills, MCP, plugins, and scheduled tasks into the selected QwenPaw agent.
+
+Select a destination agent using the native QwenPaw backend, then follow
+**Applications → Choose content → Import**. Plugins are not selected by default.
+Afterwards, check Skill/MCP activation and review imported schedules separately.
+Import endpoints allow local access only. See [Import](./import) for the
+complete workflow.
+
+---
+
+## Tool Offload
+
+> Sidebar: **Settings → Tool Offload**
+
+![Settings → Tool Offload (Keep Foreground / Auto Offload to Background)](https://img.alicdn.com/imgextra/i2/O1CN01NTmeZPSYyeF7nOIU_!!6000000001249-0-tps-3840-1986.jpg)
+
+Configure the default action when a tool reaches its offload deadline:
+
+- **Keep Foreground** (product default) — do not auto-offload when the offload
+  countdown ends; the tool keeps running in the chat foreground until it
+  finishes or hits its execution timeout.
+- **Auto Offload to Background** — when the offload countdown ends, move the
+  call to the background so the agent can continue other work.
+
+---
+
 ## Security
 
 > Sidebar: **Settings → Security**
@@ -458,7 +599,7 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 > Sidebar: **Settings → Token Usage**
 
-![Token Usage](https://img.alicdn.com/imgextra/i2/O1CN01KYNxoL1Xgz6z9nsVy_!!6000000002954-2-tps-3822-2070.png)
+![Token Usage](https://img.alicdn.com/imgextra/i1/O1CN01FWWKrS1hYsGvs4wG1_!!6000000004290-2-tps-3810-2064.png)
 
 View LLM token usage over a range, by date and model.
 
@@ -489,10 +630,28 @@ model (same settings apply to voice input in chat and channel voice messages).
 - **Audio mode** — **Auto**: transcribe per settings below, then send text
   (works for most models). **Native**: send audio as an attachment (only for
   models that support audio).
-- **Transcription backend** — **Off**; **Whisper API** (OpenAI-compatible
-  `audio/transcriptions`; configure keys under [Models](#models) and select the
-  provider here); **Local Whisper** (requires `ffmpeg` and
-  `pip install 'qwenpaw[whisper]'`).
+- **Transcription backend** — **Off**; **Whisper API**; **Local Whisper**.
+
+**Whisper API setup:**
+
+1. Add an OpenAI-compatible provider under [Models](#models).
+2. Make sure the provider supports `audio/transcriptions` and has a valid API
+   key.
+3. Return here and select that provider as the Whisper API backend.
+
+**Local Whisper setup:**
+
+1. Install `ffmpeg` with your system package manager.
+2. Install the optional Python dependency in the environment that runs QwenPaw:
+   `pip install "qwenpaw[whisper]"`.
+3. Restart QwenPaw, then select **Local Whisper** here.
+
+Verify the local installation with:
+
+```bash
+ffmpeg -version
+python -c "import whisper; print('openai-whisper installed')"
+```
 
 **Save** applies to newly received audio. Follow on-page help for details.
 
@@ -503,12 +662,13 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Page                  | Sidebar path                   | What you can do                                |
 | --------------------- | ------------------------------ | ---------------------------------------------- |
 | Chat                  | Chat → Chat                    | Chat, voice, attachments, sessions             |
+| Inbox                 | Inbox → Inbox                  | Approvals, results, mail events and access     |
 | Channels              | Control → Channels             | Enable/disable, credentials                    |
 | Sessions              | Control → Sessions             | Filter, rename, delete                         |
 | Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
 | Heartbeat             | Control → Heartbeat            | Interval, delivery target, active hours        |
 | Files                 | Workspace → Files              | Persona files, memory, upload/download         |
-| Skills                | Workspace → Skills             | Enable/disable, Hub/upload/custom              |
+| Skills                | Workspace → Skills             | Enable/disable, create/zip/URL/market add      |
 | Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
 | MCP                   | Workspace → MCP                | MCP clients                                    |
 | Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
@@ -516,9 +676,24 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Models                | Settings → Models              | Providers, local models, active model          |
 | Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
 | Environment Variables | Settings → Environments        | Keys for tools/skills                          |
+| Tool Offload          | Settings → Tool Offload        | Default policy: Keep Foreground / Auto Offload |
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
 | Token Usage           | Settings → Token Usage         | Usage by date/model                            |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
+
+---
+
+## Community account connection
+
+Under **Settings → Community & Messages**, enter your Platform account and password and select **Save and connect**. Replacement credentials are validated before changing the existing connection. Leaving the password blank reuses the saved password only for the same account. Disconnecting pauses automatic login; **Forget saved credentials** removes the stored account and password.
+
+Credentials are encrypted in `SECRET_DIR/community_credentials.json`. They are not exported to tool process environments or exposed in general environment settings. The credential file and encryption key reside in the private directory protected by File Guard; POSIX permissions are `0600` for the file and `0700` for the directory. File Guard does not provide OS-level isolation against arbitrary code running as the same user. Keep it enabled and use an appropriate sandbox for untrusted tools.
+
+Persist the private directory and its key when recreating Docker containers, and retain the working directory to preserve the existing connection state. Save and update community credentials through the settings page; deployment environment variables are not used for login.
+
+Password login relies on the deployment entry point and existing QwenPaw access controls. It does not add a separate local-login requirement, backend HTTPS check, or Hub origin header requirement. Users accessing an instance through an authenticated gateway such as AgentScope Platform can use the password form directly; Docker port mapping and proxy forwarding do not disable it. Self-hosted deployments should protect instance access at the entry point and use HTTPS to protect credentials in transit. Browser authorization still requires the computer running QwenPaw.
+
+Password submissions require `Content-Type: application/json`; plain-text and form submissions are rejected to prevent cross-site login requests that bypass CORS preflight. Keep `QWENPAW_CORS_ORIGINS` unset for a same-origin web console, or list only trusted frontend origins when cross-origin access is needed. Do not allow arbitrary origins or `*` in QwenPaw or the gateway's CORS policy. Gateway authentication alone does not prevent login CSRF when a browser automatically supplies its login cookies.
 
 ---
 
@@ -527,6 +702,9 @@ model (same settings apply to voice input in chat and channel voice messages).
 - [Config & working directory](./config) — Config fields, providers, env vars
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
+- [Mailbox Management](./mailbox) — Connect, triage, and control mail access
+- [Browser](./browser) — Browser tool tracks, identities, and settings
+- [Chrome extension](./chrome) — Connect QwenPaw to your own Chrome
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [Context](./context) — Compaction and context
 - [Security](./security) — Web login, tool guard, file guard

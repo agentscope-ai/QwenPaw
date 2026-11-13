@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ...constant import WORKING_DIR
+from ...utils.io_utils import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -194,20 +195,18 @@ class AccessControlStore:
         except OSError:
             pass
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
             payload = {k: v.to_dict() for k, v in self._data.items()}
-            self._path.write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            write_json_atomic(self._path, payload)
             self._last_mtime = self._path.stat().st_mtime
+            return True
         except Exception:
             logger.exception(
                 "Failed to save access control data to %s",
                 self._path,
             )
+            return False
 
     def _acl(self, channel: str) -> ChannelACL:
         if channel not in self._data:
@@ -215,6 +214,38 @@ class AccessControlStore:
         return self._data[channel]
 
     # ── Query ───────────────────────────────────────────────────────────
+
+    def check_or_add_pending(
+        self,
+        channel: str,
+        user_id: str,
+        first_message: str = "",
+        *,
+        username: str = "",
+    ) -> str:
+        """Refresh, decide and persist one inbound decision under one lock."""
+        with self._lock:
+            self._reload_if_stale()
+            acl = self._acl(channel)
+            if user_id in acl.whitelist:
+                return "allow"
+            if user_id in acl.blacklist:
+                return "blocked"
+            if not any(
+                p.user_id == user_id and p.channel == channel
+                for p in acl.pending
+            ):
+                acl.pending.append(
+                    PendingEntry(
+                        user_id=user_id,
+                        channel=channel,
+                        timestamp=time.time(),
+                        first_message=first_message[:200],
+                        username=username,
+                    ),
+                )
+                self._save()
+            return "pending"
 
     def is_whitelisted(self, channel: str, user_id: str) -> bool:
         with self._lock:
@@ -507,7 +538,11 @@ class AccessControlStore:
             for uid in allow_from:
                 if uid not in acl.whitelist:
                     acl.whitelist[uid] = UserInfo()
-            self._save()
+            if not self._save():
+                raise OSError(
+                    f"Failed to persist access control migration to "
+                    f"{self._path}",
+                )
             logger.info(
                 "Imported %d allow_from entries to whitelist for channel %s",
                 len(allow_from),

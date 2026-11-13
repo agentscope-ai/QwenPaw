@@ -1,8 +1,12 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { EditOutlined } from "@ant-design/icons";
+import { Pencil as EditOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell } from "../shared";
+import {
+  ToolCardShell,
+  FileAttachmentPreview,
+  FilePreviewLink,
+} from "../shared";
 import { shortFileName } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -19,6 +23,17 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
   const params = content.params || {};
   const file = shortFileName((params.file_path || params.path || "") as string);
   const title = file ? t("tool.editFile", { file }) : t("tool.editFileDefault");
+
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<EditOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
 
   const oldText = (params.old_text as string) || "";
   const newText = (params.new_text as string) || "";
@@ -43,10 +58,12 @@ const EditFileCard: React.FC<EditFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<EditOutlined />}
+      icon={<EditOutlined size="1em" />}
       title={title}
       badges={badges}
+      summaryAction={<FilePreviewLink content={content} />}
     >
+      <FileAttachmentPreview content={content} />
       {params && (
         <div className={styles.toolCallDiff}>
           {oldText.split("\n").map((line, index) => (

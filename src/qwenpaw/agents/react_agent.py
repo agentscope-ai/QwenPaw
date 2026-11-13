@@ -3,417 +3,639 @@
 
 This module provides the main QwenPawAgent class built on ReActAgent,
 with integrated tools, skills, and memory management.
+
+Agent construction is fully delegated to :class:`AgentBuilder` — the
+agent accepts all dependencies (model, prompt, toolkit, middlewares)
+as constructor parameters and does not build them internally.
 """
 
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
-import os
+import re
+import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Type, TYPE_CHECKING
+from typing import Any, Literal, Optional, TYPE_CHECKING
 
-from agentscope.agent import ReActAgent
-from agentscope.agent._react_agent import _MemoryMark
-from agentscope.memory import InMemoryMemory
-from agentscope.message import Msg
+from agentscope.agent import Agent, InjectionConfig, ReActConfig
+from agentscope.event import (
+    ModelCallEndEvent,
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+)
+from agentscope.message import HintBlock, Msg, TextBlock
+from agentscope.model import FinishedReason
+from agentscope.state import AgentState
 from agentscope.tool import Toolkit
-from anyio import ClosedResourceError
-from pydantic import BaseModel
 
-from ..app.mcp import HttpStatefulClient, StdIOStatefulClient
-from .command_handler import CommandHandler
-from .hooks import BootstrapHook
-from .model_factory import create_model_and_formatter
-from .prompt import (
-    build_multimodal_hint,
-    build_system_prompt_from_working_dir,
-    get_active_model_supports_multimodal,
+from .context.base import ContextManager
+from .context.overflow_recovery import call_with_overflow_recovery
+from .context.types import DecisionCompactionResult
+from .injected_events import merge_injected_events
+from .skill_system import get_workspace_skills_dir
+from .utils.image_freezing import freeze_local_images_async
+from .utils.message_request_normalizer import (
+    _is_media_block,
+    mark_media_omitted_after_overflow,
 )
-from .skill_system import (
-    apply_skill_config_env_overrides,
-    ensure_skills_initialized,
-    get_workspace_skills_dir,
-    resolve_effective_skills,
+from .utils.text_block_utils import (
+    drop_empty_text_blocks,
+    sanitize_empty_text_blocks,
 )
-from .coding_mode_mixin import CodingModeMixin
-from .tool_guard_mixin import ToolGuardMixin
-from .tools import (
-    browser_use,
-    delegate_external_agent,
-    chat_with_agent,
-    check_agent_task,
-    spawn_subagent,
-    submit_to_agent,
-    desktop_screenshot,
-    edit_file,
-    execute_shell_command,
-    get_current_time,
-    get_token_usage,
-    glob_search,
-    grep_search,
-    list_agents,
-    materialize_skill,
-    read_file,
-    run_tool_batch,
-    send_file_to_user,
-    set_user_timezone,
-    view_image,
-    view_video,
-    write_file,
-)
-from .utils import process_file_and_media_blocks_in_message
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..constant import (
+    LOOP_CONTINUATION_MESSAGE_TAG,
     MEDIA_UNSUPPORTED_PLACEHOLDER,
+    QWENPAW_MESSAGE_TAG_KEY,
     WORKING_DIR,
 )
+from ..loop.gates import StopAction, StopHandlerResult
+from ..providers.error_utils import (
+    extract_status_code,
+    is_request_body_too_large,
+)
+from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
+from ..providers.adapters.request_context import model_session
+from ..utils.tool_call_extra import (
+    collect_transient_tool_call_extras,
+    persist_tool_call_extras,
+)
+from .utils.tool_call_coerce import _coerce_tool_input
 
 if TYPE_CHECKING:
-    from ..agents.memory import BaseMemoryManager
-    from ..agents.context import BaseContextManager
     from ..config.config import AgentProfileConfig
-    from .context import AgentContext
 
 logger = logging.getLogger(__name__)
 
-# Valid namesake strategies for tool registration
-NamesakeStrategy = Literal["override", "skip", "raise", "rename"]
+
+_VIDEO_COUNT_LIMIT_RE = re.compile(
+    r"\bat most (\d+) video(?:\(s\)|s)?(?!\w)",
+)
+_VIDEO_PART_REJECTION_RE = re.compile(
+    r"\b(?:unknown|unexpected)\s+(?:variant|field|part|content(?: type)?)"
+    r"\s*[:=]?\s*[`'\"]?(?:video_url|input_video)\b",
+)
 
 
-class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
+_GLOBAL_MEDIA_CAPABILITY_PATTERNS = (
+    re.compile(r"\bmodel\s+is\s+text[- ]only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bmultimodal\s+(?:input|capability)?\s*"
+        r"(?:is\s+)?not\s+enabled\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# A global capability rejection must also trigger the one-request fallback.
+# Keep the global patterns as an explicit subset so the two classifiers
+# cannot silently drift apart.
+_EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS = (
+    *_GLOBAL_MEDIA_CAPABILITY_PATTERNS,
+    re.compile(
+        r"\b(?:this|the|selected)?\s*model\b.{0,80}"
+        r"\b(?:does not|doesn't|cannot|can't)\s+support\b.{0,40}"
+        r"\b(?:images?|audios?|videos?|vision|media|multimodal)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:image|audio|video|media)\s+(?:input|modality)\b"
+        r".{0,40}\b(?:is|are)\s+not supported\b.{0,40}"
+        r"\b(?:by|for)\b.{0,30}\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:image|audio|video|media)\b.{0,60}"
+        r"\b(?:is|are)\s+not supported\b.{0,40}"
+        r"\b(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bvision\s+is\s+not\s+enabled\s+for\s+"
+        r"(?:this\s+)?(?:model|deployment)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bunsupported\s+modality\s*:?\s*(?:image|audio|video)\b",
+        re.IGNORECASE,
+    ),
+)
+
+# These messages reject only the current media shape, not the model's
+# overall multimodal capability. They may justify a media-free retry, but
+# must never poison the model-wide ``rejects_media`` cache.
+_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS = (
+    "multiple image",
+    "multiple video",
+    "multiple audio",
+    "more than one image",
+    "more than 1 image",
+    "single image",
+    "image count",
+    "too many image",
+    "animated image",
+    "animated gif",
+    "animation",
+    "dimensions",
+    "dimension",
+    "resolution",
+    "image width",
+    "image height",
+    "pixel",
+    "megapixel",
+    "frame rate",
+    "sample rate",
+    "video duration",
+    "audio duration",
+    "larger than",
+    "smaller than",
+    "per image",
+    "file size",
+)
+
+# Asset-level media failures: the provider refused these bytes (undecodable
+# data, an unsupported container, a declared MIME type it cannot render).
+# They say nothing about the model, so they must never be learned as a
+# capability loss — the payload classifier below owns the recovery.
+_INVALID_MEDIA_ASSET_SIGNALS = (
+    "corrupt",
+    "decode",
+    "invalid image",
+    "invalid media",
+    "mime",
+    "unsupported image format",
+)
+
+# The gate for the media-free retry promised by
+# ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS``: those signals reject the current
+# media shape, and asset-level failures reject the current bytes. Both are
+# recoverable by dropping the media, and neither says anything about the
+# model's multimodal capability.
+#
+# Recovery is not optional here: the offending block is replayed from the
+# stored context on every later turn, so without a media-free retry the
+# provider keeps returning the same 400 and the session never heals.
+# DeepSeek, for example, answers an image whose side exceeds its 8192 px
+# limit with "You have uploaded an unsupported image" — the message names
+# neither the limit nor the model's capability.
+_MEDIA_PAYLOAD_REJECTION_SIGNALS = (
+    *_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS,
+    *_INVALID_MEDIA_ASSET_SIGNALS,
+    "uploaded an unsupported image",
+    "unsupported image",
+    "unsupported media format",
+    "unsupported media type",
+    "unsupported image dimensions",
+    "unsupported dimensions",
+    "image is not valid",
+    "image is invalid",
+    "image too large",
+    "image is too large",
+    "image dimensions",
+    # OpenAI-compatible gateways (LM Studio, issue #8171) report a zero
+    # per-prompt media budget as "At most 0 video(s) may be provided ...".
+    "at most 0 image",
+    "at most 0 video",
+    "at most 0 audio",
+    # "Message content supports text content only. Images, audio and files
+    # are not enabled." (issue #8290). The media-noun gate above keeps
+    # unrelated "not enabled" errors out.
+    "are not enabled",
+)
+
+# A payload rejection only counts when the provider actually names the media
+# it refused; "invalid request" alone must keep its existing handling.
+_MEDIA_PAYLOAD_MEDIA_NOUNS = (
+    "image",
+    "audio",
+    "video",
+    "media",
+    "picture",
+    "photo",
+)
+
+
+def _effective_artifact_retention_days(light_context_config: Any) -> int:
+    """Return the independently configured tool-result artifact lifetime."""
+    return (
+        light_context_config.tool_result_pruning_config.offload_retention_days
+    )
+
+
+class QwenPawAgent(Agent):
     """QwenPaw Agent with integrated tools, skills, and memory management.
 
-    This agent extends ReActAgent with:
+    This agent extends agentscope 2.0 ``Agent`` with:
     - Built-in tools (shell, file operations, browser, etc.)
     - Dynamic skill loading from working directory
     - Memory management with auto-compaction
     - Bootstrap guidance for first-time setup
-    - System command handling (/compact, /new, etc.)
-    - Tool-guard security interception (via ToolGuardMixin)
-    - Coding Mode features: Inline Diff (via CodingModeMixin)
-
-    MRO note
-    ~~~~~~~~
-    MRO: QwenPawAgent → CodingModeMixin → ToolGuardMixin → ReActAgent.
-    Each ``_acting`` override **must** call ``super()._acting(...)`` so
-    the full chain stays active.
+    - Tool-guard security (via ``PolicyGuardedTool.check_permissions``)
     """
+
+    # Events a middleware wants shown in the chat stream (an injected
+    # advisor plan, for example). ``__init__`` arms the queue only when a
+    # middleware says it emits them. ``_reasoning`` then merges them live
+    # into the events it forwards.
+    _injected_events: asyncio.Queue[Any] | None = None
 
     def __init__(
         self,
+        *,
+        name: str,
+        model: Any,
+        system_prompt: str,
+        toolkit: Toolkit,
+        react_config: ReActConfig,
+        middlewares: list,
         agent_config: "AgentProfileConfig",
-        env_context: Optional[str] = None,
-        mcp_clients: Optional[List[Any]] = None,
-        memory_manager: BaseMemoryManager | None = None,
-        context_manager: BaseContextManager | None = None,
-        request_context: Optional[dict[str, str]] = None,
-        namesake_strategy: NamesakeStrategy = "skip",
         workspace_dir: Path | None = None,
-        task_tracker: Any | None = None,
-        plan_notebook: Any | None = None,
+        request_context: Optional[dict[str, str]] = None,
+        offloader: Any = None,
+        context_config: Any = None,
+        context_manager: ContextManager | None = None,
+        effective_skills: Optional[list[str]] = None,
+        governor: Any = None,
     ):
         """Initialize QwenPawAgent.
 
-        Args:
-            agent_config: Agent profile configuration containing all settings
-                including running config (max_iters, max_input_length,
-                memory_compact_threshold, etc.) and language setting.
-            env_context: Optional environment context to prepend to
-                system prompt
-            mcp_clients: Optional list of MCP clients for tool
-                integration
-            memory_manager: Optional memory manager instance. Pass ``None``
-                to disable the memory manager entirely.
-            context_manager: Optional context manager instance
-            request_context: Optional request context with session_id,
-                user_id, channel, agent_id
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
-            workspace_dir: Workspace directory for reading prompt files
-                (if None, uses global WORKING_DIR)
+        All construction dependencies (model, prompt, toolkit, middlewares)
+        are provided externally by :class:`AgentBuilder`. The agent does
+        not build any of these internally.
         """
         self._agent_config = agent_config
-        self._env_context = env_context
         self._request_context = dict(request_context or {})
-        self._mcp_clients = mcp_clients or []
-        self._namesake_strategy = namesake_strategy
+        self._model_session_id = uuid.uuid4().hex
         self._workspace_dir = workspace_dir
-        self._task_tracker = task_tracker
-
-        # Extract configuration from agent_config
-        running_config = agent_config.running
+        if any(
+            getattr(mw, "emits_injected_exchanges", False)
+            for mw in middlewares
+        ):
+            self._injected_events = asyncio.Queue()
         self._language = agent_config.language
+        # Optional context-management strategy. When None, the agent keeps its
+        # native AgentScope compression (see compress_context /
+        # _save_to_context).
+        self._context_manager = context_manager
 
-        # Resolve effective skills once and share across toolkit /
-        # skill registration.
-        workspace_dir = self._workspace_dir or WORKING_DIR
-        ensure_skills_initialized(workspace_dir)
-        channel_name = self._request_context.get("channel", "console")
-        try:
-            effective_skills = resolve_effective_skills(
-                workspace_dir,
-                channel_name,
-            )
-        except Exception:  # pylint: disable=broad-except
-            effective_skills = []
+        # Register skills metadata on toolkit
+        self._register_skills(toolkit, effective_skills=effective_skills or [])
 
-        # Initialize toolkit with built-in tools
-        toolkit = self._create_toolkit(
-            namesake_strategy=namesake_strategy,
-            effective_skills=effective_skills,
-        )
+        self._governor = governor
+        self._gate_pending_stop = None
 
-        # Load and register skills
-        self._register_skills(toolkit, effective_skills=effective_skills)
+        # Tool name -> parameter schema index for tool-call input
+        # coercion (issue #6839); rebuilt by ``_call_model`` from exactly
+        # the tool list the model sees on every call.
+        self._tool_schema_index: dict[str, dict[str, Any]] = {}
 
-        # Initialize memory_manager and context_manager for use
-        # in _build_sys_prompt
-        self.memory_manager = memory_manager
-        self.context_manager = context_manager
-
-        # Build system prompt
-        sys_prompt = self._build_sys_prompt()
-
-        # Create model and formatter using factory method
-        model, formatter = create_model_and_formatter(agent_id=agent_config.id)
-        model_info = (
-            f"{agent_config.active_model.provider_id}/"
-            f"{agent_config.active_model.model}"
-            if agent_config.active_model
-            else "global-fallback"
-        )
-        logger.info(
-            f"Agent '{agent_config.id}' initialized with model: "
-            f"{model_info} (class: {model.__class__.__name__})",
-        )
-        # Initialize parent ReActAgent
         init_kwargs: dict[str, Any] = {
-            "name": agent_config.name or "QwenPaw",
+            "name": name,
             "model": model,
-            "sys_prompt": sys_prompt,
+            "system_prompt": system_prompt,
             "toolkit": toolkit,
-            "memory": InMemoryMemory(),
-            "formatter": formatter,
-            "max_iters": running_config.max_iters,
+            "react_config": react_config,
+            "injection_config": InjectionConfig(
+                inject_runtime_state=False,
+            ),
+            "middlewares": middlewares,
+            "offloader": offloader,
         }
-        if plan_notebook is not None:
-            init_kwargs["plan_notebook"] = plan_notebook
+        if context_config is not None:
+            init_kwargs["context_config"] = context_config
         super().__init__(**init_kwargs)
 
-        # Register memory tools provided by the memory manager
-        if self.memory_manager is not None:
-            memory_tools = self.memory_manager.list_memory_tools()
-            for tool_fn in memory_tools:
-                self.toolkit.register_tool_function(
-                    tool_fn,
-                    namesake_strategy=self._namesake_strategy,
-                )
-            logger.debug(
-                "Registered memory tools: %s",
-                [fn.__name__ for fn in memory_tools],
-            )
+        # Bypass agentscope's built-in permission engine — qwenpaw uses
+        # its own PolicyGuardedTool.check_permissions for tool-guard.
+        from agentscope.permission import PermissionMode
 
-        # Configure context manager memory if available
-        if self.context_manager is not None:
-            self.memory: "AgentContext" = (
-                self.context_manager.get_agent_context()
-            )
-            logger.debug("Context manager configured")
+        self.state.permission_context.mode = PermissionMode.BYPASS
 
-        # Setup command handler
-        self.command_handler = CommandHandler(
-            agent_name=self.name,
-            memory=self.memory,
-            memory_manager=self.memory_manager,
-            context_manager=self.context_manager,
-        )
+        self._register_tool_call_hooks()
 
-        # Register hooks
-        self._register_hooks()
-
-    def _create_toolkit(  # pylint: disable=too-many-branches
+    async def compress_context(
         self,
-        namesake_strategy: NamesakeStrategy = "skip",
-        effective_skills: list[str] | None = None,
-    ) -> Toolkit:
-        """Create and populate toolkit with built-in tools.
+        context_config: Any = None,
+        instructions: HintBlock | None = None,
+    ) -> None:
+        """Run context compression through AgentScope's middleware chain.
 
-        Args:
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
-            effective_skills: Skills enabled for this workspace + channel,
-                used to gate skill-specific tools.
-
-        Returns:
-            Configured toolkit instance
+        The actual Scroll/native dispatch lives in
+        :meth:`_compress_context_impl`, which is AgentScope's extension point
+        beneath ``on_compress_context`` middlewares. Keeping the public entry
+        point on the base path ensures memory and plugin middlewares observe
+        both strategies consistently.
         """
-        effective_skills = effective_skills or []
-        toolkit = Toolkit()
-
-        # Check which tools are enabled from agent config
-        enabled_tools = {}
-        async_execution_tools = {}
+        # ── Always sanitize tool messages before any model call ──
+        # Orphan tool_result messages (whose tool_call was evicted by a
+        # prior compression) can survive in context across session
+        # boundaries. compress() itself only cleans during an active split;
+        # if the context is already corrupted but under the trigger
+        # threshold, the corrupt messages still reach the model → 400.
+        # This unconditional guard runs on every compress_context() call
+        # (which fires before every reasoning step), catching orphans that
+        # leaked through any path: loaded sessions, pre-patch corruption,
+        # or unaccounted edge cases.
         try:
-            if hasattr(self._agent_config, "tools") and hasattr(
-                self._agent_config.tools,
-                "builtin_tools",
-            ):
-                builtin_tools = self._agent_config.tools.builtin_tools
-                enabled_tools = {
-                    name: tool.enabled for name, tool in builtin_tools.items()
-                }
-                # Only selected long-running tools support async_execution.
-                async_capable_tool_names = {
-                    "execute_shell_command",
-                    "delegate_external_agent",
-                }
-                async_execution_tools = {
-                    name: (
-                        builtin_tools.get(name).async_execution
-                        if name in builtin_tools
-                        else False
-                    )
-                    for name in async_capable_tool_names
-                }
-        except Exception as e:
-            logger.warning(
-                f"Failed to load agent tools config: {e}, "
-                "all tools will be disabled",
-            )
+            from .utils.tool_message_utils import _sanitize_tool_messages
 
-        # Map of tool functions (hardcoded builtin tools)
-        tool_functions = {
-            "execute_shell_command": execute_shell_command,
-            "read_file": read_file,
-            "write_file": write_file,
-            "edit_file": edit_file,
-            "grep_search": grep_search,
-            "glob_search": glob_search,
-            "browser_use": browser_use,
-            "desktop_screenshot": desktop_screenshot,
-            "view_image": view_image,
-            "view_video": view_video,
-            "send_file_to_user": send_file_to_user,
-            "get_current_time": get_current_time,
-            "set_user_timezone": set_user_timezone,
-            "get_token_usage": get_token_usage,
-            "delegate_external_agent": delegate_external_agent,
-            "list_agents": list_agents,
-            "chat_with_agent": chat_with_agent,
-            "submit_to_agent": submit_to_agent,
-            "check_agent_task": check_agent_task,
-            "spawn_subagent": spawn_subagent,
-            "run_tool_batch": run_tool_batch,
-            # Register only when the `make-skill` skill is enabled.
-            **(
-                {"materialize_skill": materialize_skill}
-                if "make-skill" in effective_skills
-                else {}
-            ),
-        }
+            sanitized = _sanitize_tool_messages(self.state.context)
+            if sanitized is not self.state.context:
+                self.state.context = sanitized
+        except Exception:
+            pass
 
-        # Track hardcoded built-in tools for backward compatibility
-        hardcoded_builtin_tools = set(tool_functions.keys())
-
-        # Dynamically load plugin-registered tools
-        from . import tools as tools_module
-
-        plugin_tools = set()
-        for tool_name in getattr(tools_module, "__all__", []):
-            if tool_name not in tool_functions:
-                tool_func = getattr(tools_module, tool_name, None)
-                if callable(tool_func):
-                    tool_functions[tool_name] = tool_func
-                    plugin_tools.add(tool_name)
-                    logger.debug(
-                        "Discovered plugin tool: %s",
-                        tool_name,
-                    )
-
-        # Register tools with appropriate defaults
-        for tool_name, tool_func in tool_functions.items():
-            # For plugin tools: skip if not in config (security)
-            # For hardcoded tools: default to enabled (backward compatibility)
-            if tool_name in plugin_tools:
-                if tool_name not in enabled_tools:
-                    logger.debug(
-                        "Skipped unconfigured plugin tool: %s",
-                        tool_name,
-                    )
-                    continue
-            else:
-                # Hardcoded built-in tool: use default-to-enabled
-                pass
-
-            # Check if tool is enabled
-            if not enabled_tools.get(
-                tool_name,
-                tool_name in hardcoded_builtin_tools,
-            ):
-                logger.debug("Skipped disabled tool: %s", tool_name)
-                continue
-
-            # Get async_execution setting (default to False for backward
-            # compatibility)
-            async_exec = async_execution_tools.get(tool_name, False)
-
-            toolkit.register_tool_function(
-                tool_func,
-                namesake_strategy=namesake_strategy,
-                async_execution=async_exec,
-            )
-            logger.debug(
-                "Registered tool: %s (async_execution=%s)",
-                tool_name,
-                async_exec,
-            )
-
-        # Auto-register background task management tools if any *enabled*
-        # tool has async_execution set
-        has_async_tools = any(
-            async_execution_tools.get(name, False)
-            for name in tool_functions
-            if enabled_tools.get(name, True)
-        )
-        if has_async_tools:
+        if self._context_manager is None:
             try:
-                toolkit.register_tool_function(
-                    toolkit.view_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                toolkit.register_tool_function(
-                    toolkit.wait_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                toolkit.register_tool_function(
-                    toolkit.cancel_task,
-                    namesake_strategy=namesake_strategy,
-                )
-                logger.debug(
-                    "Registered background task management tools "
-                    "(view_task, wait_task, cancel_task)",
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Failed to register task management tools: {e}",
-                )
+                lcc = self._agent_config.running.light_context_config
+                if not lcc.context_compact_config.enabled:
+                    return
+            except Exception:
+                pass
+        await super().compress_context(
+            context_config,
+            instructions=instructions,
+        )
 
-        # Coding Mode tools (lsp, ast_search) — only registered when
-        # coding_mode.enabled is True and the underlying CLI / language
-        # server is reachable.  See CodingModeMixin.
-        try:
-            self._register_coding_mode_tools(
-                toolkit,
-                namesake_strategy=namesake_strategy,
+    @property
+    def decision_compaction_enabled(self) -> bool:
+        """Whether automatic context compaction may use the decision model."""
+        lcc = self._agent_config.running.light_context_config
+        return (
+            lcc.context_compact_config.enabled
+            and lcc.decision_compact_config.enabled
+        )
+
+    async def try_decision_compact(
+        self,
+        *,
+        tokens: int,
+        source_refs: dict[str, str] | None = None,
+    ) -> DecisionCompactionResult:
+        """Return semantic-preview commit status and its token measurement."""
+        if not self.decision_compaction_enabled:
+            return DecisionCompactionResult(changed=False, tokens_after=tokens)
+        from .context.decision_compaction import DecisionCompactor
+
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is None:
+            compactor = self._decision_compactor = DecisionCompactor()
+        return await compactor.compact(
+            self,
+            tokens=tokens,
+            source_refs=source_refs,
+        )
+
+    async def _compress_context_impl(
+        self,
+        context_config: Any = None,
+        instructions: HintBlock | None = None,
+    ) -> None:
+        """Dispatch the middleware-wrapped compression implementation."""
+        if self._context_manager is not None:
+            if instructions is None:
+                # Preserve compatibility with third-party managers that
+                # implemented the original two-argument protocol.
+                await self._context_manager.compress(self, context_config)
+            else:
+                await self._context_manager.compress(
+                    self,
+                    context_config,
+                    instructions=instructions,
+                )
+            return
+
+        if self.decision_compaction_enabled:
+            from .context import _as_internals as as_internals
+
+            cfg = context_config or self.context_config
+            target = cfg.trigger_ratio * self.model.context_size
+            # Manual /compact and overflow recovery keep explicit eviction.
+            if cfg.trigger_ratio >= self.context_config.trigger_ratio:
+                kwargs = await as_internals.prepare_model_input(self)
+                tokens = await as_internals.count_model_input_tokens(
+                    self,
+                    kwargs,
+                )
+                if tokens > target:
+                    result = await self.try_decision_compact(tokens=tokens)
+                    if result.changed and result.tokens_after <= target:
+                        return
+
+        await super()._compress_context_impl(
+            context_config,
+            instructions=instructions,
+        )
+
+    def _save_to_context(self, blocks: Any, usage: Any = None) -> None:
+        """Append blocks, then let the context manager write them through."""
+        # A reasoning-only turn arrives as an empty text block.  Persisting
+        # it replays ``{"type": "output_text", "text": ""}`` on every later
+        # request, which providers such as Volcengine Ark reject with
+        # ``400 MissingParameter: input.content.text`` — one empty turn
+        # would otherwise poison the rest of the session.
+        block_list = drop_empty_text_blocks(list(blocks or []))
+        tool_call_extras = collect_transient_tool_call_extras(block_list)
+
+        super()._save_to_context(block_list, usage)
+        if tool_call_extras:
+            last_msg = self._get_last_msg()
+            if last_msg is not None and last_msg.role == "assistant":
+                persist_tool_call_extras(last_msg, tool_call_extras)
+        if self._context_manager is not None:
+            if getattr(self, "_defer_context_save", False):
+                pending = getattr(self, "_pending_context_save", None)
+                if pending is None:
+                    pending = self._pending_context_save = []
+                pending.extend(block_list)
+            else:
+                self._context_manager.on_save(self, block_list)
+
+    # Session persistence calls state_dict/load_state_dict on the agent;
+    # these round-trip through self.state (AgentState pydantic model).
+    def state_dict(self) -> dict:
+        """Serialize the agent's 2.0 ``AgentState`` to a JSON-safe dict."""
+        state = getattr(self, "state", None)
+        if state is None:
+            return {}
+        out = {"state": state.model_dump(mode="json")}
+        # Persist the scroll manager's dedup bookkeeping + eviction index so a
+        # resumed session doesn't re-append its restored window to history.db.
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None and hasattr(cm, "to_dict"):
+            out["scroll"] = cm.to_dict()
+        return out
+
+    def load_state_dict(self, state_dict: dict, strict: bool = True) -> None:
+        """Restore ``self.state`` from a dict produced by :meth:`state_dict`.
+
+        Handles two formats:
+        - **2.0**: ``{"state": {AgentState dump}}``
+        - **1.x legacy**: ``{"memory": {"content": [[msg, marks], ...],
+          "_compressed_summary": "..."}}`` — converted on-the-fly so
+          existing sessions survive the upgrade.
+        """
+        if not isinstance(state_dict, dict):
+            if strict:
+                raise KeyError("state_dict is not a dict")
+            return
+
+        # --- 2.0 format (preferred) ---
+        raw = state_dict.get("state")
+        if raw is not None:
+            try:
+                self.state = AgentState.model_validate(raw)
+            except Exception as exc:
+                raise KeyError(
+                    f"Could not load AgentState from snapshot: {exc}",
+                ) from exc
+            # ── Sanitize loaded context: orphan tool_result messages can
+            # persist in session JSON from an evicted tool_call and leak
+            # across session boundaries when the session is reloaded.
+            self._sanitize_loaded_context()
+            # Rehydrate the scroll manager's bookkeeping so the restored window
+            # is recognized as already durable (no re-append on resume).
+            cm = getattr(self, "_context_manager", None)
+            scroll = state_dict.get("scroll")
+            if (
+                cm is not None
+                and scroll is not None
+                and hasattr(cm, "load_state")
+            ):
+                cm.load_state(scroll)
+                if hasattr(cm, "reconcile_loaded_context"):
+                    cm.reconcile_loaded_context(self)
+            return
+
+        # --- 1.x legacy format: migrate ``memory`` → ``state`` ---
+        memory_raw = state_dict.get("memory")
+        if isinstance(memory_raw, dict):
+            from qwenpaw.app.chats.utils import parse_legacy_memory_state
+
+            msgs, summary = parse_legacy_memory_state(memory_raw)
+            self.state = AgentState()
+            self.state.context.extend(msgs)
+            self.state.summary = summary
+            # Same sanitize as 2.0 path above.
+            self._sanitize_loaded_context()
+            logger.info(
+                "Migrated 1.x session: %d messages + summary(%d chars)",
+                len(msgs),
+                len(self.state.summary),
             )
-        except Exception as e:  # pylint: disable=broad-except
-            logger.warning(f"Failed to register Coding Mode tools: {e}")
+            return
 
-        return toolkit
+        if strict:
+            raise KeyError(
+                "state_dict has neither 'state' nor 'memory' key",
+            )
+
+    def _sanitize_loaded_context(self) -> None:
+        """Strip replay-breaking blocks from the loaded context.
+
+        Orphan tool_result messages (whose tool_call has been evicted)
+        can persist in session JSON and leak across session boundaries
+        when loaded by ``load_state_dict``.  Without sanitization here
+        they reach the model and cause ``400 - Messages with role 'tool'
+        must be a response to a preceding message with 'tool_calls'``.
+
+        Empty assistant text blocks are the same class of defect with a
+        different block type: they make providers such as Volcengine Ark
+        answer ``400 MissingParameter: input.content.text``.  Sessions
+        poisoned before the save-time guard existed heal here.
+        """
+        try:
+            from .utils.tool_message_utils import _sanitize_tool_messages
+
+            self.state.context = sanitize_empty_text_blocks(
+                _sanitize_tool_messages(self.state.context),
+            )
+        except Exception:
+            # Best-effort: a corrupt context will be caught again by
+            # compress_context() on the next reasoning cycle.
+            pass
+
+    async def _close_decision_compactor(self):
+        """Release the optional model without interrupting other cleanup."""
+        compactor = getattr(self, "_decision_compactor", None)
+        if compactor is not None:
+            try:
+                await compactor.close()
+            except Exception:
+                logger.warning(
+                    "Decision model client close failed",
+                    exc_info=True,
+                )
+            else:
+                self._decision_compactor = None
+
+    async def close(self) -> None:
+        """Shut down governor, release the history store, and clean up expired
+        tool-result files."""
+        await run_async_to_completion(self._close_resources())
+
+    async def _close_resources(self) -> None:
+        """Keep all cleanup alive until resources are released."""
+        gov = getattr(self, "_governor", None)
+        if gov is not None:
+            try:
+                gov.stop()
+            except Exception:
+                logger.debug("governor stop failed", exc_info=True)
+
+        await self._close_decision_compactor()
+
+        # Apply retention while history is available, then retire the request's
+        # manager. Workspace-owned history stays open for subsequent requests;
+        # standalone managers close their own connection.
+        cm = getattr(self, "_context_manager", None)
+        if cm is not None:
+            if hasattr(cm, "purge_old"):
+                try:
+                    lcc = self._agent_config.running.light_context_config
+                    await run_sync_io(
+                        cm.purge_old,
+                        lcc.scroll_config.history_retention_days,
+                    )
+                except Exception:
+                    logger.debug(
+                        "history retention purge failed",
+                        exc_info=True,
+                    )
+            if hasattr(cm, "close"):
+                try:
+                    await run_sync_io(cm.close)
+                except Exception:
+                    logger.debug(
+                        "context manager close failed",
+                        exc_info=True,
+                    )
+
+        offloader = getattr(self, "offloader", None)
+        if offloader is not None and hasattr(
+            offloader,
+            "cleanup_expired",
+        ):
+            try:
+                lcc = self._agent_config.running.light_context_config
+                retention_days = _effective_artifact_retention_days(lcc)
+                if retention_days > 0:
+                    await run_sync_io(
+                        offloader.cleanup_expired,
+                        retention_days=retention_days,
+                    )
+            except Exception:
+                logger.debug("offloader cleanup failed", exc_info=True)
 
     def _register_skills(
         self,
@@ -422,11 +644,11 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
     ) -> None:
         """Load and register skills from workspace directory.
 
-        Args:
-            toolkit: Toolkit to register skills to
-            effective_skills: Resolved skill names for the current
-                workspace + channel.
+        Skills are stored in ``toolkit._qp_skills`` (a dict) for downstream
+        consumption (e.g. ``/skill_name`` slash commands in the runner).
         """
+        if not hasattr(toolkit, "_qp_skills"):
+            toolkit._qp_skills = {}  # pylint: disable=protected-access
         workspace_dir = self._workspace_dir or WORKING_DIR
         working_skills_dir = get_workspace_skills_dir(Path(workspace_dir))
 
@@ -434,7 +656,10 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             skill_dir = working_skills_dir / skill_name
             if skill_dir.exists():
                 try:
-                    toolkit.register_agent_skill(str(skill_dir))
+                    # pylint: disable=protected-access
+                    toolkit._qp_skills[skill_name] = {
+                        "dir": str(skill_dir),
+                    }
                     logger.debug("Registered skill: %s", skill_name)
                 except Exception as e:
                     logger.error(
@@ -443,526 +668,15 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
                         e,
                     )
 
-    def _build_sys_prompt(self) -> str:
-        """Build system prompt from working dir files and env context.
-
-        Returns:
-            Complete system prompt string
-        """
-        # Get agent_id from request_context
-        agent_id = (
-            self._request_context.get("agent_id")
-            if self._request_context
-            else None
-        )
-
-        # Check if heartbeat is enabled in agent config
-        heartbeat_enabled = False
-        if (
-            hasattr(self._agent_config, "heartbeat")
-            and self._agent_config.heartbeat is not None
-        ):
-            heartbeat_enabled = self._agent_config.heartbeat.enabled
-
-        sys_prompt = build_system_prompt_from_working_dir(
-            working_dir=self._workspace_dir,
-            agent_id=agent_id,
-            heartbeat_enabled=heartbeat_enabled,
-            language=self._language,
-            memory_manager=self.memory_manager,
-        )
-        logger.debug("System prompt:\n%s...", sys_prompt[:100])
-
-        from .prompt_builder import PromptBuilder
-        from ..plugins.registry import PluginRegistry
-
-        builder = PromptBuilder(PluginRegistry())
-        return builder.build(
-            agent=self,
-            agent_id=agent_id,
-            workspace=sys_prompt,
-            multimodal=build_multimodal_hint() or "",
-            env_context=self._env_context or "",
-        )
-
-    def _register_hooks(self) -> None:
-        """Register pre-reasoning and pre-acting hooks."""
-        # Bootstrap hook - checks BOOTSTRAP.md on first interaction
-        # Use workspace_dir if available, else fallback to WORKING_DIR
-        working_dir = (
-            self._workspace_dir if self._workspace_dir else WORKING_DIR
-        )
-        bootstrap_hook = BootstrapHook(
-            working_dir=working_dir,
-            language=self._language,
-        )
-        self.register_instance_hook(
-            hook_type="pre_reasoning",
-            hook_name="bootstrap_hook",
-            hook=bootstrap_hook.__call__,
-        )
-        logger.debug("Registered bootstrap hook")
-
-        # Context manager hooks - delegate compaction / tool-result pruning
-        # to the context manager's lifecycle methods
-        if self.context_manager is not None:
-            self.register_instance_hook(
-                hook_type="pre_reply",
-                hook_name="context_pre_reply",
-                hook=self.context_manager.pre_reply,
-            )
-            self.register_instance_hook(
-                hook_type="pre_reasoning",
-                hook_name="context_pre_reasoning",
-                hook=self.context_manager.pre_reasoning,
-            )
-            self.register_instance_hook(
-                hook_type="post_acting",
-                hook_name="context_post_acting",
-                hook=self.context_manager.post_acting,
-            )
-            self.register_instance_hook(
-                hook_type="post_reply",
-                hook_name="context_post_reply",
-                hook=self.context_manager.post_reply,
-            )
-            logger.debug("Registered context manager hooks")
-
-    def rebuild_sys_prompt(self) -> None:
-        """Rebuild and replace the system prompt.
-
-        Useful after load_session_state to ensure the prompt reflects
-        the latest AGENTS.md / SOUL.md / PROFILE.md on disk.
-
-        Updates both self._sys_prompt and the first system-role
-        message stored in self.memory.content (if one exists).
-        """
-        self._sys_prompt = self._build_sys_prompt()
-
-        if self.memory is None:
-            logger.warning(
-                "rebuild_sys_prompt: self.memory is None, "
-                "skipping in-memory system prompt update.",
-            )
-            return
-
-        for msg, _marks in self.memory.content:
-            if msg.role == "system":
-                msg.content = self.sys_prompt
-            break
-
-    async def register_mcp_clients(
-        self,
-        namesake_strategy: NamesakeStrategy = "skip",
-    ) -> None:
-        """Register MCP clients on this agent's toolkit after construction.
-
-        Args:
-            namesake_strategy: Strategy to handle namesake tool functions.
-                Options: "override", "skip", "raise", "rename"
-                (default: "skip")
-        """
-        for i, client in enumerate(self._mcp_clients):
-            client_name = getattr(client, "name", repr(client))
-            try:
-                await self.toolkit.register_mcp_client(
-                    client,
-                    namesake_strategy=namesake_strategy,
-                    execution_timeout=client.read_timeout_seconds,
-                )
-            except (ClosedResourceError, asyncio.CancelledError) as error:
-                if self._should_propagate_cancelled_error(error):
-                    raise
-                logger.warning(
-                    "MCP client '%s' session interrupted while listing tools; "
-                    "trying recovery",
-                    client_name,
-                )
-                recovered_client = await self._recover_mcp_client(client)
-                if recovered_client is not None:
-                    self._mcp_clients[i] = recovered_client
-                    try:
-                        await self.toolkit.register_mcp_client(
-                            recovered_client,
-                            namesake_strategy=namesake_strategy,
-                            execution_timeout=client.read_timeout_seconds,
-                        )
-                        continue
-                    except asyncio.CancelledError as recover_error:
-                        if self._should_propagate_cancelled_error(
-                            recover_error,
-                        ):
-                            raise
-                        logger.warning(
-                            "MCP client '%s' registration cancelled after "
-                            "recovery, skipping",
-                            client_name,
-                        )
-                    except Exception as e:  # pylint: disable=broad-except
-                        logger.warning(
-                            "MCP client '%s' still unavailable after "
-                            "recovery, skipping: %s",
-                            client_name,
-                            e,
-                        )
-                else:
-                    logger.warning(
-                        "MCP client '%s' recovery failed, skipping",
-                        client_name,
-                    )
-            except Exception as e:  # pylint: disable=broad-except
-                logger.warning(
-                    "Failed to register MCP client '%s', skipping: %s",
-                    client_name,
-                    e,
-                    exc_info=True,
-                )
-
-    async def _recover_mcp_client(self, client: Any) -> Any | None:
-        """Recover MCP client from broken session and return healthy client."""
-        if await self._reconnect_mcp_client(client):
-            return client
-
-        rebuilt_client = self._rebuild_mcp_client(client)
-        if rebuilt_client is None:
-            return None
-
-        if await self._reconnect_mcp_client(rebuilt_client):
-            return self._reuse_shared_client_reference(
-                original_client=client,
-                rebuilt_client=rebuilt_client,
-            )
-
-        return None
-
-    @staticmethod
-    def _reuse_shared_client_reference(
-        original_client: Any,
-        rebuilt_client: Any,
-    ) -> Any:
-        """Keep manager-shared client reference stable after rebuild."""
-        original_dict = getattr(original_client, "__dict__", None)
-        rebuilt_dict = getattr(rebuilt_client, "__dict__", None)
-        if isinstance(original_dict, dict) and isinstance(rebuilt_dict, dict):
-            original_dict.update(rebuilt_dict)
-            return original_client
-        return rebuilt_client
-
-    @staticmethod
-    def _should_propagate_cancelled_error(error: BaseException) -> bool:
-        """Only swallow MCP-internal cancellations, not task cancellation."""
-        if not isinstance(error, asyncio.CancelledError):
-            return False
-
-        task = asyncio.current_task()
-        if task is None:
-            return False
-
-        cancelling = getattr(task, "cancelling", None)
-        if callable(cancelling):
-            return cancelling() > 0
-
-        # Python < 3.11: Task.cancelling() is unavailable.
-        # Fall back to propagating CancelledError to avoid swallowing
-        # genuine task cancellations when we cannot inspect the state.
-        return True
-
-    @staticmethod
-    async def _reconnect_mcp_client(
-        client: Any,
-        timeout: float = 60.0,
-    ) -> bool:
-        """Best-effort reconnect for stateful MCP clients."""
-        close_fn = getattr(client, "close", None)
-        if callable(close_fn):
-            try:
-                await close_fn()
-            except asyncio.CancelledError:  # pylint: disable=try-except-raise
-                raise
-            except Exception:  # pylint: disable=broad-except
-                pass
-
-        connect_fn = getattr(client, "connect", None)
-        if not callable(connect_fn):
-            return False
-
-        try:
-            await asyncio.wait_for(connect_fn(), timeout=timeout)
-            return True
-        except asyncio.CancelledError:  # pylint: disable=try-except-raise
-            raise
-        except asyncio.TimeoutError:
-            return False
-        except Exception:  # pylint: disable=broad-except
-            return False
-
-    @staticmethod
-    def _rebuild_mcp_client(client: Any) -> Any | None:
-        """Rebuild a fresh MCP client instance from stored config metadata."""
-        rebuild_info = getattr(client, "_qwenpaw_rebuild_info", None)
-        if not isinstance(rebuild_info, dict):
-            return None
-
-        transport = rebuild_info.get("transport")
-        name = rebuild_info.get("name")
-
-        try:
-            if transport == "stdio":
-                rebuilt_client = StdIOStatefulClient(
-                    name=name,
-                    command=rebuild_info.get("command"),
-                    args=rebuild_info.get("args", []),
-                    env=rebuild_info.get("env", {}),
-                    cwd=rebuild_info.get("cwd"),
-                )
-                setattr(rebuilt_client, "_qwenpaw_rebuild_info", rebuild_info)
-                return rebuilt_client
-
-            raw_headers = rebuild_info.get("headers") or {}
-            headers = (
-                {k: os.path.expandvars(v) for k, v in raw_headers.items()}
-                if raw_headers
-                else None
-            )
-            rebuilt_client = HttpStatefulClient(
-                name=name,
-                transport=transport,
-                url=rebuild_info.get("url"),
-                headers=headers,
-            )
-            setattr(rebuilt_client, "_qwenpaw_rebuild_info", rebuild_info)
-            return rebuilt_client
-        except Exception:  # pylint: disable=broad-except
-            return None
-
     # ------------------------------------------------------------------
     # Media-block fallback: strip unsupported media blocks (image, audio,
     # video, file) from memory and retry when the model rejects them.
-    # Unlike model_factory._fixup_media_list (which converts file blocks
-    # to text placeholders so the user-facing message history stays
-    # readable), this fallback strips them entirely — its purpose is to
-    # make a previously-rejected request retryable, so leaving residue
-    # would defeat the point.
+    # Unlike ``model_factory._fixup_media_list`` (which converts file
+    # blocks to text placeholders so the user-facing message history
+    # stays readable), this fallback strips them entirely — its purpose
+    # is to make a previously-rejected request retryable, so leaving
+    # residue would defeat the point.
     # ------------------------------------------------------------------
-
-    _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
-
-    # ------------------------------------------------------------------
-    # Plan gate: block non-create_plan tools when /plan gate is active
-    # ------------------------------------------------------------------
-
-    _PLAN_TOOLS_WITH_JSON_ARGS = frozenset(
-        {
-            "create_plan",
-            "revise_current_plan",
-        },
-    )
-    _PLAN_JSON_KEYS = ("subtask", "subtasks")
-
-    @staticmethod
-    def _fix_stringified_json_args(tool_call) -> None:
-        """Parse JSON-string arguments that models sometimes produce for
-        nested objects (e.g. ``subtask``).  Modifies *tool_call* in place."""
-        import json as _json
-
-        inp = tool_call.get("input")
-        if not isinstance(inp, dict):
-            return
-        for key in QwenPawAgent._PLAN_JSON_KEYS:
-            val = inp.get(key)
-            if isinstance(val, str):
-                try:
-                    inp[key] = _json.loads(val)
-                except (ValueError, TypeError):
-                    pass
-            elif isinstance(val, list):
-                for i, item in enumerate(val):
-                    if isinstance(item, str):
-                        try:
-                            val[i] = _json.loads(item)
-                        except (ValueError, TypeError):
-                            pass
-
-    async def _acting(self, tool_call) -> dict | None:
-        """Check plan tool gate before delegating to ToolGuardMixin."""
-        from ..plan.hints import check_plan_tool_gate
-        from ..observability.langfuse import tool_span
-
-        tool_name = str(tool_call.get("name", ""))
-
-        async with tool_span(
-            name=tool_name or "unknown",
-            input=tool_call.get("input"),
-            metadata={"tool_call_id": tool_call.get("id")},
-        ) as langfuse_span:
-            if tool_name in self._PLAN_TOOLS_WITH_JSON_ARGS:
-                self._fix_stringified_json_args(tool_call)
-
-            nb = getattr(self, "plan_notebook", None)
-
-            # Pre-lock BEFORE executing create_plan / revise_current_plan so
-            # that parallel tool calls (asyncio.gather) cannot slip an
-            # execution tool past the gate before the lock is set.
-            # pylint: disable=protected-access
-            if nb is not None and tool_name in {
-                "create_plan",
-                "revise_current_plan",
-            }:
-                nb._plan_awaiting_user_confirm = True
-
-            if nb is not None:
-                err = check_plan_tool_gate(nb, tool_name)
-                if err:
-                    from agentscope.message import ToolResultBlock
-
-                    tool_res_msg = Msg(
-                        "system",
-                        [
-                            ToolResultBlock(
-                                type="tool_result",
-                                id=tool_call["id"],
-                                name=tool_name,
-                                output=[{"type": "text", "text": err}],
-                            ),
-                        ],
-                        "system",
-                    )
-                    await self.print(tool_res_msg, True)
-                    await self.memory.add(tool_res_msg)
-                    if langfuse_span is not None:
-                        langfuse_span.update(output={"blocked": err})
-                    return None
-
-            result = await super()._acting(tool_call)
-
-            if langfuse_span is not None:
-                langfuse_span.update(output=result)
-
-            if nb is not None and tool_name in {
-                "create_plan",
-                "revise_current_plan",
-            }:
-                # Force the next post-plan reasoning pass to be text-only.
-                # This prevents models from emitting other tools in the same
-                # turn run before the user has confirmed the plan or modified
-                # it.
-                # pylint: disable=protected-access
-                nb._plan_text_only_after_mutation = True
-
-            return result
-
-    _AUTO_CONTINUE_MAX_EXTRA = 2
-    _AUTO_CONTINUE_TAIL_CHARS = 600
-
-    _AUTO_CONTINUE_HINT_EN = (
-        "<system-hint>"
-        "Your previous assistant turn had text only (no tool calls). "
-        "Use the trailing excerpt in <previous-assistant-tail> (if present) "
-        "plus the conversation to decide in this **reasoning** step: if the "
-        "user's task still needs tools, emit tool_use now; if it is fully "
-        "done, reply with a short text only (no tools). "
-        "Do not stop with plans or code fences alone when tools are still "
-        "needed."
-        "</system-hint>"
-    )
-    _AUTO_CONTINUE_HINT_ZH = (
-        "<system-hint>"
-        "上轮助手仅文字、未调工具。请结合上下文与 <previous-assistant-tail> "
-        "（若有）在本轮推理中判断：仍需执行则立刻 tool；已完结则简短收尾。"
-        "需要操作时勿只输出计划或代码块。"
-        "</system-hint>"
-    )
-
-    def _auto_continue_system_hint(self) -> str:
-        """Pick hint by agent language (zh vs others)."""
-        raw_lang = getattr(self._agent_config, "language", None)
-        lang = (raw_lang or "").strip().lower()
-        if lang == "zh":
-            return self._AUTO_CONTINUE_HINT_ZH
-        return self._AUTO_CONTINUE_HINT_EN
-
-    @staticmethod
-    def _auto_continue_tail_context(msg: Msg, max_chars: int) -> str:
-        """Assistant text suffix for hint (fixed cut, not sentence NLP)."""
-        raw = msg.get_text_content() if msg is not None else ""
-        text = (raw or "").strip()
-        if not text:
-            return ""
-        if len(text) <= max_chars:
-            return text
-        return text[-max_chars:].lstrip()
-
-    async def _auto_continue_if_text_only(
-        self,
-        msg: Msg,
-        tool_choice: Literal["auto", "none", "required"] | None,
-    ) -> Msg:
-        """Nudge the model when it returns text-only mid-task.
-
-        Injects a language-matched hint (with a trailing excerpt of the
-        assistant text for self-review) and runs up to
-        ``_AUTO_CONTINUE_MAX_EXTRA`` extra ``_reasoning`` passes until a
-        tool_use appears or the cap is
-        hit.  Uses the original ``tool_choice`` unchanged (no switching).
-        If an extra pass still returns text-only, keep the prior response to
-        avoid repeated duplicated answers.
-        """
-        from ..plan.hints import should_skip_auto_continue
-
-        nb = getattr(self, "plan_notebook", None)
-        if should_skip_auto_continue(nb):
-            return msg
-
-        running = self._agent_config.running
-        if not running.auto_continue_on_text_only:
-            return msg
-        if msg is None or msg.has_content_blocks("tool_use"):
-            return msg
-
-        extra = 0
-        while extra < self._AUTO_CONTINUE_MAX_EXTRA:
-            if msg.has_content_blocks("tool_use"):
-                break
-            extra += 1
-            tail = self._auto_continue_tail_context(
-                msg,
-                self._AUTO_CONTINUE_TAIL_CHARS,
-            )
-            hint_body = self._auto_continue_system_hint()
-            if tail:
-                hint_body += (
-                    "\n\n<previous-assistant-tail>\n"
-                    f"{tail}\n"
-                    "</previous-assistant-tail>"
-                )
-            logger.info(
-                "Auto-continue: text-only (%d/%d); hint + _reasoning "
-                "tool_choice=%r",
-                extra,
-                self._AUTO_CONTINUE_MAX_EXTRA,
-                tool_choice,
-            )
-            hint_msg = Msg("user", hint_body, "user")
-            await self.memory.add(hint_msg, marks=_MemoryMark.HINT)
-            try:
-                next_msg = await super()._reasoning(tool_choice=tool_choice)
-            except Exception:
-                logger.warning(
-                    "Auto-continue extra _reasoning failed; "
-                    "keeping prior response",
-                    exc_info=True,
-                )
-                break
-            if next_msg.has_content_blocks("tool_use"):
-                msg = next_msg
-                continue
-            logger.info(
-                "Auto-continue extra _reasoning still text-only; "
-                "keeping prior response",
-            )
-            break
-
-        return msg
 
     def _get_model_key(self) -> str | None:
         """Return the capability-cache key for the active model."""
@@ -976,6 +690,20 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
             return False
         return get_capability_cache().get(key, "rejects_media", False)
 
+    def _model_rejects_audio(self) -> bool:
+        """Check the capability cache for a learned audio rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_audio", False)
+
+    def _model_rejects_video(self) -> bool:
+        """Check the capability cache for a learned video rejection."""
+        key = self._get_model_key()
+        if key is None:
+            return False
+        return get_capability_cache().get(key, "rejects_video", False)
+
     def _proactive_strip_media_blocks(self) -> int:
         """Proactively strip media blocks from memory before model call.
 
@@ -986,378 +714,1063 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
 
     def _uses_request_time_media_normalization(self) -> bool:
         """Return True when request-time normalization can handle media."""
-        return getattr(self, "formatter", None) is not None
+        return self._get_active_formatter() is not None
+
+    def _get_active_formatter(self) -> Any | None:
+        """Resolve the formatter through current and legacy model layouts."""
+        formatter = getattr(self, "formatter", None)
+        if formatter is not None:
+            return formatter
+
+        current = getattr(self, "model", None)
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            formatter = getattr(current, "formatter", None)
+            if formatter is not None:
+                return formatter
+            current = getattr(current, "_inner", None) or getattr(
+                current,
+                "_model",
+                None,
+            )
+        return None
 
     def _set_formatter_media_strip(self, enabled: bool) -> None:
         """Toggle request-time media stripping on the active formatter."""
-        formatter = getattr(self, "formatter", None)
+        formatter = self._get_active_formatter()
         if formatter is None:
             return
         setattr(formatter, "_qwenpaw_force_strip_media", enabled)
 
-    @staticmethod
-    def _filter_plan_tools(msg: Msg, nb: Any) -> Msg:
-        """Arm `_plan_awaiting_user_confirm` before any tool runs.
+    def _set_formatter_audio_strip(self, enabled: bool) -> None:
+        """Toggle request-time audio stripping on the active formatter."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_audio", enabled)
 
-        Race-prevention: when the assistant message carries `create_plan` /
-        `revise_current_plan` alongside other ``tool_use`` blocks, callers
-        of ``asyncio.gather`` may hit `_acting()`` on sibling tools before
-        the mutation tool executes. Setting the lock here (before tools run)
-        makes `check_plan_tool_gate` refuse non-plan-management tools while
-        still returning a readable tool_result instead of stripping blocks.
+    def _set_formatter_video_strip(self, enabled: bool) -> None:
+        """Toggle request-time video stripping on the active formatter.
+
+        Narrower than ``_qwenpaw_force_strip_media``: images and audio in the
+        same request stay untouched, so a session that only tripped over an
+        unsupported ``video_url`` part keeps its other media.
         """
-        if nb is None or not isinstance(msg.content, list):
-            return msg
-        mut = ("create_plan", "revise_current_plan")
-        if any(
-            isinstance(b, dict)
-            and b.get("type") == "tool_use"
-            and b.get("name", "") in mut
-            for b in msg.content
-        ):
-            # pylint: disable-next=protected-access
-            nb._plan_awaiting_user_confirm = True
-        return msg
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return
+        setattr(formatter, "_qwenpaw_force_strip_video", enabled)
 
-    # pylint: disable=too-many-branches
+    def _set_formatter_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        """Propagate reasoning omissions through model wrappers."""
+        model_setter = getattr(self.model, "set_thinking_omit_ids", None)
+        if callable(model_setter):
+            return bool(model_setter(set(block_ids)))
+
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        formatter_setter = getattr(formatter, "set_thinking_omit_ids", None)
+        if callable(formatter_setter):
+            # Dynamic formatter implementations supply this optional method.
+            # pylint: disable-next=not-callable
+            return bool(formatter_setter(set(block_ids)))
+        # Compatibility for third-party OpenAI-chat formatters that predate
+        # the explicit interface but consume the QwenPaw extension attribute.
+        setattr(formatter, "_qwenpaw_omit_thinking_ids", set(block_ids))
+        return True
+
+    def _last_wire_request_had_media(self) -> bool:
+        """Return whether the last completed formatting emitted media."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_media_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    def _last_wire_request_had_audio(self) -> bool:
+        """Return whether the last completed formatting emitted audio."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_audio_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    def _last_wire_request_had_video(self) -> bool:
+        """Return whether the last completed formatting emitted video."""
+        formatter = self._get_active_formatter()
+        if formatter is None:
+            return False
+        count = getattr(formatter, "_qwenpaw_last_wire_video_count", 0)
+        return (
+            isinstance(count, int)
+            and not isinstance(count, bool)
+            and (count > 0)
+        )
+
+    @staticmethod
+    def _is_audio_fallback_error(exc: Exception) -> bool:
+        """Return whether the provider rejected the current audio payload.
+
+        Recognized rejection shapes:
+
+        1. DashScope modality error — HTTP 400 with
+           ``InternalError.Algo.InvalidParameter`` and the
+           "incorrect modal ... audio ..." wording.
+        2. DashScope URL-shape error — HTTP 400 with
+           "The provided URL does not appear to be valid" when local
+           audio is serialized as raw base64 (issue #7015, first
+           failure mode).
+        3. llama.cpp ``llama-server`` (OpenAI-compatible) backed by a
+           vision-only mmproj — HTTP 500 with
+           "audio input is not supported".
+        4. Providers that reject the ``input_audio`` wire part as an
+           unknown / unexpected field or variant.
+        5. LM Studio (OpenAI-compatible) serving a model without audio
+           support — HTTP 400 "At most 0 audio(s) may be provided in one
+           prompt." (issue #8171).
+
+        Callers gate this classifier on ``_last_wire_request_had_audio()``,
+        so shape 2 cannot misclassify genuinely malformed image/video
+        URLs: those requests carry no audio blocks and never reach the
+        audio-strip retry.
+        """
+        error_str = " ".join(str(exc).lower().split())
+        status = extract_status_code(exc)
+        has_bad_request_status = status == 400 or "<400>" in error_str
+        rejects_unknown_audio_part = "input_audio" in error_str and any(
+            marker in error_str
+            for marker in (
+                "unknown variant",
+                "unknown field",
+                "unknown part",
+                "unexpected variant",
+                "unexpected field",
+            )
+        )
+        invalid_modal = all(
+            marker in error_str
+            for marker in (
+                "incorrect modal",
+                "audio",
+                "was entered",
+                "may not be supported by the model",
+                "wrong position",
+            )
+        )
+        if rejects_unknown_audio_part:
+            return True
+        if (
+            has_bad_request_status
+            and "internalerror.algo.invalidparameter" in error_str
+            and invalid_modal
+        ):
+            return True
+        if (
+            has_bad_request_status
+            and "the provided url does not appear to be valid" in error_str
+        ):
+            return True
+        if "audio input is not supported" in error_str:
+            return True
+        if "at most 0 audio" in error_str and "may be provided" in error_str:
+            return True
+        return False
+
+    @staticmethod
+    def _is_video_fallback_error(exc: Exception) -> bool:
+        """Recognize video type/capability rejections and count limits."""
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        error_str = " ".join(str(exc).lower().split())
+        # Schema errors can list image/audio parts as accepted alternatives.
+        if _VIDEO_PART_REJECTION_RE.search(error_str):
+            return True
+        # Broader rejections must retain the existing media-free fallback.
+        if re.search(
+            r"\b(?:images?|image_url|input_image|audios?|input_audio|"
+            r"files?|input_file|pdf|vision|media|multimodal)\b",
+            error_str,
+        ):
+            return False
+        return bool(
+            _VIDEO_COUNT_LIMIT_RE.search(error_str)
+            or "video input is not supported" in error_str
+            or re.search(
+                r"\bmodel\b.{0,40}\b(?:does not|doesn't|cannot|can't) "
+                r"support videos?\b",
+                error_str,
+            )
+            or re.search(r"\bunsupported modality\s*:\s*video\b", error_str),
+        )
+
+    @staticmethod
+    def _is_video_capability_error(exc: Exception) -> bool:
+        """Allow learning only for rejected video types or zero budgets."""
+        if not QwenPawAgent._is_video_fallback_error(exc):
+            return False
+        limit = _VIDEO_COUNT_LIMIT_RE.search(str(exc).lower())
+        return limit is None or int(limit.group(1)) == 0
+
+    async def _prepare_model_input(self) -> dict[str, Any]:
+        """Freeze local images before they enter a provider request."""
+        await freeze_local_images_async(self.state.context)
+        return await super()._prepare_model_input()
+
+    @staticmethod
+    def _is_context_overflow_error(exc: Exception) -> bool:
+        """Return whether *exc* rejects the token context length.
+
+        A bare 400 is deliberately insufficient: malformed tool schemas,
+        unsupported parameters, and media errors must keep their existing
+        handling.  Prefer the structured status code when the SDK exposes it,
+        with the rendered exception as a compatibility fallback for gateways
+        that wrap the original response.
+        """
+        status = extract_status_code(exc)
+        error_str = str(exc).lower()
+        if status != 400 and "error code: 400" not in error_str:
+            return False
+
+        overflow_markers = (
+            "range of input length",
+            "context length exceeded",
+            "context_length_exceeded",
+            "maximum context length",
+            "maximum context window",
+            "max input length",
+            "input length should be",
+            "input is too long",
+            "prompt is too long",
+            "prompt too long",
+            "too many input tokens",
+        )
+        if any(marker in error_str for marker in overflow_markers):
+            return True
+
+        overflow_marker_groups = (
+            (
+                "the input (",
+                "tokens)",
+                "is longer than the model's context length",
+            ),
+            ("tokens", "exceeds the available context size"),
+            (
+                "input token count",
+                "exceeds the maximum number of tokens allowed",
+            ),
+            (
+                "input token count",
+                "model only supports up to",
+            ),
+        )
+        return any(
+            all(marker in error_str for marker in marker_group)
+            for marker_group in overflow_marker_groups
+        )
+
+    async def _call_model(
+        self,
+        messages: list[Msg],
+        tools: list[dict],
+        tool_choice: Any = None,
+    ) -> Any:
+        """Call the model with at most two context recovery attempts.
+
+        Body-size rejections omit media from request copies; token overflows
+        delegate to the context manager. Rebuild and retry only when recovery
+        changed the model input. Invocation and streaming share the budget.
+        """
+        self._index_tool_schemas(tools)
+        remaining = 2
+        call_model = super()._call_model
+
+        async def recover(exc: Exception) -> Any:
+            nonlocal remaining
+            if remaining == 0:
+                raise exc
+            remaining -= 1
+            return await self._recover_model_overflow(
+                exc,
+                tool_choice=tool_choice,
+                retry=call,
+            )
+
+        async def call(**kwargs: Any) -> Any:
+            return await call_with_overflow_recovery(
+                call_model,
+                recover,
+                **kwargs,
+            )
+
+        return await call(
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+
+    async def _recover_model_overflow(
+        self,
+        exc: Exception,
+        tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
+    ) -> Any:
+        """Perform one recovery step within the caller's shared budget."""
+        body_overflow = is_request_body_too_large(exc)
+        if body_overflow and self._last_wire_request_had_media():
+            omitted = mark_media_omitted_after_overflow(self.state.context)
+            if omitted:
+                logger.warning(
+                    "Request body exceeded the limit; omitting %d "
+                    "historical media block(s) and retrying once.",
+                    omitted,
+                )
+                return await self._retry_with_refreshed_input(tool_choice)
+            # Context recovery can fold consumed tool results in the active
+            # turn. Do not silently remove media the user is asking about.
+            raise exc
+
+        context_manager = getattr(self, "_context_manager", None)
+        if not isinstance(
+            context_manager,
+            ContextManager,
+        ) or not (body_overflow or self._is_context_overflow_error(exc)):
+            raise exc
+
+        before = len(getattr(self.state, "context", []) or [])
+        logger.warning(
+            "Model input exceeded a size limit; attempting "
+            "a context recovery step.",
+        )
+        input_changed = await context_manager.recover_from_context_overflow(
+            self,
+        )
+        if not input_changed:
+            logger.warning(
+                "Context-overflow recovery did not change the model "
+                "input; skipping the retry.",
+            )
+            raise exc
+        after = len(getattr(self.state, "context", []) or [])
+
+        logger.info(
+            "Context-overflow recovery rebuilt model input "
+            "(messages %d -> %d).",
+            before,
+            after,
+        )
+        return await self._retry_with_refreshed_input(tool_choice, retry=retry)
+
+    async def _retry_with_refreshed_input(
+        self,
+        tool_choice: Any,
+        retry: Callable[..., Awaitable[Any]] | None = None,
+    ) -> Any:
+        """Rebuild input and use the caller's bounded retry when supplied."""
+        refreshed = await self._prepare_model_input()
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        call_model = retry or super()._call_model
+        return await call_model(
+            messages=refreshed["messages"],
+            tools=refreshed_tools,
+            tool_choice=tool_choice,
+        )
+
+    def _index_tool_schemas(self, tools: list[dict] | None) -> None:
+        """Index ``tool name -> parameter schema`` for input coercion.
+
+        Built in :meth:`_call_model` from exactly the tool list handed to
+        the model (issue #6839), so the coercion schema always matches
+        what the model saw.  Looking schemas up through
+        ``toolkit.check_tool_available`` at tool-call time instead would
+        issue ``list_tools`` against every registered MCP client on
+        every tool call.
+        """
+        index: dict[str, dict[str, Any]] = {}
+        for tool in tools or []:
+            func = tool.get("function") if isinstance(tool, dict) else None
+            if not isinstance(func, dict):
+                continue
+            name = func.get("name")
+            params = func.get("parameters")
+            if isinstance(name, str) and isinstance(params, dict):
+                index[name] = params
+        self._tool_schema_index = index
+
+    def _coerce_tool_call_input(self, tool_call: Any) -> None:
+        """Coerce ``tool_call.input`` in place against the indexed schema.
+
+        Models sometimes emit unquoted numbers/booleans for string-typed
+        tool parameters (issue #6839); agentscope's shared validation
+        rejects those values and every such tool call fails.  The
+        rewrite happens on the block stored in the message, so the
+        repaired input travels with the persisted context, and it runs
+        before the permission check, so a call paused for user
+        confirmation resumes already repaired.  No-op when the tool name
+        is not indexed.
+        """
+        index = getattr(self, "_tool_schema_index", None)
+        if not index:
+            return
+        if isinstance(tool_call, dict):
+            name = tool_call.get("name")
+        else:
+            name = getattr(tool_call, "name", None)
+        if not isinstance(name, str):
+            return
+        schema = index.get(name)
+        if not isinstance(schema, dict):
+            return
+        if isinstance(tool_call, dict):
+            raw_input = tool_call.get("input")
+        else:
+            raw_input = getattr(tool_call, "input", None)
+        if not isinstance(raw_input, str):
+            return
+        coerced = _coerce_tool_input(raw_input, schema)
+        if coerced == raw_input:
+            return
+        if isinstance(tool_call, dict):
+            tool_call["input"] = coerced
+        else:
+            tool_call.input = coerced
+        logger.info(
+            "Coerced tool %r input to match string-typed schema fields "
+            "(#6839)",
+            name,
+        )
+
+    async def _execute_tool_call(
+        self,
+        tool_call: Any,
+        kept_rules: Any | None = None,
+    ):
+        """Coerce the tool input, then delegate to the base funnel.
+
+        ``Agent._execute_tool_call`` is the single funnel for tool-call
+        execution — both the sequential and the concurrent paths reach
+        it — and it runs immediately before agentscope parses and
+        validates the input, which is where the #6839 failure happens.
+        Coercing here covers every provider, not just OpenAI.
+
+        The signature mirrors the base method exactly: the concurrent
+        execution path calls this with two positional arguments
+        (``tool_call`` and the batch-shared ``kept_rules`` accumulator),
+        so accepting only ``tool_call`` raised ``TypeError`` on every
+        concurrent tool call.
+        """
+        self._coerce_tool_call_input(tool_call)
+        async for evt in super()._execute_tool_call(tool_call, kept_rules):
+            yield evt
+
+    # pylint: disable=too-many-branches,too-many-statements
     async def _reasoning(
         self,
         tool_choice: Literal["auto", "none", "required"] | None = None,
-    ) -> Msg:
-        """Override reasoning with proactive media filtering.
+    ):
+        """Forward 2.0 ``_reasoning`` events with proactive media
+        stripping, passive bad-request retry, and auto-continue on
+        text-only responses."""
 
-        1. Proactive layer: if the model does not support
-           multimodal **or** the capability cache records a previous
-           ``rejects_media`` finding, strip media blocks *before* calling.
-        2. Passive layer: if the model call still fails with a
-           bad-request / media error, strip remaining blocks and retry,
-           then record the finding in the capability cache.
-        3. If the model IS marked as multimodal but still errors on
-           media, log a warning about possibly inaccurate capability flag.
-        4. Plan gate: `_filter_plan_tools` pre-locks when the assistant
-           schedules plan mutation tools; `_plan_text_only_after_mutation`
-           forces ``tool_choice="none"`` once so the model cannot issue
-           execution tools immediately after ``create_plan`` / revise.
+        # agentscope drops ChatResponse.metadata during event conversion;
+        # collect model-fallback transparency data out-of-band instead.
+        fallback_sink = install_fallback_notice_sink()
 
-        Calls ``super()._reasoning`` to keep the ToolGuardMixin
-        interception active.
-        """
-        nb = getattr(self, "plan_notebook", None)
-        if nb is not None and getattr(
-            nb,
-            "_plan_text_only_after_mutation",
-            False,
-        ):
-            # pylint: disable=protected-access
-            nb._plan_text_only_after_mutation = False
-            tool_choice = "none"
+        # ── Inject background-tool results before each reasoning step ──
+        await self._inject_pending_hints()
 
-        # --- Proactive filtering layer ---
-        should_strip = (
-            not get_active_model_supports_multimodal()
-            or self._model_rejects_media()
+        # ── Pre-check: pending gate actions from previous iter ──
+        from ..loop.gates.runner import check_pending_gates
+
+        pending_stop = check_pending_gates(self)
+        if pending_stop is not None:
+            stop_text = pending_stop.reason or "Stopped by loop gate."
+            block_id = uuid.uuid4().hex
+            yield TextBlockStartEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+            )
+            yield TextBlockDeltaEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+                delta=stop_text,
+            )
+            yield TextBlockEndEvent(
+                reply_id=self.state.reply_id,
+                block_id=block_id,
+            )
+            yield Msg(
+                name=self.name,
+                role="assistant",
+                content=[
+                    TextBlock(type="text", text=stop_text),
+                ],
+            )
+            return
+
+        # ModelInfo controls per-model request normalization. Only learned
+        # rejections belong here; a global lookup can misclassify fallbacks.
+        should_strip_media = self._model_rejects_media()
+        should_strip_audio = (
+            not should_strip_media and self._model_rejects_audio()
         )
-        if should_strip:
+        should_strip_video = (
+            not should_strip_media and self._model_rejects_video()
+        )
+        if should_strip_media:
             if self._uses_request_time_media_normalization():
                 self._set_formatter_media_strip(True)
-                logger.debug(
-                    "Formatter will strip media from copied messages "
-                    "before reasoning.",
-                )
             else:
                 n = self._proactive_strip_media_blocks()
                 if n > 0:
                     logger.warning(
-                        "Proactively stripped %d media block(s) - "
-                        "model does not support multimodal.",
+                        "Proactively stripped %d media block(s) before "
+                        "_reasoning (model lacks multimodal support).",
                         n,
                     )
+        elif (
+            should_strip_audio
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_audio_strip(True)
 
-        # --- Passive fallback layer (existing logic) ---
+        if (
+            should_strip_video
+            and self._uses_request_time_media_normalization()
+        ):
+            self._set_formatter_video_strip(True)
+
+        # ── Model call with passive retry on media error ──
+        final_msg: Msg | None = None
+        context_manager = self._context_manager
+        pending_seen_ids: set[str] = set()
+        pending_seen_thinking_ids: set[str] = set()
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_tool_result_ids",
+        ):
+            pending_seen_ids = context_manager.model_input_tool_result_ids(
+                self,
+            )
+        if context_manager is not None and hasattr(
+            context_manager,
+            "model_input_thinking_block_ids",
+        ):
+            pending_seen_thinking_ids = (
+                context_manager.model_input_thinking_block_ids(self)
+            )
+
+        def acknowledge_seen_inputs(evt: Any) -> None:
+            """Acknowledge inputs only after a completed model request."""
+            if (
+                isinstance(evt, ModelCallEndEvent)
+                and evt.finished_reason != FinishedReason.INTERRUPTED
+                and context_manager is not None
+            ):
+                if hasattr(
+                    context_manager,
+                    "acknowledge_model_input_tool_results",
+                ):
+                    context_manager.acknowledge_model_input_tool_results(
+                        pending_seen_ids,
+                    )
+                if hasattr(
+                    context_manager,
+                    "acknowledge_model_input_thinking_blocks",
+                ):
+                    context_manager.acknowledge_model_input_thinking_blocks(
+                        pending_seen_thinking_ids,
+                    )
+
         try:
-            msg = await super()._reasoning(tool_choice=tool_choice)
+            async for evt in self._reasoning_events(tool_choice):
+                acknowledge_seen_inputs(evt)
+                if isinstance(evt, Msg):
+                    final_msg = evt
+                else:
+                    self._attach_fallback_notices(evt, fallback_sink)
+                    yield evt
         except Exception as e:
-            if not self._is_bad_request_or_media_error(e):
+            video_fallback_retry = (
+                self._last_wire_request_had_video()
+                and self._is_video_fallback_error(e)
+            )
+            audio_fallback_retry = (
+                self._last_wire_request_had_audio()
+                and self._is_audio_fallback_error(e)
+            )
+            media_capability_retry = (
+                self._last_wire_request_had_media()
+                and self._is_explicit_media_capability_error(e)
+            )
+            media_payload_retry = (
+                not media_capability_retry
+                and self._uses_request_time_media_normalization()
+                and self._last_wire_request_had_media()
+                and self._is_media_payload_rejection_error(e)
+            )
+            if not (
+                video_fallback_retry
+                or audio_fallback_retry
+                or media_capability_retry
+                or media_payload_retry
+            ):
+                if self._uses_request_time_media_normalization():
+                    if should_strip_media:
+                        self._set_formatter_media_strip(False)
+                    if should_strip_audio:
+                        self._set_formatter_audio_strip(False)
+                    if should_strip_video:
+                        self._set_formatter_video_strip(False)
                 raise
 
             model_key = self._get_model_key()
-
-            if self._uses_request_time_media_normalization():
-                if get_active_model_supports_multimodal():
-                    logger.warning(
-                        "Model marked multimodal but "
-                        "rejected media. "
-                        "Capability flag may be wrong.",
-                    )
-                self._set_formatter_media_strip(True)
-                try:
-                    logger.warning(
-                        "_reasoning failed (%s). "
-                        "Retrying with request-time media stripping.",
-                        e,
-                    )
-                    msg = await super()._reasoning(tool_choice=tool_choice)
-                    if model_key:
-                        get_capability_cache().learn(
-                            model_key,
-                            "rejects_media",
-                            True,
-                        )
-                    return msg
-                finally:
-                    self._set_formatter_media_strip(False)
-
-            n_stripped = self._strip_media_blocks_from_memory()
-            if n_stripped == 0:
-                raise
-
-            if get_active_model_supports_multimodal():
+            learn_global_rejection = (
+                media_capability_retry
+                and self._is_global_media_capability_error(e)
+            )
+            if video_fallback_retry:
                 logger.warning(
-                    "Model marked multimodal but "
-                    "rejected media. "
-                    "Capability flag may be wrong.",
+                    "_reasoning failed because the provider rejected a "
+                    "video input (%s); stripping only video and retrying.",
+                    e,
                 )
-
-            logger.warning(
-                "_reasoning failed (%s). "
-                "Stripped %d media block(s) from memory, retrying.",
-                e,
-                n_stripped,
-            )
-            msg = await super()._reasoning(tool_choice=tool_choice)
-            if model_key:
-                get_capability_cache().learn(
-                    model_key,
-                    "rejects_media",
-                    True,
+                self._set_formatter_video_strip(True)
+            elif audio_fallback_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected an "
+                    "audio payload (%s); stripping audio and retrying.",
+                    e,
                 )
-        finally:
-            if should_strip and self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(False)
-
-        msg = self._filter_plan_tools(msg, nb)
-
-        return await self._auto_continue_if_text_only(msg, tool_choice)
-
-    # pylint: disable=too-many-branches
-    async def _summarizing(self) -> Msg:
-        """Override summarizing with proactive media filtering,
-        passive fallback, and tool_use block filtering.
-
-        1. Proactive layer: if the model does not support multimodal
-           **or** the capability cache records ``rejects_media``,
-           strip media blocks *before* calling the model.
-        2. Passive layer: if the model call still fails with a
-           bad-request / media error, strip remaining blocks and retry,
-           then record the finding in the capability cache.
-        3. If the model IS marked as multimodal but still errors on
-           media, log a warning about possibly inaccurate capability flag.
-
-        Some models (e.g. kimi-k2.5) generate tool_use blocks even when
-        no tools are provided.  We set ``_in_summarizing`` so that
-        ``print`` can strip tool_use blocks from streaming chunks.
-        """
-        # --- Proactive filtering layer ---
-        should_strip = (
-            not get_active_model_supports_multimodal()
-            or self._model_rejects_media()
-        )
-        if should_strip:
-            if self._uses_request_time_media_normalization():
+                self._set_formatter_audio_strip(True)
+            elif media_payload_retry:
+                logger.warning(
+                    "_reasoning failed because the provider rejected the "
+                    "media payload itself (%s); stripping media from the "
+                    "retry request. Stored history remains unchanged, and "
+                    "no capability loss is cached.",
+                    e,
+                )
                 self._set_formatter_media_strip(True)
-                logger.debug(
-                    "Formatter will strip media from copied messages "
-                    "before summarizing.",
-                )
             else:
-                n = self._proactive_strip_media_blocks()
-                if n > 0:
-                    logger.warning(
-                        "Proactively stripped %d media block(s) - "
-                        "model does not support multimodal.",
-                        n,
-                    )
-
-        # --- Passive fallback layer ---
-        self._in_summarizing = True
-        try:
-            try:
-                msg = await super()._summarizing()
-            except Exception as e:
-                if not self._is_bad_request_or_media_error(e):
-                    raise
-
-                model_key = self._get_model_key()
-
+                logger.warning(
+                    "_reasoning failed because the provider explicitly "
+                    "rejected the model's media capability (%s); stripping "
+                    "media and retrying.",
+                    e,
+                )
                 if self._uses_request_time_media_normalization():
-                    if get_active_model_supports_multimodal():
-                        logger.warning(
-                            "Model marked multimodal but "
-                            "rejected media. "
-                            "Capability flag may be wrong.",
-                        )
                     self._set_formatter_media_strip(True)
-                    try:
-                        logger.warning(
-                            "_summarizing failed (%s). "
-                            "Retrying with request-time media stripping.",
-                            e,
-                        )
-                        msg = await super()._summarizing()
-                        if model_key:
-                            get_capability_cache().learn(
-                                model_key,
-                                "rejects_media",
-                                True,
-                            )
-                    finally:
-                        self._set_formatter_media_strip(False)
                 else:
-                    n_stripped = self._strip_media_blocks_from_memory()
-                    if n_stripped == 0:
-                        raise
+                    self._strip_media_blocks_from_memory()
 
-                    if get_active_model_supports_multimodal():
-                        logger.warning(
-                            "Model marked multimodal but "
-                            "rejected media. "
-                            "Capability flag may be wrong.",
-                        )
-
-                    logger.warning(
-                        "_summarizing failed (%s). "
-                        "Stripped %d media block(s) from memory, retrying.",
-                        e,
-                        n_stripped,
-                    )
-                    msg = await super()._summarizing()
-                    if model_key:
-                        get_capability_cache().learn(
-                            model_key,
-                            "rejects_media",
-                            True,
-                        )
-        finally:
-            self._in_summarizing = False
-            if should_strip and self._uses_request_time_media_normalization():
-                self._set_formatter_media_strip(False)
-
-        return self._strip_tool_use_from_msg(msg)
-
-    async def print(
-        self,
-        msg: Msg,
-        last: bool = True,
-        speech: Any = None,
-    ) -> None:
-        """Filter tool_use blocks during _summarizing before they hit the
-        message queue, preventing the frontend from briefly rendering
-        phantom tool calls that will never be executed.
-
-        On the *final* streaming event (``last=True``), append the
-        round-end notice so users see it immediately instead of only
-        after a page refresh.  Intermediate events that become empty
-        after filtering are silently skipped to avoid blank UI flashes.
-        """
-
-        if not getattr(self, "_in_summarizing", False):
-            return await super().print(msg, last, speech=speech)
-
-        original = msg.content
-        modified = False
-
-        if isinstance(original, list):
-            filtered = [
-                b
-                for b in original
-                if not (isinstance(b, dict) and b.get("type") == "tool_use")
-            ]
-            if not filtered and not last:
-                return
-            if len(filtered) != len(original) or last:
-                msg.content = filtered
-                if last:
-                    msg.content.append(
-                        {"type": "text", "text": self._ROUND_END_NOTICE},
-                    )
-                modified = True
-        elif isinstance(original, str) and last:
-            msg.content = original + self._ROUND_END_NOTICE
-            modified = True
-        if modified:
             try:
-                return await super().print(msg, last, speech=speech)
+                async for evt in self._reasoning_events(tool_choice):
+                    acknowledge_seen_inputs(evt)
+                    if isinstance(evt, Msg):
+                        final_msg = evt
+                    else:
+                        self._attach_fallback_notices(evt, fallback_sink)
+                        yield evt
+                if (
+                    model_key
+                    and video_fallback_retry
+                    and self._is_video_capability_error(e)
+                ):
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_video",
+                        True,
+                    )
+                if model_key and learn_global_rejection:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_media",
+                        True,
+                    )
+                if model_key and audio_fallback_retry:
+                    get_capability_cache().learn(
+                        model_key,
+                        "rejects_audio",
+                        True,
+                    )
             finally:
-                msg.content = original
-        return await super().print(msg, last, speech=speech)
+                if self._uses_request_time_media_normalization():
+                    self._set_formatter_video_strip(False)
+                    self._set_formatter_audio_strip(False)
+                    self._set_formatter_media_strip(False)
+        else:
+            if self._uses_request_time_media_normalization():
+                if should_strip_media:
+                    self._set_formatter_media_strip(False)
+                if should_strip_audio:
+                    self._set_formatter_audio_strip(False)
+                if should_strip_video:
+                    self._set_formatter_video_strip(False)
 
-    _ROUND_END_NOTICE = (
-        "\n\n---\n"
-        "本轮调用已达最大次数，回复已终止，请继续输入。\n"
-        "Maximum iterations reached for this round. "
-        "Please send a new message to continue."
-    )
+        # ── Stop Hook: run every iteration ──
+        stop_result = await self._run_stop_handlers(final_msg)
+
+        if final_msg is None:
+            from ..loop.gates.runner import apply_stop_result
+
+            apply_stop_result(
+                self,
+                stop_result,
+                is_tool_call=True,
+            )
+            return
+
+        # Model produced text (wants to stop).
+        if stop_result.action == StopAction.INTERRUPT_AND_CONTINUE:
+            logger.info(
+                "Stop handler BLOCKED exit: %s",
+                stop_result.reason,
+            )
+            continuation = (
+                stop_result.continuation_message
+                or "Continue working on the task."
+            )
+            continuation_metadata = stop_result.continuation_metadata or {
+                QWENPAW_MESSAGE_TAG_KEY: (LOOP_CONTINUATION_MESSAGE_TAG),
+            }
+            self.state.context.append(
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[
+                        TextBlock(
+                            type="text",
+                            text=continuation,
+                        ),
+                    ],
+                    metadata=continuation_metadata,
+                ),
+            )
+            return  # outer loop continues
+
+        outgoing_msg = stop_result.final_message or final_msg
+        self._attach_fallback_notices(outgoing_msg, fallback_sink)
+        yield outgoing_msg
 
     @staticmethod
-    def _strip_tool_use_from_msg(msg: Msg) -> Msg:
-        """Remove tool_use blocks from a message and append a user notice.
+    def _attach_fallback_notices(
+        evt: Any,
+        sink: dict[str, Any],
+    ) -> None:
+        """Copy pending model-fallback notices onto an outgoing event.
 
-        When _summarizing is called without tools, some models still
-        return tool_use blocks.  Those blocks can never be executed, so
-        strip them and append a bilingual notice telling the user this
-        round of calls has ended.
+        Consumers (Console SSE parsing and channel notifiers) read
+        ``qwenpaw_model_fallbacks``/``qwenpaw_actual_model`` from event
+        or message metadata; this is the only point where QwenPaw still
+        owns the stream after agentscope's conversion dropped the
+        model response metadata.
         """
-        if isinstance(msg.content, str):
-            msg.content += QwenPawAgent._ROUND_END_NOTICE
-            return msg
-
-        filtered = [
-            block
-            for block in msg.content
-            if not (
-                isinstance(block, dict) and block.get("type") == "tool_use"
-            )
+        if evt is None or not sink["events"]:
+            return
+        metadata = getattr(evt, "metadata", None)
+        if not isinstance(metadata, dict):
+            metadata = {}
+            try:
+                evt.metadata = metadata
+            except (AttributeError, TypeError, ValueError):
+                return
+        metadata["qwenpaw_model_fallbacks"] = [
+            dict(event) for event in sink["events"]
         ]
-
-        n_removed = len(msg.content) - len(filtered)
-        if n_removed:
-            logger.debug(
-                "Stripped %d tool_use block(s) from _summarizing response",
-                n_removed,
-            )
-
-        filtered.append(
-            {"type": "text", "text": QwenPawAgent._ROUND_END_NOTICE},
-        )
-        msg.content = filtered
-        return msg
+        if sink.get("actual_model"):
+            metadata["qwenpaw_actual_model"] = dict(sink["actual_model"])
 
     @staticmethod
-    def _is_bad_request_or_media_error(exc: Exception) -> bool:
-        """Return True for 400-class or media-related model errors.
-
-        Targets bad-request (400) errors because unsupported media
-        content typically causes request validation failures.  Keyword
-        matching provides an extra safety net for providers that use
-        non-standard status codes.
-        """
-        status = getattr(exc, "status_code", None)
-        if status == 400:
-            return True
-
+    def _is_content_safety_error(exc: Exception) -> bool:
+        """Return True for provider-side content safety rejections."""
         error_str = str(exc).lower()
-        keywords = [
-            "image",
-            "audio",
-            "video",
-            "vision",
-            "multimodal",
-            "image_url",
-        ]
-        return any(kw in error_str for kw in keywords)
+        safety_markers = (
+            "new_sensitive",
+            "image is sensitive",
+            "sensitive content",
+            "content sensitivity",
+            "content policy",
+            "content_policy",
+            "moderation",
+            "content_safety",
+            "safety_filter",
+            "(1026)",
+        )
+        return any(marker in error_str for marker in safety_markers)
 
+    @staticmethod
+    def _is_explicit_media_capability_error(exc: Exception) -> bool:
+        """Return whether an explicit media rejection permits fallback."""
+        error_str = str(exc).lower()
+
+        # Veto: content safety/moderation rejections are about a
+        # particular input, not about whether the model supports media.
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+
+        # Veto: errors clearly about request size / context length are
+        # never about media support — stripping media may incidentally
+        # make the next request fit, but it's a coincidence, not a
+        # learned capability.
+        size_signals = (
+            "too large",
+            "toolarge",
+            "max bytes",
+            "request body",
+            "context length",
+            "context_length",
+            "maximum context",
+            "max_tokens",
+        )
+        if any(sig in error_str for sig in size_signals):
+            return False
+
+        # Asset-level failures describe these bytes, never the model; the
+        # payload classifier below is responsible for recovering from them.
+        if any(signal in error_str for signal in _INVALID_MEDIA_ASSET_SIGNALS):
+            return False
+
+        return any(
+            pattern.search(error_str) is not None
+            for pattern in _EXPLICIT_UNSUPPORTED_MEDIA_PATTERNS
+        )
+
+    @staticmethod
+    def _is_media_payload_rejection_error(exc: Exception) -> bool:
+        """Return whether the provider rejected this media payload.
+
+        Covers the request-scoped media limits documented by
+        ``_REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS`` — too many images, a
+        resolution or a video duration the provider refuses — plus
+        asset-level failures: undecodable bytes, an unsupported container,
+        a declared MIME type the provider cannot render. None of them says
+        anything about the model, so recovery is a media-free retry, never
+        a cached model-wide ``rejects_media`` capability loss.
+
+        This matters for session health: the offending block is replayed
+        from history on every later turn, so an unrecovered payload
+        rejection returns the same 400 until the media is repaired in the
+        stored context (see the caller in :meth:`_reasoning`).
+        """
+        error_str = " ".join(str(exc).lower().split())
+        if not any(noun in error_str for noun in _MEDIA_PAYLOAD_MEDIA_NOUNS):
+            return False
+        if QwenPawAgent._is_content_safety_error(exc):
+            return False
+        return any(
+            signal in error_str for signal in _MEDIA_PAYLOAD_REJECTION_SIGNALS
+        )
+
+    @staticmethod
+    def _is_global_media_capability_error(exc: Exception) -> bool:
+        """Return whether an error proves model-wide media rejection."""
+        error_str = str(exc).lower()
+        if any(
+            signal in error_str
+            for signal in _REQUEST_SCOPED_MEDIA_LIMIT_SIGNALS
+        ):
+            return False
+        return any(
+            pattern.search(error_str) is not None
+            for pattern in _GLOBAL_MEDIA_CAPABILITY_PATTERNS
+        )
+
+    def _is_media_block(self, block: Any) -> bool:
+        """Return True if *block* carries model media/document data."""
+        return _is_media_block(block)
+
+    # ------------------------------------------------------------------
+    # Middleware-injected exchanges, surfaced to the UI as tool calls
+    # ------------------------------------------------------------------
+
+    def _reasoning_events(self, tool_choice: Any) -> Any:
+        """The base reasoning stream, with injected exchanges merged in
+        when a middleware emits them."""
+        inner = super()._reasoning(tool_choice=tool_choice)
+        queue = self._injected_events
+        if queue is None:
+            return inner
+        return merge_injected_events(inner, queue)
+
+    def emit_injected_event(self, event: Any) -> bool:
+        """Show ``event`` in the chat stream as soon as possible.
+
+        Middlewares run inside a model call while the UI only sees what
+        ``_reasoning`` yields, so this queue is the bridge. Returns False
+        when no middleware armed the queue (the event is dropped).
+        """
+        queue = self._injected_events
+        if queue is None:
+            return False
+        queue.put_nowait(event)
+        return True
+
+    # ------------------------------------------------------------------
+    # Tool call enhancement: hint injection + hook registration
+    # ------------------------------------------------------------------
+
+    def _get_tool_coordinator(self) -> Any:
+        """Return the ToolCoordinator from request_context, or None."""
+        return (self._request_context or {}).get("tool_coordinator")
+
+    async def _inject_pending_hints(self) -> None:
+        """Pop background-tool hints and append them to agent context."""
+        mgr = self._get_tool_coordinator()
+        if mgr is None:
+            return
+        session_id = (self._request_context or {}).get("session_id", "")
+        if not session_id:
+            return
+        hints = await mgr.pop_pending_hints(session_id)
+        for hint in hints:
+            self.state.context.append(hint)
+
+    async def _flush_context_save(self) -> None:
+        """Finish deferred history writes before publishing the next event."""
+        pending = getattr(self, "_pending_context_save", None)
+        if pending is not None:
+            self._pending_context_save = None
+            await run_sync_io(self._context_manager.on_save, self, pending)
+
+    async def _reply(self, **kwargs: Any) -> Any:
+        """Drain history writes off the event loop at stream boundaries."""
+        stream = super()._reply(**kwargs)
+        self._defer_context_save = True
+        try:
+            while True:
+                # Heartbeat consumers may resume each event in a new task.
+                # Never carry a ContextVar token across an outward yield.
+                with model_session(
+                    self._request_context,
+                    self._model_session_id,
+                ):
+                    try:
+                        evt = await anext(stream)
+                    except StopAsyncIteration:
+                        return
+                    finally:
+                        await self._flush_context_save()
+                yield evt
+        finally:
+            try:
+                with model_session(
+                    self._request_context,
+                    self._model_session_id,
+                ):
+                    try:
+                        await stream.aclose()
+                    finally:
+                        await self._flush_context_save()
+            finally:
+                self._defer_context_save = False
+
+    def _register_tool_call_hooks(self) -> None:
+        """Register per-tool default timeouts on the ToolCoordinator."""
+        mgr = self._get_tool_coordinator()
+        if mgr is None:
+            return
+
+        from ..tool_calls import COORDINATOR_OWNED_EXEC_TIMEOUT_SECS
+
+        # Sandbox / A2A HTTP still use a 24h coordinator-owned ceiling; expose
+        # the same cap so extend/no_deadline cannot promise more than the
+        # executor will actually allow.
+        _owned_cap = float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+        mgr.hooks.register(
+            "execute_shell_command",
+            default_timeout_secs=60.0,
+            max_internal_timeout_secs=_owned_cap,
+        )
+        mgr.hooks.register(
+            "chat_with_agent",
+            default_timeout_secs=300.0,
+            max_internal_timeout_secs=_owned_cap,
+        )
+        mgr.hooks.register(
+            "spawn_subagent",
+            max_internal_timeout_secs=_owned_cap,
+        )
+        mgr.hooks.register("check_agent_task", default_timeout_secs=30.0)
+        mgr.hooks.register("grep_search", default_timeout_secs=30.0)
+        mgr.hooks.register("glob_search", default_timeout_secs=15.0)
+        mgr.hooks.register(
+            "desktop_screenshot",
+            default_timeout_secs=30.0,
+        )
+
+        agent_id = (self._request_context or {}).get(
+            "agent_id",
+            self.name,
+        )
+        mgr.clear_agent_tool_timeouts(agent_id)
+        builtin_tools = (
+            getattr(
+                getattr(self._agent_config, "tools", None),
+                "builtin_tools",
+                None,
+            )
+            or {}
+        )
+        for tool_name, cfg in builtin_tools.items():
+            t = getattr(cfg, "timeout_seconds", None)
+            if t is not None and t > 0:
+                mgr.set_agent_tool_timeout(
+                    agent_id,
+                    tool_name,
+                    float(t),
+                )
+
+    # ------------------------------------------------------------------
+    # Stop Hook: loop continuation support
+    # ------------------------------------------------------------------
+
+    def _get_stop_handlers(self) -> list:
+        """Retrieve stop handlers for this agent."""
+        from ..app.agent_context import (
+            get_current_agent_id,
+        )
+        from ..plugins.registry import PluginRegistry
+
+        agent_id = get_current_agent_id()
+        handlers = PluginRegistry.get_stop_handlers(
+            agent_id=agent_id,
+        )
+        logger.debug(
+            "stop_handlers: agent=%s count=%d",
+            agent_id,
+            len(handlers),
+        )
+        return handlers
+
+    async def _run_stop_handlers(
+        self,
+        final_msg: Optional[Msg],
+    ) -> StopHandlerResult:
+        """Run registered stop handlers every iteration."""
+        from ..loop.gates.runner import run_stop_handlers
+
+        handlers = self._get_stop_handlers()
+        return await run_stop_handlers(
+            handlers,
+            agent=self,
+            final_msg=final_msg,
+            iteration=self.state.cur_iter,
+        )
+
+    # pylint: disable=too-many-nested-blocks
     def _strip_media_blocks_from_memory(self) -> int:
-        """Remove media blocks (image/audio/video) from all messages.
+        """Remove media blocks (image/audio/video/DataBlock) from all messages.
 
         Also strips media blocks nested inside ToolResultBlock outputs.
         Inserts placeholder text when stripping leaves content empty to
@@ -1366,150 +1779,57 @@ class QwenPawAgent(CodingModeMixin, ToolGuardMixin, ReActAgent):
         Returns:
             Total number of media blocks removed.
         """
-        media_types = self._MEDIA_BLOCK_TYPES
         total_stripped = 0
 
-        for msg, _marks in self.memory.content:
+        for msg in self.state.context:
             if not isinstance(msg.content, list):
                 continue
 
             new_content = []
             stripped_this_message = 0
             for block in msg.content:
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") in media_types
-                ):
+                if self._is_media_block(block):
                     total_stripped += 1
                     stripped_this_message += 1
                     continue
 
-                if (
-                    isinstance(block, dict)
-                    and block.get("type") == "tool_result"
-                    and isinstance(block.get("output"), list)
-                ):
-                    original_len = len(block["output"])
-                    block["output"] = [
-                        item
-                        for item in block["output"]
-                        if not (
-                            isinstance(item, dict)
-                            and item.get("type") in media_types
-                        )
-                    ]
-                    stripped_count = original_len - len(block["output"])
-                    total_stripped += stripped_count
-                    stripped_this_message += stripped_count
-                    if stripped_count > 0 and not block["output"]:
-                        block["output"] = MEDIA_UNSUPPORTED_PLACEHOLDER
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype == "tool_result":
+                    output = (
+                        block.get("output")
+                        if isinstance(block, dict)
+                        else getattr(block, "output", None)
+                    )
+                    if isinstance(output, list):
+                        filtered = [
+                            item
+                            for item in output
+                            if not self._is_media_block(item)
+                        ]
+                        stripped_count = len(output) - len(filtered)
+                        total_stripped += stripped_count
+                        stripped_this_message += stripped_count
+                        if stripped_count > 0:
+                            if isinstance(block, dict):
+                                block["output"] = (
+                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                                )
+                            else:
+                                block.output = (
+                                    filtered or MEDIA_UNSUPPORTED_PLACEHOLDER
+                                )
 
                 new_content.append(block)
 
             if not new_content and stripped_this_message > 0:
                 new_content.append(
-                    {
-                        "type": "text",
-                        "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
-                    },
+                    TextBlock(type="text", text=MEDIA_UNSUPPORTED_PLACEHOLDER),
                 )
 
             msg.content = new_content
 
         return total_stripped
-
-    # pylint: disable=protected-access
-    async def reply(
-        self,
-        msg: Msg | list[Msg] | None = None,
-        structured_model: Type[BaseModel] | None = None,
-    ) -> Msg:
-        """Override reply to process file blocks and handle commands.
-
-        Args:
-            msg: Input message(s) from user
-            structured_model: Optional pydantic model for structured output
-
-        Returns:
-            Response message
-        """
-        # Set workspace_dir and recent_max_bytes in context for tool functions
-        from ..config.context import (
-            set_current_workspace_dir,
-            set_current_recent_max_bytes,
-            set_current_session_id,
-            set_current_shell_command_timeout,
-            set_current_shell_command_executable,
-            set_current_toolkit,
-        )
-
-        set_current_workspace_dir(self._workspace_dir)
-        set_current_toolkit(self.toolkit)
-        set_current_session_id(
-            self._request_context.get("session_id") or None,
-        )
-        light_ctx = self._agent_config.running.light_context_config
-        pruning_config = light_ctx.tool_result_pruning_config
-        set_current_recent_max_bytes(
-            pruning_config.pruning_recent_msg_max_bytes,
-        )
-        set_current_shell_command_timeout(
-            self._agent_config.running.shell_command_timeout,
-        )
-        set_current_shell_command_executable(
-            self._agent_config.running.shell_command_executable or None,
-        )
-
-        # Process file and media blocks in messages
-        if msg is not None:
-            await process_file_and_media_blocks_in_message(msg)
-
-        # Check if message is a system command
-        last_msg = msg[-1] if isinstance(msg, list) else msg
-        query = (
-            last_msg.get_text_content() if isinstance(last_msg, Msg) else None
-        )
-
-        if self.command_handler.is_command(query):
-            logger.info(f"Received command: {query}")
-            msg = await self.command_handler.handle_command(query)
-            await self.print(msg)
-            return msg
-
-        # Normal message processing
-        logger.info("QwenPawAgent.reply: max_iters=%s", self.max_iters)
-
-        request_context = getattr(self, "_request_context", {}) or {}
-        channel_name = request_context.get("channel", "console")
-        workspace_dir = Path(self._workspace_dir or WORKING_DIR)
-        with apply_skill_config_env_overrides(workspace_dir, channel_name):
-            return await super().reply(
-                msg=msg,
-                structured_model=structured_model,
-            )
-
-    async def interrupt(self, msg: Msg | list[Msg] | None = None) -> None:
-        """Interrupt the current reply process and wait for cleanup."""
-        if self._reply_task and not self._reply_task.done():
-            task = self._reply_task
-            task.cancel(msg)
-            try:
-                await task
-            except asyncio.CancelledError:
-                if not task.cancelled():
-                    raise
-            except Exception:
-                logger.warning(
-                    "Exception occurred during interrupt cleanup",
-                    exc_info=True,
-                )
-
-    async def _broadcast_to_subscribers(self, msg):
-        # agentscope hook wrapper may misidentify an
-        # async bound method as sync, returning an
-        # unawaited coroutine instead of a Msg.
-        if inspect.iscoroutine(msg):
-            msg = await msg
-        elif isinstance(msg, list):
-            msg = [(await m) if inspect.iscoroutine(m) else m for m in msg]
-        await super()._broadcast_to_subscribers(msg)

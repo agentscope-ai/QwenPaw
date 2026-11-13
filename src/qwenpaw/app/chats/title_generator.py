@@ -1,0 +1,213 @@
+# -*- coding: utf-8 -*-
+"""Async background task that asks the LLM to generate a chat title.
+
+The console handler creates a chat with a placeholder name from the first
+message so the UI has something to show immediately. Once the chat exists
+we spawn :func:`generate_and_update_title` as an ``asyncio`` task that asks
+the active chat model for a concise title and persists it via
+``ChatManager.patch_chat``. Failures are logged and swallowed so title
+generation never affects the user-facing request.
+
+The LLM call mirrors ``app/routers/skills_stream.py``: build a list of
+``agentscope.message.Msg`` (2.0's ``ChatModelBase.__call__`` no longer
+accepts plain dicts — the formatter is now built-in and asserts on
+``Msg`` instances), await ``model(messages)`` directly, and tolerate the
+same ``(ValueError, AppBaseException)`` factory failures.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+from qwenpaw.exceptions import AppBaseException
+from qwenpaw.providers.model_selection import request_model_override
+from qwenpaw.services.session_thinking import (
+    apply_chat_model_settings,
+    get_session_chat,
+)
+from qwenpaw.utils.io_utils import run_sync_io
+from qwenpaw.utils.model_response import consume_model_response
+
+from .models import ChatUpdate
+
+if TYPE_CHECKING:
+    from ..workspace import Workspace
+
+logger = logging.getLogger(__name__)
+
+
+TITLE_PROMPT = (
+    "You generate short titles for chat sessions. Given the first user "
+    "message, reply with a concise title (at most 6 words, no quotes, no "
+    "trailing punctuation, same language as the message) that captures the "
+    "topic. Reply with the title only."
+)
+
+MAX_INPUT_CHARS = 500
+_LEADING_REASONING_BLOCK_RE = re.compile(
+    r"\A\s*<(?P<tag>think(?:ing)?|analysis|reasoning)\b[^>]*>"
+    + r".*?</(?P=tag)\s*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+_LEADING_REASONING_TAG_RE = re.compile(
+    r"\A\s*<(?:think(?:ing)?|analysis|reasoning)\b[^>]*>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def _clean_title(raw: str) -> str:
+    """Normalize model output into a single-line title."""
+    answer = raw.strip()
+    while match := _LEADING_REASONING_BLOCK_RE.match(answer):
+        answer = answer[match.end() :].lstrip()
+    if _LEADING_REASONING_TAG_RE.match(answer):
+        return ""
+    title = answer.splitlines()[0] if answer else ""
+    title = title.strip().strip("\"'`“”‘’")
+    while title and title[-1] in ".,;:!?":
+        title = title[:-1].rstrip()
+    return title
+
+
+# pylint: disable-next=too-many-return-statements
+async def generate_and_update_title(
+    workspace: "Workspace",
+    chat_id: str,
+    user_message: str,
+    placeholder_name: str,
+    *,
+    request=None,
+) -> None:
+    """Generate a chat title via the active LLM and persist it.
+
+    Skips the update if the chat has already been renamed (either by the
+    user or a previous task) so concurrent message submissions cannot
+    clobber a user-chosen name.
+    """
+    message = (user_message or "").strip()
+    if not message:
+        return
+
+    # Check if this is a proactive session message
+    is_proactive = message.startswith("[Agent proactive_helper requesting]")
+    if is_proactive:
+        title = "[Proactive信息]"
+    else:
+        if len(message) > MAX_INPUT_CHARS:
+            message = message[:MAX_INPUT_CHARS]
+
+    try:
+        # Local imports keep this module's import cost low and avoid a
+        # circular dependency between routers and the agents package.
+        from ...agents.model_factory import create_model_and_formatter_async
+        from ...config.config import load_agent_config
+
+        try:
+            agent_config = await run_sync_io(
+                load_agent_config,
+                workspace.agent_id,
+            )
+            cfg = agent_config.running
+        except (ValueError, AppBaseException) as exc:
+            logger.debug(
+                "Title generation skipped: agent config unavailable (%s)",
+                exc,
+            )
+            return
+
+        if not is_proactive:
+            title_cfg = cfg.auto_title_config
+            if not title_cfg.enabled:
+                logger.debug(
+                    "Title generation disabled by config for chat %s",
+                    chat_id,
+                )
+                return
+            timeout = title_cfg.timeout_seconds
+
+            try:
+                chat = await workspace.chat_manager.get_chat(chat_id)
+                if chat is None:
+                    return
+                settings_chat = await get_session_chat(
+                    SimpleNamespace(workspace=workspace, request=request),
+                    chat=chat,
+                )
+                model_override = request_model_override(request)
+                agent_config = await apply_chat_model_settings(
+                    agent_config,
+                    settings_chat.meta if settings_chat else None,
+                    model_override=model_override,
+                )
+                model, _ = await create_model_and_formatter_async(
+                    agent_id=workspace.agent_id,
+                    agent_config=agent_config,
+                    model_slot_override=model_override,
+                )
+            except (ValueError, AppBaseException) as exc:
+                # Same exception shape as ``skills_stream.get_model``: missing
+                # or misconfigured providers raise these and are non-fatal.
+                logger.debug(
+                    "Title generation skipped: no model available (%s)",
+                    exc,
+                )
+                return
+
+            from agentscope.message import Msg, TextBlock
+
+            messages = [
+                Msg(
+                    name="system",
+                    role="system",
+                    content=[TextBlock(type="text", text=TITLE_PROMPT)],
+                ),
+                Msg(
+                    name="user",
+                    role="user",
+                    content=[TextBlock(type="text", text=message)],
+                ),
+            ]
+
+            raw_title = await asyncio.wait_for(
+                consume_model_response(model, messages),
+                timeout=timeout,
+            )
+            title = _clean_title(raw_title)
+            if not title:
+                logger.debug(
+                    "Title generation produced empty output for %s",
+                    chat_id,
+                )
+                return
+        else:
+            logger.debug("Using fixed title for proactive chat %s", chat_id)
+
+        # Compare-and-set on the chat name in a single locked critical
+        # section so a concurrent user rename cannot slip in between a
+        # name check and our write.
+        updated = await workspace.chat_manager.patch_chat_if_name_matches(
+            chat_id,
+            placeholder_name,
+            ChatUpdate(name=title),
+        )
+        if updated is None:
+            logger.debug(
+                "Chat %s no longer has placeholder name; "
+                "title update skipped",
+                chat_id,
+            )
+            return
+        logger.debug("Updated chat %s title to %r", chat_id, title)
+    except Exception:
+        # asyncio.CancelledError has inherited from BaseException since
+        # Python 3.8 (https://docs.python.org/3/library/asyncio-exceptions
+        # .html#asyncio.CancelledError) and the project requires
+        # Python >= 3.10, so this ``except Exception`` deliberately does
+        # not catch task cancellation. There is a regression test in
+        # ``tests/unit/app/test_title_generator.py`` that asserts this
+        # invariant directly.
+        logger.exception("Title generation failed for chat %s", chat_id)

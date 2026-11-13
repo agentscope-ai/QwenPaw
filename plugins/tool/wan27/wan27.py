@@ -44,6 +44,7 @@ class Wan27ToolPlugin:
             tool_func=tool.text_to_video_wan,
             description=("Generate videos from text prompts " "using Wan 2.7"),
             icon="🎬",
+            tool_type="network",
         )
 
         api.register_tool(
@@ -51,6 +52,7 @@ class Wan27ToolPlugin:
             tool_func=tool.image_to_video_wan,
             description=("Generate videos from images using Wan 2.7"),
             icon="🎞️",
+            tool_type="network",
         )
 
         api.register_tool(
@@ -60,6 +62,7 @@ class Wan27ToolPlugin:
                 "Generate videos with character references " "using Wan 2.7"
             ),
             icon="🎭",
+            tool_type="network",
         )
 
         logger.info("Wan 2.7 tool plugin registered")

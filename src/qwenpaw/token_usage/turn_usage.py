@@ -1,43 +1,162 @@
 # -*- coding: utf-8 -*-
-"""Per-turn usage metadata, console finalize, and SSE pending state."""
+"""Per-turn token/context usage: compute, reconcile, persist."""
 
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
 from typing import Any
 
+from ..utils.io_utils import run_sync_io
 from .model_wrapper import TokenRecordingModelWrapper
 
 logger = logging.getLogger(__name__)
 
 TURN_USAGE_META_KEY = "qwenpaw_turn_usage"
 
-_PendingUsageMap = OrderedDict[
-    str,
-    tuple[dict[str, Any] | None, dict[str, Any] | None],
-]
-_pending_usage_by_session: _PendingUsageMap = OrderedDict()
-_PENDING_USAGE_MAX_SESSIONS = 128
+
+def fmt_tokens(n: int) -> str:
+    """Format token count for terminal output."""
+    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
 
 
-async def snapshot_context_usage_for_memory(
-    memory: Any,
-    agent_id: str,
+def reconcile_turn_completion_from_stats(
+    turn: dict[str, Any],
+    stats: dict[str, Any],
+) -> dict[str, Any]:
+    """Patch under-reported ``completion_tokens`` from state estimate."""
+    latest_out = int(stats.get("latest_assistant_tokens", 0) or 0)
+    actual_out = int(turn.get("completion_tokens", 0) or 0)
+    if latest_out > 0 and actual_out <= 1 and latest_out > actual_out:
+        prompt_tokens = int(turn.get("prompt_tokens", 0) or 0)
+        return {
+            **turn,
+            "completion_tokens": latest_out,
+            "total_tokens": prompt_tokens + latest_out,
+            "estimated": True,
+        }
+    return turn
+
+
+def _turn_from_stats(stats: dict[str, Any]) -> dict[str, Any] | None:
+    """Build estimated turn usage from a context-stats snapshot."""
+    est = int(stats.get("estimated_tokens", 0) or 0)
+    if est <= 0:
+        return None
+    latest_out = int(stats.get("latest_assistant_tokens", 0) or 0)
+    return {
+        "provider_id": "",
+        "model_name": "",
+        "prompt_tokens": max(est - latest_out, 0),
+        "completion_tokens": latest_out,
+        "total_tokens": est,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "cache_eligible_input_tokens": 0,
+        "cache_observed": False,
+        "cache_hit_rate": None,
+        "estimated": True,
+    }
+
+
+def _message_turn_usage(msg: Any) -> dict[str, Any] | None:
+    """Read persisted per-turn usage from one message."""
+    metadata = getattr(msg, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    payload = metadata.get(TURN_USAGE_META_KEY)
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    return usage if isinstance(usage, dict) else None
+
+
+def add_session_cache_usage(
+    turn: dict[str, Any] | None,
+    messages: Any,
 ) -> dict[str, Any] | None:
-    """Estimate token totals from a loaded memory object."""
+    """Add token-weighted cache totals for the current durable session."""
+    if turn is None:
+        return None
+    cache_read = 0
+    cache_eligible = 0
+    cache_observed = False
+    current = find_turn_closing_assistant_in_context(messages)
+    for msg in reversed(messages or []):
+        if msg is current:
+            continue
+        usage = _message_turn_usage(msg)
+        if usage is None:
+            continue
+        if "session_cache_observed" in usage:
+            cache_read += int(
+                usage.get("session_cache_read_tokens", 0) or 0,
+            )
+            cache_eligible += int(
+                usage.get(
+                    "session_cache_eligible_input_tokens",
+                    0,
+                )
+                or 0,
+            )
+            cache_observed = cache_observed or bool(
+                usage.get("session_cache_observed", False),
+            )
+            break
+        if not usage.get("cache_observed", False):
+            continue
+        cache_read += int(usage.get("cache_read_tokens", 0) or 0)
+        cache_eligible += int(
+            usage.get("cache_eligible_input_tokens", 0) or 0,
+        )
+        cache_observed = True
+    if turn.get("cache_observed", False):
+        cache_read += int(turn.get("cache_read_tokens", 0) or 0)
+        cache_eligible += int(
+            turn.get("cache_eligible_input_tokens", 0) or 0,
+        )
+        cache_observed = True
+    return {
+        **turn,
+        "session_cache_read_tokens": cache_read,
+        "session_cache_eligible_input_tokens": cache_eligible,
+        "session_cache_observed": cache_observed,
+        "session_cache_hit_rate": (
+            cache_read / cache_eligible * 100 if cache_eligible > 0 else None
+        ),
+    }
+
+
+async def snapshot_context_usage_for_state(
+    state: Any,
+    agent_id: str,
+    preferred_max_input_length: int = 0,
+) -> dict[str, Any] | None:
+    """Character-based token estimate from ``AgentState``."""
     try:
         from ..config.config import (
             load_agent_config,
             get_model_max_input_length,
         )
+        from ..agents.utils.context_stats import estimate_context_tokens
+        from ..agents.utils.estimate_token_counter import (
+            EstimatedTokenCounter,
+        )
 
-        agent_config = load_agent_config(agent_id)
-        max_input_length = int(get_model_max_input_length(agent_config) or 0)
+        max_input_length = int(preferred_max_input_length or 0)
+        if max_input_length <= 0:
+            agent_config = load_agent_config(agent_id)
+            max_input_length = int(
+                (await run_sync_io(get_model_max_input_length, agent_config))
+                or 0,
+            )
         if max_input_length <= 0:
             return None
 
-        stats = await memory.estimate_tokens(max_input_length)
+        stats = await estimate_context_tokens(
+            state,
+            EstimatedTokenCounter(),
+            max_input_length,
+        )
         details = stats.pop("messages_detail", None) or []
 
         last_user_idx = -1
@@ -59,77 +178,65 @@ async def snapshot_context_usage_for_memory(
         return None
 
 
-def fmt_tokens(n: int) -> str:
-    """Compact token count for terminal status lines."""
-    return f"{n / 1000:.1f}K" if n >= 1000 else str(n)
-
-
-def reset_pending_usage_for_stream(session_id: str) -> None:
-    if not session_id:
-        return
-    _pending_usage_by_session[session_id] = (None, None)
-    _pending_usage_by_session.move_to_end(session_id)
-    while len(_pending_usage_by_session) > _PENDING_USAGE_MAX_SESSIONS:
-        _pending_usage_by_session.popitem(last=False)
-
-
-def get_pending_usage_for_stream(
+async def resolve_turn_usage(
+    *,
     session_id: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    value = _pending_usage_by_session.get(session_id) if session_id else None
-    if value is None:
-        return (None, None)
-    _pending_usage_by_session.move_to_end(session_id)
-    return value
+    agent_id: str,
+    session: Any,
+    user_id: str,
+    channel: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Any | None]:
+    """Resolve turn/ctx from provider usage + full agent-state estimate."""
+    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
+    if session is None:
+        return turn, None, None
+
+    agent_state = await _load_agent_state(
+        session=session,
+        session_id=session_id,
+        user_id=user_id,
+        channel=channel,
+    )
+    if agent_state is None:
+        return turn, None, None
+
+    context_size = int((turn or {}).get("context_size", 0) or 0)
+    stats = await snapshot_context_usage_for_state(
+        agent_state,
+        agent_id,
+        preferred_max_input_length=context_size,
+    )
+    if not stats:
+        return (
+            add_session_cache_usage(
+                turn,
+                getattr(agent_state, "context", None),
+            ),
+            None,
+            agent_state,
+        )
+
+    ctx = {
+        "estimated_tokens": stats["estimated_tokens"],
+        "max_input_length": stats["max_input_length"],
+        "context_usage_ratio": stats["context_usage_ratio"],
+    }
+    if turn is None:
+        turn = _turn_from_stats(stats)
+    else:
+        turn = reconcile_turn_completion_from_stats(turn, stats)
+    turn = add_session_cache_usage(
+        turn,
+        getattr(agent_state, "context", None),
+    )
+    return turn, ctx, agent_state
 
 
-def _set_pending_usage_for_stream(
-    session_id: str,
-    value: tuple[dict[str, Any] | None, dict[str, Any] | None],
-) -> None:
-    if not session_id:
-        return
-    _pending_usage_by_session[session_id] = value
-    _pending_usage_by_session.move_to_end(session_id)
-
-
-def reconcile_turn_with_context(
-    turn: dict[str, Any] | None,
-    ctx: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """Fill turn usage from the context snapshot when the provider lies."""
-    if ctx is None:
-        return turn
-    latest_out = int(ctx.get("latest_assistant_tokens", 0) or 0)
-    ctx_est = int(ctx.get("estimated_tokens", 0) or 0)
-    if turn is None and ctx_est > 0:
-        return {
-            "provider_id": "",
-            "model_name": "",
-            "prompt_tokens": max(ctx_est - latest_out, 0),
-            "completion_tokens": latest_out,
-            "total_tokens": ctx_est,
-            "estimated": True,
-        }
-    if turn is not None and latest_out > 0:
-        actual_out = int(turn.get("completion_tokens", 0) or 0)
-        if actual_out <= 1 and latest_out > actual_out:
-            prompt_tokens = int(turn.get("prompt_tokens", 0) or 0)
-            return {
-                **turn,
-                "completion_tokens": latest_out,
-                "total_tokens": prompt_tokens + latest_out,
-                "estimated": True,
-            }
-    return turn
-
-
-def find_turn_closing_assistant(memory: Any) -> Any | None:
-    """Return the assistant message that closes the latest turn."""
-    content = getattr(memory, "content", None)
-    if not content:
+def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:
+    """Last assistant message after the latest user message."""
+    if not messages:
         return None
-    for msg, _marks in reversed(content):
+    for msg in reversed(messages):
         role = getattr(msg, "role", None)
         if role == "user":
             break
@@ -138,16 +245,13 @@ def find_turn_closing_assistant(memory: Any) -> Any | None:
     return None
 
 
-def attach_turn_usage_metadata(
-    memory: Any,
+def _write_turn_usage_meta(
+    msg: Any,
     turn: dict[str, Any] | None,
     ctx: dict[str, Any] | None,
 ) -> bool:
-    """Write turn/context usage onto the closing assistant message."""
-    if turn is None and ctx is None:
-        return False
-    msg = find_turn_closing_assistant(memory)
-    if msg is None:
+    """Write usage meta onto an assistant message."""
+    if msg is None or (turn is None and ctx is None):
         return False
     meta = getattr(msg, "metadata", None)
     if not isinstance(meta, dict):
@@ -160,18 +264,14 @@ def attach_turn_usage_metadata(
     return True
 
 
-async def finalize_console_turn_usage(
+async def _load_agent_state(
     *,
     session: Any,
     session_id: str,
     user_id: str,
     channel: str,
-    agent_id: str,
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
-    """After runner save, attach turn usage metadata and stage SSE pending."""
-    turn = TokenRecordingModelWrapper.pop_usage_for_session(session_id)
-    ctx: dict[str, Any] | None = None
-
+) -> Any | None:
+    """Load ``AgentState`` from session store."""
     try:
         state = await session.get_session_state_dict(
             session_id=session_id,
@@ -181,39 +281,59 @@ async def finalize_console_turn_usage(
         )
     except Exception:
         logger.debug("get_session_state_dict skipped", exc_info=True)
-        state = None
+        return None
+    if not state:
+        return None
+    agent_raw = state.get("agent", {})
+    state_raw = agent_raw.get("state")
+    if not isinstance(state_raw, dict):
+        return None
+    try:
+        from agentscope.state import AgentState
 
-    if state:
-        memory_state = state.get("agent", {}).get("memory", {})
-        if memory_state:
-            from ..agents.context.agent_context import AgentContext
-            from ..agents.utils.estimate_token_counter import (
-                EstimatedTokenCounter,
+        return AgentState.model_validate(state_raw)
+    except Exception:
+        logger.debug("AgentState parse skipped", exc_info=True)
+        return None
+
+
+async def persist_turn_usage(
+    *,
+    session: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+    turn: dict[str, Any] | None,
+    ctx: dict[str, Any] | None,
+    agent_state: Any | None = None,
+) -> None:
+    """Attach turn/ctx meta to the closing assistant."""
+    if turn is None and ctx is None:
+        return
+    if agent_state is None:
+        agent_state = await _load_agent_state(
+            session=session,
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        )
+    if agent_state is None:
+        return
+    try:
+        msg = find_turn_closing_assistant_in_context(
+            getattr(agent_state, "context", None),
+        )
+        if _write_turn_usage_meta(msg, turn, ctx):
+            await session.update_session_state(
+                session_id=session_id,
+                key="agent.state",
+                value=agent_state.model_dump(mode="json"),
+                user_id=user_id,
+                channel=channel,
+                create_if_not_exist=False,
             )
-
-            memory = AgentContext(EstimatedTokenCounter())
-            memory.load_state_dict(memory_state, strict=False)
-            ctx = await snapshot_context_usage_for_memory(memory, agent_id)
-            turn = reconcile_turn_with_context(turn, ctx)
-            if attach_turn_usage_metadata(memory, turn, ctx):
-                try:
-                    await session.update_session_state(
-                        session_id=session_id,
-                        key="agent.memory",
-                        value=memory.state_dict(),
-                        user_id=user_id,
-                        channel=channel,
-                        create_if_not_exist=False,
-                    )
-                except Exception:
-                    logger.debug(
-                        "update_session_state for turn usage skipped",
-                        exc_info=True,
-                    )
-        else:
-            turn = reconcile_turn_with_context(turn, ctx)
-    else:
-        turn = reconcile_turn_with_context(turn, ctx)
-
-    _set_pending_usage_for_stream(session_id, (turn, ctx))
-    return turn, ctx
+    except Exception:
+        logger.warning(
+            "update_session_state for turn usage skipped",
+            exc_info=True,
+        )

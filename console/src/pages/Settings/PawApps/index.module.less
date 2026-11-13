@@ -1,0 +1,71 @@
+.page {
+  padding: 24px;
+  height: 100%;
+  overflow: auto;
+}
+
+.container {
+  height: calc(100% - 60px);
+}
+
+.layout {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  min-height: 500px;
+}
+
+.appList {
+  width: 280px;
+  min-width: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appCard {
+  cursor: pointer;
+  transition:
+    background-color 0.2s,
+    color 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s,
+    opacity 0.2s,
+    transform 0.2s;
+  border: 1px solid transparent;
+}
+
+.appCard:hover {
+  border-color: var(--app-accent);
+}
+
+.appCardActive {
+  border-color: var(--app-accent);
+  background: var(--app-accent-faint);
+}
+
+.appContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--app-border-strong, #e8e8e8);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.appHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--app-border-strong, #e8e8e8);
+  background: var(--app-surface, #fff);
+}
+
+.appIframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}

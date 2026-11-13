@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useSearchParams } from "react-router-dom";
 import {
   Tabs,
+  Alert,
   Empty,
   Button,
   Badge,
@@ -14,26 +16,46 @@ import {
   Tag,
   Spin,
   Select,
+  Tooltip,
 } from "antd";
 import {
-  BulbOutlined,
-  CopyOutlined,
-  DownOutlined,
-  ToolOutlined,
-} from "@ant-design/icons";
-import { PackageOpen, Bell } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+  Lightbulb as BulbOutlined,
+  Copy as CopyOutlined,
+  ChevronDown as DownOutlined,
+  LoaderCircle,
+  RefreshCcw,
+  ShieldCheck as SafetyOutlined,
+  TriangleAlert,
+  Wrench as ToolOutlined,
+} from "lucide-react";
+import { PackageOpen, Bell, BellRing } from "lucide-react";
+import { MailAccessControlDrawer } from "./components/MailAccessControlDrawer";
+import { MailProcessingPauses } from "./components/MailProcessingPauses";
+import { CommunityRelatedResources } from "./components/CommunityRelatedResources";
+import { CommunityInboxState } from "./components/CommunityInboxState";
+import { useMailPendingCount } from "./hooks/useMailPendingCount";
 import { useTranslation } from "react-i18next";
+import {
+  INBOX_OPEN_EVENT,
+  INBOX_SOURCE_STORAGE_KEY,
+  PUSH_MESSAGE_SOURCES,
+} from "@/utils/inboxEvents";
+import { openExternalLink } from "@/utils/openExternalLink";
+import { getCommunityMessageDetail } from "./utils/community";
 import { PageHeader } from "@/components/PageHeader";
+import { TraceMarkdown } from "./components/TraceMarkdown";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
+import { useInboxWobble } from "../../hooks/useInboxWobble";
 import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
-import { useInboxData } from "./hooks/useInboxData";
+import { ViewCronSessionButton } from "./components/ViewCronSessionButton";
+import { useInboxData, mapEventToPushMessage } from "./hooks/useInboxData";
+import { consoleApi } from "../../api/modules/console";
 import { useTraceViewer } from "./hooks/useTraceViewer";
+import type { PushMessage } from "./types";
 import { useAgentStore } from "../../stores/agentStore";
 import {
   DEFAULT_AGENT_ID,
@@ -50,6 +72,15 @@ type TabKey = "approvals" | "messages";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
 const PUSH_MESSAGES_PAGE_SIZE = 5;
 
+const SOURCE_TYPE_LABEL_KEYS: Record<string, string> = {
+  cron: "inbox.sourceTypeCron",
+  heartbeat: "inbox.sourceTypeHeartbeat",
+  memory: "inbox.sourceTypeMemory",
+  mail: "inbox.sourceTypeMail",
+  skill_autoupdate: "communityInbox.skillAutomation",
+  community: "communityFeedback.community",
+};
+
 const resolveInitialTab = (): TabKey => {
   if (typeof window === "undefined") {
     return "messages";
@@ -62,56 +93,141 @@ const resolveInitialTab = (): TabKey => {
 };
 
 const renderMarkdownText = (text: string, className: string) => (
-  <div className={className}>
-    <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-  </div>
+  <TraceMarkdown text={text} className={className} />
 );
+
+interface MailTraceEntry {
+  type: string;
+  name?: string;
+  summary: string;
+}
+
+interface MailDetail {
+  sender: string;
+  subject: string;
+  date: string;
+  bodyPreview: string;
+  isAutoHandled: boolean;
+  trace: MailTraceEntry[];
+}
+
+const readMailTrace = (value: unknown): MailTraceEntry[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const entries: MailTraceEntry[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const summary =
+      typeof record.summary === "string" ? record.summary.trim() : "";
+    if (!summary) {
+      continue;
+    }
+    entries.push({
+      type: typeof record.type === "string" ? record.type : "text",
+      name: typeof record.name === "string" ? record.name : undefined,
+      summary,
+    });
+  }
+  return entries;
+};
+
+const getMailDetail = (messageItem: PushMessage | null): MailDetail | null => {
+  if (
+    !messageItem ||
+    (messageItem.metadata?.sourceType || "").toLowerCase() !== "mail"
+  ) {
+    return null;
+  }
+  const payload = messageItem.metadata?.payload || {};
+  const readString = (key: string): string => {
+    const value = payload[key];
+    return typeof value === "string" ? value.trim() : "";
+  };
+  return {
+    // Backend new_email payload uses "from"; keep "sender" for compatibility.
+    sender: readString("sender") || readString("from"),
+    subject: readString("subject"),
+    date: readString("date"),
+    bodyPreview: readString("body_preview"),
+    isAutoHandled: messageItem.metadata?.eventType === "auto_handled",
+    trace: readMailTrace(payload.trace),
+  };
+};
 
 export default function InboxPage() {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    requestedTab === "approvals" || requestedTab === "messages"
+      ? requestedTab
+      : resolveInitialTab(),
+  );
+  const [mailAclDrawerOpen, setMailAclDrawerOpen] = useState(false);
+  const {
+    pendingCount,
+    refresh: refreshPendingCount,
+    newArrival: mailAclNewArrival,
+    markSeen: markMailAclSeen,
+  } = useMailPendingCount();
   const [markAllReading, setMarkAllReading] = useState(false);
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
     string | undefined
   >(undefined);
+  const [selectedSourceTypeFilter, setSelectedSourceTypeFilter] = useState<
+    string | undefined
+  >(() => {
+    const selected =
+      searchParams.get("source") ||
+      window.localStorage.getItem(INBOX_SOURCE_STORAGE_KEY);
+    return PUSH_MESSAGE_SOURCES.some((source) => source === selected)
+      ? selected!
+      : undefined;
+  });
   const [messagesPage, setMessagesPage] = useState(1);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const [batchMode, setBatchMode] = useState(false);
   const agents = useAgentStore((state) => state.agents);
+  const [wobbleEnabled, toggleWobble] = useInboxWobble();
   const { approvals: pendingApprovals, setApprovals } = useApprovalContext();
   const {
     summary,
     pushMessages,
+    pushMessagesLoading,
+    pushMessagesError,
     markMessageAsRead,
     markAllMessagesAsRead,
     deleteMessage,
     deleteMessages,
-  } = useInboxData();
+    refreshPushMessages,
+  } = useInboxData({
+    sourceType: selectedSourceTypeFilter,
+    agentId:
+      selectedSourceTypeFilter === "community"
+        ? undefined
+        : selectedAgentFilter,
+    page: messagesPage,
+    pageSize: PUSH_MESSAGES_PAGE_SIZE,
+    unreadOnly,
+  });
   const agentDisplayNameById = useMemo(
     () =>
       new Map(agents.map((agent) => [agent.id, getAgentDisplayName(agent, t)])),
     [agents, t],
   );
-  const filteredPushMessages = useMemo(() => {
-    if (!selectedAgentFilter) {
-      return pushMessages;
-    }
-    return pushMessages.filter(
-      (message) =>
-        (message.metadata?.agentId || DEFAULT_AGENT_ID) === selectedAgentFilter,
-    );
-  }, [pushMessages, selectedAgentFilter]);
   const pushMessageAgentOptions = useMemo(() => {
-    const ids = new Set<string>(
-      filteredPushMessages.map(
-        (message) => message.metadata?.agentId || DEFAULT_AGENT_ID,
-      ),
-    );
+    const ids = new Set(agents.map((agent) => agent.id));
     pushMessages.forEach((message) => {
-      ids.add(message.metadata?.agentId || DEFAULT_AGENT_ID);
+      if (message.metadata?.sourceType !== "community")
+        ids.add(message.metadata?.agentId || DEFAULT_AGENT_ID);
     });
-    const options = Array.from(ids)
-      .filter(Boolean)
+    return [...ids]
       .sort((a, b) => a.localeCompare(b))
       .map((id) => ({
         value: id,
@@ -119,19 +235,17 @@ export default function InboxPage() {
           agentDisplayNameById.get(id) ||
           (id === DEFAULT_AGENT_ID ? t("agent.defaultDisplayName") : id),
       }));
-    return options;
-  }, [agentDisplayNameById, filteredPushMessages, pushMessages, t]);
-  const urgentApprovalCount = useMemo(
+  }, [agents, agentDisplayNameById, pushMessages, t]);
+  const sourceTypeOptions = useMemo(
     () =>
-      pendingApprovals.filter((item) =>
-        ["high", "critical"].includes(item.severity?.toLowerCase?.() || ""),
-      ).length,
-    [pendingApprovals],
+      PUSH_MESSAGE_SOURCES.map((type) => ({
+        value: type,
+        label: t(SOURCE_TYPE_LABEL_KEYS[type] || type),
+      })),
+    [t],
   );
-  const pagedPushMessages = useMemo(() => {
-    const start = (messagesPage - 1) * PUSH_MESSAGES_PAGE_SIZE;
-    return filteredPushMessages.slice(start, start + PUSH_MESSAGES_PAGE_SIZE);
-  }, [filteredPushMessages, messagesPage]);
+  const approvalCount = pendingApprovals.length;
+  const pagedPushMessages = pushMessages;
   const currentPageMessageIds = useMemo(
     () => pagedPushMessages.map((item) => item.id),
     [pagedPushMessages],
@@ -144,14 +258,21 @@ export default function InboxPage() {
   );
   const totalMessagePages = Math.max(
     1,
-    Math.ceil(filteredPushMessages.length / PUSH_MESSAGES_PAGE_SIZE),
+    Math.ceil(summary.pushMessages.total / PUSH_MESSAGES_PAGE_SIZE),
   );
 
   const handleApproveRequest = async (
     requestId: string,
     rootSessionId: string,
+    scope?: "exact" | "similar",
   ) => {
-    await commandsApi.sendApprovalCommand("approve", requestId, rootSessionId);
+    await commandsApi.sendApprovalCommand(
+      "approve",
+      requestId,
+      rootSessionId,
+      undefined,
+      scope,
+    );
     setApprovals((prev) =>
       prev.filter((item) => item.request_id !== requestId),
     );
@@ -191,6 +312,50 @@ export default function InboxPage() {
     handleTraceScroll,
   } = useTraceViewer(markMessageAsRead);
 
+  const communityDetail = useMemo(
+    () => getCommunityMessageDetail(selectedMessage),
+    [selectedMessage],
+  );
+  const openedNotification = useRef<string>();
+  const requestedEvent = searchParams.get("event");
+  useEffect(() => {
+    if (!requestedEvent) return;
+    const key = `${location.key}:${requestedEvent}`;
+    if (openedNotification.current === key) return;
+    let cancelled = false;
+    void consoleApi
+      .getInboxEvents({ event_id: requestedEvent, limit: 1 })
+      .then(({ events }) => {
+        if (cancelled) return;
+        openedNotification.current = key;
+        if (!events[0]) {
+          message.warning(t("inbox.messageNotFound"));
+          return;
+        }
+        setActiveTab("messages");
+        openMessageDetail(
+          mapEventToPushMessage(events[0], (agentId) => agentId, t),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) message.error(t("inbox.messageNotFound"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestedEvent, location.key, openMessageDetail, t]);
+
+  const mailDetail = useMemo(
+    () => getMailDetail(selectedMessage),
+    [selectedMessage],
+  );
+
+  useEffect(() => {
+    if (requestedTab === "approvals" || requestedTab === "messages") {
+      setActiveTab(requestedTab);
+    }
+  }, [location.key, requestedTab]);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(INBOX_TAB_STORAGE_KEY, activeTab);
@@ -198,10 +363,10 @@ export default function InboxPage() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (messagesPage > totalMessagePages) {
+    if (!pushMessagesLoading && messagesPage > totalMessagePages) {
       setMessagesPage(totalMessagePages);
     }
-  }, [messagesPage, totalMessagePages]);
+  }, [messagesPage, totalMessagePages, pushMessagesLoading]);
 
   useEffect(() => {
     const validIdSet = new Set(pushMessages.map((item) => item.id));
@@ -209,8 +374,42 @@ export default function InboxPage() {
   }, [pushMessages]);
 
   useEffect(() => {
+    const handleOpen = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ tab?: TabKey; sourceType?: string }>
+      ).detail;
+      if (detail?.tab) setActiveTab(detail.tab);
+      const source =
+        detail?.sourceType === "community" ? "community" : undefined;
+      setSelectedSourceTypeFilter(source);
+      setSearchParams(
+        (params) => {
+          const next = new URLSearchParams(params);
+          if (source) next.set("source", source);
+          else next.delete("source");
+          return next;
+        },
+        { replace: true },
+      );
+      setSelectedAgentFilter(undefined);
+      setMessagesPage(1);
+    };
+    window.addEventListener(INBOX_OPEN_EVENT, handleOpen);
+    return () => window.removeEventListener(INBOX_OPEN_EVENT, handleOpen);
+  }, [setSearchParams]);
+
+  const changeSourceFilter = (value: string | undefined) => {
+    setSelectedSourceTypeFilter(value);
+    if (value === "community") setSelectedAgentFilter(undefined);
     setMessagesPage(1);
-  }, [selectedAgentFilter]);
+    setSelectedMessageIds([]);
+    if (value) window.localStorage.setItem(INBOX_SOURCE_STORAGE_KEY, value);
+    else window.localStorage.removeItem(INBOX_SOURCE_STORAGE_KEY);
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set("source", value);
+    else params.delete("source");
+    setSearchParams(params, { replace: true });
+  };
 
   const handleViewMessage = (messageId: string) => {
     const found = pushMessages.find((item) => item.id === messageId);
@@ -271,6 +470,14 @@ export default function InboxPage() {
     }
   };
 
+  const pushMessagesEmptyDescription = (() => {
+    if (unreadOnly) return t("inbox.emptyUnread");
+    if (selectedSourceTypeFilter === "community") {
+      return t("communityInbox.empty");
+    }
+    return t("inbox.emptyPush");
+  })();
+
   const tabItems = [
     {
       key: "messages",
@@ -279,7 +486,10 @@ export default function InboxPage() {
           <Bell size={16} />
           {t("inbox.tabPushMessages")}
           {summary.pushMessages.unread > 0 && (
-            <Badge count={summary.pushMessages.unread} color="#ff7f16" />
+            <Badge
+              count={summary.pushMessages.unread}
+              color="var(--app-accent)"
+            />
           )}
         </span>
       ),
@@ -290,12 +500,39 @@ export default function InboxPage() {
               <Select
                 size="middle"
                 value={selectedAgentFilter}
-                onChange={(value) => setSelectedAgentFilter(value)}
+                onChange={(value) => {
+                  setSelectedAgentFilter(value);
+                  setMessagesPage(1);
+                  setSelectedMessageIds([]);
+                }}
+                disabled={selectedSourceTypeFilter === "community"}
+                aria-label={t("inbox.filterByAgent")}
                 allowClear
                 options={pushMessageAgentOptions}
                 style={{ width: 180 }}
                 placeholder={t("inbox.filterByAgent")}
               />
+              <Select
+                size="middle"
+                value={selectedSourceTypeFilter}
+                onChange={changeSourceFilter}
+                aria-label={t("inbox.filterBySourceType")}
+                allowClear
+                options={sourceTypeOptions}
+                style={{ width: 160 }}
+                placeholder={t("inbox.filterBySourceType")}
+              />
+              <Checkbox
+                checked={unreadOnly}
+                className={styles.unreadFilter}
+                onChange={(event) => {
+                  setUnreadOnly(event.target.checked);
+                  setMessagesPage(1);
+                  setSelectedMessageIds([]);
+                }}
+              >
+                {t("inbox.unreadOnly")}
+              </Checkbox>
             </div>
             <div className={styles.messagesSelectionTools}>
               {batchMode ? (
@@ -346,13 +583,48 @@ export default function InboxPage() {
                     loading={markAllReading}
                     disabled={summary.pushMessages.unread <= 0}
                   >
-                    {t("inbox.markAllRead")}
+                    {t(
+                      selectedSourceTypeFilter === "community"
+                        ? "communityInbox.markAllRead"
+                        : "inbox.markAllRead",
+                    )}
                   </Button>
                 </>
               )}
             </div>
           </div>
-          {filteredPushMessages.length > 0 ? (
+          {pushMessagesError ? (
+            <div className={styles.messagesError} role="alert">
+              <TriangleAlert size={18} aria-hidden="true" />
+              <span>
+                {t(
+                  pushMessagesError.message === "community_history_unavailable"
+                    ? "communityInbox.historyUnavailable"
+                    : selectedSourceTypeFilter === "community"
+                    ? "communityInbox.loadFailed"
+                    : "inbox.loadFailed",
+                )}
+              </span>
+              <Button
+                icon={<RefreshCcw size={16} />}
+                loading={pushMessagesLoading}
+                onClick={() => void refreshPushMessages()}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : null}
+          {pushMessagesLoading && pushMessages.length === 0 ? (
+            <div className={styles.messagesLoading} role="status">
+              <LoaderCircle
+                className={styles.messagesLoadingIcon}
+                size={20}
+                aria-hidden="true"
+              />
+              <span>{t("common.loading")}</span>
+            </div>
+          ) : pushMessagesError &&
+            pushMessages.length === 0 ? null : pushMessages.length > 0 ? (
             <div className={styles.cardList}>
               {pagedPushMessages.map((item) => (
                 <PushMessageCard
@@ -370,7 +642,7 @@ export default function InboxPage() {
               <div className={styles.paginationWrap}>
                 <Pagination
                   current={messagesPage}
-                  total={filteredPushMessages.length}
+                  total={summary.pushMessages.total}
                   pageSize={PUSH_MESSAGES_PAGE_SIZE}
                   onChange={setMessagesPage}
                   showSizeChanger={false}
@@ -378,8 +650,9 @@ export default function InboxPage() {
               </div>
             </div>
           ) : (
-            <Empty description={t("inbox.emptyPush")} />
+            <Empty description={pushMessagesEmptyDescription} />
           )}
+          {selectedSourceTypeFilter === "community" && <CommunityInboxState />}
         </div>
       ),
     },
@@ -389,8 +662,8 @@ export default function InboxPage() {
         <span className={styles.tabLabel}>
           <PackageOpen size={16} />
           {t("inbox.tabApprovals")}
-          {urgentApprovalCount > 0 && (
-            <Badge count={urgentApprovalCount} color="#ff7f16" />
+          {approvalCount > 0 && (
+            <Badge count={approvalCount} color="var(--app-accent)" />
           )}
         </span>
       ),
@@ -405,19 +678,25 @@ export default function InboxPage() {
                   agentId={approval.agent_id}
                   ownerAgentId={approval.owner_agent_id}
                   showInboxAgentContext
-                  toolName={approval.tool_name}
+                  toolName={approval.tool_display_name || approval.tool_name}
+                  toolSource={approval.tool_source}
                   severity={approval.severity}
                   findingsCount={approval.findings_count}
                   findingsSummary={approval.findings_summary}
                   toolParams={approval.tool_params}
+                  reasoning={approval.reasoning}
                   createdAt={approval.created_at}
                   timeoutSeconds={approval.timeout_seconds}
                   sessionId={approval.session_id}
                   rootSessionId={approval.root_session_id}
-                  onApprove={() =>
+                  isGeneralized={approval.is_generalized}
+                  exactTarget={approval.exact_target}
+                  similarTarget={approval.similar_target}
+                  onApprove={(_reqId, scope) =>
                     handleApproveRequest(
                       approval.request_id,
                       approval.root_session_id,
+                      scope,
                     )
                   }
                   onDeny={() =>
@@ -456,275 +735,486 @@ export default function InboxPage() {
 
   return (
     <div className={styles.inboxPage}>
-      <PageHeader items={[{ title: t("inbox.title") }]} extra={null} />
+      <PageHeader
+        items={[{ title: t("inbox.title") }]}
+        extra={
+          <Badge dot={pendingCount > 0} offset={[-4, 4]}>
+            <Button
+              icon={<SafetyOutlined size="1em" />}
+              className={`${styles.mailAclButton} ${
+                mailAclNewArrival && wobbleEnabled ? styles.mailAclShake : ""
+              }`}
+              onMouseEnter={markMailAclSeen}
+              onClick={() => {
+                markMailAclSeen();
+                setMailAclDrawerOpen(true);
+              }}
+            >
+              {t("inbox.mailAccessControl")}
+            </Button>
+          </Badge>
+        }
+      />
 
       <div className={styles.pageContent}>
+        <MailProcessingPauses />
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as TabKey)}
           items={tabItems}
           className={styles.inboxTabs}
+          tabBarExtraContent={
+            <Tooltip
+              title={t(
+                wobbleEnabled ? "inbox.wobbleDisable" : "inbox.wobbleEnable",
+              )}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<BellRing size={16} />}
+                onClick={toggleWobble}
+                className={`${styles.wobbleToggle} ${
+                  wobbleEnabled ? styles.wobbleToggleActive : ""
+                }`}
+              />
+            </Tooltip>
+          }
         />
       </div>
       <Modal
         open={detailOpen}
+        className={styles.messageDetailModal}
+        styles={{ content: { padding: "20px 24px" } }}
         onCancel={closeDetail}
         footer={null}
         width={820}
-        title={getDetailModalTitle(selectedMessage, t)}
+        title={
+          <div className={styles.messageDetailTitle}>
+            <span>
+              {communityDetail
+                ? selectedMessage?.title
+                : getDetailModalTitle(selectedMessage, t)}
+            </span>
+            {selectedMessage && (
+              <ViewCronSessionButton
+                key={selectedMessage.id}
+                item={selectedMessage}
+                onNavigate={closeDetail}
+              />
+            )}
+          </div>
+        }
       >
         {selectedMessage ? (
           <div className={styles.messageDetail}>
-            <Descriptions
-              size="small"
-              column={2}
-              bordered
-              className={styles.messageDetailMeta}
-            >
-              <Descriptions.Item label={t("inbox.detailStatus")}>
-                <Tag
-                  color={
-                    selectedMessage.metadata?.status === "error"
-                      ? "error"
-                      : "success"
-                  }
+            {communityDetail ? (
+              <>
+                <Descriptions
+                  size="small"
+                  column={2}
+                  bordered
+                  className={styles.messageDetailMeta}
                 >
-                  {selectedMessage.metadata?.status || "success"}
-                </Tag>
-              </Descriptions.Item>
-              <Descriptions.Item label={t("inbox.detailAgent")}>
-                {(() => {
-                  const agentId =
-                    selectedMessage.metadata?.agentId || DEFAULT_AGENT_ID;
-                  return (
-                    agentDisplayNameById.get(agentId) ||
-                    (agentId === DEFAULT_AGENT_ID
-                      ? t("agent.defaultDisplayName")
-                      : agentId)
-                  );
-                })()}
-              </Descriptions.Item>
-              <Descriptions.Item label={t("inbox.detailReceivedAt")}>
-                {selectedMessage.createdAt.toLocaleString()}
-              </Descriptions.Item>
-              <Descriptions.Item label={t("inbox.detailTaskId")}>
-                {selectedMessage.id || "-"}
-              </Descriptions.Item>
-            </Descriptions>
-
-            <div className={styles.messageDetailBlock}>
-              <div className={styles.messageDetailLabel}>
-                {t("inbox.detailExecutionTrace")}
-              </div>
-              {traceLoading ? (
-                <div className={styles.traceLoading}>
-                  <Spin size="small" />
-                </div>
-              ) : traceEvents.length > 0 ? (
-                <div
-                  ref={traceContainerRef as React.RefObject<HTMLDivElement>}
-                  className={styles.traceContainer}
-                  onScroll={(event) => {
-                    handleTraceScroll(event.currentTarget.scrollTop);
-                  }}
+                  <Descriptions.Item label={t("inbox.filterBySourceType")}>
+                    {t("communityFeedback.community")}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("inbox.from")}>
+                    {selectedMessage.sender.username}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("communityInbox.eventType")}>
+                    {t(communityDetail.eventLabelKey)}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("communityInbox.occurredAt")}>
+                    {selectedMessage.createdAt.toLocaleString()}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("inbox.detailReceivedAt")}>
+                    {communityDetail.receivedAt.toLocaleString()}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("communityInbox.resource")}>
+                    <CommunityRelatedResources
+                      key={selectedMessage.id}
+                      detail={communityDetail}
+                    />
+                  </Descriptions.Item>
+                </Descriptions>
+                {renderMarkdownText(
+                  selectedMessage.content,
+                  styles.traceMarkdownBlock,
+                )}
+                {communityDetail.discussionUrl ? (
+                  <Button
+                    type="primary"
+                    onClick={() =>
+                      openExternalLink(communityDetail.discussionUrl!)
+                    }
+                  >
+                    {t("communityInbox.viewDiscussion")}
+                  </Button>
+                ) : (
+                  <Alert
+                    type="warning"
+                    message={t("communityInbox.discussionUnavailable")}
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                <Descriptions
+                  size="small"
+                  column={2}
+                  bordered
+                  className={styles.messageDetailMeta}
                 >
-                  <div className={styles.traceTimeline}>
-                    {traceEvents.map((item, index) => {
-                      const {
-                        eventRecord,
-                        eventType,
-                        traceText,
-                        collapsible,
-                        collapseTitle,
-                      } = item;
-                      const kind = eventType;
-                      const foldIcon = kind
-                        .toLowerCase()
-                        .includes("thinking") ? (
-                        <BulbOutlined />
-                      ) : kind.toLowerCase().includes("tool") ? (
-                        <ToolOutlined />
-                      ) : null;
-                      const collapseKey = `trace-${item.at}-${index}`;
-                      const isPanelActive = !!expandedTraceMap[collapseKey];
+                  <Descriptions.Item label={t("inbox.detailStatus")}>
+                    <Tag
+                      color={
+                        selectedMessage.metadata?.status === "error"
+                          ? "error"
+                          : "success"
+                      }
+                    >
+                      {selectedMessage.metadata?.status || "success"}
+                    </Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("inbox.detailAgent")}>
+                    {(() => {
+                      const agentId =
+                        selectedMessage.metadata?.agentId || DEFAULT_AGENT_ID;
                       return (
-                        <div
-                          key={`${item.at}-${index}`}
-                          className={styles.traceEntry}
-                        >
-                          {eventRecord.role === "user" && traceText ? (
-                            <div className={styles.traceUserRow}>
-                              <div className={styles.traceUserMessage}>
-                                {traceText}
-                              </div>
-                            </div>
-                          ) : kind === "push_preview" && traceText ? (
-                            renderMarkdownText(
-                              traceText,
-                              `${styles.traceAssistantMessage} ${styles.traceStandaloneAligned}`,
-                            )
-                          ) : collapsible ? (
-                            <Collapse
-                              bordered={false}
-                              ghost
-                              activeKey={isPanelActive ? [collapseKey] : []}
-                              onChange={(keys) => {
-                                const nextActive = Array.isArray(keys)
-                                  ? keys.length > 0
-                                  : Boolean(keys);
-                                toggleTracePanel(collapseKey, nextActive);
-                              }}
-                              className={`${styles.traceCollapse} ${
-                                isPanelActive ? styles.traceCollapseActive : ""
-                              }`}
-                              expandIcon={() => null}
-                              items={[
-                                {
-                                  key: collapseKey,
-                                  label: (
-                                    <div className={styles.traceFoldHeader}>
-                                      {foldIcon ? (
-                                        <span className={styles.traceFoldIcon}>
-                                          {foldIcon}
-                                        </span>
-                                      ) : null}
-                                      <span className={styles.traceFoldTitle}>
-                                        {collapseTitle}
-                                      </span>
-                                      <span
-                                        className={`${
-                                          styles.traceInlineChevron
-                                        } ${
-                                          isPanelActive
-                                            ? styles.traceInlineChevronActive
-                                            : ""
-                                        }`}
-                                      >
-                                        <DownOutlined />
-                                      </span>
-                                    </div>
-                                  ),
-                                  children:
-                                    item.renderKind === "tool_pair" ? (
-                                      <div className={styles.toolDetailWrap}>
-                                        {item.toolInput ? (
-                                          <div className={styles.toolSection}>
-                                            <div
-                                              className={styles.traceCodeHeader}
-                                            >
-                                              <div
-                                                className={
-                                                  styles.traceCodeTitle
-                                                }
-                                              >
-                                                Input
-                                              </div>
-                                              <button
-                                                type="button"
-                                                className={
-                                                  styles.traceCodeCopyBtn
-                                                }
-                                                onClick={() =>
-                                                  void copyTraceBlock(
-                                                    formatToolBlockContent(
-                                                      formatToolInput(
-                                                        item.toolInput || "",
-                                                      ),
-                                                    ),
-                                                  )
-                                                }
-                                                title={t("common.copy")}
-                                              >
-                                                <CopyOutlined />
-                                              </button>
-                                            </div>
-                                            <pre
-                                              className={styles.toolCodeBlock}
-                                            >
-                                              {formatToolBlockContent(
-                                                formatToolInput(item.toolInput),
-                                              )}
-                                            </pre>
-                                          </div>
-                                        ) : null}
-                                        {item.toolOutput ? (
-                                          <div className={styles.toolSection}>
-                                            <div
-                                              className={styles.traceCodeHeader}
-                                            >
-                                              <div
-                                                className={
-                                                  styles.traceCodeTitle
-                                                }
-                                              >
-                                                Output
-                                              </div>
-                                              <button
-                                                type="button"
-                                                className={
-                                                  styles.traceCodeCopyBtn
-                                                }
-                                                onClick={() =>
-                                                  void copyTraceBlock(
-                                                    formatToolBlockContent(
-                                                      item.toolOutput || "",
-                                                    ),
-                                                  )
-                                                }
-                                                title={t("common.copy")}
-                                              >
-                                                <CopyOutlined />
-                                              </button>
-                                            </div>
-                                            <pre
-                                              className={styles.toolCodeBlock}
-                                            >
-                                              {formatToolBlockContent(
-                                                item.toolOutput,
-                                              )}
-                                            </pre>
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    ) : traceText ? (
-                                      renderMarkdownText(
-                                        traceText,
-                                        styles.traceMarkdownBlock,
-                                      )
-                                    ) : (
-                                      <pre className={styles.traceJsonBlock}>
-                                        {JSON.stringify(eventRecord, null, 2)}
-                                      </pre>
-                                    ),
-                                },
-                              ]}
-                            />
-                          ) : traceText ? (
-                            renderMarkdownText(
-                              traceText,
-                              `${styles.traceMarkdownBlock} ${styles.traceStandaloneAligned}`,
-                            )
-                          ) : (
-                            <pre
-                              className={`${styles.traceJsonBlock} ${styles.traceStandaloneAligned}`}
-                            >
-                              {JSON.stringify(eventRecord, null, 2)}
-                            </pre>
-                          )}
-                        </div>
+                        agentDisplayNameById.get(agentId) ||
+                        (agentId === DEFAULT_AGENT_ID
+                          ? t("agent.defaultDisplayName")
+                          : agentId)
                       );
-                    })}
+                    })()}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("inbox.detailReceivedAt")}>
+                    {selectedMessage.createdAt.toLocaleString()}
+                  </Descriptions.Item>
+                  <Descriptions.Item label={t("inbox.detailTaskId")}>
+                    {selectedMessage.id || "-"}
+                  </Descriptions.Item>
+                  {mailDetail ? (
+                    <Descriptions.Item label={t("inbox.mailDetailSender")}>
+                      {mailDetail.sender || "-"}
+                    </Descriptions.Item>
+                  ) : null}
+                  {mailDetail ? (
+                    <Descriptions.Item label={t("inbox.mailDetailDate")}>
+                      {mailDetail.date || "-"}
+                    </Descriptions.Item>
+                  ) : null}
+                  {mailDetail ? (
+                    <Descriptions.Item
+                      label={t("inbox.mailDetailSubject")}
+                      span={2}
+                    >
+                      {mailDetail.subject || "-"}
+                    </Descriptions.Item>
+                  ) : null}
+                </Descriptions>
+
+                {mailDetail ? (
+                  <div className={styles.messageDetailBlock}>
+                    <div className={styles.messageDetailLabel}>
+                      {t(
+                        mailDetail.isAutoHandled
+                          ? "inbox.mailDetailProcess"
+                          : "inbox.mailDetailBody",
+                      )}
+                    </div>
+                    {/* Plain-text rendering only (XSS-safe); preserves newlines */}
+                    {mailDetail.isAutoHandled && mailDetail.trace.length > 0 ? (
+                      <ol className={styles.mailTraceList}>
+                        {mailDetail.trace.map((entry, index) => (
+                          <li
+                            key={`mail-trace-${index}`}
+                            className={styles.mailTraceItem}
+                          >
+                            {entry.type === "tool_call" ? (
+                              <span className={styles.mailTraceTool}>
+                                <ToolOutlined size="1em" />{" "}
+                                {entry.name || "tool"}
+                              </span>
+                            ) : null}
+                            <pre className={styles.mailTraceSummary}>
+                              {entry.summary}
+                            </pre>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <pre className={styles.mailBodyBlock}>
+                        {mailDetail.isAutoHandled
+                          ? selectedMessage.content || "-"
+                          : mailDetail.bodyPreview ||
+                            selectedMessage.content ||
+                            "-"}
+                      </pre>
+                    )}
                   </div>
-                </div>
-              ) : (
-                <div className={styles.traceEmpty}>
-                  {t("inbox.detailTraceEmpty")}
-                </div>
-              )}
-            </div>
+                ) : (
+                  <div className={styles.messageDetailBlock}>
+                    <div className={styles.messageDetailLabel}>
+                      {t("inbox.detailExecutionTrace")}
+                    </div>
+                    {traceLoading ? (
+                      <div className={styles.traceLoading}>
+                        <Spin size="small" />
+                      </div>
+                    ) : traceEvents.length > 0 ? (
+                      <div
+                        ref={
+                          traceContainerRef as React.RefObject<HTMLDivElement>
+                        }
+                        className={styles.traceContainer}
+                        onScroll={(event) => {
+                          handleTraceScroll(event.currentTarget.scrollTop);
+                        }}
+                      >
+                        <div className={styles.traceTimeline}>
+                          {traceEvents.map((item, index) => {
+                            const {
+                              eventRecord,
+                              eventType,
+                              traceText,
+                              collapsible,
+                              collapseTitle,
+                            } = item;
+                            const kind = eventType;
+                            const foldIcon = kind
+                              .toLowerCase()
+                              .includes("thinking") ? (
+                              <BulbOutlined size="1em" />
+                            ) : kind.toLowerCase().includes("tool") ? (
+                              <ToolOutlined size="1em" />
+                            ) : null;
+                            const collapseKey = `trace-${item.at}-${index}`;
+                            const isPanelActive =
+                              !!expandedTraceMap[collapseKey];
+                            return (
+                              <div
+                                key={`${item.at}-${index}`}
+                                className={styles.traceEntry}
+                              >
+                                {eventRecord.role === "user" && traceText ? (
+                                  <div className={styles.traceUserRow}>
+                                    <div className={styles.traceUserMessage}>
+                                      {traceText}
+                                    </div>
+                                  </div>
+                                ) : kind === "push_preview" && traceText ? (
+                                  renderMarkdownText(
+                                    traceText,
+                                    `${styles.traceAssistantMessage} ${styles.traceStandaloneAligned}`,
+                                  )
+                                ) : collapsible ? (
+                                  <Collapse
+                                    bordered={false}
+                                    ghost
+                                    activeKey={
+                                      isPanelActive ? [collapseKey] : []
+                                    }
+                                    onChange={(keys) => {
+                                      const nextActive = Array.isArray(keys)
+                                        ? keys.length > 0
+                                        : Boolean(keys);
+                                      toggleTracePanel(collapseKey, nextActive);
+                                    }}
+                                    className={`${styles.traceCollapse} ${
+                                      isPanelActive
+                                        ? styles.traceCollapseActive
+                                        : ""
+                                    }`}
+                                    expandIcon={() => null}
+                                    items={[
+                                      {
+                                        key: collapseKey,
+                                        label: (
+                                          <div
+                                            className={styles.traceFoldHeader}
+                                          >
+                                            {foldIcon ? (
+                                              <span
+                                                className={styles.traceFoldIcon}
+                                              >
+                                                {foldIcon}
+                                              </span>
+                                            ) : null}
+                                            <span
+                                              className={styles.traceFoldTitle}
+                                            >
+                                              {collapseTitle}
+                                            </span>
+                                            <span
+                                              className={`${
+                                                styles.traceInlineChevron
+                                              } ${
+                                                isPanelActive
+                                                  ? styles.traceInlineChevronActive
+                                                  : ""
+                                              }`}
+                                            >
+                                              <DownOutlined size="1em" />
+                                            </span>
+                                          </div>
+                                        ),
+                                        children:
+                                          item.renderKind === "tool_pair" ? (
+                                            <div
+                                              className={styles.toolDetailWrap}
+                                            >
+                                              {item.toolInput ? (
+                                                <div
+                                                  className={styles.toolSection}
+                                                >
+                                                  <div
+                                                    className={
+                                                      styles.traceCodeHeader
+                                                    }
+                                                  >
+                                                    <div
+                                                      className={
+                                                        styles.traceCodeTitle
+                                                      }
+                                                    >
+                                                      Input
+                                                    </div>
+                                                    <button
+                                                      type="button"
+                                                      className={
+                                                        styles.traceCodeCopyBtn
+                                                      }
+                                                      onClick={() =>
+                                                        void copyTraceBlock(
+                                                          formatToolBlockContent(
+                                                            formatToolInput(
+                                                              item.toolInput ||
+                                                                "",
+                                                            ),
+                                                          ),
+                                                        )
+                                                      }
+                                                      title={t("common.copy")}
+                                                    >
+                                                      <CopyOutlined size="1em" />
+                                                    </button>
+                                                  </div>
+                                                  <pre
+                                                    className={
+                                                      styles.toolCodeBlock
+                                                    }
+                                                  >
+                                                    {formatToolBlockContent(
+                                                      formatToolInput(
+                                                        item.toolInput,
+                                                      ),
+                                                    )}
+                                                  </pre>
+                                                </div>
+                                              ) : null}
+                                              {item.toolOutput ? (
+                                                <div
+                                                  className={styles.toolSection}
+                                                >
+                                                  <div
+                                                    className={
+                                                      styles.traceCodeHeader
+                                                    }
+                                                  >
+                                                    <div
+                                                      className={
+                                                        styles.traceCodeTitle
+                                                      }
+                                                    >
+                                                      Output
+                                                    </div>
+                                                    <button
+                                                      type="button"
+                                                      className={
+                                                        styles.traceCodeCopyBtn
+                                                      }
+                                                      onClick={() =>
+                                                        void copyTraceBlock(
+                                                          formatToolBlockContent(
+                                                            item.toolOutput ||
+                                                              "",
+                                                          ),
+                                                        )
+                                                      }
+                                                      title={t("common.copy")}
+                                                    >
+                                                      <CopyOutlined size="1em" />
+                                                    </button>
+                                                  </div>
+                                                  <pre
+                                                    className={
+                                                      styles.toolCodeBlock
+                                                    }
+                                                  >
+                                                    {formatToolBlockContent(
+                                                      item.toolOutput,
+                                                    )}
+                                                  </pre>
+                                                </div>
+                                              ) : null}
+                                            </div>
+                                          ) : traceText ? (
+                                            renderMarkdownText(
+                                              traceText,
+                                              styles.traceMarkdownBlock,
+                                            )
+                                          ) : (
+                                            <pre
+                                              className={styles.traceJsonBlock}
+                                            >
+                                              {JSON.stringify(
+                                                eventRecord,
+                                                null,
+                                                2,
+                                              )}
+                                            </pre>
+                                          ),
+                                      },
+                                    ]}
+                                  />
+                                ) : traceText ? (
+                                  renderMarkdownText(
+                                    traceText,
+                                    `${styles.traceMarkdownBlock} ${styles.traceStandaloneAligned}`,
+                                  )
+                                ) : (
+                                  <pre
+                                    className={`${styles.traceJsonBlock} ${styles.traceStandaloneAligned}`}
+                                  >
+                                    {JSON.stringify(eventRecord, null, 2)}
+                                  </pre>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={styles.traceEmpty}>
+                        {t("inbox.detailTraceEmpty")}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         ) : null}
       </Modal>
+      <MailAccessControlDrawer
+        open={mailAclDrawerOpen}
+        onClose={() => {
+          setMailAclDrawerOpen(false);
+          void refreshPendingCount();
+        }}
+      />
     </div>
   );
 }

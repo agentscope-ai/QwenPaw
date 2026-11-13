@@ -17,6 +17,7 @@ import pytest
 
 import qwenpaw.local_models.llamacpp as downloader_module
 from qwenpaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
+from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.local_models.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
@@ -43,6 +44,99 @@ class _FakeServerProcess:
     def kill(self) -> None:
         self.killed = True
         self.returncode = -9
+
+
+@pytest.mark.asyncio
+async def test_cannot_start_model_while_runtime_is_being_replaced(
+    monkeypatch,
+    tmp_path,
+):
+    backend = _build_downloader(monkeypatch)
+    monkeypatch.setattr(backend, "_is_download_active", lambda: True)
+    with pytest.raises(RuntimeError, match="engine update"):
+        await backend.setup_server(tmp_path, "AgentScope/Piccolo-4B-Q8_0")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", ["agentscope-ai", "AgentScope"])
+@pytest.mark.parametrize("size", ["4B", "9B", "27B"])
+@pytest.mark.parametrize("suffix", ["", "-BF16", "-Q8_0", "-Q4_K_M"])
+@pytest.mark.parametrize("requested,expected", [(4096, 4096), (65536, 8192)])
+async def test_piccolo_requires_whole_prompt_without_cache(
+    owner,
+    size,
+    suffix,
+    requested,
+    expected,
+    monkeypatch,
+    tmp_path,
+):
+    backend = _build_downloader(monkeypatch)
+    calls = []
+
+    async def start(command, **_kwargs):
+        calls.append(command)
+        return _FakeServerProcess()
+
+    monkeypatch.setattr(downloader_module, "start_command_async", start)
+    await backend._create_server_process(
+        tmp_path / "model.gguf",
+        None,
+        f"{owner}/Piccolo-{size}{suffix}",
+        9001,
+        requested,
+        {},
+    )
+    command = calls[0]
+    for option in ("--ctx-size", "--batch-size", "--ubatch-size"):
+        assert command[command.index(option) + 1] == str(expected)
+    assert command[command.index("--parallel") + 1] == "1"
+    assert "--no-cache-prompt" in command
+    assert "--no-context-shift" in command
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("modalities", [["decisions"], ["text"], []])
+@pytest.mark.parametrize("suffix", ["-Q8_0", "-BF16"])
+async def test_piccolo_runtime_capability_gate(
+    modalities,
+    suffix,
+    monkeypatch,
+):
+    backend = _build_downloader(monkeypatch)
+    backend._server_model_name = f"agentscope-ai/Piccolo-4B{suffix}"
+    original_client = httpx.AsyncClient
+
+    def handler(request):
+        assert request.url.path == "/v1/models"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": backend._server_model_name,
+                        "architecture": {"output_modalities": modalities},
+                    },
+                ],
+            },
+        )
+
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda **kwargs: original_client(
+            transport=httpx.MockTransport(handler),
+            **kwargs,
+        ),
+    )
+    if modalities == ["decisions"]:
+        await backend._verify_decision_runtime(9001)
+    else:
+        with pytest.raises(
+            RuntimeError,
+            match="bidirectional prompt attention",
+        ):
+            await backend._verify_decision_runtime(9001)
 
 
 class _FakeHttpxResponse:
@@ -757,10 +851,10 @@ def test_finalize_download_result_returns_failed_result_on_fs_error(
     (staging_dir / "bin").mkdir()
     (staging_dir / "bin" / "server").write_text("tar-binary")
 
-    def _raise_move_error(src: str, dst: str) -> None:
+    def _raise_move_error(src: Path, dst: Path) -> None:
         raise OSError("Permission denied")
 
-    monkeypatch.setattr(downloader_module.shutil, "move", _raise_move_error)
+    monkeypatch.setattr(Path, "rename", _raise_move_error)
 
     result, downloaded_bytes = downloader._finalize_download_result(
         DownloadTaskResult(
@@ -876,18 +970,14 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     await asyncio.sleep(0)
 
     assert setup_result.port == downloader.get_server_status()["port"]
-    assert setup_result.model_info.model_dump() == {
-        "id": "demo-model",
-        "is_free": False,
-        "name": "demo-model",
-        "supports_multimodal": False,
-        "supports_image": False,
-        "supports_video": False,
-        "probe_source": "probed",
-        "max_input_length": 131072,
-        "max_tokens": 8192,
-        "generate_kwargs": {},
-    }
+    assert setup_result.model_info == ModelInfo(
+        id=f"demo-model",
+        name=f"demo-model",
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+        probe_source=f"probed",
+    )
     assert downloader.get_server_status() == {
         "running": True,
         "port": setup_result.port,
@@ -1026,18 +1116,14 @@ async def test_setup_server_passes_mmproj_argument(
     setup_result = await downloader.setup_server(model_dir, "vision-model")
     await asyncio.sleep(0)
 
-    assert setup_result.model_info.model_dump() == {
-        "id": "vision-model",
-        "is_free": False,
-        "name": "vision-model",
-        "supports_multimodal": True,
-        "supports_image": True,
-        "supports_video": False,
-        "probe_source": "probed",
-        "max_input_length": 131072,
-        "max_tokens": 8192,
-        "generate_kwargs": {},
-    }
+    assert setup_result.model_info == ModelInfo(
+        id=f"vision-model",
+        name=f"vision-model",
+        supports_multimodal=True,
+        supports_image=True,
+        supports_video=False,
+        probe_source=f"probed",
+    )
 
     assert start_calls == [
         (

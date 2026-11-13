@@ -4,78 +4,21 @@ import { useTranslation } from "react-i18next";
 import { loadSiteConfig, type SiteConfig, defaultConfig } from "@/config";
 import { SiteConfigProvider } from "@/config-context";
 import { SiteLayout } from "@/components/SiteLayout";
+import { GA_ID, loadGoogleAnalytics } from "@/lib/analytics";
 import "@/index.css";
-
-const GA_ID = "G-BEX1XSB9KE";
 
 // Lazy load page components for better performance
 const Home = lazy(() => import("@/pages/Home"));
 const Docs = lazy(() => import("@/pages/Docs"));
+const Blog = lazy(() => import("@/pages/Blog"));
+const BlogPost = lazy(() => import("@/pages/Blog/Post"));
 const ReleaseNotes = lazy(() => import("@/pages/ReleaseNotes"));
 const Downloads = lazy(() => import("@/pages/Downloads"));
-
-declare global {
-  interface Window {
-    dataLayer: unknown[];
-    gtag?: (...args: unknown[]) => void;
-  }
-}
-
-/**
- * Load Google Analytics script asynchronously
- * @param id - Google Analytics measurement ID
- */
-function loadGoogleAnalytics(id: string) {
-  // Skip if already loaded or in development
-  if (window.gtag || import.meta.env.DEV) {
-    if (import.meta.env.DEV) {
-      console.log("[GA] Skipped in development environment");
-    }
-    return;
-  }
-
-  console.log("[GA] Starting to load Google Analytics...");
-
-  // Initialize dataLayer
-  window.dataLayer = window.dataLayer || [];
-  function gtag(...args: unknown[]) {
-    window.dataLayer.push(args);
-  }
-  window.gtag = gtag;
-
-  // Configure GA
-  gtag("js", new Date());
-  gtag("config", id);
-
-  // Load GA script with timeout protection
-  const script = document.createElement("script");
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
-  script.async = true;
-
-  let isLoaded = false;
-  const timeoutId = setTimeout(() => {
-    if (!isLoaded) {
-      console.warn("[GA] Load timeout - removing script");
-      script.remove();
-      delete window.gtag;
-    }
-  }, 6000);
-
-  script.onload = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    console.log("[GA] Loaded successfully");
-  };
-
-  script.onerror = () => {
-    isLoaded = true;
-    clearTimeout(timeoutId);
-    console.warn("[GA] Failed to load (may be blocked)");
-    delete window.gtag;
-  };
-
-  document.head.appendChild(script);
-}
+const Evaluation = lazy(() => import("@/pages/Evaluation"));
+const EvaluationBenchmarks = lazy(
+  () => import("@/pages/Evaluation/Benchmarks"),
+);
+const UsagePolicy = lazy(() => import("@/pages/UsagePolicy"));
 
 /**
  * Initial loading fallback component
@@ -137,10 +80,19 @@ export default function App() {
         <Route element={<SiteLayout showFooter />}>
           <Route path="/" element={<Home />} />
           <Route path="/downloads" element={<Downloads />} />
+          <Route path="/usage-policy" element={<UsagePolicy />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogPost />} />
         </Route>
         <Route element={<SiteLayout showFooter={false} />}>
           <Route path="/docs" element={<Navigate to="/docs/intro" replace />} />
           <Route path="/docs/:slug" element={<Docs />} />
+          <Route path="/evaluation" element={<Evaluation />} />
+          <Route
+            path="/evaluation/benchmarks"
+            element={<EvaluationBenchmarks />}
+          />
+          <Route path="/evaluation/runs/:id" element={<Evaluation />} />
           <Route path="/release-notes" element={<ReleaseNotes />} />
         </Route>
       </Routes>

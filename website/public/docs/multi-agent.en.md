@@ -584,7 +584,6 @@ qwenpaw cron create \
 **Commands NOT Supporting `--agent-id`** (global operations):
 
 - `qwenpaw init` - initialization
-- `qwenpaw providers` - model providers
 - `qwenpaw models` - model configuration
 - `qwenpaw env` - environment variables
 

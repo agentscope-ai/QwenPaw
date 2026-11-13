@@ -1,6 +1,6 @@
 # Skills
 
-**Skills** 可以来自打包内置能力、本地技能池、Skills Hub 导入，或者你自己
+**Skills** 可以来自打包内置能力、本地技能池、技能市场或 URL 导入，或者你自己
 写入的文件。
 
 管理 Skill 有两种方式：
@@ -56,41 +56,46 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 技能池侧常见功能：
 
 - **广播：** 把技能池中的技能复制到一个或多个工作区。
-- **添加到池子：** 在技能池页面中创建、导入内置、从 URL 导入、上传 ZIP、
-  从工作区上传、或手动放文件。
+- **添加到池子：** 技能池页面提供统一的 **添加技能** 入口（创建技能、通过Zip上传、
+  通过URL上传、浏览市场），此外还可以导入内置技能、从工作区上传、或手动放文件。
 - **编辑 / 改名：** 普通共享 skill 用原名字保存时，会直接修改池中的这条技
-  能。改成新名字保存时，会生成一个改名后的条目。内置技能不能用原名字原地定
-  制覆盖；如果要改 builtin，必须另存为新名字，原 builtin 槽位保持不动。
+  能。改成新名字保存时，会生成一个改名后的条目。修改内置技能的 `SKILL.md`
+  后，该条目会转成自定义技能，之后不会被内置包自动覆盖。
 - **冲突：** 如果保存、导入、上传或广播后会落到一个已经存在的名字上，
   QwenPaw 不会静默覆盖，而是直接返回冲突。界面 / API 会同时给出一个建议的新名
   字，便于你按这个名字重试。
+- **自动同步：** 为技能开启后，技能池中的 `SKILL.md` 变化会触发完整技能目录
+  同步到相关工作区（详见下文「技能自动化」）。
+- **自动更新（仅内置技能）：** 开启后，当前内置技能包版本与技能池不同时，先让
+  技能池副本跟随内置包，再按需自动同步到工作区（详见下文「技能自动化」）。
 
 向池子中添加技能的方式：
 
 1. **导入内置技能**。
    内置 Skill 的 ID 以打包后的技能目录名为准。
 
-   | Skill ID                      | 说明                                                                                               | 来源                                                           |
-   | ----------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-   | **browser_cdp**               | 连接到已运行的 Chrome 或以开启 CDP / 远程调试的方式启动浏览器。仅在用户明确要求 CDP 时使用。       | 自建                                                           |
-   | **browser_visible**           | 以可见模式（headed）启动真实浏览器窗口，适用于演示、调试或需要人工参与的场景。                     | 自建                                                           |
-   | **channel_message**           | 在先定位目标 session / channel 后，主动向会话或频道发送单向消息。                                  | 自建                                                           |
-   | **QA_source_index**           | QwenPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                       | 自建                                                           |
-   | **cron**                      | 定时任务管理。通过 `qwenpaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。           | 自建                                                           |
-   | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                               | 自建                                                           |
-   | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                 | https://github.com/anthropics/skills/tree/main/skills/docx     |
-   | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。 | 自建                                                           |
-   | **guidance**                  | 回答 QwenPaw 安装与配置问题，优先查本地文档。                                                      | 自建                                                           |
-   | **himalaya**                  | 通过 CLI 管理邮件（IMAP/SMTP）。使用 `himalaya` 列出、阅读、搜索、整理邮件。                       | https://github.com/openclaw/openclaw/tree/main/skills/himalaya |
-   | **multi_agent_collaboration** | 当用户明确要求其他 agent 参与，或需要其他 agent 的上下文与能力时，用于协作与双向沟通。             | 自建                                                           |
-   | **news**                      | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。         | 自建                                                           |
-   | **pdf**                       | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。          | https://github.com/anthropics/skills/tree/main/skills/pdf      |
-   | **pptx**                      | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                       | https://github.com/anthropics/skills/tree/main/skills/pptx     |
-   | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                 | https://github.com/anthropics/skills/tree/main/skills/xlsx     |
+   | Skill ID                      | 说明                                                                                                                          | 来源                                                       |
+   | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+   | **browser**                   | 通过 Unified Browser SDK 执行异步 Python，并遵循“感知 → 操作 → 验证”工作流。详见 [浏览器](./browser)。                        | 内置                                                       |
+   | **channel_message**           | 在先定位目标 session / channel 后，主动向会话或频道发送单向消息。                                                             | 自建                                                       |
+   | **QA_source_index**           | QwenPaw 自身源码与文档的快速索引技能，用于把关键词映射到本地源码路径和文档。                                                  | 自建                                                       |
+   | **cron**                      | 定时任务管理。通过 `qwenpaw cron` 或控制台定时任务创建、查询、暂停、恢复、删除定时任务。                                      | 自建                                                       |
+   | **dingtalk_channel**          | 通过可视浏览器辅助完成钉钉频道接入流程，并提示用户完成必要手动步骤。                                                          | 自建                                                       |
+   | **docx**                      | Word 文档（.docx）的创建、阅读、编辑，含目录、页眉页脚、表格、图片、修订与批注等。                                            | https://github.com/anthropics/skills/tree/main/skills/docx |
+   | **file_reader**               | 读取与摘要文本类文件（如 .txt、.md、.json、.csv、.log、.py 等）。PDF 与 Office 由专用 Skill 处理。                            | 自建                                                       |
+   | **guidance**                  | 回答 QwenPaw 安装与配置问题，优先查本地文档。                                                                                 | 自建                                                       |
+   | **mailbox**                   | 通过 qwenpawmail MCP 连接邮箱，收发、搜索、整理邮件，安全自动处理新邮件并学习可复用流程。详见 [邮箱管理与自动化](./mailbox)。 | 自建                                                       |
+   | **multi_agent_collaboration** | 当用户明确要求其他 agent 参与，或需要其他 agent 的上下文与能力时，用于协作与双向沟通。                                        | 自建                                                       |
+   | **news**                      | 从指定新闻站点查询最新新闻，支持政治、财经、社会、国际、科技、体育、娱乐等分类，并做摘要。                                    | 自建                                                       |
+   | **pdf**                       | PDF 相关操作：阅读、提取文字/表格、合并/拆分、旋转、水印、创建、填表、加密/解密、OCR 等。                                     | https://github.com/anthropics/skills/tree/main/skills/pdf  |
+   | **pptx**                      | PPT（.pptx）的创建、阅读、编辑，含模板、版式、备注与批注等。                                                                  | https://github.com/anthropics/skills/tree/main/skills/pptx |
+   | **xlsx**                      | 表格（.xlsx、.xlsm、.csv、.tsv）的读取、编辑、创建与格式整理，支持公式与数据分析。                                            | https://github.com/anthropics/skills/tree/main/skills/xlsx |
 
    在技能池页面里，内置技能可能显示 **最新** / **已过期** 之类状态。
    用 **更新内置技能** 可以补回缺失内置技能或将已过期的内置技能刷新到当前
-   打包版本。
+   打包版本。对于技能池中已有的内置技能，也可以在详情页开启 **自动更新**。
+   自动更新成功后，该版本不再计入更新红点；新增或缺失技能仍需手动导入，已移除
+   技能继续沿用原有的手动检查流程。
 
    内置的 **Cron** 技能提供定时任务管理。通过 [CLI](./cli) 的
    `qwenpaw cron` 或控制台 **控制 → 定时任务** 管理：
@@ -99,19 +104,19 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
    - 查看列表：`qwenpaw cron list`
    - 查看状态：`qwenpaw cron state <job_id>`
 
-2. **直接在技能池页面中创建**。
-   适合一开始就想做成共享 skill，而不是先在某个工作区里创建。
+2. **通过统一的「添加技能」入口添加**。
+   技能池页面右上角的 **添加技能** 下拉包含四种方式：
 
-3. **从 URL 导入到池子**。
-   技能池页面支持从受支持的 Hub / GitHub URL 直接导入。
+   - **创建技能**：适合一开始就想做成共享 skill，而不是先在某个工作区里创建。
+   - **通过Zip上传**：导入已打包好的一个或多个 skill 目录。
+   - **通过URL上传**：从受支持的 Hub / GitHub URL 直接导入。
+   - **浏览市场**：切换到内嵌的技能市场，点击卡片上的 **保存** 即保存到技能池
+     （详见下文「技能市场」）。
 
-4. **上传 ZIP 到池子**。
-   适合已经打包好的一个或多个 skill 目录。
-
-5. **从工作区上传到池子**。
+3. **从工作区上传到池子**。
    在 **工作区 → 技能** 页面点击 **同步到技能池**，可以把某个工作区技能发布到池子。
 
-6. **手动在技能池目录中操作**。
+4. **手动在技能池目录中操作**。
    可以直接往 `$QWENPAW_WORKING_DIR/skill_pool/` 下放目录，但**不推荐**。技能池上的直接文件操作
    更容易被后续同步、重导入或人工误操作影响，尤其是自定义技能，要格外小心。
 
@@ -159,34 +164,24 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 
 ## Workspace 创建
 
-工作区侧推荐按这个顺序理解创建方式：
+[控制台](./console) → **工作区 → 技能** 页面右上角的 **添加技能** 下拉是
+统一入口，通过它添加的 skill 都**默认启用**：
 
-### 1. 从技能池创建
+- **从技能池载入**：勾选要载入的技能并确认。这是使用内置技能和共享技能的
+  首选方式（也可以反过来在 **设置 → 技能池** 对目标 skill 点 **广播**）。
+  同名冲突会报错并给建议的新名字。
+- **创建技能**：填写名称和内容，创建后写入工作区的 `skills/` 目录和
+  `skill.json`。编辑抽屉里的 **AI 优化** 目前是 **Beta**，可能帮你改写内容
+  但不保证可用，保存前请人工检查。
+- **通过Zip上传**：导入已打包好的一个或多个 skill 目录。
+- **通过URL上传**：从受支持的 Hub / GitHub URL 导入，详见下方
+  「通过 URL 导入」。
+- **浏览市场**：切换到内嵌的技能市场，点卡片上的 **保存** 安装到当前工作区，
+  详见下文[技能市场](#技能市场)。
 
-这是使用内置技能和共享技能的首选方式。
+此外，还可以在页面之外手动写文件，或用 `/make-skill` 从当前会话生成，见下。
 
-1. 打开控制台的 **技能池** 页面。
-2. 对目标 skill 点击 **广播**。
-3. 选择目标工作区并确认。
-4. skill 会被复制进工作区，并且**默认启用**。
-
-如果目标工作区已经有同名 skill，广播会报冲突并给建议的新名字。
-
-### 2. 通过界面创建
-
-在 [控制台](./console) → **工作区 → 技能** 中直接填写名称和内容即可创建。
-创建后会写入工作区的 `skills/` 目录和 `skill.json`，并且**默认启用**。
-
-在编辑工作区 skill 的抽屉里，还可以使用 **AI 优化**。这个功能目前只是
-**Beta**。它可能帮你改写或整理 skill 内容，但**不保证**生成结果一定可用，也
-不保证优化后的 skill 一定能工作。保存前请务必人工检查。
-
-### 3. 通过 ZIP 导入
-
-工作区技能页支持 ZIP 导入。这和“向技能池添加技能”类似，只是目标位置变成了当前
-工作区。导入后 skill **默认启用**。
-
-### 4. 通过 URL 导入
+### 通过 URL 导入
 
 工作区技能页支持从以下 URL 来源导入：
 
@@ -203,28 +198,41 @@ CLI 支持相同的基于 URL 的导入方式：
 **指定工作区：** 指定单个智能体工作区时使用 `--agent-id`；不指定时，`install` / `uninstall` 作用于技能池。
 
 ```bash
-qwenpaw skills install <skill_url>
+qwenpaw skills install <skill_url> --pool
 qwenpaw skills install <skill_url> --agent-id <agent_id>
 ```
 
 CLI 也支持从共享技能池或单个工作区卸载技能：
 
 ```bash
-qwenpaw skills uninstall <skill_name>
+qwenpaw skills uninstall <skill_name> --pool
 qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
+```
+
+Workspace 技能可以按精确名称直接启用或禁用，也可以用支持即时文本过滤的复选界面
+批量配置。Pool 是独立的共享作用域，可在支持的命令中用 `--pool` 选择；它没有
+启用/禁用状态，因此 `config`、`enable`、`disable` 只支持 workspace：
+
+```bash
+qwenpaw skills enable <skill_name>... --agent-id <agent_id>
+qwenpaw skills disable <skill_name>... --agent-id <agent_id>
+qwenpaw skills list --status enabled --agent-id <agent_id>
+qwenpaw skills list --pool
+qwenpaw skills info <skill_name> --pool
 ```
 
 #### 步骤
 
-1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **从 Skills Hub 导入技能**。
+1. 打开 [控制台](./console) → **工作区 → 技能**，点击 **添加技能 → 通过URL上传**。
 
    ![import](https://img.alicdn.com/imgextra/i2/O1CN01iaEhjy1hOnXfVjZaK_!!6000000004268-2-tps-3822-2070.png)
 
-2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。
+2. 在弹窗中粘贴 Skill URL（获取方式见下方 **URL 获取示例**）。弹窗内会列出
+   受支持的来源及各自的示例 URL，点击示例可直接填入输入框。
 
    ![url](https://img.alicdn.com/imgextra/i2/O1CN01l47mhN1aKwu48KLry_!!6000000003312-2-tps-3822-2070.png)
 
-3. 点击**从 Skills Hub 导入技能**，等待导入完成。
+3. 点击**确认**，等待导入完成。
 
    ![click](https://img.alicdn.com/imgextra/i4/O1CN01amjZHZ1lwT7eVqWx9_!!6000000004883-2-tps-3822-2070.png)
 
@@ -260,7 +268,7 @@ qwenpaw skills uninstall <skill_name> --agent-id <agent_id>
   获取方式可参考 GitHub 官方文档：
   [管理个人访问令牌（PAT）](https://docs.github.com/zh/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)。
 
-### 5. 手动创建
+### 手动创建
 
 也可以直接在 `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/` 下创建 skill 文件，包括让
 QwenPaw 帮你写这些文件。
@@ -269,9 +277,7 @@ QwenPaw 帮你写这些文件。
 确认文件确实写进了正确的工作区目录，并检查 skill 内容质量后再使用。
 
 在 `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/` 下新建目录，并放入 `SKILL.md`。
-`SKILL.md` 必须包含带 `name` 和 `description` 的 YAML front matter。若 Skill
-依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；QwenPaw 会将其透出为
-`require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
+`SKILL.md` 必须包含带 `name` 和 `description` 的 YAML front matter。若 Skill 依赖命令行程序、环境变量或 MCP 服务，可在 `metadata.requires`（或 `metadata.qwenpaw.requires`）中声明。
 
 #### SKILL.md 示例
 
@@ -280,9 +286,11 @@ QwenPaw 帮你写这些文件。
 name: my_skill
 description: 我的自定义能力说明
 metadata:
+  version: "1.0"
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
+    mcp: [my-mcp-server]
 ---
 
 # 使用说明
@@ -292,36 +300,125 @@ metadata:
 
 `name` 和 `description` 为**必填**字段，`metadata` 为可选。
 
+版本可选，会显示在工作区和技能池的卡片及列表中。QwenPaw 依次读取 `version`、`metadata.version`、`metadata.builtin_skill_version`，保留声明文本，不强制 SemVer，也不会自动修改版本。作者在 `SKILL.md` 中手动维护；未声明时不显示版本标签。
+
+`requires` 声明的是硬性前提。上面的 `my_skill` 需要 `ffmpeg` 可执行程序、`MY_SKILL_API_KEY` 环境变量，以及目标工作区中已启用、注册名为 `my-mcp-server` 的 MCP 服务。MCP 名称应填写注册名，而不是软件包名或可执行程序名。
+
+YAML 列表只声明名称，不填写实际值：`env: [MY_SKILL_API_KEY]` 合法，`env: MY_SKILL_API_KEY` 不符合依赖声明格式。要提供实际值，在控制台打开已安装 Skill 的配置，填写 JSON 对象：
+
+```json
+{
+  "MY_SKILL_API_KEY": "replace-with-your-api-key"
+}
+```
+
+依赖字段必须是非空名称组成的列表。未知依赖类型会被忽略，不解析技能间依赖或版本约束。
+
+加载时，若已启用 Skill 的受支持依赖字段格式错误，或依赖不满足，会记录 ERROR 日志并跳过该 Skill；其他 Skill 和 agent 继续运行。启用状态及其他有效元数据字段保持不变。修复声明或补齐依赖后，下次加载即可恢复，无需重新启用。没有声明依赖的 Skill 正常加载。
+
+环境变量检查会考虑该 Skill 的工作区 config，并遵循实际注入的优先级：已有进程环境变量（包括空字符串）不会被覆盖。命令行程序按有效 PATH 检查。MCP 只检查目标工作区的 MCP 配置有效且已启用，不检查连接或工具权限。被跳过的 Skill 也不会出现在 `/skills` 列表中，不能通过 preload 或显式 skill 命令加载。
+
+如果 Skill 安装在默认工作区，可执行：
+
+```bash
+qwenpaw skills test my_skill --agent-id default
+```
+
+检查其他工作区时，将 `default` 替换为目标 agent ID。缺少 API Key、找不到 `ffmpeg`，或 MCP 未配置/未启用时，命令返回非零退出码。例如，缺少密钥时会提示 `Environment variable not set: MY_SKILL_API_KEY`。本地目录和技能池的检查方式见 [CLI](./cli)。
+
 手动放置的 Skill 会在下次清单调和时被检测到，并以**禁用**状态写入 `skill.json`。
 在控制台或 CLI 中启用即可。
 
-### 6. 通过 /make-skill 从当前会话创建 (Beta)
+### 通过 /make-skill 从当前会话创建
 
-刚在对话里跑完一个工作流（试过工具、撞过错、得出可行路径）, 用这个
-命令把它存成 skill：
+当一段对话已经形成了可复用的指引、模板或可行流程时，使用
+`/make-skill <focus>` 将其保存为 Skill。`focus` 应足够具体，能说明要从
+当前对话中保留什么：
 
 ```
-/make-skill 烹饪
+/make-skill 每周销售报告流程
 ```
 
-会看到一张计划卡，展示建议的 skill 名和步骤大纲。用自然语言确认、
-修改或取消。确认后，Agent 基于会话内容写出 skill 并保存到当前
-workspace，**默认启用**。
+Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤、文件和几个创建选项。
+你可以用自然语言批准、修改或取消。`<focus>` 用于告诉 Agent 当前对话中哪些内容
+最重要；Agent 会建议合适的名称和内容。
 
-`<focus>` 会作为 skill 名，内部空格折叠为 `-`（例如
-`view image debug` → `view-image-debug`），其它字符（中文、大小写、
-数字）保留原样。
+对于工作流，计划还会显示是否启用 **Batch**。Batch 可以一次运行一组已经确定的
+工具操作，适合步骤固定、需要反复执行的工作。如果 Agent 需要根据每一步的结果
+灵活决定下一步，则应保持关闭。不确定时，保留 Agent 的建议即可。
+
+计划还提供三种测试方式。**不测试**不执行行为测试，但仍检查静态包内容和声明的依赖；
+**冒烟测试**会让新 Skill 完整尝试一次简单任务；**Eval** 会分别在不使用和使用
+新 Skill 的情况下完成同一个代表性任务，以更可靠地判断它是否真的有帮助，
+但需要更多时间。测试方式和 Batch 是两个独立选项。
+
+批准前检查一下建议的内容和选项即可。例如，可以回复“换个名称”、“关闭 Batch”、
+“使用 Eval”或“批准”。修改后，Agent 会给出新计划供你再次确认。
+
+批准后，Agent 会创建并检查 Skill，按计划完成测试，然后保存到当前 workspace，
+并**默认启用**。如果同名 Skill 已经存在，请选择其他名称。
 
 `/make-skill` 本身是一个内建 skill，调用前请先在 `/skills` 中确认
 它已启用。
+
+### 技能自动化：自动更新与自动同步
+
+两个阶段在技能详情页中独立配置：
+
+```text
+内置技能包 -- 自动更新 --> 技能池 -- 自动同步 --> 工作区
+```
+
+- **自动更新** 仅支持技能池中的内置技能。当前内置包版本与技能池版本不同时，
+  QwenPaw 无需二次确认便会替换技能池副本。技能池始终跟随当前安装包，因此安装包
+  降级时也会跟随降级；但不会自动导入新增或缺失技能、删除已移除技能，或覆盖已转成
+  自定义的技能。
+- **自动同步** 同时支持内置和自定义技能。`SKILL.md` 变化会触发完整技能目录复制
+  到配置的工作区，无需手动广播。
+- **组合开启：** 两项都开启时，先更新技能池，再把新版本同步到工作区。只开自动
+  更新时仅修改技能池；只开自动同步时仍会传播技能池内容，但不会升级内置版本。
+- **配置命名：** `auto_update` 始终表示“内置技能包 → 技能池”，`auto_sync` 始终
+  表示“技能池 → 工作区”。新配置统一收在每个技能的 `automation` 对象中。旧的扁平
+  `auto_update` 同步开关及其目标和同步 hash 仍可读取，并会在技能池下次写入时归一化
+  到 `automation.auto_sync`；新的自动更新默认关闭，不会被误开启。
+
+  ```json
+  {
+    "automation": {
+      "auto_update": { "enabled": true },
+      "auto_sync": {
+        "enabled": true,
+        "targets": ["default"]
+      }
+    }
+  }
+  ```
+
+  自定义技能不包含 `auto_update`。省略 `targets` 时，默认同步到已经包含该技能的
+  工作区。
+
+- **检查时机：** 保存或开启自动化设置后立即检查，应用启动时检查，手动刷新技能池
+  时检查。仅打开页面不会修改技能，也不会启动轮询。
+- **同步范围：**
+  - **默认**（未配置关联智能体）：只同步给那些**已安装该技能**的工作区。
+  - **指定关联智能体：** 精确同步到所选智能体；尚未安装该技能的所选智能体会自动
+    安装。关闭自动同步不会清空选择，下次开启时继续使用。
+- **卡片快捷操作：** 自定义技能沿用原卡片入口切换自动同步。内置技能也只保留这一个
+  入口，用于同时开启或关闭两项设置；若当前只开启其中一项，卡片显示混合状态并打开
+  详情页，不擅自决定要修改哪一项。
+- **状态与通知：** 自动更新成功后，对应版本的更新红点会消失；失败和需要手动处理的
+  变更仍会显示。一次内置技能更新会在 [收件箱](./console) 生成一条合并消息，同时
+  展示技能池版本变化和工作区同步结果；仅自动同步的运行仍使用原同步消息。
 
 ---
 
 工作区里常见的后续操作还有：
 
 - **启用 / 禁用：** 不改文件内容，只切换这个 skill 是否生效。
+- **预加载 / 按需加载：** 默认按需加载；可在 **工作区 → 技能 → 编辑** 中，为可信的
+  核心或高频 Skill 开启预加载，其完整内容会作为结构化 Skill 区块加入系统提示词。
 - **删除：** 删除工作区 skill。如果 skill 当前处于启用状态，会自动先禁用再删除。
-- **上传到技能池：** 把当前工作区 skill 发布到共享池，供其他工作区复用。
+- **同步到技能池：** 把当前工作区 skill 发布到共享池，供其他工作区复用。
 - **编辑频道范围 / config：** 调整这个 skill 在当前工作区中的生效频道与运行时
   配置。
 
@@ -329,20 +426,27 @@ workspace，**默认启用**。
 
 ## 技能市场
 
-在一个页面内跨多个市场搜索并安装 skill —— 打开控制台 **设置 → 技能市场**。
-相比上面"从 URL 导入"的逐条粘贴流程，这里是基于搜索的入口。
+在一个页面内跨多个市场搜索并安装 skill。技能市场内嵌在技能相关页面里：
+在 **工作区 → 技能** 或 **设置 → 技能池** 页面点击 **添加技能 → 浏览市场**
+即可切换到市场视图（点 **返回** 或浏览器后退回到列表）。相比上面"从 URL 导入"
+的逐条粘贴流程，这里是基于搜索的入口。
 
-内置三个数据源：
+内置四个数据源：
 
+- **QwenPaw** —— 公开，始终启用。
 - **ClawHub** —— 公开，始终启用。
 - **ModelScope** —— 公开，始终启用。
-- **Aliyun** —— 需在 **设置 → 环境变量** 中配置凭证；未配置时该数据源会被置灰，并在 tooltip 中显示原因。
+- **Aliyun** —— 需在 **设置 → 环境变量** 中配置
+  `ALIBABA_CLOUD_ACCESS_KEY_ID` / `ALIBABA_CLOUD_ACCESS_KEY_SECRET`；
+  未配置时该数据源会被置灰，并在 tooltip 中显示原因。
 
 工作机制：
 
-- 搜索会并行调用启用的数据源；某个数据源失败会以 banner 形式提示，但不影响
-  其它数据源的结果展示。
-- 每张卡片可独立选择安装目标：**技能池**（共享）或 **工作区**（当前 Agent）。
+- 支持按 **来源**、**分类** 和关键词筛选；分类会自动映射为各数据源的原生分类
+  或等价检索词。
+- 搜索并行调用所有启用的数据源；单个数据源失败不影响其它结果展示。
+- **保存** 的目标由入口决定：从 **工作区 → 技能** 进入保存到当前工作区，从
+  **设置 → 技能池** 进入保存到技能池。
 - 安装走串行队列（同一时刻只跑一个），支持重试和取消；重名时会以失败项展示服务端错误，可改名后重装。
 
 安装完成后，每个 skill 都会记住自己的来源（`installed_from` 字段），在技能抽屉中以 **安装来源** 展示。可能的取值包括 `clawhub`、`modelscope`、
@@ -445,7 +549,7 @@ Skill 运行时，生效配置按以下优先级（高优先覆盖低优先）�
 3. **池配置：** 从池下载技能到工作区时，池的 `config` 会作为初始工作区配
    置复制过来，之后工作区的编辑优先。
 
-对于 `requires` 元数据，解析器按顺序检查：`metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.requires`，取第一个找到的。
+对于 `requires` 元数据，解析器按顺序检查：`metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.clawdbot.requires` → `metadata.requires` → `requires`，取第一个找到的。
 
 ---
 

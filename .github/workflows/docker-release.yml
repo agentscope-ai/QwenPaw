@@ -6,6 +6,10 @@
 name: Docker Build and Push on Release
 
 on:
+  # NOTE: legacy fallback path. The standard release flow is now release.yml
+  # (see RELEASING.md). Publishing a GitHub Release directly still triggers this
+  # OLD publish, which is NOT gated on the desktop build. Kept only as an
+  # emergency rollback until the old release workflows are removed.
   release:
     types: [published]
   workflow_dispatch:
@@ -41,6 +45,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Get QwenPaw version
+        id: qwenpaw_version
+        uses: ./.github/actions/get-version
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -87,13 +95,16 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
           IS_PRERELEASE: ${{ steps.vars.outputs.is_prerelease }}
           QWENPAW_DISABLED_CHANNELS: "imessage"
+          QWENPAW_VERSION: ${{ steps.qwenpaw_version.outputs.version }}
         run: |
           TAGS="-t ${ACR_REGISTRY}/${IMAGE}:${VERSION} -t ${ACR_REGISTRY}/${IMAGE}:pre"
           TAGS="${TAGS} -t docker.io/${IMAGE}:${VERSION} -t docker.io/${IMAGE}:pre"
           if [ "${IS_PRERELEASE}" != "true" ]; then
             TAGS="${TAGS} -t ${ACR_REGISTRY}/${IMAGE}:latest -t docker.io/${IMAGE}:latest"
           fi
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          docker buildx build --pull --no-cache --platform linux/amd64,linux/arm64 \
             -f deploy/Dockerfile \
             --build-arg QWENPAW_DISABLED_CHANNELS="${QWENPAW_DISABLED_CHANNELS}" \
+            --build-arg \
+            QWENPAW_MANAGED_RUNTIME_BOUNDARY_VERSION="${QWENPAW_VERSION}" \
             ${TAGS} --push .

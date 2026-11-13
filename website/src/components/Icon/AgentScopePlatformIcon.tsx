@@ -1,10 +1,11 @@
-import React from "react";
+import React, { useId } from "react";
 import type { IconProps } from "./types";
 
 export const AgentScopePlatformIcon: React.FC<IconProps> = ({
   size = 18,
   className = "",
 }) => {
+  const uid = useId();
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -17,11 +18,11 @@ export const AgentScopePlatformIcon: React.FC<IconProps> = ({
       aria-hidden
     >
       <defs>
-        <linearGradient x1="0" y1="0" x2="1.006" y2="0.023" id="as_p_g0">
+        <linearGradient x1="0" y1="0" x2="1.006" y2="0.023" id={`${uid}-0`}>
           <stop offset="0%" stopColor="#FEAF30" />
           <stop offset="100%" stopColor="#F74B0E" />
         </linearGradient>
-        <linearGradient x1="0" y1="0.255" x2="0.888" y2="0.758" id="as_p_g1">
+        <linearGradient x1="0" y1="0.255" x2="0.888" y2="0.758" id={`${uid}-1`}>
           <stop offset="0%" stopColor="#F53807" />
           <stop offset="100%" stopColor="#FDAE2F" />
         </linearGradient>
@@ -30,7 +31,7 @@ export const AgentScopePlatformIcon: React.FC<IconProps> = ({
           y1="0.316"
           x2="0.433"
           y2="0.397"
-          id="as_p_g2"
+          id={`${uid}-2`}
         >
           <stop offset="0%" stopColor="#FA410C" />
           <stop offset="100%" stopColor="#FDB52D" />
@@ -40,7 +41,7 @@ export const AgentScopePlatformIcon: React.FC<IconProps> = ({
           y1="0.338"
           x2="-0.05"
           y2="1.58"
-          id="as_p_g3"
+          id={`${uid}-3`}
         >
           <stop offset="0%" stopColor="#FDAE2C" />
           <stop offset="100%" stopColor="#F8410E" />
@@ -48,7 +49,7 @@ export const AgentScopePlatformIcon: React.FC<IconProps> = ({
       </defs>
       <path
         d="M3.489,3.356L1.521,0L11.359,0C12.288,0.142,13.12,0.506,13.673,1.042L3.489,3.356Z"
-        fill="url(#as_p_g0)"
+        fill={`url(#${uid}-0)`}
       />
       <path
         d={
@@ -74,16 +75,16 @@ export const AgentScopePlatformIcon: React.FC<IconProps> = ({
           "Q11.114,3.344,11.042,3.344Q10.97,3.344,10.897,3.351Z"
         }
         fillRule="evenodd"
-        fill="url(#as_p_g1)"
+        fill={`url(#${uid}-1)`}
       />
       <path
         d="M7.365,4.072L10.854,14.149L14.731,14.149L11.219,4.072L7.365,4.072Z"
-        fill="url(#as_p_g2)"
+        fill={`url(#${uid}-2)`}
         transform="matrix(-1,0,0,1,14.73,0)"
       />
       <path
         d="M3.512,4.072L7.366,4.072L3.875,14.149L3.512,4.072Z"
-        fill="url(#as_p_g3)"
+        fill={`url(#${uid}-3)`}
       />
     </svg>
   );

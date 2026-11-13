@@ -7,6 +7,76 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p0
+def test_global_sandbox_put_get_roundtrip(app_server) -> None:
+    """Test purpose:
+    - Verify the global sandbox switch supports update and readback, and that
+      the change is hot-reloaded (no restart) via the mtime-cached config.
+
+    Test flow:
+    1. GET current sandbox switch as baseline.
+    2. PUT toggled ``enabled`` value; assert echo matches.
+    3. GET sandbox switch and assert the new value is visible (hot-reload).
+    4. PUT the toggled value back to the original and re-read to confirm the
+       switch flips both ways without a restart.
+    5. Restore original value.
+
+    API endpoints:
+    - GET /api/config/security/sandbox
+    - PUT /api/config/security/sandbox
+    """
+    get_before = app_server.api_request(
+        "GET",
+        "/api/config/security/sandbox",
+    )
+    assert get_before.status_code == 200, app_server.logs_tail()
+    before = get_before.json()
+    assert isinstance(before, dict)
+    assert "enabled" in before
+
+    original_enabled = bool(before.get("enabled", False))
+    toggled_enabled = not original_enabled
+
+    try:
+        put_resp = app_server.api_request(
+            "PUT",
+            "/api/config/security/sandbox",
+            json={"enabled": toggled_enabled},
+        )
+        assert put_resp.status_code == 200, app_server.logs_tail()
+        assert bool(put_resp.json().get("enabled")) == toggled_enabled
+
+        get_after = app_server.api_request(
+            "GET",
+            "/api/config/security/sandbox",
+        )
+        assert get_after.status_code == 200, app_server.logs_tail()
+        assert bool(get_after.json().get("enabled")) == toggled_enabled
+
+        # Flip back to the original value and confirm the switch hot-reloads
+        # both directions (save_config invalidates the mtime cache).
+        put_back = app_server.api_request(
+            "PUT",
+            "/api/config/security/sandbox",
+            json={"enabled": original_enabled},
+        )
+        assert put_back.status_code == 200, app_server.logs_tail()
+        get_back = app_server.api_request(
+            "GET",
+            "/api/config/security/sandbox",
+        )
+        assert get_back.status_code == 200, app_server.logs_tail()
+        assert bool(get_back.json().get("enabled")) == original_enabled
+    finally:
+        restore = app_server.api_request(
+            "PUT",
+            "/api/config/security/sandbox",
+            json={"enabled": original_enabled},
+        )
+        assert restore.status_code == 200, app_server.logs_tail()
+
+
+@pytest.mark.integration
+@pytest.mark.p0
 def test_global_file_guard_put_get_roundtrip(app_server) -> None:
     """Test purpose:
     - Verify file-guard enabled flag supports update and readback.

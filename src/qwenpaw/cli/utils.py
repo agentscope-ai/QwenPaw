@@ -154,6 +154,7 @@ def prompt_checkbox(
     *,
     checked: Optional[set[str]] = None,
     select_all_option: bool = True,
+    searchable: bool = False,
 ) -> Optional[list[str]]:
     """Let the user pick multiple items from a list with checkboxes.
 
@@ -169,6 +170,7 @@ def prompt_checkbox(
         checked:   Set of *values* that should be pre-checked.
                    ``None`` → nothing checked.
         select_all_option: Whether to show a "Select All" toggle.
+        searchable: Whether typing should filter the visible choices.
 
     Returns:
         List of selected *values*, or ``None`` on Ctrl+C.
@@ -205,6 +207,7 @@ def prompt_checkbox(
             question,
             choices=items,
             use_jk_keys=False,
+            use_search_filter=searchable,
         ).ask()
 
         if result is None:

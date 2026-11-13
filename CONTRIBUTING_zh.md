@@ -69,7 +69,7 @@ docs(skills): document Skills Hub import
 
 - **本地必跑门禁（push/提 PR 前必须通过）：**
   ```bash
-  pip install -e ".[dev,full]"
+  pip install -e ".[dev,test,full]"
   pre-commit install
   pre-commit run --all-files
   pytest
@@ -120,12 +120,8 @@ QwenPaw 支持多种提供商：包括云提供商（如 DashScope、ModelScope�
   - 将类属性 `channel` 设置为唯一的频道键（如 `"telegram"`）。
   - 实现生命周期和消息处理（如 receive → `content_parts` → `process` → send response）。
   - 如果频道是长期运行的（默认），使用 manager 的队列和消费者循环。
-- **发现：** 内置频道在 `src/qwenpaw/app/channels/registry.py` 中注册。**自定义频道**从工作目录加载：放置一个模块（如 `custom_channels/telegram.py` 或包 `custom_channels/telegram/`），定义一个带有 `channel` 属性的 `BaseChannel` 子类。
-- **CLI：** 用户使用以下命令安装/添加频道：
-  - `qwenpaw channels install <key>` — 创建模板或从 `--path` / `--url` 复制
-  - `qwenpaw channels add <key>` — 安装并添加到配置
-  - `qwenpaw channels remove <key>` — 从 `custom_channels/` 中删除自定义频道
-  - `qwenpaw channels config` — 交互式配置
+- **发现：** 内置频道在 `src/qwenpaw/app/channels/registry.py` 中注册。**自定义频道**通过插件系统注册 — 创建 `type: "channel"` 的插件，在 `register()` 方法中调用 `api.register_channel(...)`。完整示例请参阅[插件系统文档](website/public/docs/plugins.zh.md)。
+- **CLI：** `qwenpaw channels config` — 交互式配置；`qwenpaw channels list` — 查看状态。
 
 如果你贡献**新的内置频道**，将其添加到注册表，如有需要，添加配置器以使其出现在 Console 和 CLI 中。在 `website/public/docs/channels.*.md` 中记录新频道（身份验证、webhooks 等）。
 
@@ -180,7 +176,7 @@ description: "Use this skill whenever user wants to [主要功能]. Trigger espe
 
 - **Skills Hub：** QwenPaw 支持从社区 hub（如 ClawHub）导入 skills。如果你希望你的 skill 可以通过 hub 安装，请遵循相同的 `SKILL.md` + `references/`/`scripts/` 布局和 hub 的打包格式。
 
-仓库内基础 skills 的示例：**cron**、**file_reader**、**news**、**pdf**、**docx**、**pptx**、**xlsx**、**browser_visible**。贡献新的基础 skill 通常意味着：在 `agents/skills/` 下添加目录，在文档中添加简短条目（如 `website/public/docs/skills.*.md` 中的 Skills 表），并确保它正确同步到工作目录。
+仓库内基础 skills 的示例：**cron**、**file_reader**、**news**、**pdf**、**docx**、**pptx**、**xlsx**、**browser**。贡献新的基础 skill 通常意味着：在 `agents/skills/` 下添加目录，在文档中添加简短条目（如 `website/public/docs/skills.*.md` 中的 Skills 表），并确保它正确同步到工作目录。
 
 ---
 

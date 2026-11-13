@@ -1,0 +1,1203 @@
+import { Link, MemoryRouter, Route, Routes } from "react-router-dom";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import AgentDock, { simplifyErrorMessage } from "@/components/agent/AgentDock";
+import { useAgentDockUiStore } from "@/store/agentDockUiStore";
+import { useCreatorSessionStore } from "@/store/creatorSessionStore";
+import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
+import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
+import { projectDocument } from "@/test/creatorFixtures";
+import { installMockFetch } from "@/test/mockFetch";
+import {
+  evt,
+  makePendingAuthorization,
+  makeReviewRecord,
+  msg,
+  seedCreatorSession,
+} from "@/test/agentFixtures";
+
+function renderDock(switchProjects = false) {
+  return render(
+    <MemoryRouter initialEntries={["/project/p1/plan"]}>
+      {switchProjects && <Link to="/project/p2/plan">切到第二项目</Link>}
+      <Routes>
+        <Route path="/project/:id/plan" element={<AgentDock />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+const composerBox = () =>
+  screen.getByRole("textbox", { name: "输入修改意图，@ 可引用对象…" });
+
+const asst = (overrides: Parameters<typeof msg>[0]) =>
+  msg({
+    messageSeq: 2,
+    role: "assistant",
+    source: "creator_agent",
+    ...overrides,
+  });
+
+const delegateMsg = (
+  messageId: string,
+  actionId: string,
+  args: Record<string, unknown>,
+  text: string,
+) =>
+  asst({
+    messageId,
+    text,
+    metadata: {
+      actionId,
+      parsedAction: {
+        action: "tool_call",
+        tool: "delegate_to_agent",
+        arguments: args,
+      },
+    },
+  });
+
+const subFor =
+  (parentActionId: string, runId: string) =>
+  (type: string, seq: number, data: Record<string, unknown>) =>
+    evt(type, seq, {
+      parentActionId,
+      runId,
+      role: "visual_development_agent",
+      ...data,
+    });
+
+const ACCEPTED = {
+  messageSeq: 2,
+  eventSeq: 20,
+  classification: "mutation_instruction",
+  appendState: "queued_until_message_boundary",
+  creatorSessionId: "session-1",
+  conversationId: "conversation-1",
+};
+
+function stagedSubmission(names = ["a.png"], switchProjects = false) {
+  const { calls, fetchMock } = installMockFetch([
+    { match: "/messages", method: "POST", response: { json: ACCEPTED } },
+    { match: "/specialist-runs", response: { json: { items: [] } } },
+    { match: "/tasks", response: { json: { items: [] } } },
+    {
+      match: "/projects/p1/project",
+      response: { json: { project: projectDocument } },
+    },
+  ]);
+  const uploads: Array<{
+    resolve: (body: unknown) => void;
+    reject: (error: Error) => void;
+  }> = [];
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith("/assets") && init?.method === "POST"
+      ? new Promise<Response>((resolve, reject) =>
+          uploads.push({
+            resolve: (body) =>
+              resolve({
+                ok: true,
+                status: 200,
+                headers: new Headers(),
+                json: async () => body,
+              } as Response),
+            reject,
+          }),
+        )
+      : fetchMock(input, init),
+  );
+  useAgentDockUiStore.getState().setOpen(true);
+  renderDock(switchProjects);
+  fireEvent.change(document.querySelector("[data-agent-upload-input]")!, {
+    target: {
+      files: names.map((name) => new File([name], name, { type: "image/png" })),
+    },
+  });
+  const write = (text: string) => {
+    composerBox().textContent = text;
+    fireEvent.input(composerBox());
+  };
+  write("指令 A");
+  return { uploads, calls, write };
+}
+
+const seedSession = (status: string, patch: Record<string, unknown> = {}) =>
+  useCreatorSessionStore.setState(
+    (state) =>
+      ({
+        session: { ...state.session!, status },
+        ...patch,
+      }) as never,
+  );
+
+describe("AgentDock public output and interactions", () => {
+  beforeEach(() => {
+    seedCreatorSession();
+  });
+
+  it("shows a durable auto-resume pause once without creating a user review", async () => {
+    useAgentDockUiStore.getState().setOpen(false);
+    renderDock();
+    const notice = asst({
+      messageId: "execution-pause-1",
+      source: "creator_execution_notice",
+      text: "自动创作已暂停，作品尚未完成。已连续自动处理 5 轮，仍待处理序章剧本。",
+      metadata: {
+        executionPause: { reason: "consecutive_resume_limit" },
+      },
+    });
+    act(() => useCreatorSessionStore.setState({ messages: [notice] }));
+    await waitFor(() =>
+      expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByText(/自动创作已暂停，作品尚未完成/),
+    ).toBeInTheDocument();
+    expect(useExecutionAuthorizationStore.getState().items).toHaveLength(0);
+    act(() => useAgentDockUiStore.getState().setOpen(false));
+    act(() => useCreatorSessionStore.setState({ messages: [{ ...notice }] }));
+    expect(document.querySelector("[data-agent-dock]")).not.toBeInTheDocument();
+  });
+
+  it("pops the dock open with the inline tray when a production confirmation arrives live", async () => {
+    useAgentDockUiStore.getState().setOpen(false);
+    renderDock();
+    expect(document.querySelector("[data-agent-dock]")).not.toBeInTheDocument();
+
+    act(() =>
+      useExecutionAuthorizationStore.setState({
+        projectId: "p1",
+        items: [
+          makePendingAuthorization({
+            id: "auth-image-live",
+            transactionId: "tx1",
+            specialistRunId: "run-visual",
+            executionRequestId: "request-image",
+            targetRef: "project:assets",
+            authorizationToken: "token-image",
+          }),
+        ],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument();
+      // Blocking item arrived: tray force-expands and is flagged urgent.
+      const tray = document.querySelector("[data-decision-tray]");
+      expect(tray).toBeInTheDocument();
+      expect(tray).toHaveAttribute("data-decision-tray-urgent", "true");
+      expect(tray).not.toHaveAttribute("data-decision-tray-collapsed");
+    });
+    expect(screen.getAllByText("生产确认").length).toBeGreaterThan(0);
+    // Chat input shares the screen with the tray; no view switching needed.
+    expect(composerBox()).toBeInTheDocument();
+  });
+
+  it("keeps workspace and collapse interactions, resizes and closes with Escape", async () => {
+    useAgentDockUiStore.getState().setOpen(false);
+    renderDock();
+    fireEvent.click(screen.getByRole("button", { name: "创作助手" }));
+    expect(document.querySelector("[data-agent-dock]")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "工作区事实" }));
+    expect(screen.getByText("当前任务")).toBeInTheDocument();
+    expect(screen.getByText("素材概况（0）")).toBeInTheDocument();
+
+    // Chat input stays while the workspace panel is expanded.
+    expect(composerBox()).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "最大化面板" }),
+    ).not.toBeInTheDocument();
+
+    const { width, height } = useAgentDockUiStore.getState();
+    fireEvent.pointerDown(document.querySelector('[title="拖拽调整大小"]')!, {
+      clientX: 440,
+      clientY: 100,
+    });
+    fireEvent.pointerMove(window, { clientX: 380, clientY: 40 });
+    fireEvent.pointerUp(window);
+    await waitFor(() => {
+      expect(useAgentDockUiStore.getState().width).toBe(width + 60);
+      expect(useAgentDockUiStore.getState().height).toBe(height + 60);
+    });
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.querySelector("[data-agent-dock]")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "创作助手" }),
+    ).toBeInTheDocument();
+  });
+
+  it("streams public narration while keeping thinking and tool schemas out of every disclosure", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    useAgentDockUiStore.getState().setAllowExpandDetails(true);
+    seedSession("RUNNING", {
+      streamingAssistantMessages: {
+        live: {
+          messageId: "live",
+          firstEventSeq: 10,
+          deltas: {
+            0: '我先读取计划。\n```json\n{"action":"tool_call","tool":"read_project_file","arguments":{"path":"plan',
+          },
+          thinkingDeltas: { 0: "SECRET_THINKING" },
+          createdAt: "now",
+        },
+      },
+    });
+    renderDock();
+    expect(screen.getByText("我先读取计划。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("SECRET_THINKING");
+    expect(document.body).not.toHaveTextContent('"arguments"');
+    expect(
+      screen.queryByRole("button", { name: "详情" }),
+    ).not.toBeInTheDocument();
+    act(() =>
+      useCreatorSessionStore.setState({
+        streamingAssistantMessages: {},
+        messages: [
+          asst({
+            messageId: "live",
+            text: "计划已读取。",
+            metadata: { providerThinking: "SECRET_THINKING" },
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText("计划已读取。")).toBeInTheDocument();
+    expect(document.querySelector("[data-agent-thinking]")).toBeNull();
+    expect(document.body).not.toHaveTextContent("SECRET_THINKING");
+  });
+
+  it("shows public waiting narration without internal wait reasons or identifiers", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    seedSession("WAITING_RUNTIME", {
+      messages: [
+        asst({
+          messageId: "wait",
+          text: '剪辑任务仍在运行。\n```json\n{"action":"yield_until_runtime_event","arguments":{"reason":"PRIVATE_RUNTIME","waitForRunIds":["run-secret"]}}\n```',
+          metadata: {
+            parsedAction: {
+              action: "yield_until_runtime_event",
+              arguments: {
+                reason: "PRIVATE_RUNTIME",
+                waitForRunIds: ["run-secret"],
+              },
+            },
+          },
+        }),
+      ],
+    });
+    renderDock();
+    expect(screen.getByText("剪辑任务仍在运行。")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("PRIVATE_RUNTIME");
+    expect(document.body).not.toHaveTextContent("run-secret");
+  });
+
+  it("keeps the focused modification editor writable and submits at a live SSE boundary", async () => {
+    const { calls } = installMockFetch([
+      {
+        match: "/projects/p1/messages",
+        method: "POST",
+        response: { json: ACCEPTED },
+      },
+    ]);
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+
+    const textbox = composerBox();
+    textbox.focus();
+    textbox.textContent = "请把故事设定在温暖厨房";
+    fireEvent.input(textbox);
+    expect(document.activeElement).toBe(textbox);
+    expect(textbox).toHaveAttribute("contenteditable", "true");
+
+    act(() =>
+      seedSession("RUNNING", {
+        streamingAssistantMessages: {
+          "assistant-live": {
+            messageId: "assistant-live",
+            firstEventSeq: 19,
+            deltas: { 0: "正在处理已有计划。" },
+            thinkingDeltas: {},
+            createdAt: "now",
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      const liveTextbox = composerBox();
+      expect(liveTextbox).toBe(textbox);
+      expect(liveTextbox).toHaveAttribute("contenteditable", "true");
+      expect(liveTextbox).toHaveTextContent("请把故事设定在温暖厨房");
+      expect(document.activeElement).toBe(liveTextbox);
+    });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() =>
+      expect(
+        calls.find((call) => call.url.includes("/projects/p1/messages"))?.body,
+      ).toMatchObject({
+        creatorSessionId: "session-1",
+        conversationId: "conversation-1",
+        message: "请把故事设定在温暖厨房",
+      }),
+    );
+  });
+
+  it("clears submitted text immediately while the server is still accepting the message", async () => {
+    let releaseRequest!: (response: Response) => void;
+    const requestPending = new Promise<Response>((resolve) => {
+      releaseRequest = resolve;
+    });
+    const fetchMock = vi.fn(() => requestPending);
+    vi.stubGlobal("fetch", fetchMock);
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+
+    const textbox = composerBox();
+    textbox.textContent = "立即发送，不要留在输入框";
+    fireEvent.input(textbox);
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(textbox).toHaveTextContent("");
+    expect(screen.getByText("立即发送，不要留在输入框")).toBeInTheDocument();
+    expect(useCreatorSessionStore.getState().queuedUi[0]?.state).toBe(
+      "sending",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    releaseRequest({
+      ok: true,
+      status: 202,
+      statusText: "Accepted",
+      json: async () => ACCEPTED,
+    } as Response);
+    await waitFor(() =>
+      expect(useCreatorSessionStore.getState().queuedUi[0]?.state).toBe(
+        "queued",
+      ),
+    );
+  });
+
+  it.each(["selection", "reference"])(
+    "preserves a changed %s with identical text during upload",
+    async (kind) => {
+      const { uploads, calls } = stagedSubmission();
+      const first = {
+        text: "同一段文字",
+        label: "提示词",
+        ref: "element:a",
+        field: "prompt",
+        path: "/a",
+        start: 0,
+        end: 5,
+      };
+      if (kind === "selection") {
+        act(() => useAgentDockUiStore.getState().setSelection(first));
+      } else {
+        act(() =>
+          useCreatorInteractionStore.getState().setExtraRefs([
+            {
+              ref: "asset-version:a",
+              name: "同名素材",
+              type: "asset",
+              uiLocator: {},
+            },
+          ]),
+        );
+      }
+      fireEvent.keyDown(composerBox(), { key: "Enter" });
+      expect(uploads).toHaveLength(1);
+      if (kind === "selection") {
+        fireEvent.click(composerBox().querySelector("[data-sel]")!);
+        act(() =>
+          useAgentDockUiStore
+            .getState()
+            .setSelection({ ...first, start: 10, end: 15 }),
+        );
+      } else {
+        act(() =>
+          useCreatorInteractionStore.getState().setExtraRefs([
+            {
+              ref: "asset-version:b",
+              name: "同名素材",
+              type: "asset",
+              uiLocator: {},
+            },
+          ]),
+        );
+      }
+      await act(async () => uploads[0].resolve({ assetVersionId: "uploaded" }));
+      await waitFor(() =>
+        expect(calls.some((call) => call.method === "POST")).toBe(true),
+      );
+      expect(composerBox()).toHaveTextContent("指令 A");
+      const body = calls.find((call) => call.method === "POST")!.body as {
+        context: { selections: unknown[]; extraRefs: string[] };
+      };
+      if (kind === "selection") {
+        expect(body.context.selections).toEqual([first]);
+        expect(composerBox().querySelector("[data-sel]")).toHaveAttribute(
+          "data-sel-start",
+          "10",
+        );
+      } else {
+        expect(body.context.extraRefs).toContain("asset-version:a");
+        expect(useCreatorInteractionStore.getState().extraRefs[0].ref).toBe(
+          "asset-version:b",
+        );
+      }
+    },
+  );
+
+  it("offers the original instruction after a partial upload failure without overwriting the new draft", async () => {
+    const { uploads, calls, write } = stagedSubmission(["a.png", "b.png"]);
+    const selection = {
+      text: "原选区",
+      label: "提示词",
+      ref: "element:a",
+      field: "prompt",
+      path: "/a",
+      start: 0,
+      end: 3,
+    };
+    act(() => useAgentDockUiStore.getState().setSelection(selection));
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    await act(async () => uploads[0].resolve({ assetVersionId: "a" }));
+    await waitFor(() => expect(uploads).toHaveLength(2));
+    write("指令 B");
+    await act(async () => uploads[1].reject(new Error("upload interrupted")));
+    expect(composerBox()).toHaveTextContent("指令 B");
+    expect(
+      document.querySelector("[data-agent-interrupted-text]"),
+    ).toHaveTextContent("指令 A");
+    expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
+    fireEvent.click(
+      within(
+        document.querySelector("[data-agent-interrupted-text]") as HTMLElement,
+      ).getByRole("button", { name: "恢复到输入框" }),
+    );
+    expect(composerBox()).toHaveTextContent("指令 A");
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    await waitFor(() => expect(uploads).toHaveLength(3));
+    await act(async () => uploads[2].resolve({ assetVersionId: "b" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+        assetVersionRefs: ["asset-version:a", "asset-version:b"],
+        context: { selections: [selection] },
+      }),
+    );
+    expect(
+      (
+        calls.find((call) => call.method === "POST")!.body as {
+          message: string;
+        }
+      ).message,
+    ).toContain("指令 A");
+  });
+
+  it("preserves a draft retargeted to another editing field while uploading", async () => {
+    const { uploads, calls } = stagedSubmission();
+    act(() =>
+      useCreatorInteractionStore
+        .getState()
+        .setEditingField("storyboard_prompt"),
+    );
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    act(() =>
+      useCreatorInteractionStore.getState().setEditingField("video_prompt"),
+    );
+    await act(async () => uploads[0].resolve({ assetVersionId: "uploaded" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+        context: { editingField: "storyboard_prompt" },
+      }),
+    );
+    expect(composerBox()).toHaveTextContent("指令 A");
+    expect(useCreatorInteractionStore.getState().editingField).toBe(
+      "video_prompt",
+    );
+  });
+
+  it("finishes an upload in its original conversation after the user switches", async () => {
+    const { uploads, calls, write } = stagedSubmission();
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    act(() =>
+      useCreatorSessionStore.setState({
+        activeConversationId: "conversation-other",
+      }),
+    );
+    write("指令 B");
+    await act(async () => uploads[0].resolve({ assetVersionId: "uploaded" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+        conversationId: "conversation-1",
+        message: "指令 A",
+      }),
+    );
+    expect(composerBox()).toHaveTextContent("指令 B");
+    expect(
+      screen.queryByText("指令 A", { selector: "p" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the new project's upload locked when an old upload finishes", async () => {
+    const { uploads, calls, write } = stagedSubmission(["a.png"], true);
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    fireEvent.click(screen.getByRole("link", { name: "切到第二项目" }));
+    act(() =>
+      useCreatorSessionStore.setState({
+        projectId: "p2",
+        activeConversationId: "conversation-p2",
+        session: {
+          ...useCreatorSessionStore.getState().session!,
+          projectId: "p2",
+        },
+      }),
+    );
+    fireEvent.change(document.querySelector('input[type="file"]')!, {
+      target: { files: [new File(["b"], "b.png", { type: "image/png" })] },
+    });
+    write("指令 B");
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    expect(uploads).toHaveLength(2);
+    await act(async () => uploads[0].resolve({ assetVersionId: "a" }));
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    expect(uploads).toHaveLength(2);
+    await act(async () => uploads[1].resolve({ assetVersionId: "b" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+        message: "指令 B",
+        assetVersionRefs: ["asset-version:b"],
+        conversationId: "conversation-p2",
+      }),
+    );
+  });
+
+  it("excludes removed files from both the remaining uploads and final message", async () => {
+    const { uploads, calls } = stagedSubmission(["a.png", "b.png", "c.png"]);
+    fireEvent.keyDown(composerBox(), { key: "Enter" });
+    const remove = (name: string) =>
+      fireEvent.click(
+        within(screen.getByText(name).parentElement!).getByRole("button"),
+      );
+    remove("a.png");
+    remove("b.png");
+    await act(async () => uploads[0].resolve({ assetVersionId: "a" }));
+    await waitFor(() => expect(uploads).toHaveLength(2));
+    await act(async () => uploads[1].resolve({ assetVersionId: "c" }));
+    await waitFor(() =>
+      expect(calls.find((call) => call.method === "POST")?.body).toMatchObject({
+        assetVersionRefs: ["asset-version:c"],
+      }),
+    );
+  });
+
+  it("shows the same simplified copy for queued message failures", () => {
+    useCreatorSessionStore.setState({
+      queuedUi: [
+        {
+          clientMessageId: "failed-message",
+          conversationId: "conversation-1",
+          requestSignature: "failed-signature",
+          text: "重新生成视频",
+          state: "failed",
+          error:
+            "R2V ArtifactSlot 归属冲突: internal/path/project.json\ntraceback",
+        },
+      ],
+    });
+    useAgentDockUiStore.getState().setOpen(true);
+
+    renderDock();
+
+    expect(screen.getByText("发送未成功，请重新发送。")).toBeInTheDocument();
+    expect(
+      screen.queryByText(/internal\/path\/project\.json/),
+    ).not.toBeInTheDocument();
+    act(() =>
+      useCreatorSessionStore.setState({
+        activeConversationId: "conversation-other",
+      }),
+    );
+    expect(screen.queryByText("重新生成视频")).not.toBeInTheDocument();
+    act(() =>
+      useCreatorSessionStore.setState({
+        activeConversationId: "conversation-1",
+      }),
+    );
+    expect(screen.getByText("重新生成视频")).toBeInTheDocument();
+  });
+
+  it("morphs the composer button between send and stop across idle/running states", async () => {
+    const { calls } = installMockFetch([
+      {
+        match: "/projects/p1/interrupt",
+        method: "POST",
+        response: {
+          json: {
+            creatorSessionId: "session-1",
+            status: "INTERRUPT_REQUESTED",
+            stopRequested: true,
+          },
+        },
+      },
+    ]);
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+
+    // Idle + empty input → disabled (greyed) send button; idle + content → clickable
+    expect(
+      screen.queryByRole("button", { name: "停止所有 Agent" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).toBeDisabled();
+    const textbox = composerBox();
+    textbox.textContent = "运行中追加指令";
+    fireEvent.input(textbox);
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    // Running + input has content → still a clickable send button
+    act(() => seedSession("RUNNING"));
+    expect(
+      screen.queryByRole("button", { name: "停止所有 Agent" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+
+    // Running + empty input → the stop button replaces send, with a breathing glow
+    textbox.textContent = "";
+    fireEvent.input(textbox);
+    const stop = screen.getByRole("button", { name: "停止所有 Agent" });
+    expect(
+      screen.queryByRole("button", { name: "发送" }),
+    ).not.toBeInTheDocument();
+
+    // Clicking stop interrupts the whole Creator Session
+    fireEvent.click(stop);
+    expect(useCreatorSessionStore.getState().session?.status).toBe(
+      "INTERRUPT_REQUESTED",
+    );
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.url.includes("/projects/p1/interrupt")),
+      ).toBe(true),
+    );
+    expect(
+      calls.find((call) => call.url.includes("/projects/p1/interrupt"))?.method,
+    ).toBe("POST");
+  });
+
+  it("keeps file-native review feedback on the Session message API", async () => {
+    const { calls } = installMockFetch([
+      {
+        match: "/projects/p1/messages",
+        response: {
+          json: {
+            ...ACCEPTED,
+            messageSeq: 1,
+            eventSeq: 1,
+            classification: "review_revise",
+          },
+        },
+      },
+    ]);
+    seedSession("PENDING_REVIEW");
+    useFileProjectReviewStore.setState({
+      projectId: "p1",
+      reviews: [makeReviewRecord()],
+      etag: '"token-1"',
+      syncStatus: "healthy",
+    });
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+    // File review lands in the inline tray; chat input stays usable.
+    await waitFor(() =>
+      expect(
+        document.querySelector("[data-decision-tray]"),
+      ).toBeInTheDocument(),
+    );
+
+    const textbox = composerBox();
+    textbox.textContent = "请根据这处 diff 再调整标题";
+    fireEvent.input(textbox);
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(
+        calls.some((call) => call.url.endsWith("/projects/p1/messages")),
+      ).toBe(true),
+    );
+    expect(calls.some((call) => call.url.endsWith("/comments"))).toBe(false);
+  });
+
+  it("keeps real user authority, hides Runtime rows and renders the expandable origin tool card", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    useCreatorSessionStore.setState({
+      messages: [
+        msg({ messageId: "user-1", text: "请检查当前计划" }),
+        asst({
+          messageId: "assistant-1",
+          text: '我先读取当前计划。\n```json\n{"action":"tool_call","tool":"read_project_file"}\n```',
+          metadata: {
+            actionId: "action-1",
+            parsedAction: {
+              action: "tool_call",
+              tool: "read_project_file",
+              arguments: { path: "plan.json" },
+            },
+          },
+        }),
+        msg({
+          messageId: "result-1",
+          messageSeq: 3,
+          source: "runtime_action_result",
+          text: '[RUNTIME_ACTION_RESULT]\n\n{"head":"h2","ok":true}',
+          metadata: {
+            actionId: "action-1",
+            tool: "read_project_file",
+            resultKind: "workspace_read",
+          },
+        }),
+      ],
+      events: [
+        evt("agent.tool_started", 1, {
+          actionId: "action-1",
+          tool: "read_project_file",
+        }),
+        evt("agent.tool_completed", 2, {
+          actionId: "action-1",
+          remainingActionIds: [],
+        }),
+      ],
+    });
+    seedSession("RUNNING");
+    renderDock();
+
+    const userBubble = screen
+      .getByText("请检查当前计划")
+      .closest("[data-agent-message]");
+    const responseFlow = userBubble
+      ?.closest("[data-agent-turn]")
+      ?.querySelector(":scope > [data-agent-response-flow]");
+    expect(screen.getByText("我先读取当前计划。")).toBeInTheDocument();
+    expect(screen.queryByText(/"action"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/RUNTIME_ACTION_RESULT/)).not.toBeInTheDocument();
+    expect(
+      responseFlow?.querySelector("[data-agent-thinking]"),
+    ).not.toBeInTheDocument();
+
+    const toolStatus = screen.getByText("读取素材分析");
+    expect(
+      toolStatus
+        .closest("[data-agent-tool]")
+        ?.querySelector(".agent-activity-indicator"),
+    ).toHaveAttribute("data-phase", "completed");
+    expect(toolStatus.closest("[data-agent-tool]")?.parentElement).toBe(
+      responseFlow,
+    );
+    expect(
+      screen.queryByRole("button", { name: "详情" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/"path": "plan.json"/)).not.toBeInTheDocument();
+  });
+
+  it("renders rejection feedback once as a compact review card", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    const feedbackMessage = msg({
+      messageId: "review-feedback-first",
+      source: "review_rejection_feedback",
+      text: "【系统自动消息 · 用户审阅反馈】原始内部消息",
+      metadata: {
+        decisionId: "decision-review-feedback",
+        rejectionFeedback: {
+          action: "UNDO_AND_REGENERATE",
+          feedbackNote: "人物仍像巅峰时期；请保持身份一致，改成落魄时期",
+        },
+        targets: [{ label: "哈兰德 · 落魄时期分镜图" }],
+      },
+    });
+    useCreatorSessionStore.setState({
+      messages: [
+        feedbackMessage,
+        {
+          ...feedbackMessage,
+          messageId: "review-feedback-replay",
+          messageSeq: 2,
+        },
+      ],
+    });
+
+    renderDock();
+
+    const cards = document.querySelectorAll("[data-agent-review-feedback]");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toHaveTextContent("已撤销并安排重做");
+    expect(cards[0]).toHaveTextContent("哈兰德 · 落魄时期分镜图");
+    expect(cards[0]).not.toHaveTextContent("原始内部消息");
+  });
+
+  it("renders a review-blocked delegation as waiting, not failed", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    seedSession("PENDING_REVIEW", {
+      messages: [
+        delegateMsg(
+          "assistant-review-wait",
+          "delegate-review-wait",
+          {
+            role: "r2v_generation_director",
+            target_refs: ["element:ep22"],
+            task: "生成 ep22 视频",
+          },
+          "继续生成 ep22 视频。",
+        ),
+      ],
+    });
+    const sub = subFor("delegate-review-wait", "run-review-wait");
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvents([
+        evt("agent.tool_started", 1, {
+          actionId: "delegate-review-wait",
+          tool: "delegate_to_agent",
+          role: "r2v_generation_director",
+          targetRefs: ["element:ep22"],
+        }),
+        sub("subagent.blocked", 2, {
+          role: "r2v_generation_director",
+          targetRefs: ["element:ep22"],
+          waitingReview: true,
+          summary:
+            "element:ep22 的分镜图已生成，视频尚未开始。请先审阅分镜图；审阅通过后将自动继续生成视频。",
+        }),
+        evt("agent.tool_completed", 3, {
+          actionId: "delegate-review-wait",
+          runId: "parent-run",
+          tool: "delegate_to_agent",
+          failed: false,
+        }),
+      ]),
+    );
+
+    renderDock();
+
+    const tool = document.querySelector<HTMLElement>(
+      '[data-agent-tool="delegate-review-wait"]',
+    )!;
+    expect(tool).toHaveTextContent("待审阅");
+    expect(tool).toHaveTextContent("结果已准备好");
+    expect(tool).not.toHaveTextContent("element:ep22");
+    expect(tool).not.toHaveTextContent("失败");
+    const waitingNotice = tool.querySelector("[data-agent-waiting-review]");
+    expect(waitingNotice).not.toBeNull();
+    expect(tool.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "attention",
+    );
+    expect(
+      useCreatorSessionStore.getState().subagentActivities[
+        "delegate-review-wait"
+      ],
+    ).toMatchObject({ waitingReview: true, terminalKind: "BLOCKED" });
+  });
+
+  it("keeps specialist tools private when expanded and alive after the main session becomes idle", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    useAgentDockUiStore.getState().setAllowExpandDetails(true);
+    seedSession("RUNNING", {
+      messages: [
+        delegateMsg(
+          "asst",
+          "delegate",
+          { role: "ai_editing_director" },
+          "正在处理剪辑。",
+        ),
+      ],
+    });
+    const sub = subFor("delegate", "child");
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvents([
+        sub("subagent.started", 1, { role: "ai_editing_director" }),
+        sub("subagent.message_delta", 2, {
+          messageId: "m",
+          deltaIndex: 0,
+          delta:
+            '<function=read_project_file><parameter=arguments>{"path":"PRIVATE_FILE"}',
+        }),
+        sub("subagent.tool_progress", 3, {
+          toolCallId: "tool",
+          tool: "read_project_file",
+          receivedBytes: 64,
+          complete: true,
+        }),
+      ]),
+    );
+    renderDock();
+    const card = document.querySelector('[data-agent-tool="delegate"]')!;
+    fireEvent.click(
+      within(card as HTMLElement).getByRole("button", { name: "查看进展" }),
+    );
+    expect(
+      document.querySelectorAll('[data-subagent-tool="tool"]'),
+    ).toHaveLength(1);
+    expect(document.body).not.toHaveTextContent("PRIVATE_FILE");
+    expect(document.body).not.toHaveTextContent("<function");
+    expect(
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "waiting");
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.tool_started", 4, {
+          toolCallId: "tool",
+          tool: "read_project_file",
+          arguments: { path: "PRIVATE_FILE" },
+        }),
+      ),
+    );
+    expect(
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "running");
+    act(() =>
+      useCreatorSessionStore
+        .getState()
+        .ingestEvent(evt("session.status_changed", 5, { status: "IDLE" })),
+    );
+    expect(card).toHaveAttribute("data-status", "started");
+    expect(
+      document.querySelector('[data-subagent-tool="tool"]'),
+    ).toHaveTextContent("进行中");
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.message_delta", 6, {
+          messageId: "public",
+          deltaIndex: 0,
+          delta: "片段顺序正在调整。",
+        }),
+      ),
+    );
+    expect(screen.getByText("片段顺序正在调整。")).toBeInTheDocument();
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.tool_completed", 7, {
+          toolCallId: "tool",
+          tool: "read_project_file",
+          result: { secret: "PRIVATE_RESULT" },
+          state: "succeeded",
+        }),
+      ),
+    );
+    expect(document.body).not.toHaveTextContent("PRIVATE_RESULT");
+    expect(
+      document.querySelector('[data-subagent-tool="tool"]'),
+    ).toHaveTextContent("已完成");
+    expect(
+      document.querySelector(
+        '[data-subagent-tool="tool"] .agent-activity-indicator',
+      ),
+    ).toHaveAttribute("data-phase", "completed");
+  });
+
+  it("treats delegation acceptance as active until its own terminal event", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    seedSession("RUNNING", {
+      messages: [
+        delegateMsg(
+          "asst",
+          "delegate",
+          { role: "ai_editing_director" },
+          "我会处理剪辑任务。",
+        ),
+      ],
+    });
+    const sub = subFor("delegate", "child");
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvents([
+        evt("agent.tool_started", 1, {
+          actionId: "delegate",
+          tool: "delegate_to_agent",
+        }),
+        evt("agent.tool_completed", 2, {
+          actionId: "delegate",
+          tool: "delegate_to_agent",
+          status: "succeeded",
+        }),
+        sub("subagent.accepted", 3, { role: "ai_editing_director" }),
+      ]),
+    );
+    renderDock();
+    const card = document.querySelector('[data-agent-tool="delegate"]')!;
+    expect(card).toHaveAttribute("data-status", "started");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "waiting",
+    );
+    act(() =>
+      useCreatorSessionStore
+        .getState()
+        .ingestEvent(
+          sub("subagent.started", 4, { role: "ai_editing_director" }),
+        ),
+    );
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "running",
+    );
+    act(() =>
+      useCreatorSessionStore.getState().ingestEvent(
+        sub("subagent.completed", 5, {
+          status: "SUCCEEDED",
+          summary: "PRIVATE_SUMMARY",
+        }),
+      ),
+    );
+    expect(card).toHaveAttribute("data-status", "succeeded");
+    expect(card).toHaveTextContent("已完成");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "completed",
+    );
+    expect(document.body).not.toHaveTextContent("PRIVATE_SUMMARY");
+    act(() =>
+      useCreatorSessionStore.setState((state) => ({
+        subagentActivities: {
+          ...state.subagentActivities,
+          delegate: {
+            ...state.subagentActivities.delegate,
+            terminalKind: undefined,
+          },
+        },
+      })),
+    );
+    expect(card).toHaveAttribute("data-status", "succeeded");
+    expect(card).toHaveTextContent("已完成");
+    expect(card.querySelector(".agent-activity-indicator")).toHaveAttribute(
+      "data-phase",
+      "completed",
+    );
+  });
+
+  it("anchors the origin plan card after assistant narration inside the same human turn", () => {
+    useAgentDockUiStore.getState().setOpen(true);
+    seedSession("RUNNING", {
+      messages: [
+        msg({ messageId: "user-1", text: "先制定计划" }),
+        asst({
+          messageId: "assistant-1",
+          text: '我会分两步推进。\n```json\n{"action":"plan","summary":"先完成故事规划"}\n```',
+          metadata: {
+            parsedAction: {
+              action: "plan",
+              summary: "先完成故事规划",
+              steps: ["1. 建立 Element", "2、安排重叠关系"],
+              scope: ["timeline:main"],
+            },
+          },
+        }),
+      ],
+      events: [
+        evt("agent.plan", 1, {
+          summary: "先完成故事规划",
+          steps: ["1. 建立 Element", "2、安排重叠关系"],
+          scope: ["timeline:main"],
+        }),
+      ],
+    });
+    renderDock();
+
+    const turn = screen.getByText("先制定计划").closest("[data-agent-turn]");
+    const responseFlow = turn?.querySelector(
+      ":scope > [data-agent-response-flow]",
+    );
+    const narration = screen
+      .getByText("我会分两步推进。")
+      .closest("[data-agent-message]")!;
+    expect(narration.parentElement).toBe(responseFlow);
+    expect(
+      screen.queryByText("执行计划：先完成故事规划"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("建立 Element")).not.toBeInTheDocument();
+    expect(screen.queryByText("安排重叠关系")).not.toBeInTheDocument();
+    expect(screen.queryByText(/"action"/)).not.toBeInTheDocument();
+    expect(
+      responseFlow?.querySelector("[data-agent-thinking]"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("recomputes the live status label on a runtime language switch", async () => {
+    // TC-PL-02 F-1: a runtime locale switch must refresh the memoized
+    // liveStatus label in both directions without a remount.
+    const i18n = (await import("@/i18n")).default;
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+
+    const row = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        "[data-agent-live-status]",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(row.textContent).toContain("随时可以继续创作");
+
+    try {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(row.textContent).toContain("Ready to keep creating");
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh");
+      });
+    }
+    expect(row.textContent).toContain("随时可以继续创作");
+  });
+});
+
+describe("safe provider failure messages", () => {
+  it("explains unsupported temperature without exposing provider details", () => {
+    const message = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3; secret-token /private/path",
+    );
+    expect(message).toContain("temperature");
+    expect(message).not.toContain("secret-token");
+    expect(message).not.toContain("/private/path");
+    expect(message).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("also classifies a Moonshot invalid-temperature refusal", () => {
+    // Moonshot direct calls phrase the refusal as an invalid temperature;
+    // it must map to the same safe hint as the DashScope wording.
+    const invalid = simplifyErrorMessage(
+      "Invalid temperature: this model uses a fixed sampling temperature",
+    );
+    const notSupported = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(invalid).toBe(notSupported);
+    expect(invalid).not.toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+
+  it("does not misread a generic invalid_request_error as a refusal", () => {
+    // Gateways wrap unrelated 400s as ``invalid_request_error``; one that
+    // merely echoes ``temperature`` must fall back to the generic hint, or a
+    // real config error would be masked as an unsupported-temperature refusal.
+    const generic = simplifyErrorMessage(
+      '{"error": {"type": "invalid_request_error", "message": "temperature must be <= 2.0"}}',
+    );
+    const refusal = simplifyErrorMessage(
+      "Parameter 'temperature'=0.2 is not supported for kimi-k3",
+    );
+    expect(generic).not.toBe(refusal);
+    expect(generic).toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+});

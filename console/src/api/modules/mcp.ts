@@ -4,6 +4,8 @@ import type {
   MCPClientCreateRequest,
   MCPClientUpdateRequest,
   MCPToolInfo,
+  MCPAccessPrincipalOption,
+  MCPAccessPolicy,
   MCPOAuthStartRequest,
   MCPOAuthStartResponse,
   MCPOAuthStatusResponse,
@@ -13,7 +15,11 @@ export const mcpApi = {
   /**
    * List all MCP clients
    */
-  listMCPClients: () => request<MCPClientInfo[]>("/mcp"),
+  listMCPClients: (agentId?: string) =>
+    request<MCPClientInfo[]>(
+      "/mcp",
+      agentId ? { headers: { "X-Agent-Id": agentId } } : undefined,
+    ),
 
   /**
    * Get details of a specific MCP client
@@ -60,6 +66,27 @@ export const mcpApi = {
    */
   listMCPTools: (clientKey: string) =>
     request<MCPToolInfo[]>(`/mcp/tools/${encodeURIComponent(clientKey)}`),
+
+  /**
+   * List recent source-scoped principals for MCP access rules.
+   */
+  listMCPAccessPrincipals: () =>
+    request<MCPAccessPrincipalOption[]>("/mcp/access-principals"),
+
+  /**
+   * Get saved MCP access policy. Does not require the MCP server to be online.
+   */
+  getMCPPolicy: (clientKey: string) =>
+    request<MCPAccessPolicy>(`/mcp/policy/${encodeURIComponent(clientKey)}`),
+
+  /**
+   * Update saved MCP access policy. Does not require the MCP server to be online.
+   */
+  updateMCPPolicy: (clientKey: string, body: MCPAccessPolicy) =>
+    request<MCPAccessPolicy>(`/mcp/policy/${encodeURIComponent(clientKey)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   /**
    * Update tool whitelist for an MCP client

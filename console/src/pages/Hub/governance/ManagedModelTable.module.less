@@ -1,0 +1,142 @@
+.catalog {
+  min-width: 0;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  > :first-child {
+    flex: 1;
+    min-width: 140px;
+  }
+  > :global(.qwenpaw-select) {
+    width: 180px;
+  }
+}
+.identity {
+  padding: 4px 0;
+  small {
+    display: block;
+    color: var(--app-text-tertiary);
+    font-size: 12px;
+  }
+  > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}
+.modelName {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+  &:hover {
+    color: var(--app-accent-text);
+  }
+}
+.provider,
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.provider > span {
+  overflow-wrap: anywhere;
+}
+.disabledDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--app-error, #ff4d4f);
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .filters {
+    flex-wrap: wrap;
+    gap: 8px;
+    > :first-child {
+      flex-basis: 100%;
+    }
+    > :global(.qwenpaw-select),
+    > :global(.ant-select) {
+      flex: 1;
+      width: auto;
+    }
+  }
+}
+
+.modelName {
+  min-height: 40px;
+}
+.modelName:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
+}
+.actions :global(.qwenpaw-btn) {
+  min-height: 40px;
+  min-width: 40px;
+}
+@media (max-width: 767px) {
+  .modelName {
+    min-height: 44px;
+  }
+  .actions :global(.qwenpaw-btn) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+.catalog :global(.qwenpaw-table) {
+  font-size: 14px;
+}
+.catalog :global(.qwenpaw-table-thead) > tr > th {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.catalog :global(.qwenpaw-table-container) {
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.catalog :global(.qwenpaw-table-tbody) > tr > td {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+.catalog :global(.qwenpaw-table-thead) > tr > th {
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+}
+.identity small {
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+// The catalog is one quiet card; rows remain dense enough to compare.
+.catalog :global(.qwenpaw-table-container),
+.catalog :global(.ant-table-container) {
+  border: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: var(--model-shadow);
+}
+.catalog :global(.qwenpaw-table),
+.catalog :global(.ant-table) {
+  background: var(--model-card, var(--app-surface));
+}
+.catalog :global(.ant-table-tbody) > tr > td {
+  padding: 18px 16px;
+}
+.catalog :global(.ant-table-thead) > tr > th {
+  background: var(--model-inset, var(--app-surface-subtle));
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}

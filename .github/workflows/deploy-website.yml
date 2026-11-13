@@ -3,9 +3,25 @@
 name: Deploy website to GitHub Pages
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "website/evaluation/**"
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to build/deploy (empty = the triggering ref)"
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Stub the GitHub Pages push (fork verification)"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -17,13 +33,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Deploy on: stable releases OR manual workflow_dispatch
+    # Deploy on result updates, stable releases, or manual workflow_dispatch
     if: >-
+      github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       github.event.release.prerelease == false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -33,7 +52,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version-file: .nvmrc
           cache: "pnpm"
           cache-dependency-path: website/pnpm-lock.yaml
 
@@ -45,6 +64,8 @@ jobs:
         working-directory: website
         env:
           VITE_BASE_PATH: "/"
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: pnpm run build
 
       - name: Generate contributors_data.json
@@ -131,8 +152,14 @@ jobs:
         run: cp website/dist/index.html website/dist/404.html
 
       - name: Deploy to GitHub Pages
+        if: ${{ !inputs.dry_run }}
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: website/dist
           cname: qwenpaw.agentscope.io
+
+      - name: Dry-run notice
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY-RUN: would deploy website/dist to GitHub Pages (cname qwenpaw.agentscope.io)"

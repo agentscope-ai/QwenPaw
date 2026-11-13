@@ -5,7 +5,20 @@
       flex-direction: column;
       height: 100%;
       overflow: hidden;
-      background-color: var(--colorBgBase, #fff);
+      background-color: var(--app-surface);
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  .drawer {
+    :global {
+      .qwenpaw-drawer-content {
+        border-radius: 0 !important;
+      }
+      .qwenpaw-drawer-mask {
+        background: rgba(0, 0, 0, 0.45) !important;
+      }
     }
   }
 }
@@ -16,7 +29,7 @@
   align-items: center;
   padding: 16px 16px 16px 20px;
   gap: 8px;
-  background-color: var(--colorBgBase, #fff);
+  background-color: var(--app-surface);
   flex-shrink: 0;
 }
 
@@ -31,7 +44,7 @@
   font-size: 16px;
   font-weight: 500;
   line-height: 32px;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
 }
 
 .headerRight {
@@ -60,7 +73,7 @@
 .resultsCount {
   flex-shrink: 0;
   padding: 8px 16px;
-  border-bottom: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  border-bottom: 1px solid var(--app-border);
 }
 
 /* Session list wrapper */
@@ -95,7 +108,7 @@
   height: 28px;
   background: linear-gradient(
     180deg,
-    var(--colorBgBase, #fff) 0%,
+    var(--app-surface) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -111,7 +124,7 @@
   height: 28px;
   background: linear-gradient(
     0deg,
-    var(--colorBgBase, #fff) 0%,
+    var(--app-surface) 0%,
     rgba(255, 255, 255, 0) 100%
   );
   z-index: 1;
@@ -123,12 +136,12 @@
   padding: 12px;
   border-radius: 8px;
   margin-bottom: 8px;
-  background: var(--colorBgContainer, #fff);
+  background: var(--app-surface);
   cursor: pointer;
   transition: background-color 0.2s;
 
   &:hover {
-    background: var(--colorBgTextHover, rgba(0, 0, 0, 0.04));
+    background: var(--app-fill-subtle);
   }
 }
 
@@ -143,7 +156,7 @@
 .resultChatName {
   font-size: 13px;
   font-weight: 500;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -153,88 +166,56 @@
 .resultRole {
   font-size: 12px;
   font-weight: 500;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   padding: 2px 8px;
   border-radius: 4px;
-  background: var(--colorBgContainer, rgba(0, 0, 0, 0.02));
+  background: var(--app-fill-faint);
   flex-shrink: 0;
 }
 
 .resultContent {
   font-size: 13px;
-  color: var(--colorText, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
   line-height: 1.5;
 }
 
 .resultTime {
   font-size: 12px;
-  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.45));
+  color: var(--app-text-tertiary);
   margin-top: 6px;
 }
 
 /* Dark mode */
+
+/* Dark-only. The fade overlays need a colour-matched fully transparent end,
+ * which a token cannot express, so the stop stays per theme. The search field
+ * relies on antd's own surface in light mode and only gets an explicit one
+ * here. */
 :global(.dark-mode) {
-  .drawer {
-    :global {
-      .qwenpaw-drawer-body {
-        background-color: #1f1f1f;
-      }
-    }
-  }
-
-  .header {
-    background-color: #1f1f1f;
-  }
-
-  .headerTitle {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
   .searchInput {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.15);
+    background: var(--app-fill-subtle);
+    border-color: var(--app-border-strong);
 
     :global {
       .ant-input {
-        color: rgba(255, 255, 255, 0.85);
+        color: var(--app-text);
       }
     }
   }
 
-  .resultsCount {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
   .topGradient {
-    background: linear-gradient(180deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
+    background: linear-gradient(
+      180deg,
+      var(--app-surface) 0%,
+      rgba(31, 31, 31, 0) 100%
+    );
   }
 
   .bottomGradient {
-    background: linear-gradient(0deg, #1f1f1f 0%, rgba(31, 31, 31, 0) 100%);
-  }
-
-  .searchResultItem {
-    background: rgba(255, 255, 255, 0.04);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.08);
-    }
-  }
-
-  .resultRole {
-    color: rgba(255, 255, 255, 0.5);
-    background: rgba(255, 255, 255, 0.06);
-  }
-
-  .resultChatName {
-    color: rgba(255, 255, 255, 0.95);
-  }
-
-  .resultContent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .resultTime {
-    color: rgba(255, 255, 255, 0.45);
+    background: linear-gradient(
+      0deg,
+      var(--app-surface) 0%,
+      rgba(31, 31, 31, 0) 100%
+    );
   }
 }

@@ -7,6 +7,7 @@ ensure fixes (e.g. TimeoutException handling) apply everywhere.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from http.server import BaseHTTPRequestHandler
@@ -15,7 +16,35 @@ from typing import Any
 
 import httpx
 
-PLUGIN_HTTP_TIMEOUT = 60.0
+
+def default_http_timeout(default: float = 15.0) -> float:
+    """Return the per-request HTTP timeout for integration tests.
+
+    Falls back to ``default`` unless the
+    ``QWENPAW_INTEGRATION_HTTP_TIMEOUT`` environment variable is set,
+    in which case the returned value is ``max(env, default)`` — i.e.
+    the env acts as a *floor* and never shortens a per-module default
+    that already chose a longer timeout (e.g. plugin/console paths).
+
+    Use this in module-level constants so a slow runner (Windows
+    nightly in particular) can lift every HTTP call's timeout in one
+    place without each module having to opt in.
+    """
+    raw = os.environ.get("QWENPAW_INTEGRATION_HTTP_TIMEOUT")
+    if raw:
+        try:
+            return max(float(raw), default)
+        except ValueError:
+            return default
+    return default
+
+
+def app_startup_wait_timeout() -> float:
+    """Return the maximum wait for the integration app to become ready."""
+    return default_http_timeout(60.0)
+
+
+PLUGIN_HTTP_TIMEOUT = default_http_timeout(60.0)
 LOADER_READY_TIMEOUT = 20.0
 AGENT_SCOPED_PREFIX = "/api/agents"
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,16 +72,22 @@ def create_agent(app_server, agent_id: str) -> None:
         },
     )
     assert resp.status_code == 201, app_server.logs_tail()
+    assert wait_for_agent_startup(app_server, agent_id) == "running"
 
 
 def delete_agent_quietly(app_server, agent_id: str) -> None:
-    try:
-        app_server.api_request(
-            "DELETE",
-            f"/api/agents/{agent_id}",
-        )
-    except Exception:
-        pass
+    deadline = time.time() + 30.0
+    while time.time() < deadline:
+        try:
+            response = app_server.api_request(
+                "DELETE",
+                f"/api/agents/{agent_id}",
+            )
+            if response.status_code != 409:
+                return
+        except Exception:
+            return
+        time.sleep(0.1)
 
 
 def toggle_agent(app_server, agent_id: str, enabled: bool):
@@ -61,6 +96,34 @@ def toggle_agent(app_server, agent_id: str, enabled: bool):
         "PATCH",
         f"/api/agents/{agent_id}/toggle",
         json={"enabled": enabled},
+    )
+
+
+def wait_for_agent_startup(
+    app_server,
+    agent_id: str,
+    *,
+    timeout: float = 30.0,
+) -> str:
+    """Wait for an agent to leave the pending and starting states."""
+    deadline = time.time() + timeout
+    last_status = "missing"
+    while time.time() < deadline:
+        response = app_server.api_request("GET", "/api/agents")
+        if response.status_code == 200:
+            agents = response.json().get("agents", [])
+            agent = next(
+                (item for item in agents if item.get("id") == agent_id),
+                None,
+            )
+            if agent is not None:
+                last_status = agent.get("startup_status", "missing")
+                if last_status not in {"pending", "starting"}:
+                    return last_status
+        time.sleep(0.1)
+    raise AssertionError(
+        f"Agent '{agent_id}' did not finish startup; "
+        f"last status: {last_status}",
     )
 
 
@@ -234,9 +297,103 @@ def make_event(
 # Mock LLM server
 # ------------------------------------------------------------------ #
 
+# ------------------------------------------------------------------ #
+# Cron history polling helpers (with disk + log fallback)
+# ------------------------------------------------------------------ #
+
+_CRON_HISTORY_HTTP_TIMEOUT = default_http_timeout()
+
+
+def poll_history(app_server, job_id, deadline, *, min_count=1):
+    """Poll ``GET /api/cron/jobs/{id}/history`` until records arrive."""
+    while time.time() < deadline:
+        resp = app_server.api_request(
+            "GET",
+            f"/api/cron/jobs/{job_id}/history",
+            timeout=_CRON_HISTORY_HTTP_TIMEOUT,
+        )
+        if resp.status_code == 200:
+            records = resp.json()
+            if isinstance(records, list) and len(records) >= min_count:
+                return records
+        time.sleep(1.0)
+    return []
+
+
+def _read_history_from_disk(app_server, job_id):
+    """Read on-disk jobs_history/<job>.json if present."""
+    from urllib.parse import quote
+
+    encoded = quote(job_id, safe="")
+    # JsonJobRepository writes to <workspaces>/<agent_id>/jobs_history/.
+    # We don't know the agent_id from the test, so glob.
+    for path in app_server.working_dir.rglob(
+        f"jobs_history/{encoded}.json",
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, list) and data:
+            return data
+    return []
+
+
+def wait_cron_executed(app_server, job_id, deadline):
+    """Wait for cron job to execute, with disk + log fallback.
+
+    Upstream has a known race in ``CronManager.get_history``: when an
+    agent reload swaps in a new ``CronManager`` instance, the new
+    instance's per-job in-memory cache may store an empty list before
+    the (still-running) cron task on the old instance writes to disk;
+    subsequent GETs hit the cache and return ``[]`` forever even though
+    the cron actually succeeded. See
+    ``localfile/bug_report_cron_history_cache.md`` for the full report.
+
+    Fallback order:
+        1. HTTP poll (preferred — same shape the production console
+           uses).
+        2. Read ``<working_dir>/**/jobs_history/<urlquoted_id>.json``
+           directly — the cron task still writes to disk, only the
+           per-instance cache is poisoned. Records have the real
+           ``run_at`` / ``status`` / ``error`` / ``trigger`` fields.
+        3. Scan server logs for the ``_execute_once`` line as a last
+           resort and return a synthetic record. Use this only when
+           the test only inspects ``status``.
+
+    Returns ``[]`` when none of the three signals appears before
+    ``deadline``.
+    """
+    records = poll_history(app_server, job_id, deadline)
+    if records:
+        return records
+
+    # Disk fallback — gives the real record shape.
+    disk_records = _read_history_from_disk(app_server, job_id)
+    if disk_records:
+        return disk_records
+
+    # Log fallback — only carries ``status``.
+    logs = app_server.logs_tail(40000)
+    success_marker = f"_execute_once: job_id={job_id} status=success"
+    failure_marker = f"_execute_once: job_id={job_id} status="
+    if success_marker in logs:
+        return [{"status": "success", "_via": "logs"}]
+    if failure_marker in logs:
+        idx = logs.find(failure_marker)
+        tail = logs[idx + len(failure_marker) :]
+        status = tail.split()[0] if tail else "error"
+        return [{"status": status, "_via": "logs"}]
+    return []
+
+
+# ------------------------------------------------------------------ #
+# MockLLMHandler (HTTPServer handler)
+# ------------------------------------------------------------------ #
+
 MOCK_LLM_RESPONSE = "Mock heartbeat response from integration test."
 MOCK_LLM_PROVIDER_ID = "integ-mock-llm"
-_HTTP_TIMEOUT = 15.0
+_HTTP_TIMEOUT = default_http_timeout()
 
 
 class MockLLMHandler(BaseHTTPRequestHandler):
@@ -304,6 +461,17 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         has_tool_result = any(m.get("role") == "tool" for m in messages)
         force_tc = getattr(self.server, "force_tool_call", False)
 
+        # Optional gate: only force the tool call when this marker is in
+        # a user message.  Needed for tools that start a *new* agent
+        # conversation (spawn_subagent): without a gate the subagent's
+        # own turn would be forced to call the same tool and recurse.
+        marker = getattr(self.server, "force_tool_call_user_marker", None)
+        if force_tc and marker:
+            force_tc = any(
+                m.get("role") == "user" and marker in str(m.get("content", ""))
+                for m in messages
+            )
+
         if force_tc and tools and not has_tool_result:
             self._stream_tool_call()
         elif has_tool_result:
@@ -318,7 +486,8 @@ class MockLLMHandler(BaseHTTPRequestHandler):
             )
             self._stream_text(text)
         else:
-            self._stream_text(MOCK_LLM_RESPONSE)
+            override = getattr(self.server, "response_text", None)
+            self._stream_text(override or MOCK_LLM_RESPONSE)
 
     def _respond_error(self, status_code: int = 422):
         self.send_response(status_code)
@@ -527,6 +696,7 @@ def register_mock_provider(app_server, mock_url: str) -> str:
         json={
             "api_key": "test-key-mock",
             "base_url": mock_url,
+            "auto_discover": False,
         },
         timeout=_HTTP_TIMEOUT,
     )

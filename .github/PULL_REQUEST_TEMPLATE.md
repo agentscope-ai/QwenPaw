@@ -18,7 +18,7 @@
 
 - [ ] Core / Backend (app, agents, config, providers, utils, local_models)
 - [ ] Console (frontend web UI)
-- [ ] Channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.)
+- [ ] Channels (DingTalk, Lark, QQ, Discord, iMessage, etc.)
 - [ ] Skills
 - [ ] CLI
 - [ ] Documentation (website)
@@ -34,19 +34,33 @@
 - [ ] Documentation updated (if needed)
 - [ ] Ready for review
 
-### For Channel Changes (DingTalk, Feishu, QQ, Console, etc.)
+### For Channel Changes (DingTalk, Lark, QQ, Console, etc.)
 
 - [ ] I ran `./scripts/check-channels.sh` (or `./scripts/check-channels.sh --changed`) and it passes
-- [ ] **Contract test** exists in `tests/contract/channels/test_<channel>_contract.py` (REQUIRED)
-- [ ] Contract test implements `create_instance()` with proper channel initialization
-- [ ] All 19 contract verification points pass (see `tests/contract/channels/__init__.py`)
-- [ ] **Optional**: Unit tests in `tests/unit/channels/test_<channel>.py` for complex internal logic
+- [ ] Official channel changes are covered in `tests/unit/channels/test_<channel>.py` (startup, shutdown and message delivery)
+- [ ] Shared host/process changes are covered in `test_channel_host.py` / `tests/unit/plugins/test_plugin_process.py`
+- [ ] Console changes retain the built-in contract checks in `tests/contract/channels/`
 
 ## Testing
 
 [How to test these changes]
 
-## Local Verification Evidence
+## Evidence
+
+<!-- Required for external contributors. The CI "Real behavior proof" check
+     will block your PR if this section is missing or empty. Template
+     comments (like this one) do NOT count as evidence.
+
+     Keep the section headings "## Description" and "## Evidence" verbatim
+     — the CI check matches these headings by name. If you rename them,
+     your PR will be flagged as missing context even if you filled in the
+     content. -->
+
+Examples of valid evidence:
+- Terminal transcript of the test run (e.g. `pytest tests/unit/app/chats/ -q` output)
+- Screenshot of the Console UI showing the fix
+- CI artifact link
+- `pre-commit run --all-files` summary
 
 ```bash
 pre-commit run --all-files

@@ -156,44 +156,44 @@ jobs:
               return 'th';
             }
 
-            // Count user's total PRs in this repo using search API
+            // Count submissions, regardless of open/closed/merged state.
+            // List by creator to avoid Search API indexing delays. Issues are
+            // returned too, so only count entries with a pull_request field.
             let prCount = 0;
             let hasValidPRCount = false;
             try {
-              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author}`,
-              });
-              prCount = searchResult.total_count;
+              const submissions = await github.paginate(
+                github.rest.issues.listForRepo,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  creator: author,
+                  state: 'all',
+                  sort: 'created',
+                  direction: 'asc',
+                  per_page: 100,
+                },
+              );
+              // Add the event PR explicitly, even if it is not listed yet.
+              // Exclude later PRs so delayed runs retain this PR's ordinal.
+              prCount = 1 + submissions.filter(issue =>
+                issue.pull_request && issue.number < prNumber
+              ).length;
               hasValidPRCount = true;
             } catch (err) {
               console.log(`Could not get PR count for ${author}, will skip count display`);
-              hasValidPRCount = false;
             }
 
-            // Check if this is user's first PR (for labeling)
-            let isFirstPR = false;
-            try {
-              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr author:${author} is:closed`,
+            // Use the same submission count for both the label and greeting.
+            const isFirstPR = hasValidPRCount && prCount === 1;
+            if (isFirstPR) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: ['first-time-contributor'],
               });
-              isFirstPR = searchResult.total_count === 0;
-
-              // Add first-time-contributor label only for first PR
-              if (isFirstPR) {
-                await github.rest.issues.addLabels({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: prNumber,
-                  labels: ['first-time-contributor'],
-                });
-                console.log(`Labeled PR #${prNumber} as first-time-contributor`);
-              }
-            } catch (err) {
-              if (err.status === 422 && err.message && err.message.includes('cannot be searched')) {
-                console.log(`Search API cannot look up author ${author}, continuing without label`);
-              } else {
-                throw err;
-              }
+              console.log(`Labeled PR #${prNumber} as first-time-contributor`);
             }
 
             // Check if user has starred the repo by listing user's starred

@@ -61,17 +61,17 @@ class TestDebugPageDisplay:
         log_test_step("1. Navigate to Debug page")
         navigate_to_debug(page)
 
-        log_test_step("2. Verify page description Alert")
-        info_alert = page.locator('.qwenpaw-alert-info, .qwenpaw-alert').first
-        expect(info_alert).to_be_visible(timeout=5000)
-        alert_text = info_alert.inner_text()
-        debug_keywords = ["Debug", "debug", "调试", "日志", "log", "diagnose", "排查"]
-        assert any(kw in alert_text for kw in debug_keywords), \
-            f"Alert should contain debug-related description, actual: {alert_text[:100]}"
-        logger.info(f"Page description Alert visible: {alert_text[:80]}")
+        log_test_step("2. Verify Debug breadcrumb")
+        breadcrumb = page.locator(
+            'span[class*="breadcrumbCurrent"]:has-text("Debug"), '
+            'span[class*="breadcrumbCurrent"]:has-text("调试")'
+        ).first
+        expect(breadcrumb).to_be_visible(timeout=5000)
 
         log_test_step("3. Verify backend log card")
-        log_card = page.locator('.qwenpaw-card').first
+        log_card = page.locator('.qwenpaw-card').filter(
+            has_text="Backend logs"
+        ).first
         expect(log_card).to_be_visible(timeout=5000)
         card_title = log_card.locator('.qwenpaw-card-head-title').first
         if card_title.is_visible(timeout=3000):
@@ -81,12 +81,13 @@ class TestDebugPageDisplay:
             logger.info("Log card visible")
 
         log_test_step("4. Verify log content area")
-        log_content = page.locator('[style*="monospace"], [style*="pre-wrap"]').first
-        if log_content.is_visible(timeout=5000):
-            content_text = log_content.inner_text()
-            logger.info(f"Log content area visible, length: {len(content_text)}")
-        else:
-            logger.info("Log content area may be empty or use other styling")
+        log_content = page.locator(
+            '[role="region"][aria-label="Backend logs"], '
+            '[role="region"][aria-label="后端日志"]'
+        ).first
+        expect(log_content).to_be_visible(timeout=5000)
+        content_text = log_content.inner_text()
+        logger.info(f"Log content area visible, length: {len(content_text)}")
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

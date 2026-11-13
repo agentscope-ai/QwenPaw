@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """CLI commands for managing LLM providers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +9,7 @@ from typing import Optional
 
 import click
 
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     AppBaseException,
 )
 
@@ -206,14 +207,24 @@ def configure_provider_api_key_interactive(
             base_url = None
 
     if not defn.require_api_key:
+        if base_url is not None and not manager.update_provider(
+            provider_id,
+            {"base_url": base_url},
+        ):
+            raise click.ClickException("Failed to update provider base URL.")
         click.echo(
             f"{defn.name} does not require API key configuration. Skipping.",
         )
         return provider_id
 
-    hint = (
-        f"prefix: {defn.api_key_prefix}" if defn.api_key_prefix else "optional"
+    prefixes = (
+        defn.api_key_prefixes
+        if defn.api_key_prefixes
+        else [defn.api_key_prefix]
+        if defn.api_key_prefix
+        else []
     )
+    hint = f"prefix: {', '.join(prefixes)}" if prefixes else "optional"
     api_key = click.prompt(
         f"API key ({hint})",
         default=current_key or "",
@@ -262,8 +273,7 @@ def _add_models_interactive(provider_id: str) -> None:
     if provider_id == "ollama":
         return
 
-    extra = list(defn.extra_models)
-    all_models = list(defn.models) + extra
+    all_models = defn.all_models()
 
     if all_models:
         click.echo(f"\nCurrent models for {defn.name}:")
@@ -321,7 +331,16 @@ def _pick_model_free_text(prompt_text: str, current_model: str = "") -> str:
 
 
 def _filter_eligible(all_providers: list[Provider]) -> list[Provider]:
-    return [d for d in all_providers if _is_configured(d)]
+    return [
+        d
+        for d in all_providers
+        if _is_configured(d)
+        and d.chat_model
+        and (
+            not d.all_models()
+            or any(m.model_type == "chat" for m in d.all_models())
+        )
+    ]
 
 
 def _select_llm_model(defn, pid, current_slot, *, use_defaults):
@@ -332,11 +351,38 @@ def _select_llm_model(defn, pid, current_slot, *, use_defaults):
         else ""
     )
 
-    extra = list(defn.extra_models)
-    all_models = list(defn.models) + extra
+    all_models = [m for m in defn.all_models() if m.model_type == "chat"]
 
     if use_defaults:
         return cur or (all_models[0].id if all_models else "")
+
+    if pid == "ollama":
+        manager = _manager()
+        discovery = asyncio.run(
+            manager.discover_provider_models(pid, save=False),
+        )
+        models = [m for m in discovery.models if m.model_type == "chat"]
+        if not discovery.success or not models:
+            reason = (
+                f"Cannot discover Ollama models: {discovery.error}"
+                if not discovery.success
+                else "Ollama returned no chat models."
+            )
+            if not all_models:
+                raise click.ClickException(reason)
+            click.echo(f"{reason} Using configured models.", err=True)
+            models = all_models
+        selected = _pick_model_from_list(
+            models,
+            "Select LLM model:",
+            current_model=cur,
+        )
+        # Discovery candidates are not configured models. Persist only the
+        # user's selection, preserving overrides on an existing model.
+        if defn.get_model_info(selected) is None:
+            model = next(m for m in models if m.id == selected)
+            asyncio.run(manager.add_model_to_provider(pid, model))
+        return selected
 
     if all_models:
         return _pick_model_from_list(
@@ -412,19 +458,19 @@ def configure_llm_slot_interactive(*, use_defaults: bool = False) -> None:
             click.style(f"Error: provider '{pid}' not found.", fg="red"),
         )
         raise SystemExit(1)
-    model = _select_llm_model(
-        defn,
-        pid,
-        current_slot,
-        use_defaults=use_defaults,
-    )
-    if not model and use_defaults:
-        click.echo(
-            f"No default model for {defn.name}. "
-            "Run 'qwenpaw models config' to set one.",
-        )
-        return
     try:
+        model = _select_llm_model(
+            defn,
+            pid,
+            current_slot,
+            use_defaults=use_defaults,
+        )
+        if not model and use_defaults:
+            click.echo(
+                f"No default model for {defn.name}. "
+                "Run 'qwenpaw models config' to set one.",
+            )
+            return
         asyncio.run(manager.activate_model(pid, model))
     except (ValueError, AppBaseException) as exc:
         if use_defaults:
@@ -513,16 +559,22 @@ def list_cmd() -> None:
                 f"  {'api_key':16s}: "
                 f"{_mask_api_key(cur_key) or '(not set)'}",
             )
-            if defn.api_key_prefix:
+            prefixes = (
+                defn.api_key_prefixes
+                if defn.api_key_prefixes
+                else [defn.api_key_prefix]
+                if defn.api_key_prefix
+                else []
+            )
+            if prefixes:
                 click.echo(
-                    f"  {'api_key_prefix':16s}: {defn.api_key_prefix}",
+                    f"  {'api_key_prefix':16s}: {', '.join(prefixes)}",
                 )
 
-            extra = list(defn.extra_models)
-            all_models = list(defn.models) + extra
+            all_models = defn.all_models()
             if all_models:
                 click.echo(f"  {'models':16s}:")
-                extra_ids = {m.id for m in extra}
+                extra_ids = {m.id for m in defn.extra_models}
                 for m in all_models:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")

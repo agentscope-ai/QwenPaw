@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 """Approval service for sensitive tool execution.
 
-The ``ApprovalService`` is the single central store for pending /
-completed approval records.  Approval is granted exclusively via
-the ``/daemon approve`` command in the chat interface.
+The ``ApprovalService`` is the single central store for pending and completed
+approval records. Decisions can arrive from chat control commands, the
+authenticated Console API, or ACP permission prompts; identity policy is
+enforced here so every resolution surface shares the same boundary.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -12,10 +14,13 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from ...constant import TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS
-from ...security.tool_guard.approval import ApprovalDecision
+from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
+from .models import ApprovalRequestSummary
+from ...plugins._events import approval_changed as _sdk_approval_changed
 
 if TYPE_CHECKING:
     from ...security.tool_guard.models import ToolGuardResult
@@ -26,6 +31,34 @@ _GC_MAX_AGE_SECONDS = 3600.0
 _GC_MAX_COMPLETED = 500
 _GC_PENDING_MAX_AGE_SECONDS = 1800.0
 _GC_MAX_PENDING = 200
+
+
+class ApprovalIdentityPolicy(str, Enum):
+    """Identity boundary applied when an approval is resolved.
+
+    ``AGENT`` preserves the established tool/subagent delegation model.
+    ``EXACT_REQUESTER`` is for user-triggered side effects: the resolver must
+    match every request identity field, unless it is explicitly an admin.
+    """
+
+    AGENT = "agent"
+    EXACT_REQUESTER = "exact_requester"
+
+
+@dataclass(frozen=True)
+class ApprovalActor:
+    """Identity of the caller attempting to resolve an approval."""
+
+    session_id: str
+    root_session_id: str
+    user_id: str
+    channel: str
+    agent_id: str
+    is_admin: bool = False
+
+
+class ApprovalIdentityMismatchError(PermissionError):
+    """Raised when a caller crosses an approval's identity boundary."""
 
 
 # ------------------------------------------------------------------
@@ -54,6 +87,25 @@ class PendingApproval:
     findings_count: int = 0
     severity: str = "medium"  # For frontend display
     extra: dict[str, Any] = field(default_factory=dict)
+    # Resolution authorization. Most existing tool approvals are agent-scoped;
+    # direct user-triggered side effects can opt into exact requester matching.
+    identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT
+    # How widely the approved call should be remembered (EXACT vs SIMILAR).
+    # Set by ``resolve_request`` from the approve path; ``None`` means the
+    # caller didn't choose (IM channels, CLI, non-governance paths) and is
+    # treated as EXACT by the governance consumer. Only meaningful when the
+    # decision is APPROVED.
+    scope: ApprovalScope | None = None
+
+
+def _is_spawn_child_approval(pending: PendingApproval) -> bool:
+    """Return whether this approval belongs to a same-agent spawned child."""
+    return bool(
+        pending.extra.get("_spawn_subagent")
+        and pending.agent_id == pending.owner_agent_id
+        and pending.session_id != pending.root_session_id
+        and pending.root_session_id,
+    )
 
 
 # ------------------------------------------------------------------
@@ -64,18 +116,64 @@ class PendingApproval:
 class ApprovalService:
     """Global singleton approval service.
 
-    Manages all tool approval requests across sessions and agents.
-    Approval is resolved via ``/approval`` control command.
+    Manages approval requests across sessions and agents and applies their
+    identity policy atomically when any supported surface resolves them.
     """
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._pending: dict[str, PendingApproval] = {}
-        self._channel_manager: Any | None = None
+        self._channel_managers: dict[str, Any] = {}
 
-    def set_channel_manager(self, channel_manager: Any) -> None:
-        """Store a reference to the channel manager for push notifications."""
-        self._channel_manager = channel_manager
+    def set_channel_manager(
+        self,
+        channel_manager: Any,
+        agent_id: str = "default",
+    ) -> None:
+        """Register an agent's channel manager for spawned-child routing."""
+        self._channel_managers[agent_id] = channel_manager
+
+    async def _notify_channel(
+        self,
+        pending: PendingApproval,
+        channel_body: str,
+    ) -> None:
+        """Fire-and-forget: push approval notification to channel."""
+        if not pending.channel or pending.channel == "console":
+            return
+        is_spawn_child = _is_spawn_child_approval(pending)
+        try:
+            channel_instance = (pending.extra or {}).get("_channel_instance")
+            if is_spawn_child:
+                channel_manager = self._channel_managers.get(pending.agent_id)
+                if channel_manager is None:
+                    return
+                channel_instance = await channel_manager.get_channel(
+                    pending.channel,
+                )
+            if channel_instance is None:
+                return
+            channel_meta = (pending.extra or {}).get("channel_meta")
+            delivery_session_id = (
+                pending.root_session_id
+                if is_spawn_child
+                else pending.session_id
+            )
+            await channel_instance.send_approval_notification(
+                session_id=delivery_session_id,
+                user_id=pending.user_id,
+                request_id=pending.request_id,
+                tool_name=pending.tool_name,
+                severity=pending.severity,
+                result_summary=channel_body,
+                channel_meta=channel_meta,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to push approval notification: request_id=%s",
+                pending.request_id[:8],
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Core approval lifecycle
@@ -94,9 +192,13 @@ class ApprovalService:
         result: "ToolGuardResult",
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
+        identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
-        from ...security.tool_guard.approval import format_findings_summary
+        from ...security.tool_guard.approval import (
+            format_channel_approval_body,
+            format_findings_summary,
+        )
 
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
@@ -117,11 +219,13 @@ class ApprovalService:
             findings_count=result.findings_count,
             severity=result.max_severity.value,
             extra=dict(extra or {}),
+            identity_policy=identity_policy,
         )
 
         async with self._lock:
             self._pending[request_id] = pending
             self._gc_pending_locked()
+            _sdk_approval_changed(pending)
 
         logger.info(
             "Approval pending created: request_id=%s agent_id=%s tool=%s "
@@ -134,16 +238,116 @@ class ApprovalService:
             root_session_id[:8],
         )
 
+        if (
+            channel
+            and channel != "console"
+            and (
+                (extra or {}).get("_channel_instance")
+                or _is_spawn_child_approval(pending)
+            )
+        ):
+            channel_body = format_channel_approval_body(result)
+            asyncio.create_task(
+                self._notify_channel(pending, channel_body),
+                name=f"approval-notify-{request_id[:8]}",
+            )
+
+        return pending
+
+    async def create_pending_summary(
+        self,
+        *,
+        session_id: str,
+        root_session_id: str,
+        owner_agent_id: str,
+        user_id: str,
+        channel: str,
+        agent_id: str,
+        summary: ApprovalRequestSummary,
+        timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
+        extra: dict[str, Any] | None = None,
+        identity_policy: ApprovalIdentityPolicy = ApprovalIdentityPolicy.AGENT,
+    ) -> PendingApproval:
+        """Create a pending approval from a generic summary."""
+        request_id = str(uuid.uuid4())
+        loop = asyncio.get_running_loop()
+        merged_extra = {
+            "source_type": summary.source_type,
+            **summary.payload,
+            **dict(extra or {}),
+        }
+        pending = PendingApproval(
+            request_id=request_id,
+            session_id=session_id,
+            root_session_id=root_session_id,
+            owner_agent_id=owner_agent_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=agent_id,
+            tool_name=summary.name,
+            created_at=time.time(),
+            future=loop.create_future(),
+            timeout_seconds=timeout_seconds,
+            result_summary=summary.result_summary,
+            findings_count=summary.findings_count,
+            severity=summary.severity,
+            extra=merged_extra,
+            identity_policy=identity_policy,
+        )
+        async with self._lock:
+            self._pending[request_id] = pending
+            self._gc_pending_locked()
+            _sdk_approval_changed(pending)
+        logger.info(
+            "Generic approval pending created: request_id=%s agent_id=%s "
+            "name=%s source=%s session=%s root=%s",
+            request_id[:8],
+            agent_id,
+            summary.name,
+            summary.source_type,
+            session_id[:8],
+            root_session_id[:8],
+        )
+
+        if (
+            channel
+            and channel != "console"
+            and (
+                (extra or {}).get("_channel_instance")
+                or _is_spawn_child_approval(pending)
+            )
+        ):
+            asyncio.create_task(
+                self._notify_channel(pending, pending.result_summary),
+                name=f"approval-notify-{request_id[:8]}",
+            )
+
         return pending
 
     async def resolve_request(
         self,
         request_id: str,
         decision: ApprovalDecision,
+        scope: ApprovalScope | None = None,
+        *,
+        actor: ApprovalActor | None = None,
     ) -> PendingApproval | None:
-        """Resolve pending approval by setting Future result."""
+        """Resolve pending approval by setting Future result.
+
+        Args:
+            scope: how widely an APPROVED call should be remembered
+                (EXACT vs SIMILAR). Stashed on ``pending.scope`` so the
+                governance consumer can pick the rule target. ``None`` is
+                treated as EXACT. Ignored for non-APPROVED decisions.
+            actor: caller identity used by policies stricter than ``AGENT``.
+                Exact-requester approvals reject missing or mismatched actors.
+                Automatic timeout resolution is the only actor-free exception.
+
+        Returns None if another resolver won or the request expired.
+        Expired requests resolve to TIMEOUT even when an approval arrives.
+        """
         async with self._lock:
-            pending = self._pending.pop(request_id, None)
+            pending = self._pending.get(request_id)
             if pending is None:
                 logger.warning(
                     "Approval request %s not found (already resolved?)",
@@ -151,21 +355,67 @@ class ApprovalService:
                 )
                 return None
 
+            if (
+                pending.identity_policy
+                == ApprovalIdentityPolicy.EXACT_REQUESTER
+                and decision != ApprovalDecision.TIMEOUT
+                and not self.actor_can_resolve(pending, actor)
+            ):
+                raise ApprovalIdentityMismatchError(
+                    "approval caller does not match the original requester",
+                )
+
+            expired = (
+                time.time() >= pending.created_at + pending.timeout_seconds
+            )
+            if expired:
+                decision = ApprovalDecision.TIMEOUT
+                scope = None
+
+            self._pending.pop(request_id)
             pending.status = decision.value
             pending.resolved_at = time.time()
+            pending.scope = scope
 
         # Set Future result outside lock
         if not pending.future.done():
             pending.future.set_result(decision)
+        _sdk_approval_changed(pending)
 
         logger.info(
-            "Approval request %s resolved: decision=%s tool=%s",
+            "Approval request %s resolved: decision=%s scope=%s tool=%s",
             request_id[:8],
             decision.value,
+            scope.value if scope else "exact(default)",
             pending.tool_name,
         )
 
-        return pending
+        return None if expired else pending
+
+    @staticmethod
+    def actor_can_resolve(
+        pending: PendingApproval,
+        actor: ApprovalActor | None,
+    ) -> bool:
+        """Return whether ``actor`` may resolve ``pending``.
+
+        Agent-scoped approvals retain their existing resolver behavior. Exact
+        approvals require the original request identity unless an admin is
+        represented explicitly.
+        """
+        if pending.identity_policy == ApprovalIdentityPolicy.AGENT:
+            return actor is None or actor.agent_id == pending.agent_id
+        if actor is None:
+            return False
+        if actor.is_admin:
+            return True
+        return (
+            actor.agent_id == pending.agent_id
+            and actor.user_id == pending.user_id
+            and actor.channel == pending.channel
+            and actor.session_id == pending.session_id
+            and actor.root_session_id == pending.root_session_id
+        )
 
     async def get_request(self, request_id: str) -> PendingApproval | None:
         """Get a pending request by id."""
@@ -269,13 +519,13 @@ class ApprovalService:
 
     async def wait_for_approval(
         self,
-        request_id: str,
+        request_id: str | PendingApproval,
         timeout_seconds: float,
     ) -> ApprovalDecision:
         """Block and wait for approval decision with timeout.
 
         Args:
-            request_id: Approval request ID
+            request_id: Request ID or the record returned when created.
             timeout_seconds: Maximum wait time in seconds
 
         Returns:
@@ -284,20 +534,36 @@ class ApprovalService:
         Raises:
             ValueError: If request_id not found
         """
-        async with self._lock:
-            pending = self._pending.get(request_id)
+        if isinstance(request_id, PendingApproval):
+            # Retain decisions resolved before the consumer starts waiting.
+            pending = request_id
+        else:
+            async with self._lock:
+                pending = self._pending.get(request_id)
 
         if pending is None:
             raise ValueError(f"Approval request {request_id} not found")
 
         try:
             decision = await asyncio.wait_for(
-                pending.future,
-                timeout=timeout_seconds,
+                asyncio.shield(pending.future),
+                timeout=max(
+                    0.0,
+                    min(
+                        timeout_seconds,
+                        pending.created_at
+                        + pending.timeout_seconds
+                        - time.time(),
+                    ),
+                ),
             )
         except asyncio.TimeoutError:
-            decision = ApprovalDecision.TIMEOUT
-            await self.resolve_request(request_id, decision)
+            await self.resolve_request(
+                pending.request_id,
+                ApprovalDecision.TIMEOUT,
+            )
+            # A response may have won the race with this waiter's timeout.
+            decision = pending.future.result()
 
         return decision
 
@@ -332,6 +598,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.TIMEOUT)
                 pending.status = "superseded"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -342,6 +609,29 @@ class ApprovalService:
                 session_id[:8],
             )
         return cancelled
+
+    async def cancel_request(
+        self,
+        request_id: str,
+        *,
+        actor: ApprovalActor,
+    ) -> bool:
+        """Cancel one owned pending request without affecting sibling calls."""
+        async with self._lock:
+            pending = self._pending.get(request_id)
+            if pending is None or pending.status != "pending":
+                return False
+            if not self.actor_can_resolve(pending, actor):
+                raise ApprovalIdentityMismatchError(
+                    "approval caller does not match the original requester",
+                )
+            self._pending.pop(request_id)
+            if not pending.future.done():
+                pending.future.set_result(ApprovalDecision.DENIED)
+            pending.status = "cancelled"
+            pending.resolved_at = time.time()
+            _sdk_approval_changed(pending)
+            return True
 
     async def cancel_all_pending_by_root_session(
         self,
@@ -374,6 +664,7 @@ class ApprovalService:
                     pending.future.set_result(ApprovalDecision.DENIED)
                 pending.status = "cancelled"
                 pending.resolved_at = now
+                _sdk_approval_changed(pending)
                 cancelled += 1
         if cancelled:
             logger.info(
@@ -406,6 +697,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
         overflow = len(self._pending) - _GC_MAX_PENDING
         if overflow <= 0:
@@ -420,6 +712,7 @@ class ApprovalService:
                 pending.future.set_result(ApprovalDecision.TIMEOUT)
             pending.status = "timeout"
             pending.resolved_at = now
+            _sdk_approval_changed(pending)
 
 
 # ------------------------------------------------------------------

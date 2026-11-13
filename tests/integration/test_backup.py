@@ -9,8 +9,9 @@ import json
 import zipfile
 
 import pytest
+from helpers import default_http_timeout
 
-_BACKUP_HTTP_TIMEOUT = 30.0
+_BACKUP_HTTP_TIMEOUT = default_http_timeout(30.0)
 
 
 # --------------------------------------------------------------------------- #

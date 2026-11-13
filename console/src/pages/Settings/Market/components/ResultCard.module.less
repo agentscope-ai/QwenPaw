@@ -1,3 +1,5 @@
+@import (reference) "../../../../styles/skillPresentation.less";
+
 .skillCard {
   min-height: 220px;
   height: auto;
@@ -5,26 +7,43 @@
   flex-direction: column;
   gap: 0;
   border-radius: var(--border-radius, 12px);
-  background: var(--color-bg-base, #ffffff);
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
   box-sizing: border-box;
-  transition: all 0.2s ease-in-out;
+  transition:
+    background-color 0.2s ease-in-out,
+    color 0.2s ease-in-out,
+    border-color 0.2s ease-in-out,
+    box-shadow 0.2s ease-in-out,
+    opacity 0.2s ease-in-out,
+    transform 0.2s ease-in-out;
   position: relative;
   overflow: hidden;
 
+  // Flex-grow chain (card → body → wrapper) so the wrapper fills the
+  // card's full height; the stats row then pins to the bottom-left
+  // corner via margin-top:auto, independent of description length.
   :global {
     .ant-card-body {
       padding: 0 !important;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
     }
 
     .qwenpaw-spark-card-wrapper {
       padding: 16px !important;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
     }
   }
 
   &:hover {
-    border-color: var(--color-border, #d9d9d9);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -36,16 +55,7 @@
 }
 
 .sourceBadge {
-  display: inline-flex;
-  align-items: center;
-  font-size: 11px;
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-  background-color: rgba(239, 240, 243, 0.9);
-  color: #8e8c99;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  white-space: nowrap;
+  .skill-source-badge();
 }
 
 .titleRow {
@@ -60,7 +70,7 @@
   margin: 0;
   font-size: 15px;
   font-weight: 600;
-  color: rgba(20, 20, 19, 0.88);
+  color: var(--app-text);
   line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -71,19 +81,48 @@
 
 .descriptionText {
   border-radius: 4px;
-  background: rgba(43, 18, 0, 0.02);
+  background: var(--app-fill-faint);
   box-sizing: border-box;
-  border: 1px solid #f3f1f0;
+  border: 1px solid var(--app-border-subtle);
   padding: 4px 8px;
   line-height: 20px;
   margin: 0;
   font-size: 13px;
-  color: rgba(20, 20, 19, 0.65);
+  color: var(--app-text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
+}
+
+.statsRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  // Pin to the bottom-left corner so downloads/stars stay fixed no
+  // matter the description length (cards stretch to equal row height).
+  margin-top: auto;
+  padding-top: 10px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--app-text-tertiary);
+}
+
+.statItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+.statValue {
+  font-weight: 500;
+  color: var(--app-text-secondary);
 }
 
 .cardFooter {
@@ -92,44 +131,39 @@
   left: 0;
   right: 0;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   gap: 8px;
   padding: 10px 16px;
-  background: #fff;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--app-surface-raised);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .installButton {
   margin-left: auto;
 }
 
-/* ─── Dark mode ──────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
+/* ─── Mobile ─────────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
   .skillCard {
-    &:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-  }
-
-  .sourceBadge {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .skillTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .descriptionText {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.65);
+    min-height: auto;
   }
 
   .cardFooter {
-    background: #2a2a2a;
-    border-top-color: rgba(255, 255, 255, 0.08);
+    position: static;
+    margin-top: 12px;
+    padding: 0;
+    background: transparent;
+    border-top: none;
   }
+}
+
+.cardTopActions {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }

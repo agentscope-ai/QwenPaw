@@ -51,7 +51,7 @@ export function DownloadCard({
   return (
     <div
       className={cn(
-        "relative z-0 rounded-lg border p-5",
+        "relative z-0 flex h-full flex-col rounded-lg border p-5",
         "shadow-[0_1px_2px_rgba(28,28,28,0.04)]",
         "transition-all duration-300 ease-out",
         "hover:z-20 hover:-translate-y-0.5 hover:bg-[#FEFAF8] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]",
@@ -137,7 +137,7 @@ export function DownloadCard({
       <a
         href={downloadUrl}
         download
-        className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-site-text px-4 py-2.5 text-sm font-medium text-white no-underline transition-colors hover:bg-site-text/90"
+        className="mt-auto mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-site-text px-4 py-2.5 text-sm font-medium text-white no-underline transition-colors hover:bg-site-text/90"
       >
         <Download size={16} strokeWidth={2.5} />
         {t(downloadLabelKey)}

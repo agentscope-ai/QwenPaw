@@ -1,0 +1,158 @@
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.filterTag {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    color 0.16s ease,
+    border-color 0.16s ease,
+    background-color 0.16s ease;
+
+  &:hover {
+    border-color: var(--app-border-hover);
+    color: var(--app-text);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 1px;
+  }
+}
+
+.filterTagActive {
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-weight: 500;
+}
+
+.controlRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.search {
+  width: min(320px, 100%);
+}
+
+.controlActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.sort {
+  width: 168px;
+}
+
+.iconButton {
+  width: 32px;
+  padding: 0;
+}
+
+.searchHint {
+  margin: -8px 0 12px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+}
+@media (max-width: 767px) {
+  // Keep search and actions on one row; controls shrink instead of stacking.
+  .controlRow {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .search {
+    flex: 1;
+    min-width: 0;
+    width: auto;
+  }
+
+  .controlActions {
+    flex-shrink: 0;
+  }
+
+  .sort {
+    min-width: 0;
+    flex: 1;
+    width: auto;
+  }
+
+  // Market row (search + sort + refresh) is too tight on one line:
+  // search takes the first row, sort + refresh the second.
+  .controlRowMarket {
+    flex-wrap: wrap;
+
+    .search {
+      flex: 1 1 100%;
+    }
+
+    .controlActions {
+      width: 100%;
+    }
+  }
+}
+
+// Touch devices bump .qwenpaw-btn to 44px (workspace.css coarse-pointer rule);
+// match inputs and selects so search / sort / refresh share one height.
+@media (pointer: coarse) {
+  .controlRow {
+    :global(:is(.qwenpaw-input-affix-wrapper, .ant-input-affix-wrapper)) {
+      height: 44px;
+
+      > :global(:is(.qwenpaw-input, .ant-input)) {
+        height: 100%;
+      }
+    }
+
+    // antd pins the single-select root to 32px while the selector stretches,
+    // which offsets the box against sibling controls and leaves the label /
+    // arrow off-center; stretch root + selector + line-height together.
+    :global(:is(.qwenpaw-select-single, .ant-select-single)) {
+      height: 44px;
+
+      :global(:is(.qwenpaw-select-selector, .ant-select-selector)) {
+        height: 100%;
+      }
+
+      :global(:is(.qwenpaw-select-selection-item, .ant-select-selection-item)),
+      :global(
+          :is(
+              .qwenpaw-select-selection-placeholder,
+              .ant-select-selection-placeholder
+            )
+        ) {
+        line-height: 42px;
+      }
+    }
+
+    // Keep the square icon button square under the 44px touch height.
+    .iconButton {
+      width: 44px;
+    }
+  }
+
+  .filterTag {
+    min-height: 44px;
+  }
+}

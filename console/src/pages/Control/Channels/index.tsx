@@ -1,42 +1,94 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Form } from "@agentscope-ai/design";
+import { useAgentStore } from "@/stores/agentStore";
+import { useAppMessage } from "../../../hooks/useAppMessage";
+import { Cascade } from "@/components/interaction/Cascade";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Badge, Button, Space } from "antd";
-import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
+import {
+  ShieldCheck as SafetyOutlined,
+  ClipboardCheck as AuditOutlined,
+  RefreshCcw,
+  TriangleAlert,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
   ChannelCard,
-  ChannelDrawer,
+  ChannelFormDrawer,
   AccessControlDrawer,
   PendingApprovalsDrawer,
   useChannels,
   getChannelLabel,
+  ChannelAvailableItem,
   type ChannelKey,
 } from "./components";
 import { PageHeader } from "@/components/PageHeader";
-import { useAppMessage } from "../../../hooks/useAppMessage";
+import {
+  captureChannelSaveJob,
+  keepConsoleEnabled,
+  normalizeChannelSubmitValues,
+} from "./components/channelConfig";
+import type { ChannelSaveJob } from "../../../api/modules/channel";
 import styles from "./index.module.less";
+import { useSettingsSearchRequest } from "@/pages/SettingsCenter/SettingsSearchRequest";
 
 type FilterType = "all" | "builtin" | "custom";
 
 function ChannelsPage() {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
-  const { channels, orderedKeys, isBuiltin, loading, fetchChannels } =
-    useChannels();
+  const searchRequest = useSettingsSearchRequest("channels");
+  const handledSearch = useRef<typeof searchRequest>(null);
+  const { modal } = useAppMessage();
+  const {
+    agentId,
+    channels,
+    orderedKeys,
+    channelSchemas,
+    schemasLoading,
+    isBuiltin,
+    loading,
+    error,
+    ready,
+    canMutate,
+    fetchChannels,
+    setChannels,
+  } = useChannels();
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
+  const [drawerAgentId, setDrawerAgentId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [aclDrawerOpen, setAclDrawerOpen] = useState(false);
+  const [aclDrawerAgentId, setAclDrawerAgentId] = useState<string | null>(null);
   const [pendingDrawerOpen, setPendingDrawerOpen] = useState(false);
+  const [pendingDrawerAgentId, setPendingDrawerAgentId] = useState<
+    string | null
+  >(null);
   const [pendingCount, setPendingCount] = useState(0);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [form] = Form.useForm<any>();
+  const scopeGeneration = useRef(0);
+  const mounted = useRef(true);
+  const agentIdRef = useRef(agentId);
+  const pendingCountRequestIdRef = useRef(0);
+  const proposalIdRef = useRef(0);
+  const conflictModalDestroyRef = useRef<(() => void) | null>(null);
+  agentIdRef.current = agentId;
 
   const fetchPendingCount = useCallback(async () => {
+    const ownerAgentId = agentIdRef.current;
+    const requestId = ++pendingCountRequestIdRef.current;
     try {
       const data = await api.getAclAllPending();
+      if (
+        requestId !== pendingCountRequestIdRef.current ||
+        ownerAgentId !== agentIdRef.current
+      )
+        return;
       setPendingCount(data.length);
     } catch {
       // ignore
@@ -44,11 +96,49 @@ function ChannelsPage() {
   }, []);
 
   useEffect(() => {
-    fetchPendingCount();
-  }, [fetchPendingCount]);
+    void fetchPendingCount();
+  }, [agentId, fetchPendingCount]);
+
+  const resetScope = useCallback(() => {
+    scopeGeneration.current += 1;
+    pendingCountRequestIdRef.current += 1;
+    proposalIdRef.current += 1;
+    conflictModalDestroyRef.current?.();
+    conflictModalDestroyRef.current = null;
+    setDrawerOpen(false);
+    setActiveKey(null);
+    setDrawerAgentId(null);
+    setAclDrawerOpen(false);
+    setAclDrawerAgentId(null);
+    setPendingDrawerOpen(false);
+    setPendingDrawerAgentId(null);
+    setPendingCount(0);
+    setSaving(false);
+  }, []);
+
+  useLayoutEffect(resetScope, [agentId, resetScope]);
+  useLayoutEffect(
+    () =>
+      useAgentStore.subscribe((next, previous) => {
+        if (next.selectedAgent !== previous.selectedAgent) {
+          agentIdRef.current = next.selectedAgent || "default";
+          resetScope();
+        }
+      }),
+    [resetScope],
+  );
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      scopeGeneration.current += 1;
+      pendingCountRequestIdRef.current += 1;
+      conflictModalDestroyRef.current?.();
+    };
+  }, []);
 
   // Sort cards: enabled first, then disabled (preserve orderedKeys order within each group)
-  const cards = useMemo(() => {
+  const { enabledCards, disabledCards } = useMemo(() => {
     const enabledCards: { key: ChannelKey; config: Record<string, unknown> }[] =
       [];
     const disabledCards: {
@@ -68,67 +158,184 @@ function ChannelsPage() {
       }
     });
 
-    return [...enabledCards, ...disabledCards];
+    return { enabledCards, disabledCards };
   }, [channels, orderedKeys, filter, isBuiltin]);
 
-  const handleCardClick = (key: ChannelKey) => {
-    setActiveKey(key);
-    setDrawerOpen(true);
-    const channelConfig = channels[key] || { enabled: false, bot_prefix: "" };
-    // Migrate legacy allowlist policy to new access control fields
-    const accessControlDm =
-      channelConfig.access_control_dm ||
-      channelConfig.dm_policy === "allowlist";
-    const accessControlGroup =
-      channelConfig.access_control_group ||
-      channelConfig.group_policy === "allowlist";
-    form.setFieldsValue({
-      ...channelConfig,
-      access_control_dm: accessControlDm,
-      access_control_group: accessControlGroup,
-      filter_tool_messages: !channelConfig.filter_tool_messages,
-      filter_thinking: !channelConfig.filter_thinking,
-    });
-  };
+  const handleCardClick = useCallback(
+    (key: ChannelKey) => {
+      if (!ready) return;
+      void fetchChannels(true);
+      setActiveKey(key);
+      setDrawerAgentId(agentId);
+      setDrawerOpen(true);
+    },
+    [agentId, ready, fetchChannels],
+  );
 
   const handleDrawerClose = () => {
     setDrawerOpen(false);
     setActiveKey(null);
+    setDrawerAgentId(null);
   };
 
-  const handleSubmit = async (values: Record<string, unknown>) => {
-    if (!activeKey) return;
+  const submitJob = async (job: ChannelSaveJob, detached: boolean) => {
+    const generation = scopeGeneration.current;
+    const currentScope = () =>
+      mounted.current &&
+      generation === scopeGeneration.current &&
+      agentIdRef.current === job.agentId &&
+      canMutate(job.agentId);
+    const proposalId = currentScope() ? ++proposalIdRef.current : undefined;
+    const ownsProposal = () =>
+      proposalId !== undefined &&
+      proposalIdRef.current === proposalId &&
+      currentScope();
+    if (!detached && !ownsProposal()) return false;
+    if (ownsProposal()) {
+      conflictModalDestroyRef.current?.();
+      conflictModalDestroyRef.current = null;
+      setSaving(true);
+    }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
-    const updatedChannel: Record<string, unknown> = {
-      ...savedConfig,
-      ...values,
-      filter_tool_messages: !values.filter_tool_messages,
-      filter_thinking: !values.filter_thinking,
-    };
+    const { isBuiltin: _isBuiltin, ...savedConfig } = job.body;
+    const updatedChannel = normalizeChannelSubmitValues(
+      job.channel,
+      keepConsoleEnabled(job.channel, savedConfig),
+    );
+    const proposedConfig = updatedChannel as unknown as Parameters<
+      typeof api.updateChannelConfig
+    >[1];
 
-    setSaving(true);
     try {
-      await api.updateChannelConfig(
-        activeKey,
-        updatedChannel as unknown as Parameters<
-          typeof api.updateChannelConfig
-        >[1],
-      );
-      await fetchChannels();
+      if (updatedChannel.enabled === true) {
+        try {
+          const result = await api.checkChannelConflict(
+            job.channel,
+            proposedConfig,
+            job.agentId,
+          );
+          if (!detached && !ownsProposal()) return false;
+          if (result.conflict) {
+            // A conflict needs confirmation in its originating workspace.
+            if (!ownsProposal()) return false;
+            const agentNames = result.agents
+              .map(({ agent_id, agent_name }) =>
+                agent_name === agent_id
+                  ? agent_id
+                  : `${agent_name} (${agent_id})`,
+              )
+              .join(", ");
+            const shouldSave = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const settle = (value: boolean) => {
+                if (settled) return;
+                settled = true;
+                if (proposalIdRef.current === proposalId) {
+                  conflictModalDestroyRef.current = null;
+                }
+                resolve(value && ownsProposal());
+              };
+              const instance = modal.confirm({
+                centered: true,
+                title: t("channels.botConflictTitle"),
+                content: t("channels.botConflictDescription", {
+                  agents: agentNames,
+                }),
+                okText: t("channels.botConflictConfirm"),
+                okButtonProps: { danger: true },
+                cancelText: t("common.cancel"),
+                onOk: () => settle(true),
+                onCancel: () => settle(false),
+                afterClose: () => settle(false),
+              });
+              conflictModalDestroyRef.current = instance.destroy;
+            });
+            if (!shouldSave) return false;
+          }
+        } catch (error) {
+          if (!detached && !ownsProposal()) return false;
+          console.warn("Failed to check channel Bot conflicts:", error);
+        }
+      }
+      if (!detached && !ownsProposal()) return false;
 
-      setDrawerOpen(false);
-      message.success(t("channels.configSaved"));
+      // Validated tasks retain their captured owner and authorization after
+      // navigation; only their UI acknowledgement belongs to the live scope.
+      if (job.authSession === undefined) {
+        await api.updateChannelConfig(job.channel, proposedConfig, job.agentId);
+      } else {
+        await api.updateChannelConfig(
+          job.channel,
+          proposedConfig,
+          job.agentId,
+          job.authSession,
+        );
+      }
+      if (ownsProposal()) {
+        setChannels(job.agentId, (current) => {
+          const isBuiltin = current[job.channel]?.isBuiltin;
+          return {
+            ...current,
+            [job.channel]: {
+              ...updatedChannel,
+              ...(typeof isBuiltin === "boolean" ? { isBuiltin } : {}),
+            },
+          };
+        });
+      }
+      return true;
     } catch (error) {
-      console.error("❌ Failed to update channel config:", error);
-      message.error(t("channels.configFailed"));
+      console.error("Failed to update channel config:", error);
+      throw error;
     } finally {
-      setSaving(false);
+      if (ownsProposal()) setSaving(false);
     }
   };
 
+  const handleSubmitSnapshot = (job: ChannelSaveJob) => submitJob(job, true);
+  const handleSubmit = async (values: Record<string, unknown>) => {
+    if (!activeKey || !drawerAgentId || !canMutate(drawerAgentId)) {
+      void fetchChannels();
+      return false;
+    }
+    return submitJob(
+      captureChannelSaveJob({
+        agentId: drawerAgentId,
+        channel: activeKey,
+        body: { ...channels[activeKey], ...values },
+        formRevision: 0,
+      }),
+      false,
+    );
+  };
+
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
+  useEffect(() => {
+    if (!ready || !searchRequest || handledSearch.current === searchRequest)
+      return;
+    if (searchRequest.surface === "channel-acl") {
+      handledSearch.current = searchRequest;
+      setAclDrawerAgentId(agentId);
+      setAclDrawerOpen(true);
+    } else if (
+      searchRequest.channelKey &&
+      orderedKeys.includes(searchRequest.channelKey)
+    ) {
+      handledSearch.current = searchRequest;
+      handleCardClick(searchRequest.channelKey);
+    }
+  }, [ready, searchRequest, agentId, orderedKeys, handleCardClick]);
+  const activeValues = useMemo(
+    () =>
+      activeKey
+        ? keepConsoleEnabled(
+            activeKey,
+            channels[activeKey] || { enabled: false, bot_prefix: "" },
+          )
+        : undefined,
+    [activeKey, channels],
+  );
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: "all", label: t("channels.filterAll") },
@@ -139,12 +346,16 @@ function ChannelsPage() {
   return (
     <div className={styles.channelsPage}>
       <PageHeader
-        items={[{ title: t("nav.control") }, { title: t("channels.title") }]}
+        className={styles.pageHeader}
+        items={[{ title: t("channels.title") }]}
         center={
           <div className={styles.filterTabs}>
             {FILTER_TABS.map(({ key, label }) => (
               <button
                 key={key}
+                type="button"
+                data-press
+                aria-pressed={filter === key}
                 className={`${styles.filterTab} ${
                   filter === key ? styles.filterTabActive : ""
                 }`}
@@ -156,18 +367,26 @@ function ChannelsPage() {
           </div>
         }
         extra={
-          <Space size={8}>
+          <Space size={8} wrap>
             <Badge dot={pendingCount > 0} offset={[-4, 4]}>
               <Button
-                icon={<AuditOutlined />}
-                onClick={() => setPendingDrawerOpen(true)}
+                icon={<AuditOutlined size="1em" />}
+                disabled={!ready}
+                onClick={() => {
+                  setPendingDrawerAgentId(agentId);
+                  setPendingDrawerOpen(true);
+                }}
               >
                 {t("channels.pendingApprovals")}
               </Button>
             </Badge>
             <Button
-              icon={<SafetyOutlined />}
-              onClick={() => setAclDrawerOpen(true)}
+              icon={<SafetyOutlined size="1em" />}
+              disabled={!ready}
+              onClick={() => {
+                setAclDrawerAgentId(agentId);
+                setAclDrawerOpen(true);
+              }}
             >
               {t("channels.manageAccessControl")}
             </Button>
@@ -179,39 +398,123 @@ function ChannelsPage() {
           <div className={styles.loading}>
             <span className={styles.loadingText}>{t("channels.loading")}</span>
           </div>
-        ) : (
-          <div className={styles.channelsGrid}>
-            {cards.map(({ key, config }) => (
-              <ChannelCard
-                key={key}
-                channelKey={key}
-                config={config}
-                onClick={() => handleCardClick(key)}
-              />
-            ))}
+        ) : error ? (
+          <div className={styles.loadError} role="alert">
+            <TriangleAlert size={24} aria-hidden="true" />
+            <span>{t("channels.loadFailed")}</span>
+            <Button
+              icon={<RefreshCcw size={16} />}
+              onClick={() => void fetchChannels()}
+            >
+              {t("common.retry")}
+            </Button>
           </div>
+        ) : (
+          <>
+            {/* Enabled Channels Section */}
+            <div className={styles.panelSection}>
+              <div className={styles.panelTitle}>
+                <span className={styles.panelDotGreen} />
+                {t("channels.enabledSection")}
+                <span className={styles.panelCount}>
+                  {t("channels.enabledCount", { count: enabledCards.length })}
+                </span>
+              </div>
+
+              {enabledCards.length > 0 ? (
+                <div className={styles.channelsGrid}>
+                  {enabledCards.map(({ key, config }, index) => (
+                    <Cascade key={key} index={index}>
+                      <ChannelCard
+                        channelKey={key}
+                        config={config}
+                        iconUrl={channelSchemas[key]?.icon}
+                        onClick={() => handleCardClick(key)}
+                      />
+                    </Cascade>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.emptyConfigured}>
+                  <p>{t("channels.noEnabledChannels")}</p>
+                  {disabledCards.length > 0 && (
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        document
+                          .getElementById("available-channels")
+                          ?.scrollIntoView({ behavior: "smooth" });
+                      }}
+                    >
+                      {t("channels.goEnableChannels")}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Available Channels Section */}
+            {disabledCards.length > 0 && (
+              <div
+                id="available-channels"
+                className={styles.panelSectionDashed}
+              >
+                <div className={styles.panelTitle}>
+                  <span className={styles.panelDotGray} />
+                  {t("channels.availableSection")}
+                </div>
+                <div className={styles.availableGrid}>
+                  {disabledCards.map(({ key }) => (
+                    <ChannelAvailableItem
+                      key={key}
+                      channelKey={key}
+                      iconUrl={channelSchemas[key]?.icon}
+                      onClick={() => handleCardClick(key)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
-      <ChannelDrawer
+      <ChannelFormDrawer
+        key={`${agentId}:${activeKey ?? "closed"}`}
+        ownerKey={`${agentId}:${activeKey ?? "closed"}`}
         open={drawerOpen}
         activeKey={activeKey}
         activeLabel={activeLabel}
-        form={form}
         saving={saving}
-        initialValues={activeKey ? channels[activeKey] : undefined}
+        initialValues={activeValues}
         isBuiltin={activeKey ? isBuiltin(activeKey) : true}
+        channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
+        channelSchemaLoading={
+          schemasLoading || (!!activeKey && !channelSchemas[activeKey])
+        }
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+        onSubmitSnapshot={handleSubmitSnapshot}
+        onRuntimeChange={fetchChannels}
       />
       <AccessControlDrawer
-        open={aclDrawerOpen}
-        onClose={() => setAclDrawerOpen(false)}
+        open={aclDrawerOpen && aclDrawerAgentId !== null}
+        ownerAgentId={aclDrawerAgentId}
+        canMutate={canMutate}
+        onStale={() => void fetchChannels()}
+        onClose={() => {
+          setAclDrawerOpen(false);
+          setAclDrawerAgentId(null);
+        }}
       />
       <PendingApprovalsDrawer
-        open={pendingDrawerOpen}
+        open={pendingDrawerOpen && pendingDrawerAgentId !== null}
+        ownerAgentId={pendingDrawerAgentId}
+        canMutate={canMutate}
+        onStale={() => void fetchChannels()}
         onClose={() => {
           setPendingDrawerOpen(false);
-          fetchPendingCount();
+          setPendingDrawerAgentId(null);
+          void fetchPendingCount();
         }}
       />
     </div>

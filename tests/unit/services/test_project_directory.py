@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""Tests for mode-independent project directory resolution."""
+
+from pathlib import Path
+
+from qwenpaw.services.project_directory import (
+    normalize_project_dir,
+    resolve_effective_project_dir,
+    session_project_dir,
+)
+
+
+def test_resolver_priority(tmp_path: Path) -> None:
+    """Fork, request, Session, Agent, then workspace define precedence."""
+    values = {
+        "workspace_dir": tmp_path / "workspace",
+        "agent_project_dir": str(tmp_path / "agent"),
+        "session_override": str(tmp_path / "session"),
+        "trusted_override": str(tmp_path / "request"),
+        "active_mode_override": str(tmp_path / "mode"),
+        "fork_project_dir": str(tmp_path / "fork"),
+    }
+
+    assert resolve_effective_project_dir(**values) == (
+        (tmp_path / "fork").resolve(),
+        "fork",
+    )
+    values["fork_project_dir"] = None
+    assert resolve_effective_project_dir(**values)[1] == "active_mode"
+    values["active_mode_override"] = None
+    assert resolve_effective_project_dir(**values)[1] == "request"
+    values["trusted_override"] = None
+    assert resolve_effective_project_dir(**values)[1] == "session"
+    values["session_override"] = None
+    assert resolve_effective_project_dir(**values)[1] == "agent"
+    values["agent_project_dir"] = None
+    assert resolve_effective_project_dir(**values)[1] == "workspace_fallback"
+
+
+def test_agent_default_list_inherited_and_session_override(
+    tmp_path: Path,
+) -> None:
+    from qwenpaw.services.project_directory import (
+        resolve_effective_project_dirs,
+    )
+
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    defaults = [{"path": str(a), "label": "primary"}, {"path": str(b)}]
+    inherited = resolve_effective_project_dirs(
+        tmp_path,
+        agent_project_dir="/legacy",
+        agent_project_dirs=defaults,
+    )
+    assert [entry.path for entry in inherited.dirs] == [a, b]
+    assert inherited.dirs[0].label == "primary"
+    assert inherited.source == "agent"
+
+    overridden = resolve_effective_project_dirs(
+        tmp_path,
+        agent_project_dirs=defaults,
+        session_project_dirs=[str(b)],
+    )
+    assert [entry.path for entry in overridden.dirs] == [b]
+    assert overridden.source == "session"
+
+
+def test_session_project_dir_uses_controlled_namespace() -> None:
+    """Unrelated Chat metadata cannot become a directory override."""
+    assert session_project_dir({"project_dir": "/wrong"}) is None
+    # The stored value comes back normalized for the running platform:
+    # on Windows a drive-less path picks up the current drive.
+    assert session_project_dir(
+        {"runtime_context": {"project_dir": "/project"}},
+    ) == str(normalize_project_dir("/project"))

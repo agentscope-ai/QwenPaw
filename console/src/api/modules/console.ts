@@ -1,4 +1,5 @@
 import { request } from "../request";
+import type { SystemNotificationEvent } from "../../notifications/notificationEvents";
 
 export interface PushMessage {
   id: string;
@@ -40,17 +41,32 @@ export interface PendingApproval {
   owner_agent_id?: string;
   agent_id: string;
   tool_name: string;
+  tool_display_name?: string;
+  tool_source?: string;
   severity: string;
   findings_count: number;
   findings_summary: string;
   tool_params: Record<string, unknown>;
   created_at: number;
   timeout_seconds: number;
+  // One-line rationale emitted by the agent before requesting the tool
+  // call. May be an empty string when the agent gave no reasoning.
+  reasoning?: string;
+  // Approval-scope display fields (governance path). When is_generalized
+  // is true the console offers Approve Pattern vs Approve Exact.
+  is_generalized?: boolean;
+  exact_target?: string;
+  similar_target?: string;
+  source_type: string;
 }
 
 export const consoleApi = {
   getPushMessages: (sessionId?: string) =>
-    request<{ messages: PushMessage[]; pending_approvals: PendingApproval[] }>(
+    request<{
+      messages: PushMessage[];
+      pending_approvals: PendingApproval[];
+      notification_events?: SystemNotificationEvent[];
+    }>(
       sessionId
         ? `/console/push-messages?session_id=${sessionId}`
         : "/console/push-messages",
@@ -60,25 +76,52 @@ export const consoleApi = {
     limit?: number;
     offset?: number;
     source_type?: string;
+    source_types?: string[];
     status?: string;
     agent_id?: string;
     unread_only?: boolean;
+    exclude_acl_pending?: boolean;
+    signal?: AbortSignal;
+    event_id?: string;
   }) => {
     const query = new URLSearchParams();
     if (params?.limit !== undefined) query.set("limit", String(params.limit));
     if (params?.offset !== undefined)
       query.set("offset", String(params.offset));
     if (params?.source_type) query.set("source_type", params.source_type);
+    for (const sourceType of params?.source_types ?? []) {
+      query.append("source_types", sourceType);
+    }
     if (params?.status) query.set("status", params.status);
     if (params?.agent_id) query.set("agent_id", params.agent_id);
+    if (params?.event_id) query.set("event_id", params.event_id);
     if (params?.unread_only !== undefined) {
       query.set("unread_only", String(params.unread_only));
     }
+    if (params?.exclude_acl_pending !== undefined) {
+      query.set("exclude_acl_pending", String(params.exclude_acl_pending));
+    }
     const suffix = query.toString() ? `?${query.toString()}` : "";
-    return request<{ events: InboxEvent[] }>(`/console/inbox/events${suffix}`);
+    type Response = {
+      events: InboxEvent[];
+      total?: number;
+      unread_count?: number;
+      source_errors?: { community?: "community_history_unavailable" };
+      /** Opaque account generation; null means disconnected, absent means unknown. */
+      community_scope?: string | null;
+    };
+    const path = `/console/inbox/events${suffix}`;
+    return params?.signal
+      ? request<Response>(path, { signal: params.signal })
+      : request<Response>(path);
   },
 
-  markInboxRead: (payload: { event_ids?: string[]; all?: boolean }) =>
+  markInboxRead: (payload: {
+    event_ids?: string[];
+    all?: boolean;
+    source_types?: string[];
+    agent_id?: string;
+  }) =>
     request<{ updated: number }>("/console/inbox/read", {
       method: "POST",
       body: JSON.stringify(payload),

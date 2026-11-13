@@ -1,8 +1,13 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { FileAddOutlined } from "@ant-design/icons";
+import { FilePlus as FileAddOutlined } from "lucide-react";
 import type { ToolCallContent } from "../shared/types";
-import { ToolCardShell, DefaultBlock } from "../shared";
+import {
+  ToolCardShell,
+  DefaultBlock,
+  FileAttachmentPreview,
+  FilePreviewLink,
+} from "../shared";
 import { shortFileName, countLines } from "../shared/utils";
 import styles from "../shared/toolCards.module.less";
 
@@ -22,6 +27,17 @@ const WriteFileCard: React.FC<WriteFileCardProps> = ({
     ? t("tool.writeFile", { file })
     : t("tool.writeFileDefault");
 
+  if (content.status === "error") {
+    return (
+      <ToolCardShell
+        content={content}
+        isStreaming={isStreaming}
+        icon={<FileAddOutlined size="1em" />}
+        title={title}
+      />
+    );
+  }
+
   const writtenContent = (params.content as string) || "";
   const lineCount = countLines(writtenContent);
 
@@ -36,10 +52,12 @@ const WriteFileCard: React.FC<WriteFileCardProps> = ({
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
-      icon={<FileAddOutlined />}
+      icon={<FileAddOutlined size="1em" />}
       title={title}
       badges={badge}
+      summaryAction={<FilePreviewLink content={content} />}
     >
+      <FileAttachmentPreview content={content} />
       {writtenContent && (
         <DefaultBlock title="Content" content={writtenContent} />
       )}

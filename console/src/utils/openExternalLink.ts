@@ -64,7 +64,7 @@ function isSupportedExternalUrl(url: string): boolean {
 }
 
 /** Resolve an input URL only if its protocol is safe to hand to external openers. */
-function resolveSupportedExternalUrl(url: string): string | null {
+export function resolveSupportedExternalUrl(url: string): string | null {
   const resolvedUrl = resolveExternalUrl(url);
   if (!resolvedUrl || !isSupportedExternalUrl(resolvedUrl)) {
     return null;
@@ -141,5 +141,25 @@ export function openExternalLink(
     }
     case "browser":
       window.open(fullUrl, target, features);
+  }
+}
+
+/** Await desktop handoff so authorization UIs can report native opener failures. */
+export async function openExternalLinkChecked(url: string): Promise<void> {
+  const fullUrl = resolveSupportedExternalUrl(url);
+  if (!fullUrl) throw new Error("external_open_failed");
+  try {
+    switch (detectExternalLinkRuntime(fullUrl)) {
+      case "pywebview":
+        await getPyWebViewApi()?.open_external_link?.(fullUrl);
+        return;
+      case "tauri":
+        await invoke(TAURI_OPEN_EXTERNAL_LINK_COMMAND, { url: fullUrl });
+        return;
+      case "browser":
+        window.open(fullUrl, "_blank", "noopener,noreferrer");
+    }
+  } catch {
+    throw new Error("external_open_failed");
   }
 }

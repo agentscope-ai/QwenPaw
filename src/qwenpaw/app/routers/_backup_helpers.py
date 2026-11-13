@@ -92,7 +92,7 @@ def strip_signature(meta: BackupMeta) -> BackupMeta:
 
 def validation_detail(exc: BackupValidationError) -> dict[str, object]:
     """Convert stable backup validation failures to FastAPI detail payloads."""
-    return {"code": exc.code, "message": exc.message, **exc.details}
+    return {"code": exc.code, "message": exc.message, **(exc.details or {})}
 
 
 def restored_local_keys(

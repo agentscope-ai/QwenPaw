@@ -97,6 +97,35 @@ review upcoming plans. Click a task to open its edit page.
 
 ---
 
+## Import Scheduled Tasks
+
+[Import](./import) brings convertible Codex and Qoder schedules into the
+selected agent as **agent** jobs. They start disabled, with tool safety enabled,
+Console delivery, and results saved to the Inbox. Source execution queues and
+run history are not resumed.
+
+For tasks marked **Imported review required**:
+
+1. Open **Edit** and check the prompt, timing, timezone, delivery settings, and
+   working directory.
+2. If a remote or unverified source-directory marker remains, enter a **Local
+   project directory mapping** pointing to an existing local project, then save.
+   Other imported tasks can also use this field to adjust their directory.
+3. Click **Approve review** and confirm. Approval leaves the task disabled.
+4. **Enable** it separately when ready, or run it manually after review to verify
+   the result.
+
+Before approval, enabling and immediate execution are blocked. Normal editing
+and CLI `resume` / `run` cannot bypass review. Unsupported, expired, or incomplete
+definitions need repair and retry; not every definition will become a runnable
+job.
+
+Conversation-bound Codex heartbeat tasks require their source conversations and
+continue in the imported sessions. Ordinary imported jobs use dedicated task
+sessions. This does not change QwenPaw's [Heartbeat](./heartbeat) configuration.
+
+---
+
 ## More Creation Methods
 
 ### Method 1: Create by chat
@@ -161,6 +190,10 @@ qwenpaw cron create \
   --text "Please review my todos and list the top three priorities."
 ```
 
+Add `--silent` to an `agent` task when it should run in the background without
+sending its response to the channel. The task still keeps its session and
+trace, and `--save-result-to-inbox` remains independent.
+
 Example (calendar task, one-time run only):
 
 ```bash
@@ -201,6 +234,7 @@ Parameter notes:
 - `--schedule-type cron`: requires `--cron`
 - `--schedule-type scheduled`: requires `--run-at`
 - For repeating `scheduled` tasks, pass `--repeat-every-days` and an end condition (`count` / `until` / `never`)
+- `--silent` is available for `agent` tasks only and suppresses channel delivery, not execution
 - To control Inbox delivery, explicitly pass `--save-result-to-inbox` or `--no-save-result-to-inbox`
 
 ---

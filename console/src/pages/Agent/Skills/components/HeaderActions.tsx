@@ -1,17 +1,14 @@
 import { Button, Tooltip } from "@agentscope-ai/design";
 import {
-  CloseOutlined,
-  DeleteOutlined,
-  DownloadOutlined,
-  ImportOutlined,
-  PlusOutlined,
-  ReloadOutlined,
-  SwapOutlined,
-  UploadOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-} from "@ant-design/icons";
+  X as CloseOutlined,
+  Trash2 as DeleteOutlined,
+  RefreshCw as ReloadOutlined,
+  ArrowLeftRight as SwapOutlined,
+  Eye as EyeOutlined,
+  EyeOff as EyeInvisibleOutlined,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AddSkillDropdown } from "./AddSkillDropdown";
 import styles from "../index.module.less";
 
 interface HeaderActionsProps {
@@ -33,6 +30,7 @@ interface HeaderActionsProps {
   onUploadClick: () => void;
   onImportHub: () => void;
   onCreate: () => void;
+  onBrowseMarket: () => void;
   onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
@@ -55,6 +53,7 @@ export function HeaderActions({
   onUploadClick,
   onImportHub,
   onCreate,
+  onBrowseMarket,
   onFileChange,
 }: HeaderActionsProps) {
   const { t } = useTranslation();
@@ -80,7 +79,7 @@ export function HeaderActions({
             <Button
               type="default"
               onClick={onClearSelection}
-              icon={<CloseOutlined />}
+              icon={<CloseOutlined size="1em" />}
             >
               {t("skills.clearSelection")}
             </Button>
@@ -94,30 +93,34 @@ export function HeaderActions({
                   onClearSelection();
                   void onUploadToPool(names);
                 }}
-                icon={<SwapOutlined />}
+                icon={<SwapOutlined size="1em" />}
               >
                 {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
             <Button
               type="default"
-              icon={<EyeOutlined />}
+              icon={<EyeOutlined size="1em" />}
               onClick={onBatchEnable}
             >
               {t("skills.batchEnable")}
             </Button>
             <Button
               danger
-              icon={<EyeInvisibleOutlined />}
+              icon={<EyeInvisibleOutlined size="1em" />}
               onClick={onBatchDisable}
             >
               {t("skills.batchDisable")}
             </Button>
-            <Button danger icon={<DeleteOutlined />} onClick={onBatchDelete}>
+            <Button
+              danger
+              icon={<DeleteOutlined size="1em" />}
+              onClick={onBatchDelete}
+            >
               {t("common.delete")} ({selectedSkills.size})
             </Button>
           </>
-          <Button type="primary" onClick={onToggleBatchMode}>
+          <Button type="default" onClick={onToggleBatchMode}>
             {t("skills.exitBatch")}
           </Button>
         </div>
@@ -127,68 +130,35 @@ export function HeaderActions({
             <Tooltip title={t("skills.refreshHint")}>
               <Button
                 type="default"
-                icon={<ReloadOutlined spin={loading} />}
+                icon={<ReloadOutlined size="1em" data-spinning={loading} />}
+                aria-label={t("skills.refreshHint")}
                 onClick={onHardRefresh}
                 disabled={loading}
               />
-            </Tooltip>
-            <Tooltip title={t("skills.downloadFromPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={onOpenDownloadPool}
-                icon={<DownloadOutlined />}
-              >
-                {t("skills.downloadFromPool")}
-              </Button>
             </Tooltip>
             <Tooltip title={t("skills.uploadToPoolHint")}>
               <Button
                 type="default"
                 className={styles.primaryTransferButton}
                 onClick={onOpenUploadPool}
-                icon={<SwapOutlined />}
+                icon={<SwapOutlined size="1em" />}
               >
                 {t("skills.uploadToPool")}
               </Button>
             </Tooltip>
           </div>
           <div className={styles.headerActionsRight}>
-            <Tooltip title={t("skills.uploadZipHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onUploadClick}
-                icon={<UploadOutlined />}
-                loading={uploading}
-                disabled={uploading}
-              >
-                {t("skills.uploadZip")}
-              </Button>
-            </Tooltip>
-            <Tooltip title={t("skills.importHubHint")}>
-              <Button
-                type="default"
-                className={styles.creationActionButton}
-                onClick={onImportHub}
-                icon={<ImportOutlined />}
-              >
-                {t("skills.importHub")}
-              </Button>
-            </Tooltip>
-            <Button type="primary" onClick={onToggleBatchMode}>
+            <Button type="default" onClick={onToggleBatchMode}>
               {t("skills.batchOperation")}
             </Button>
-            <Tooltip title={t("skills.createSkillHint")}>
-              <Button
-                type="primary"
-                className={styles.primaryActionButton}
-                onClick={onCreate}
-                icon={<PlusOutlined />}
-              >
-                {t("skills.createSkill")}
-              </Button>
-            </Tooltip>
+            <AddSkillDropdown
+              onCreate={onCreate}
+              onFromPool={onOpenDownloadPool}
+              onUploadZip={onUploadClick}
+              onFromUrl={onImportHub}
+              onBrowseMarket={onBrowseMarket}
+              uploading={uploading}
+            />
           </div>
         </>
       )}

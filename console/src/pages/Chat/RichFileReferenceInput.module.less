@@ -1,0 +1,143 @@
+.richInputRoot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  max-height: 128px;
+  overflow: auto;
+  color: inherit;
+}
+
+.richEditor {
+  position: relative;
+  z-index: 1;
+  min-height: 48px;
+  padding: 5px 0;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  cursor: text;
+}
+
+.paragraph {
+  margin: 0;
+}
+
+.text {
+  color: inherit;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0 8px;
+  padding: 5px 0;
+  overflow: hidden;
+  line-height: 1.65;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.hiddenTextarea {
+  position: absolute !important;
+  inset: 0 auto auto 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  caret-color: transparent !important;
+}
+
+.atomicNode {
+  display: inline;
+}
+
+.atomicChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(240px, 72vw);
+  margin: 0 3px;
+  padding: 2px 8px 2px 6px;
+  gap: 4px;
+  color: var(--app-info-text);
+  font: inherit;
+  line-height: 1.45;
+  vertical-align: baseline;
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
+  border-radius: 7px;
+  cursor: pointer;
+
+  svg {
+    flex: 0 0 auto;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    color: var(--app-info-text);
+    background: var(--app-info-bg-hover);
+  }
+}
+
+.codeChipHost {
+  display: inline;
+}
+
+.codeChip {
+  color: var(--app-info-text);
+  font-family: var(--ant-font-family-code);
+  background: var(--app-info-bg);
+  border-color: var(--app-info-border);
+}
+
+.codePopover {
+  :global([class$="-popover-inner"]) {
+    padding: 0;
+    overflow: hidden;
+  }
+}
+
+.codePreview {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(420px, 60vh);
+  overflow: auto;
+
+  pre {
+    margin: 0;
+    padding: 14px 16px 16px;
+    color: var(--app-text);
+    font-family: var(--ant-font-family-code);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--app-fill-faint);
+  }
+}
+
+.codePreviewHeader {
+  padding: 9px 16px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+
+.richInputRoot[data-disabled] {
+  cursor: not-allowed;
+
+  .richEditor {
+    cursor: not-allowed;
+  }
+}

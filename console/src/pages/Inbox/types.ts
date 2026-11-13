@@ -21,13 +21,17 @@ export interface PushMessage {
     | "telegram"
     | "discord"
     | "email"
-    | "heartbeat";
+    | "memory"
+    | "heartbeat"
+    | "skill"
+    | "community";
   channelName: string;
   title: string;
   content: string;
   sender: {
     userId: string;
     username: string;
+    avatarUrl?: string;
   };
   createdAt: Date;
   read: boolean;

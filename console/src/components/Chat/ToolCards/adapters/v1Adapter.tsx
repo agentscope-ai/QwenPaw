@@ -13,8 +13,12 @@
  * This adapter wraps each ChatV2 card so it can be used in ChatV1.
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// ChatV1 does not publish the callback props used by tool renderers.
+
 import React from "react";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
+import { useToolCallTurnEnded } from "../shared/ToolCallTurnContext";
 import type { BuiltinCardComponent } from "../cards";
 import GenericToolCard from "../cards/GenericToolCard";
 
@@ -22,26 +26,51 @@ import GenericToolCard from "../cards/GenericToolCard";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
 const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
+const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
+
+interface DerivedToolStatus {
+  status: ToolCallStatus;
+  /** Error status caused by an interruption rather than a tool failure. */
+  interrupted: boolean;
+}
 
 /**
  * Derive the tool execution status from V1 message data.
  *
- * No result item (content[1]) → tool hasn't produced output yet → "calling".
- * Message-level status on tool_call messages reflects *delivery*, not execution,
- * so we only consult it when a result item exists.
+ * Checks the tool-execution-layer `state` (nested inside resultItem.data)
+ * first — it reflects the real outcome of the tool call. Falls back to
+ * message-level `status` for delivery state.
+ *
+ * *turnEnded* closes dangling calls: a call with no terminal marker (no
+ * result block, or output that stopped mid-stream) is only running while its
+ * turn streams. Once the turn ends nothing more can arrive, so the call is
+ * reported as interrupted instead of spinning forever.
  */
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
-): ToolCallStatus {
-  if (!resultItem) return "calling";
+  turnEnded: boolean,
+): DerivedToolStatus {
+  const unfinished: DerivedToolStatus = turnEnded
+    ? { status: "error", interrupted: true }
+    : { status: "calling", interrupted: false };
+  if (!resultItem) return unfinished;
+
+  const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
+  const toolState = resultData.state as string;
+  if (toolState && TOOL_ERROR_STATES.has(toolState)) {
+    return { status: "error", interrupted: toolState === "interrupted" };
+  }
 
   const rawStatus =
     (data.status as string) || (resultItem.status as string) || "";
-  if (rawStatus === "completed") return "done";
-  if (ERROR_STATUSES.has(rawStatus)) return "error";
-  return "calling";
+  if (rawStatus === "completed") return { status: "done", interrupted: false };
+  if (ERROR_STATUSES.has(rawStatus)) {
+    return { status: "error", interrupted: rawStatus === "canceled" };
+  }
+  return unfinished;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +94,10 @@ function deriveToolStatus(
  *     status: "in_progress" | "completed" | "failed" | ...
  *   }
  */
-function parseV1Props(v1Props: Record<string, unknown>): {
+function parseV1Props(
+  v1Props: Record<string, unknown>,
+  turnEnded: boolean,
+): {
   content: ToolCallContent;
   isStreaming: boolean;
 } {
@@ -89,25 +121,37 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Extract arguments (may be a JSON string or an object)
   let params: Record<string, unknown> = {};
   const rawArgs = callData.arguments;
-  if (typeof rawArgs === "string") {
+  const isInputStreaming = callItem?.delta === true;
+  const inputProgress =
+    isInputStreaming && typeof rawArgs === "string"
+      ? {
+          preview: rawArgs.slice(-STREAM_INPUT_PREVIEW_CHARS),
+          truncated: rawArgs.length > STREAM_INPUT_PREVIEW_CHARS,
+        }
+      : undefined;
+  if (!isInputStreaming && typeof rawArgs === "string") {
     try {
       params = JSON.parse(rawArgs);
     } catch {
       params = {};
     }
-  } else if (rawArgs && typeof rawArgs === "object") {
+  } else if (!isInputStreaming && rawArgs && typeof rawArgs === "object") {
     params = rawArgs as Record<string, unknown>;
   }
 
   // Extract result from content[1].data.output
   const result = resultData.output;
 
-  // No output content → tool hasn't executed yet → always "calling".
-  // Message-level status on *_call messages reflects delivery, not execution.
-  const status = deriveToolStatus(resultItem, data);
+  // Message-level status on *_call messages reflects delivery, not execution,
+  // so the presence of an output block decides between running and finished.
+  const { status, interrupted } = deriveToolStatus(resultItem, data, turnEnded);
 
-  // Extract id
+  // Extract id — prefer call_id which carries the ToolCallBlock.id
+  // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.
+  // It is set in the backend at FunctionCall.call_id
+  // (see agentscope/message.py → FunctionCall dataclass).
   const toolId =
+    (callData.call_id as string) ||
     (callData.id as string) ||
     (data.id as string) ||
     `v1-${toolName}-${Date.now()}`;
@@ -117,9 +161,15 @@ function parseV1Props(v1Props: Record<string, unknown>): {
     id: toolId,
     name: toolName,
     serverLabel: (callData.server_label as string) || undefined,
+    rawInput: rawArgs,
     params,
+    inputProgress,
+    // The backend emits the output message right before registering the
+    // call in the ToolCoordinator, so it marks real execution start.
+    executionStarted: !!resultItem,
     result: result ?? undefined,
     status,
+    interrupted,
   };
 
   return {
@@ -143,7 +193,8 @@ export function adaptCardForV1(
   CardComponent: BuiltinCardComponent,
 ): React.FC<any> {
   const V1WrappedCard: React.FC<any> = (v1Props) => {
-    const { content, isStreaming } = parseV1Props(v1Props);
+    const turnEnded = useToolCallTurnEnded();
+    const { content, isStreaming } = parseV1Props(v1Props, turnEnded);
     return <CardComponent content={content} isStreaming={isStreaming} />;
   };
 

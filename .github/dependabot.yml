@@ -1,0 +1,65 @@
+version: 2
+
+# Dependabot: automated dependency updates for Python + npm.
+# Checks weekly, opens PRs with changelogs and test results.
+# Only minor/patch updates by default — major versions need manual review.
+
+updates:
+  # Python backend dependencies (pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    allow:
+      - update-type: "version-update:semver-minor"
+      - update-type: "version-update:semver-patch"
+    commit-message:
+      prefix: "deps"
+      include: scope
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      python-dev-deps:
+        patterns:
+          - "pytest*"
+          - "black"
+          - "flake8"
+          - "pylint"
+          - "mypy"
+          - "pre-commit"
+          - "ruff"
+
+  # Console frontend dependencies (package.json)
+  - package-ecosystem: "npm"
+    directory: "/console"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    allow:
+      - update-type: "version-update:semver-minor"
+      - update-type: "version-update:semver-patch"
+    commit-message:
+      prefix: "deps"
+      include: scope
+    labels:
+      - "dependencies"
+      - "frontend"
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"

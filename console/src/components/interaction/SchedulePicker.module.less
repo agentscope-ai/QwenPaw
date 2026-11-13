@@ -1,0 +1,65 @@
+.picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.time {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  color: var(--app-text);
+  font: inherit;
+  cursor: pointer;
+  > span {
+    display: inline-flex;
+    gap: 3px;
+    font-size: 23px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+  > svg {
+    color: var(--app-text-secondary);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-focus-ring);
+  }
+  &:hover {
+    border-color: var(--app-accent-border);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+.days {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+  button {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    cursor: pointer;
+    &[aria-pressed="true"] {
+      background: var(--app-accent-soft);
+      border-color: var(--app-accent-border);
+      color: var(--app-accent-text);
+    }
+    &:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    &:focus-visible {
+      outline: 2px solid var(--app-focus-ring);
+    }
+  }
+}

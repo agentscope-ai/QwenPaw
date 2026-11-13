@@ -11,18 +11,30 @@ import styles from "./ScopeTags.module.less";
 interface Props {
   scope: BackupMeta["scope"];
   agentCount?: number;
+  compact?: boolean;
 }
 
-export default function ScopeTags({ scope, agentCount }: Props) {
+export default function ScopeTags({ scope, agentCount, compact }: Props) {
   const { t } = useTranslation();
+  const tagClass = compact ? styles.compactTag : undefined;
   return (
     <div className={styles.scopeTags}>
       {scope.include_agents && agentCount ? (
-        <Tag>{t("backup.agents", { count: agentCount })}</Tag>
+        <Tag className={tagClass}>
+          {t("backup.agents", { count: agentCount })}
+        </Tag>
       ) : null}
-      {scope.include_global_config && <Tag>{t("backup.globalConfig")}</Tag>}
-      {scope.include_skill_pool && <Tag>{t("backup.skillPool")}</Tag>}
-      {scope.include_secrets && <Tag color="orange">{t("backup.secrets")}</Tag>}
+      {scope.include_global_config && (
+        <Tag className={tagClass}>{t("backup.globalConfig")}</Tag>
+      )}
+      {scope.include_skill_pool && (
+        <Tag className={tagClass}>{t("backup.skillPool")}</Tag>
+      )}
+      {scope.include_secrets && (
+        <Tag className={tagClass} color="warning">
+          {t("backup.secrets")}
+        </Tag>
+      )}
     </div>
   );
 }

@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
 """Backup restore operations."""
+
 from __future__ import annotations
 
 import asyncio
 import copy
 import json
 import logging
+import os
 import shutil
+import sqlite3
 import zipfile
 from pathlib import Path
 
@@ -17,6 +20,7 @@ from .._utils.constants import (
     PREFIX_WORKSPACES,
     find_zip_path,
 )
+from .._utils.history_sqlite import configured_history_db_path
 from .._utils.meta import read_meta_from_zip
 from .._utils.safe_swap import (
     assert_directory_renamable,
@@ -29,6 +33,7 @@ from .._utils.safe_swap import (
 )
 from .._utils.signing import resolve_signature_action, sign_trusted_backup
 from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
+from ...agents.context.scroll.sync import invalidate_agent_migration
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
@@ -235,7 +240,20 @@ def _stage_secrets(zf: zipfile.ZipFile, staged_dirs: list[Path]) -> None:
             bak_path,
         )
     cleanup_stale_restore_artifacts(SECRET_DIR)
-    extract_to_tmp(zf, PREFIX_SECRETS, SECRET_DIR, zip_slip_base=SECRET_DIR)
+    staged_secret_dir = extract_to_tmp(
+        zf,
+        PREFIX_SECRETS,
+        SECRET_DIR,
+        zip_slip_base=SECRET_DIR,
+        dir_mode=0o700,
+    )
+    try:
+        _harden_secret_dir(staged_secret_dir)
+        if SECRET_DIR.exists() and os.name != "nt":
+            os.chmod(SECRET_DIR, 0o700)
+    except BaseException:
+        discard_tmp(SECRET_DIR)
+        raise
     staged_dirs.append(SECRET_DIR)
 
 
@@ -294,7 +312,45 @@ def _stage_agents(
                 dst,
             )
         cleanup_stale_restore_artifacts(dst)
-        extract_to_tmp(zf, prefix, dst)
+        staged_workspace = extract_to_tmp(zf, prefix, dst)
+        try:
+            history_db = configured_history_db_path(staged_workspace)
+            if not history_db.is_relative_to(staged_workspace.resolve()):
+                raise ValueError(
+                    "Archived history must remain inside the workspace",
+                )
+        except ValueError as exc:
+            discard_tmp(dst)
+            raise BackupValidationError(
+                "history_database_path_invalid",
+                f"Agent '{aid}' history database path is invalid: {exc}",
+                {
+                    "agent_id": aid,
+                    "error": str(exc),
+                },
+            ) from exc
+        if history_db.is_file():
+            from ...agents.context.scroll.history import (
+                validate_history_database,
+            )
+
+            try:
+                validate_history_database(history_db)
+            except (OSError, sqlite3.Error) as exc:
+                discard_tmp(dst)
+                raise BackupValidationError(
+                    "history_database_invalid",
+                    f"Agent '{aid}' history database failed restore "
+                    f"validation: {exc}",
+                    {
+                        "agent_id": aid,
+                        "path": str(history_db),
+                        "error": str(exc),
+                    },
+                ) from exc
+        # Online snapshots and session files can represent different moments.
+        # Reconcile once after restore, before trusting completion metadata.
+        invalidate_agent_migration(staged_workspace)
         staged_dirs.append(dst)
         dst_map[aid] = dst
         if is_new:
@@ -359,9 +415,7 @@ def _assert_restore_targets_available(targets: list[Path]) -> None:
             locked = find_busy_restore_paths(target)
             busy_paths.extend(locked or [target])
             logger.warning(
-                "Restore target is still in use and cannot be renamed: %s",
-                target,
-                exc_info=True,
+                "Restore target is still in use and cannot be renamed",
             )
     if busy_paths:
         locked_paths = [
@@ -426,6 +480,24 @@ def _stage_all(
     return staged_dirs, staged_config_tmp, dst_map, new_aids
 
 
+def _harden_secret_dir(secret_dir: Path) -> None:
+    """Apply restrictive permissions before committing restored secrets.
+
+    Directories are set to ``0o700`` and files to ``0o600`` so that
+    nested subdirectories (e.g. ``providers/``) are not left
+    world-traversable after a restore replaces ``SECRET_DIR``.
+    """
+    if os.name == "nt":
+        return
+
+    os.chmod(secret_dir, 0o700)
+    for child in secret_dir.rglob("*"):
+        if child.is_dir():
+            os.chmod(child, 0o700)
+        elif child.is_file():
+            os.chmod(child, 0o600)
+
+
 def _commit_and_finalize(
     staged_dirs: list[Path],
     staged_config_tmp: Path | None,
@@ -441,18 +513,17 @@ def _commit_and_finalize(
         for d in staged_dirs:
             commit_tmp(d)
             committed.append(d)
-            logger.info("Committed restore for %s", d)
+            logger.info("Committed restore directory %d", len(committed))
     except Exception:
         remaining = [d for d in staged_dirs if d not in set(committed)]
         for d in remaining:
             discard_tmp(d)
-        logger.exception(
+        logger.error(
             "Phase 2 commit failed after committing %d/%d dirs. "
-            "Committed (already live): %s. Discarded (rolled back): %s.",
+            "Discarded %d uncommitted dirs.",
             len(committed),
             len(staged_dirs),
-            committed,
-            remaining,
+            len(remaining),
         )
         raise
 
@@ -525,14 +596,13 @@ def _restore_sync_locked(
         logger.info(
             "Starting restore: backup_id=%s name=%r mode=%s "
             "include_agents=%s agent_ids=%s "
-            "include_global_config=%s include_secrets=%s",
+            "include_global_config=%s",
             backup_id,
             meta.name,
             req.mode,
             req.include_agents,
             req.agent_ids,
             req.include_global_config,
-            req.include_secrets,
         )
 
         agent_ids, ws_agents = _collect_agent_ids(zf, req)

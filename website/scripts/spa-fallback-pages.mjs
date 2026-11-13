@@ -15,23 +15,62 @@ const DOC_SLUGS = [
   "intro",
   "quickstart",
   "console",
+  "import",
+  "mailbox",
   "channels",
   "skills",
   "memory",
   "compact",
   "commands",
-  "plan",
   "heartbeat",
   "config",
   "backup",
   "cli",
+  "creator",
   "community",
   "contributing",
 ];
 
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-  const paths = ["docs", "docs/search", ...DOC_SLUGS.map((s) => `docs/${s}`)];
+  const BLOG_SLUGS = [
+    "qwenpaw-memory-tags",
+    "qwenpaw-multimodal-memory",
+    "qwenpaw-pawport",
+    "qwenpaw-mailbox",
+    "creator-install-guide",
+    "qwenpaw-long-term-memory",
+    "qwenpaw-files-workspace",
+    "qwenpaw-os-shell",
+    "introducing-qwenpaw-driver",
+    "qwenpaw-developer-day-collection",
+    "play-with-qwenpaw-pet",
+    "paw-git",
+    "runtime-architecture-upgrade",
+    "qwenpaw-plugin-picks-1",
+    "qwenpaw-loop-engineering",
+    "qwenpaw-sandbox",
+  ];
+  const paths = [
+    "docs",
+    "usage-policy",
+    "evaluation",
+    "evaluation/benchmarks",
+    "docs/search",
+    ...DOC_SLUGS.map((s) => `docs/${s}`),
+    "blog",
+    ...BLOG_SLUGS.map((s) => `blog/${s}`),
+  ];
+  for (const [source, route] of [["data", "evaluation"]]) {
+    const history = JSON.parse(
+      await readFile(join(distDir, `evaluation/${source}/index.json`), "utf-8"),
+    );
+    for (const run of history.runs) {
+      if (!/^[a-z0-9][a-z0-9._-]{0,99}$/.test(run.id))
+        throw new Error("Invalid evaluation run ID");
+      paths.push(`${route}/runs/${run.id}`);
+    }
+  }
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });
