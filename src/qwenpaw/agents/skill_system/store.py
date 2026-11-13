@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import time
@@ -799,7 +800,9 @@ def is_ignored_skill_entry(name: str) -> bool:
     skill-dir enumeration (registry scanners, pool / workspace conflict
     checks, zip imports). Add new patterns here when they appear.
     """
-    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith((".", "~"))
+    return name in _IGNORED_SKILL_ARTIFACTS or name.startswith(
+        (".", "~", _SKILL_STAGE_PREFIX),
+    )
 
 
 def _extract_and_validate_zip(data: bytes, tmp_dir: Path) -> None:
@@ -1424,14 +1427,36 @@ def scan_skill_dir_or_raise(skill_dir: Path, skill_name: str) -> None:
 
 
 @contextmanager
-def staged_skill_dir(skill_name: str) -> Iterator[Path]:
+def staged_skill_dir(
+    skill_name: str,
+    *,
+    root_dir: Path | None = None,
+) -> Iterator[Path]:
     """Create a temporary skill directory used for staged writes.
 
     The temp root uses a fixed prefix and the stage directory is resolved via
     ``safe_skill_dir``, so a caller-supplied ``skill_name`` can never escape
     the temp root (path-injection hardening).
+
+    ``root_dir`` places the staging directory inside the filesystem tree that
+    will receive the copy. AppContainer runtimes must stage inside their
+    writable workspace: the process temp directory is a Low-integrity mount
+    whose child objects do not inherit the AppContainer SID ACE, so creating
+    the staged skill there fails with ``WinError 5``.
     """
-    temp_root = Path(tempfile.mkdtemp(prefix=_SKILL_STAGE_PREFIX))
+    if root_dir is None:
+        temp_root = Path(tempfile.mkdtemp(prefix=_SKILL_STAGE_PREFIX))
+    else:
+        root_dir.mkdir(parents=True, exist_ok=True)
+        while True:
+            temp_root = root_dir / (
+                f"{_SKILL_STAGE_PREFIX}{secrets.token_hex(8)}"
+            )
+            try:
+                temp_root.mkdir()
+            except FileExistsError:  # pragma: no cover - 128-bit collision
+                continue
+            break
     try:
         yield safe_skill_dir(temp_root, skill_name)
     finally:
@@ -1463,6 +1488,34 @@ def _newest_entry_mtime(path: Path) -> float | None:
     return newest
 
 
+def _skill_stage_roots() -> list[Path]:
+    """Return every root that may contain a staged skill directory."""
+    roots = [Path(tempfile.gettempdir())]
+    try:
+        from .registry import list_workspaces
+    except Exception:  # pragma: no cover - import-time guard
+        return roots
+    try:
+        workspaces = list_workspaces()
+    except Exception:  # pragma: no cover - best-effort housekeeping
+        logger.debug(
+            "Could not enumerate workspaces for stage cleanup",
+            exc_info=True,
+        )
+        return roots
+    for workspace in workspaces:
+        workspace_dir = Path(
+            str(workspace.get("workspace_dir", "")),
+        ).expanduser()
+        if not str(workspace_dir):
+            continue
+        for name in ("skills", "skill"):
+            root = workspace_dir / name
+            if root.is_dir():
+                roots.append(root)
+    return roots
+
+
 def cleanup_orphan_skill_stages(
     *,
     max_age_seconds: float = _SKILL_STAGE_ORPHAN_GRACE_SECONDS,
@@ -1480,21 +1533,30 @@ def cleanup_orphan_skill_stages(
     """
     cutoff = time.time() - max_age_seconds
     removed = 0
+    seen_roots: set[Path] = set()
     # Prefix must match the one used by ``staged_skill_dir`` above.
-    for path in Path(tempfile.gettempdir()).glob("qwenpaw_skill_stage_*"):
-        if not path.is_dir():
+    for root in _skill_stage_roots():
+        try:
+            resolved = root.resolve()
+        except OSError:
+            resolved = root
+        if resolved in seen_roots:
             continue
-        newest = _newest_entry_mtime(path)
-        if newest is None or newest > cutoff:
-            continue
-        shutil.rmtree(path, ignore_errors=True)
-        if path.exists():
-            logger.warning(
-                "Failed to remove orphan skill staging dir %s",
-                path,
-            )
-            continue
-        removed += 1
+        seen_roots.add(resolved)
+        for path in root.glob(f"{_SKILL_STAGE_PREFIX}*"):
+            if not path.is_dir():
+                continue
+            newest = _newest_entry_mtime(path)
+            if newest is None or newest > cutoff:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
+            if path.exists():
+                logger.warning(
+                    "Failed to remove orphan skill staging dir %s",
+                    path,
+                )
+                continue
+            removed += 1
     if removed:
         logger.info("Removed %d orphan skill staging dir(s)", removed)
     return removed
