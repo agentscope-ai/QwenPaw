@@ -167,6 +167,7 @@ function buildProtectionMasks(markdown: string): {
   const block = new Uint8Array(markdown.length);
   const paragraphReset = new Uint8Array(markdown.length + 1);
   let fence: Fence | undefined;
+  let fenceOffset = 0;
 
   for (let lineStart = 0; lineStart < markdown.length; ) {
     const newline = markdown.indexOf("\n", lineStart);
@@ -176,15 +177,20 @@ function buildProtectionMasks(markdown: string): {
       contentEnd--;
     }
     const line = markdown.slice(lineStart, contentEnd);
-    const content = line.slice(containerOffset(line));
 
     if (fence) {
+      // Inside a fence only the container prefix that opened it may be
+      // stripped. Re-deriving the prefix per line would read `- ~~~` or
+      // `> ~~~` as the closing fence and start rewriting code.
       block.fill(1, lineStart, lineEndWithNewline);
-      if (isClosingFence(content, fence)) fence = undefined;
+      if (isClosingFence(line.slice(fenceOffset), fence)) fence = undefined;
     } else {
+      const offset = containerOffset(line);
+      const content = line.slice(offset);
       const openingFence = getOpeningFence(content);
       if (openingFence) {
         fence = openingFence;
+        fenceOffset = offset;
         block.fill(1, lineStart, lineEndWithNewline);
       } else if (INDENT.test(content)) {
         block.fill(1, lineStart, lineEndWithNewline);
@@ -215,7 +221,10 @@ function containerOffset(line: string): number {
       offset += quote[0].length;
       continue;
     }
-    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]+/.exec(line.slice(offset));
+    // Consume exactly one separator character after the marker. The rest is
+    // real content indentation: `-     code` is an indented code block, and
+    // swallowing those spaces would turn it into ordinary text.
+    const list = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]/.exec(line.slice(offset));
     if (!list) break;
     offset += list[0].length;
   }
@@ -291,13 +300,24 @@ function markLinkDestinations(
     index = close;
   }
 
-  const definition = /^ {0,3}\[[^\]\n]+\]:[ \t]*(?:<([^>\n]*)>|(\S+))/gm;
+  // Reference definitions, possibly inside a blockquote, and possibly using an
+  // angle-bracket destination that spans several lines.
+  const definition =
+    /^[ \t]*(?:>[ \t]?)*\[[^\]\n]+\]:[ \t]*(?:<([^<>]*)>|(\S+))/gm;
   for (const match of markdown.matchAll(definition)) {
     const target = match[1] ?? match[2];
     if (!target) continue;
     const start = (match.index ?? 0) + match[0].length - target.length;
     if (block[start]) continue;
     protectedText.fill(1, start, start + target.length);
+  }
+
+  // Autolinks: <https://...> and <user@host>. Their text is the destination.
+  const autolink = /<([a-zA-Z][a-zA-Z0-9+.-]*:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
+  for (const match of markdown.matchAll(autolink)) {
+    const start = (match.index ?? 0) + 1;
+    if (block[start]) continue;
+    protectedText.fill(1, start, start + match[1].length);
   }
 }
 

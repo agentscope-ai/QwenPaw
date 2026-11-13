@@ -183,3 +183,42 @@ describe("normalizeCjkEmphasis guardrails", () => {
     expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\**。后");
   });
 });
+
+describe("normalizeCjkEmphasis container and destination guardrails", () => {
+  it("does not treat a container marker inside a fence as the closing fence", () => {
+    for (const marker of ["- ~~~", "> ~~~"]) {
+      const source = `~~~\n${marker}\n**内容。**后\n~~~`;
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+
+  it("keeps indented code inside a list item", () => {
+    expect(normalizeCjkEmphasis("-     **内容。**后")).toBe(
+      "-     **内容。**后",
+    );
+    expect(normalizeCjkEmphasis("1.     **内容。**后")).toBe(
+      "1.     **内容。**后",
+    );
+  });
+
+  it("keeps a reference definition inside a blockquote", () => {
+    const source =
+      "> [ref]: https://example.com/中文/**版本。**后续\n\n[下载][ref]";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps autolinks untouched", () => {
+    for (const source of [
+      "<https://example.com/**版本。**后续>",
+      "<mailto:dev@example.com>",
+    ]) {
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+
+  it("keeps a multi-line angle-bracket reference destination untouched", () => {
+    const source =
+      "[ref]: <https://example.com/\n**版本。**后续>\n\n[下载][ref]";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+});
