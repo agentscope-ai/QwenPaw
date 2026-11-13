@@ -1901,6 +1901,7 @@
     "streamingEnabled": "流式输出",
     "streamingEnabledDingtalkHint": "仅在消息类型为 Card 时生效",
     "streamingEnabledFeishuHint": "需要在飞书开放平台权限管理界面开通 cardkit:card:write 权限",
+    "streamingEnabledQQHint": "仅 QQ 单聊（C2C）支持流式输出；群聊和频道仍发送完整消息",
     "autoCollapseThinking": "折叠思考内容",
     "autoCollapseThinkingTooltip": "思考内容流式输出结束后自动折叠，仍可手动展开。",
     "ackMessage": "即时确认消息",

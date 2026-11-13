@@ -2084,6 +2084,13 @@ class IsolatedChannelProxy(BaseChannel):
                 )
             except ChannelDeliveryError as exc:
                 if (
+                    exc.state == "failed"
+                    and exc.reason_code == "STREAM_OPEN_REJECTED"
+                ):
+                    # Lazy opening failed before creating a platform stream.
+                    send_meta["_isolated_streams"].pop(stream_type, None)
+                    return
+                if (
                     exc.state != "failed"
                     or exc.reason_code != "RESPONSE_STATE_CAPACITY"
                 ):
@@ -2103,23 +2110,33 @@ class IsolatedChannelProxy(BaseChannel):
         if state:
             policy = await self._response_policy(to_handle, send_meta)
             state["sequence"] += 1
-            await self._send_operation(
-                to_handle,
-                send_meta,
-                "stream.end",
-                stream_type=stream_type,
-                target_delivery_id=state["delivery_id"],
-                sequence=state["sequence"],
-                accumulated_text=self._stream_text(
-                    stream_type,
-                    accumulated_text,
+            try:
+                await self._send_operation(
+                    to_handle,
                     send_meta,
-                    policy.send_format,
-                ),
-            )
-            send_meta["_last_delivery_id"] = state["delivery_id"]
-            send_meta["_isolated_streams"].pop(stream_type, None)
-        elif accumulated_text.strip():
+                    "stream.end",
+                    stream_type=stream_type,
+                    target_delivery_id=state["delivery_id"],
+                    sequence=state["sequence"],
+                    accumulated_text=self._stream_text(
+                        stream_type,
+                        accumulated_text,
+                        send_meta,
+                        policy.send_format,
+                    ),
+                )
+            except ChannelDeliveryError as exc:
+                if (
+                    exc.state != "failed"
+                    or exc.reason_code != "STREAM_OPEN_REJECTED"
+                ):
+                    raise
+                send_meta["_isolated_streams"].pop(stream_type, None)
+            else:
+                send_meta["_last_delivery_id"] = state["delivery_id"]
+                send_meta["_isolated_streams"].pop(stream_type, None)
+                return
+        if accumulated_text.strip():
             text = (
                 f"💭 {accumulated_text}"
                 if stream_type == "reasoning"

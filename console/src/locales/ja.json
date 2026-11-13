@@ -1386,6 +1386,7 @@
     "streamingEnabled": "ストリーミング出力",
     "streamingEnabledDingtalkHint": "メッセージタイプがCardの場合のみ有効",
     "streamingEnabledFeishuHint": "Feishuオープンプラットフォームの権限管理ページでcardkit:card:write権限を有効にする必要があります",
+    "streamingEnabledQQHint": "ストリーミング出力はQQの個別チャット（C2C）のみで利用できます。グループとギルドのメッセージは従来どおり完了後に送信されます",
     "autoCollapseThinking": "思考内容を折りたたむ",
     "autoCollapseThinkingTooltip": "思考内容のストリーミング終了後に自動で折りたたみます。手動で展開することもできます。",
     "ackMessage": "即時確認メッセージ",
