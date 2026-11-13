@@ -51,9 +51,19 @@ const ChatSessionInitializer: React.FC = () => {
      * and changes the route through this bridge.
      */
     const handleSelectSession = (e: Event) => {
-      const sessionId = (e as CustomEvent<{ sessionId: string }>).detail
-        .sessionId;
+      const { sessionId, canonical } = (
+        e as CustomEvent<{ sessionId: string; canonical?: boolean }>
+      ).detail;
       if (!sessionId) return;
+
+      if (canonical) {
+        // Search can find a Chat before the SDK's next list refresh. Keep its
+        // backend UUID intact and let route resolution load its identity.
+        switchControllerRef.current?.abort();
+        if (sessionApi.isSessionSwitching) sessionApi.finishSessionSwitch();
+        navigate(buildChatPath(sessionId));
+        return;
+      }
 
       const currentSessions = sessionsRef.current;
       const matching = currentSessions.find(

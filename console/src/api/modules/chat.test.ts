@@ -14,6 +14,27 @@ vi.mock("../authHeaders", () => ({
 import { request } from "../request";
 import { getApiToken } from "../config";
 
+it("searches conversation history with explicit agent scope and cancellation", async () => {
+  const controller = new AbortController();
+  const search = {
+    query: "deployment",
+    mode: "agent" as const,
+    limit: 20,
+    offset: 0,
+  };
+  await chatApi.searchChats(search, {
+    agentId: "agent-2",
+    signal: controller.signal,
+  });
+  expect(request).toHaveBeenCalledWith("/chats/search", {
+    method: "POST",
+    body: JSON.stringify(search),
+    headers: { "X-Agent-Id": "agent-2" },
+    signal: controller.signal,
+    timeout: 120000,
+  });
+});
+
 it("resolves a deep link with an explicit alias scope and abort signal", async () => {
   const controller = new AbortController();
   await chatApi.resolveChat("chat/id", {

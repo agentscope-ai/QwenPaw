@@ -31,7 +31,9 @@ import {
   ChevronLeft as SparkOperateLeftLine,
   ChevronRight as SparkOperateRightLine,
 } from "lucide-react";
-import SidebarSessionList from "./SidebarSessionList";
+import SidebarSessionList, {
+  type SidebarSessionNavigationOptions,
+} from "./SidebarSessionList";
 import DockableSidebar from "./DockableSidebar";
 import skin from "./sidebarA.module.less";
 import SidebarUsage from "./SidebarUsage";
@@ -507,23 +509,25 @@ export default function Sidebar({
 
   /** Preload the selected session while sidebar polling is paused. */
   const handleSidebarSessionClick = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, options?: SidebarSessionNavigationOptions) => {
       const controller = sessionApi.startNewSwitch();
       void sessionApi
         .preloadSession(sessionId, controller.signal)
         .then(({ realId }) => {
           if (controller.signal.aborted) return;
-          const effectiveId = sessionApi.getEffectiveSessionId(
-            sessionId,
-            realId,
-          );
+          const effectiveId = options?.canonical
+            ? sessionId
+            : sessionApi.getEffectiveSessionId(sessionId, realId);
           navigate(buildChatPath(effectiveId));
         })
         .catch((error: unknown) => {
           if (controller.signal.aborted) return;
           if (error instanceof DOMException && error.name === "AbortError")
             return;
-          navigate(buildChatPath(sessionApi.getEffectiveSessionId(sessionId)));
+          const effectiveId = options?.canonical
+            ? sessionId
+            : sessionApi.getEffectiveSessionId(sessionId);
+          navigate(buildChatPath(effectiveId));
         })
         .finally(() => {
           if (!controller.signal.aborted) {
@@ -853,9 +857,9 @@ export default function Sidebar({
                         setHistoryPopoverOpen(false);
                         handleNewChat();
                       }}
-                      onSessionClick={(sessionId) => {
+                      onSessionClick={(sessionId, options) => {
                         setHistoryPopoverOpen(false);
-                        handleSidebarSessionClick(sessionId);
+                        handleSidebarSessionClick(sessionId, options);
                       }}
                     />
                   </div>
