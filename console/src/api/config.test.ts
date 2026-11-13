@@ -1,5 +1,11 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from "./config";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  getApiUrl,
+  getApiToken,
+  setAuthToken,
+  clearAuthToken,
+  updateBrowserSession,
+} from "./config";
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => {
@@ -10,7 +16,10 @@ const setToken = (v: string) => {
 };
 
 describe("getApiUrl", () => {
-  beforeEach(() => setViteBase(""));
+  beforeEach(() => {
+    setViteBase("");
+    delete window.__qpBase;
+  });
 
   it("prepends /api prefix when base is empty", () => {
     expect(getApiUrl("/models")).toBe("/api/models");
@@ -25,10 +34,22 @@ describe("getApiUrl", () => {
     expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
   });
 
+  it("supports an API under a reverse-proxy path prefix", () => {
+    setViteBase("/qwenpaw");
+    expect(getApiUrl("/models")).toBe("/qwenpaw/api/models");
+  });
+
   it("correctly handles nested paths", () => {
     expect(getApiUrl("/models/openai/config")).toBe(
       "/api/models/openai/config",
     );
+  });
+
+  it("uses the server-injected prefix for same-origin API requests", () => {
+    window.__qpBase = "/app/qwenpaw/web";
+    expect(getApiUrl("/models")).toBe("/app/qwenpaw/web/api/models");
+    setViteBase("http://localhost:8088");
+    expect(getApiUrl("/models")).toBe("http://localhost:8088/api/models");
   });
 });
 
@@ -61,10 +82,21 @@ describe("setAuthToken / clearAuthToken", () => {
     expect(localStorage.getItem("qwenpaw_auth_token")).toBe("my-token");
   });
 
-  it("clearAuthToken removes token from localStorage", () => {
+  it("clearAuthToken clears cross-origin browser grants", async () => {
+    setViteBase("http://localhost:8088");
+    const request = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response());
     localStorage.setItem("qwenpaw_auth_token", "my-token");
     clearAuthToken();
     expect(localStorage.getItem("qwenpaw_auth_token")).toBeNull();
+    await updateBrowserSession(async () => undefined);
+    expect(request).toHaveBeenCalledWith(
+      "http://localhost:8088/api/hub/pawapps/sessions",
+      expect.objectContaining({ method: "DELETE", credentials: "include" }),
+    );
+    request.mockRestore();
+    setViteBase("");
   });
 
   it("getApiToken returns empty string after clearAuthToken", () => {
