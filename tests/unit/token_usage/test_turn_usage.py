@@ -6,15 +6,15 @@ _turn_from_stats, find_turn_closing_assistant_in_context,
 _write_turn_usage_meta, and _load_agent_state, which previously had no
 dedicated coverage.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 
 from qwenpaw.token_usage import turn_usage as tu
-
 
 # ---------------------------------------------------------------------------
 # fmt_tokens
@@ -197,6 +197,161 @@ class TestWriteTurnUsageMeta:
         ok = tu._write_turn_usage_meta(msg, {"total_tokens": 1}, None)
         assert ok is True
         assert isinstance(msg.metadata, dict)
+
+
+# ---------------------------------------------------------------------------
+# commit_turn_usage / discard_turn_usage
+# ---------------------------------------------------------------------------
+
+
+class TestCommitTurnUsage:
+    async def test_empty_session_id_short_circuits(self, monkeypatch):
+        resolve = AsyncMock()
+        monkeypatch.setattr(tu, "resolve_turn_usage", resolve)
+        workspace = SimpleNamespace(session=object(), agent_id="a")
+        result = await tu.commit_turn_usage(
+            workspace=workspace,
+            session_id="",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (None, None)
+        resolve.assert_not_awaited()
+
+    async def test_resolves_and_persists(self, monkeypatch):
+        turn = {"total_tokens": 10}
+        ctx = {"estimated_tokens": 12}
+        agent_state = object()
+        monkeypatch.setattr(
+            tu,
+            "resolve_turn_usage",
+            AsyncMock(return_value=(turn, ctx, agent_state)),
+        )
+        persist = AsyncMock()
+        monkeypatch.setattr(tu, "persist_turn_usage", persist)
+        session = object()
+        workspace = SimpleNamespace(session=session, agent_id="a")
+        result = await tu.commit_turn_usage(
+            workspace=workspace,
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (turn, ctx)
+        persist.assert_awaited_once_with(
+            session=session,
+            session_id="s",
+            user_id="u",
+            channel="console",
+            turn=turn,
+            ctx=ctx,
+            agent_state=agent_state,
+        )
+
+    async def test_no_usage_skips_persist(self, monkeypatch):
+        monkeypatch.setattr(
+            tu,
+            "resolve_turn_usage",
+            AsyncMock(return_value=(None, None, None)),
+        )
+        persist = AsyncMock()
+        monkeypatch.setattr(tu, "persist_turn_usage", persist)
+        result = await tu.commit_turn_usage(
+            workspace=SimpleNamespace(session=object()),
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (None, None)
+        persist.assert_not_awaited()
+
+    async def test_workspace_without_session_skips_persist(self, monkeypatch):
+        turn = {"total_tokens": 1}
+        monkeypatch.setattr(
+            tu,
+            "resolve_turn_usage",
+            AsyncMock(return_value=(turn, None, None)),
+        )
+        persist = AsyncMock()
+        monkeypatch.setattr(tu, "persist_turn_usage", persist)
+        result = await tu.commit_turn_usage(
+            workspace=SimpleNamespace(agent_id="a"),
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (turn, None)
+        persist.assert_not_awaited()
+
+    async def test_workspace_none_defaults_agent_id(self, monkeypatch):
+        resolve = AsyncMock(return_value=(None, None, None))
+        monkeypatch.setattr(tu, "resolve_turn_usage", resolve)
+        await tu.commit_turn_usage(
+            workspace=None,
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        resolve.assert_awaited_once()
+        kwargs = resolve.await_args.kwargs
+        assert kwargs["agent_id"] == "default"
+        assert kwargs["session"] is None
+
+    async def test_resolve_failure_is_swallowed(self, monkeypatch):
+        monkeypatch.setattr(
+            tu,
+            "resolve_turn_usage",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        result = await tu.commit_turn_usage(
+            workspace=SimpleNamespace(session=object()),
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (None, None)
+
+    async def test_persist_failure_is_swallowed(self, monkeypatch):
+        turn = {"total_tokens": 1}
+        monkeypatch.setattr(
+            tu,
+            "resolve_turn_usage",
+            AsyncMock(return_value=(turn, None, None)),
+        )
+        monkeypatch.setattr(
+            tu,
+            "persist_turn_usage",
+            AsyncMock(side_effect=RuntimeError("boom")),
+        )
+        result = await tu.commit_turn_usage(
+            workspace=SimpleNamespace(session=object()),
+            session_id="s",
+            user_id="u",
+            channel="console",
+        )
+        assert result == (turn, None)
+
+
+class TestDiscardTurnUsage:
+    def test_pops_staged_usage(self, monkeypatch):
+        pop = Mock()
+        monkeypatch.setattr(
+            tu.TokenRecordingModelWrapper,
+            "pop_usage_for_session",
+            pop,
+        )
+        tu.discard_turn_usage("s")
+        pop.assert_called_once_with("s")
+
+    def test_empty_session_id_short_circuits(self, monkeypatch):
+        pop = Mock()
+        monkeypatch.setattr(
+            tu.TokenRecordingModelWrapper,
+            "pop_usage_for_session",
+            pop,
+        )
+        tu.discard_turn_usage("")
+        pop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

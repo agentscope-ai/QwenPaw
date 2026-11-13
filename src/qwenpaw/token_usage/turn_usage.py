@@ -337,3 +337,74 @@ async def persist_turn_usage(
             "update_session_state for turn usage skipped",
             exc_info=True,
         )
+
+
+async def commit_turn_usage(
+    *,
+    workspace: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Resolve and persist usage for one finished turn.
+
+    Shared entry point for every runner that completes a model turn:
+    the channel conversation path (``Channel._commit_turn_usage``) and
+    background runners (cron / heartbeat) that drive
+    ``workspace.stream_query`` directly. Without this, usage from
+    non-channel paths never reaches the session's turn records.
+
+    Never raises: failures are logged and reported as no usage.
+    """
+    if not session_id:
+        return None, None
+    try:
+        session = (
+            getattr(workspace, "session", None)
+            if workspace is not None
+            else None
+        )
+        agent_id = (
+            getattr(workspace, "agent_id", "default")
+            if workspace is not None
+            else "default"
+        )
+        turn, ctx, agent_state = await resolve_turn_usage(
+            session_id=session_id,
+            agent_id=agent_id,
+            session=session,
+            user_id=user_id,
+            channel=channel,
+        )
+        if turn is None and ctx is None:
+            return None, None
+        if turn:
+            logger.info("Usage for session %s: %s", session_id, turn)
+        if session is not None:
+            try:
+                await persist_turn_usage(
+                    session=session,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    turn=turn,
+                    ctx=ctx,
+                    agent_state=agent_state,
+                )
+            except Exception:
+                logger.warning("turn usage persist skipped", exc_info=True)
+        return turn, ctx
+    except Exception:
+        logger.warning("turn usage commit skipped", exc_info=True)
+        return None, None
+
+
+def discard_turn_usage(session_id: str) -> None:
+    """Drop staged per-session usage without persisting (cancel / error).
+
+    Mirrors the channel path, which discards usage when a turn does not
+    finish normally, so a failed background run can never leak stale
+    usage into a later turn on the same session.
+    """
+    if session_id:
+        TokenRecordingModelWrapper.pop_usage_for_session(session_id)

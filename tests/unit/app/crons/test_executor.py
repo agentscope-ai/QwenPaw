@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import re
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -49,6 +49,21 @@ def _patch_trace_storage(monkeypatch):
         finalize_trace,
     )
     return finalize_trace
+
+
+def _patch_turn_usage(monkeypatch):
+    """Patch the shared turn-usage helpers used via importlib."""
+    commit = AsyncMock(return_value=(None, None))
+    monkeypatch.setattr(
+        "qwenpaw.token_usage.turn_usage.commit_turn_usage",
+        commit,
+    )
+    discard = Mock()
+    monkeypatch.setattr(
+        "qwenpaw.token_usage.turn_usage.discard_turn_usage",
+        discard,
+    )
+    return commit, discard
 
 
 @pytest.mark.asyncio
@@ -428,3 +443,50 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
             channel_manager=AsyncMock(),
         ).execute(job)
     assert not workspace.requests
+
+
+@pytest.mark.asyncio
+async def test_successful_run_commits_turn_usage(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="usage-job")
+
+    _patch_trace_storage(monkeypatch)
+    commit, discard = _patch_turn_usage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(job)
+
+    commit.assert_awaited_once()
+    kwargs = commit.await_args.kwargs
+    assert kwargs["workspace"] is workspace
+    assert kwargs["session_id"] == workspace.requests[0]["session_id"]
+    assert kwargs["user_id"] == "u1"
+    assert kwargs["channel"] == "console"
+    discard.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_failed_run_discards_staged_usage(monkeypatch):
+    class BrokenWorkspace(_Workspace):
+        async def stream_query(self, request):
+            self.requests.append(request)
+            yield "partial"
+            raise RuntimeError("model stream died")
+
+    workspace = BrokenWorkspace()
+    job = make_cron_job_spec(job_id="broken-job")
+
+    _patch_trace_storage(monkeypatch)
+    commit, discard = _patch_turn_usage(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="model stream died"):
+        await CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(job)
+
+    commit.assert_not_awaited()
+    discard.assert_called_once_with(workspace.requests[0]["session_id"])
