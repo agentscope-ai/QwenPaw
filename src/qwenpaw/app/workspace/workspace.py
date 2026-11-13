@@ -743,10 +743,17 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 if self.mail_monitor is not None:
                     await self.mail_monitor.stop()
                 from ...agents.acp.service import get_acp_service
+                from ..mcp.feature_gate import is_mcp_ready
 
                 service = get_acp_service(self.agent_id)
                 if service is not None:
-                    await service.close_all_sessions()
+                    # ACP is agent-scoped: retiring this instance alone must
+                    # not clear sessions used by its successor.
+                    await service.close_all_sessions(
+                        only_if=lambda: get_acp_service(self.agent_id)
+                        is service
+                        and not is_mcp_ready(workspace_id=self.agent_id),
+                    )
             elif self._started:
                 from ...plugins.registry import PluginRegistry
                 from ...plugins._drivers import workspace_is_current

@@ -166,8 +166,14 @@ class ACPService:
         if conversation is not None:
             await self._close_conversation(conversation)
 
-    async def close_all_sessions(self) -> None:
+    async def close_all_sessions(
+        self,
+        *,
+        only_if: Callable[[], bool] | None = None,
+    ) -> None:
         async with self._lock:
+            if only_if is not None and not only_if():
+                return
             conversations = list(self._sessions.values())
             self._sessions.clear()
         for conversation in conversations:
