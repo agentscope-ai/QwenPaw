@@ -753,6 +753,51 @@ class LastApiConfig(BaseModel):
     port: Optional[int] = None
 
 
+def channel_config_is_configured(name: str, values: Any) -> bool:
+    """True if a channel config carries user-supplied values beyond defaults.
+
+    A channel holding only its model defaults (e.g. a fresh ``QQConfig()``)
+    is not configured, even though some defaults are non-empty strings
+    (``ws_host`` defaults to ``127.0.0.1``). Comparing each field against
+    its declared default tells a deliberately-disabled channel apart from
+    one that was configured and then disabled — e.g. by a partial re-save
+    that silently re-defaulted ``enabled``.
+    """
+    if values is None:
+        return False
+    if hasattr(values, "model_dump"):
+        values = values.model_dump(mode="json")
+    elif not isinstance(values, dict):
+        values = dict(vars(values)) if hasattr(values, "__dict__") else {}
+    if not isinstance(values, dict):
+        return False
+    field = ChannelConfig.model_fields.get(name)
+    annotation = field.annotation if field is not None else None
+    model_fields = getattr(annotation, "model_fields", None) or {}
+    for key, value in values.items():
+        if key == "enabled":
+            continue
+        model_field = model_fields.get(key)
+        if model_field is None:
+            # Plugin/extra key: any set value means configured.
+            if value not in (None, "", False, 0, [], {}):
+                return True
+            continue
+        if model_field.is_required():
+            if value not in (None, ""):
+                return True
+            continue
+        default = model_field.default
+        if model_field.default_factory is not None:
+            try:
+                default = model_field.default_factory()
+            except Exception:
+                default = None
+        if value != default:
+            return True
+    return False
+
+
 class ActiveHoursConfig(BaseModel):
     """Optional active window for heartbeat (e.g. 08:00–22:00)."""
 
@@ -3543,16 +3588,38 @@ def build_fallback_agent_profile_config(
 
     agent_ref = config.agents.profiles[agent_id]
     workspace_dir = Path(agent_ref.workspace_dir).expanduser()
+    channels = (
+        config.channels
+        if hasattr(config, "channels") and config.channels
+        else None
+    )
+    if channels is not None:
+        # The root copy is frozen at migration time and never synced from
+        # agent.json, so a channel that was enabled in the live profile can
+        # still be disabled here. Rebuilding from it must not happen
+        # silently — flag the channels it would switch off.
+        stale_disabled = [
+            name
+            for name, value in channels.model_dump(mode="json").items()
+            if isinstance(value, dict)
+            and not value.get("enabled", False)
+            and channel_config_is_configured(name, value)
+        ]
+        if stale_disabled:
+            logger.warning(
+                "Rebuilding agent '%s' from the legacy root config.json; "
+                "channel(s) %s are configured but disabled there, so their "
+                "enabled states may be stale — verify them in the workspace "
+                "agent.json.",
+                sanitize_log_value(agent_id),
+                ", ".join(stale_disabled),
+            )
     return AgentProfileConfig(
         id=agent_id,
         name=agent_id.title(),
         description=f"{agent_id} agent",
         workspace_dir=str(workspace_dir),
-        channels=(
-            config.channels
-            if hasattr(config, "channels") and config.channels
-            else None
-        ),
+        channels=channels,
         mcp=config.mcp if hasattr(config, "mcp") and config.mcp else None,
         tools=(
             config.tools if hasattr(config, "tools") and config.tools else None

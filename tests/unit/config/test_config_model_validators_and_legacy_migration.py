@@ -744,6 +744,78 @@ def test_fallback_profile_rejects_an_unknown_agent_id() -> None:
         cfg_mod.build_fallback_agent_profile_config("ghost", config)
 
 
+def test_fallback_profile_warns_for_configured_but_disabled_channel(
+    tmp_path,
+    caplog,
+) -> None:
+    """Rebuilding from a stale root copy must not silently switch a channel
+    off (#8475). The rebuild still uses the root values — the warning, not
+    a fix, is what this PR guarantees for that path."""
+    import logging
+
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
+    config.channels = cfg_mod.ChannelConfig(
+        qq=cfg_mod.QQConfig(
+            enabled=False,
+            app_id="123456",
+            client_secret="dummy-secret-for-repro-only",
+        ),
+    )
+    caplog.set_level(logging.WARNING, logger="qwenpaw.config.config")
+    profile = cfg_mod.build_fallback_agent_profile_config("helper", config)
+
+    assert profile.channels.qq.enabled is False
+    assert any(
+        "qq" in record.getMessage() and "stale" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_fallback_profile_stays_silent_for_unconfigured_channel(
+    tmp_path,
+    caplog,
+) -> None:
+    """A never-configured channel holding only defaults is not a problem."""
+    import logging
+
+    workspace = str(tmp_path / "ws-helper")
+    config = _config_with_profile("helper", workspace)
+    config.channels = cfg_mod.ChannelConfig(qq=cfg_mod.QQConfig())
+    caplog.set_level(logging.WARNING, logger="qwenpaw.config.config")
+    cfg_mod.build_fallback_agent_profile_config("helper", config)
+
+    assert not any("stale" in record.getMessage() for record in caplog.records)
+
+
+def test_channel_config_is_configured_ignores_default_values() -> None:
+    """The configured check compares against declared model defaults."""
+    assert (
+        cfg_mod.channel_config_is_configured("qq", cfg_mod.QQConfig()) is False
+    )
+    assert (
+        cfg_mod.channel_config_is_configured(
+            "qq",
+            cfg_mod.QQConfig(app_id="123456"),
+        )
+        is True
+    )
+    assert (
+        cfg_mod.channel_config_is_configured(
+            "onebot",
+            {"enabled": False, "ws_host": "127.0.0.1"},
+        )
+        is False
+    )
+    assert (
+        cfg_mod.channel_config_is_configured(
+            "onebot",
+            {"enabled": False, "access_token": "dummy-token"},
+        )
+        is True
+    )
+
+
 # ---------------------------------------------------------------------------
 # get_model_max_input_length
 # ---------------------------------------------------------------------------

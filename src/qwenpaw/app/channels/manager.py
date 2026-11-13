@@ -854,6 +854,19 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 continue
             ch_cfg = channel_cfg_for_key(config, key)
             if ch_cfg is None or not channel_enabled(ch_cfg):
+                if ch_cfg is not None:
+                    from ...config.config import channel_config_is_configured
+
+                    if channel_config_is_configured(key, ch_cfg):
+                        # Configured (credentials/endpoints set) but disabled:
+                        # this is exactly what a silent re-default looks like,
+                        # so say so instead of skipping quietly. A channel
+                        # that was never configured stays silent.
+                        logger.warning(
+                            "Channel '%s' is configured but skipped because "
+                            "enabled=False; set 'enabled': true to activate it.",
+                            key,
+                        )
                 continue
             try:
                 context = None

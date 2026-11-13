@@ -1741,9 +1741,15 @@ With the app running you can read and update channel config; changes are written
 `agent.json` and applied automatically:
 
 - `GET /config/channels` — List all channels
-- `PUT /config/channels` — Replace all
+- `PUT /config/channels` — Update the listed channels (others are untouched)
 - `GET /config/channels/{channel_name}` — Get one (e.g. `dingtalk`, `imessage`)
 - `PUT /config/channels/{channel_name}` — Update one
+
+Both PUTs are partial updates: fields you omit keep their saved values, so
+re-saving only credentials never resets `enabled`. Send a field explicitly to
+change it — including `enabled: false` to disable a channel. A channel that
+does not exist yet is created from its schema defaults. When a save changes a
+channel's enabled state, a warning is logged.
 
 ---
 

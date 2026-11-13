@@ -1747,9 +1747,13 @@ https://xxxx.ngrok-free.app/api/messages
 服务运行时可读写频道配置，修改会写回 `agent.json` 并自动生效：
 
 - `GET /config/channels` — 获取全部频道
-- `PUT /config/channels` — 整体覆盖
+- `PUT /config/channels` — 更新列出的频道（其余频道不受影响）
 - `GET /config/channels/{channel_name}` — 获取单个（如 `dingtalk`、`imessage`）
 - `PUT /config/channels/{channel_name}` — 更新单个
+
+两个 PUT 都是部分更新：未提供的字段保留已保存的值，因此只重发凭证不会重置
+`enabled`。要修改某个字段请显式发送，包括用 `enabled: false` 停用频道。不存在
+的频道会按 schema 默认值创建。保存导致某个频道启用状态变化时，会记录一条警告。
 
 ---
 
