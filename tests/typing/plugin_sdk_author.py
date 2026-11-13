@@ -8,10 +8,38 @@ from qwenpaw.plugins import PluginContext
 from qwenpaw.plugins.harnesses import HarnessBackend, HarnessCallContext
 
 from qwenpaw.plugins.apps import AppContext, ChatRequest, TaskSnapshot
+from qwenpaw.plugins.cli import CliContext
 from qwenpaw.plugins.events import ChatEvent
 from qwenpaw.plugins.providers import ModelChunk
 from qwenpaw.plugins.testing import PluginTestHost, TestModel
 from qwenpaw.plugins.tools import ToolEvent, ToolContext
+
+
+def terminal_contract(context: "PluginContext", call: "CliContext") -> None:
+    import click
+    from qwenpaw.plugins.cli import CliSpec
+    from qwenpaw.plugins.doctor import DOCTOR, DoctorSpec
+    from qwenpaw.plugins.resources import Registration
+    from qwenpaw.plugins.logging import PluginLogger
+
+    async def operation() -> str:
+        return "result"
+
+    assert_type(call.run(operation()), str)
+    assert_type(call.logger, PluginLogger)
+    assert_type(
+        context.register_cli(
+            CliSpec("hello", lambda ctx: click.Command("hello")),
+        ),
+        Registration,
+    )
+    assert_type(
+        context.register_extension(
+            DOCTOR,
+            DoctorSpec("hello", lambda ctx: []),
+        ),
+        Registration,
+    )
 
 
 async def close_streams(

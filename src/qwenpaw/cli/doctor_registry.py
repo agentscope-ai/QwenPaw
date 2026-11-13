@@ -122,4 +122,6 @@ def run_extension_contributions(
             lines = [f"(entry point {name!r} error) {exc}"]
         results.append((f"ep:{name}", lines))
 
-    return results
+    from .plugin_resources import doctor_contributions
+
+    return results + doctor_contributions(ctx)

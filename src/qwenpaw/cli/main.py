@@ -8,6 +8,8 @@ import time
 
 import click
 
+from .plugin_cli import ExtensibleGroup
+
 from ..utils.stdio import ensure_standard_streams
 from ..utils.runtime_api import read_runtime_api
 
@@ -57,7 +59,7 @@ def log_init_timings() -> None:
         logger.debug("%.3fs %s", elapsed, label)
 
 
-class LazyGroup(click.Group):
+class LazyGroup(ExtensibleGroup):
     """Click group that supports lazy loading of subcommands."""
 
     def __init__(self, *args, lazy_subcommands=None, **kwargs):
@@ -81,21 +83,22 @@ class LazyGroup(click.Group):
         # the TUI, even when global options appear before it.
         if (
             project is not None
-            and project not in self.list_commands(ctx)
+            and project not in self._list_builtin_commands(ctx)
             and _looks_like_project_path(project)
+            and project not in self.list_commands(ctx)
         ):
             ctx.meta["tui_project"] = args.pop(project_index)
         return super().parse_args(ctx, args)
 
-    def list_commands(self, ctx):
+    def _list_builtin_commands(self, ctx):
         """Return all command names (both eager and lazy)."""
-        base = super().list_commands(ctx)
+        base = super()._list_builtin_commands(ctx)
         return sorted(set(base) | set(self.lazy_subcommands.keys()))
 
-    def get_command(self, ctx, cmd_name):
+    def _get_builtin_command(self, ctx, cmd_name):
         """Get command, loading lazily if needed."""
         # Try eager commands first
-        cmd = super().get_command(ctx, cmd_name)
+        cmd = super()._get_builtin_command(ctx, cmd_name)
         if cmd is not None:
             return cmd
 

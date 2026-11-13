@@ -77,6 +77,9 @@ def _wait_for_local_model_download(
 
 
 def _manager() -> ProviderManager:
+    from .plugin_resources import ensure_resources
+
+    ensure_resources("providers")
     return ProviderManager.get_instance()
 
 
@@ -167,6 +170,16 @@ def configure_provider_api_key_interactive(
         )
 
     defn = manager.get_provider(provider_id)
+    saved = None
+    if defn is None:
+        from .plugin_resources import saved_provider_infos
+        from ..providers.provider import provider_identity_key
+
+        saved = saved_provider_infos(manager).get(
+            provider_identity_key(provider_id),
+        )
+        if saved is not None:
+            defn = saved[0]
     if defn is None:
         click.echo(
             click.style(
@@ -206,10 +219,14 @@ def configure_provider_api_key_interactive(
         if not base_url:
             base_url = None
 
+    from .plugin_resources import update_provider_config
+
     if not defn.require_api_key:
-        if base_url is not None and not manager.update_provider(
+        if base_url is not None and not update_provider_config(
+            manager,
             provider_id,
             {"base_url": base_url},
+            saved=saved,
         ):
             raise click.ClickException("Failed to update provider base URL.")
         click.echo(
@@ -233,12 +250,14 @@ def configure_provider_api_key_interactive(
         prompt_suffix=f" [{'set' if current_key else 'not set'}]: ",
     )
 
-    ok = manager.update_provider(
+    ok = update_provider_config(
+        manager,
         provider_id,
         {
             "api_key": api_key if api_key else None,
             "base_url": base_url,
         },
+        saved=saved,
     )
     if not ok:
         click.echo(
@@ -578,6 +597,17 @@ def list_cmd() -> None:
                 for m in all_models:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
+
+    from .plugin_resources import saved_provider_infos
+
+    for info, _ in saved_provider_infos(manager).values():
+        click.echo(f"\n  {info.name} ({info.id}) [plugin unavailable]")
+        click.echo(f"  {'base_url':16s}: {info.base_url or '(not set)'}")
+        click.echo(
+            f"  {'api_key':16s}: {_mask_api_key(info.api_key) or '(not set)'}",
+        )
+        for model in info.models + info.extra_models:
+            click.echo(f"    - {model.name} ({model.id})")
 
     click.echo(f"\n{'═' * 44}")
     click.echo("  Active Model Slot")

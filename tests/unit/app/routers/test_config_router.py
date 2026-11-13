@@ -194,6 +194,79 @@ def test_list_channels_404_when_agent_lookup_fails(client):
     assert response.status_code == 404
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("endpoint", ["channels", "channels/schemas"])
+def test_channel_catalog_isolates_invalid_plugin_versions(
+    app,
+    patch_get_agent,
+    fake_agent_workspace,
+    tmp_path,
+    monkeypatch,
+    caplog,
+    enabled,
+    endpoint,
+):
+    import json
+    from pathlib import Path
+    import shutil
+
+    from qwenpaw.app.channels.catalog import get_configurable_channel_catalog
+    from qwenpaw.config import utils as config_utils
+    from qwenpaw.plugins.registry import PluginRegistry
+
+    plugins = tmp_path / "plugins"
+    template = Path(__file__).resolve().parents[4] / "plugins/channel/telegram"
+    for name in ("valid", "invalid"):
+        source = plugins / name
+        shutil.copytree(template, source)
+        manifest_path = source / "plugin.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest.update(
+            id=f"catalog-{name}",
+            qwenpaw_version={"min": "0.0.0"},
+        )
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        descriptor_path = source / "channel.json"
+        descriptor = json.loads(descriptor_path.read_text())
+        descriptor["channel_key"] = f"catalog_{name}"
+        descriptor_path.write_text(json.dumps(descriptor), encoding="utf-8")
+
+    monkeypatch.setattr(PluginRegistry, "_instance", None)
+    monkeypatch.setattr(config_utils, "get_plugins_dir", lambda: plugins)
+    monkeypatch.setattr(
+        config_utils,
+        "load_config",
+        lambda: Config(plugins={"catalog-invalid": {"enabled": enabled}}),
+    )
+    fake_agent_workspace.config.channels = ChannelConfig(
+        console=ConsoleConfig(enabled=True),
+        catalog_invalid={"enabled": False, "bot_prefix": "saved"},
+    )
+    baseline = get_configurable_channel_catalog()
+    assert {"console", "catalog_valid", "catalog_invalid"} <= baseline.keys()
+    invalid_path = plugins / "invalid/plugin.json"
+    manifest = json.loads(invalid_path.read_text())
+    manifest["qwenpaw_version"]["min"] = "not-a-version"
+    invalid_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(f"/api/config/{endpoint}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert {"console", "catalog_valid", "catalog_invalid"} <= body.keys()
+    if endpoint == "channels":
+        assert body["catalog_invalid"]["bot_prefix"] == "saved"
+    else:
+        assert body["catalog_invalid"]["form_kind"] == "key_value"
+    catalog = get_configurable_channel_catalog()
+    assert catalog.keys() == baseline.keys() - {"catalog_invalid"}
+    assert any(
+        "catalog-invalid" in record.message
+        and "not-a-version" in record.message
+        for record in caplog.records
+    )
+
+
 def test_put_channels_saves_and_triggers_reload(
     client,
     fake_agent_workspace,
