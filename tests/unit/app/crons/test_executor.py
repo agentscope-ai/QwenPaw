@@ -285,7 +285,7 @@ async def test_agent_run_is_tracked_by_chat_id_and_can_stop(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await execution
     assert await workspace.task_tracker.get_status("cron-chat") == "idle"
-    workspace.chat_manager.mark_chat_finished.assert_awaited_once()
+    workspace.chat_manager.mark_chat_finished.assert_not_awaited()
     finalize.assert_awaited_once()
 
 
