@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from html import escape
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -94,9 +95,17 @@ class ConsoleIndexResponse(FileResponse):
         send: Send,
     ) -> None:
         content = await asyncio.to_thread(Path(self.path).read_bytes)
-        base_href = f'<base href="{self.base_path}/">'
+        base_href = f'<base href="{escape(self.base_path, quote=True)}/">'
         content = content.replace(_BASE_HREF_TOKEN, base_href.encode("utf-8"))
-        runtime_config = f"window.__qpBase = {json.dumps(self.base_path)};"
+        base_path_json = (
+            json.dumps(self.base_path)
+            .replace("&", "\\u0026")
+            .replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("\u2028", "\\u2028")
+            .replace("\u2029", "\\u2029")
+        )
+        runtime_config = f"window.__qpBase = {base_path_json};"
         content = content.replace(
             _BASE_PATH_JSON_TOKEN,
             runtime_config.encode("utf-8"),

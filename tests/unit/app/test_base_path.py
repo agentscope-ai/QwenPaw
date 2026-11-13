@@ -127,6 +127,29 @@ def test_console_index_injects_only_base_path_tokens(tmp_path):
         assert response.headers["content-length"] == str(len(response.content))
 
 
+def test_console_index_escapes_html_attributes_and_inline_script(tmp_path):
+    index = tmp_path / "index.html"
+    index.write_text(
+        '<base href="/" /><script>window.__qpBase = "";</script>',
+        encoding="utf-8",
+    )
+    application = FastAPI()
+    malicious_path = '/app/"><script>alert(1)</script>'
+    application.get("/")(
+        lambda: ConsoleIndexResponse(index, base_path=malicious_path),
+    )
+
+    with TestClient(application) as client:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "&quot;&gt;&lt;script&gt;" in response.text
+        assert "\\u003cscript\\u003e" in response.text
+        assert "\\u003c/script\\u003e" in response.text
+        assert '"><script>alert(1)</script>' not in response.text
+        assert response.text.count("<script>") == 1
+        assert response.text.count("</script>") == 1
+
+
 def test_production_app_serves_api_console_and_assets_below_base_path(
     tmp_path,
 ):
