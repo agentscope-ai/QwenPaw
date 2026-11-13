@@ -76,6 +76,8 @@ windows = { version = "0.61.3", features = [
     "Win32_System_SystemInformation",
     "Win32_System_StationsAndDesktops",
     "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Diagnostics_ToolHelp",
     "Win32_System_JobObjects",
     "Win32_Security",
     "Win32_Storage_FileSystem",
@@ -85,8 +87,13 @@ windows = { version = "0.61.3", features = [
     "Win32_UI_Accessibility",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
     "UI_Notifications",
 ] }
+
+[target.'cfg(not(windows))'.dependencies]
+# Native startup error dialog; Windows uses MessageBoxW instead.
+rfd = { version = "0.16", default-features = false, features = ["gtk3"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

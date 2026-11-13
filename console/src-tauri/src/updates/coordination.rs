@@ -13,7 +13,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tauri::{Emitter, Manager};
 
-use crate::backend::{self, runtime::Runtime};
+use crate::{
+    backend::{self, runtime::Runtime},
+    startup_diagnostics,
+};
 
 pub(crate) const UPDATING: &str = "QwenPaw is updating. Please wait until the update finishes.";
 
@@ -24,16 +27,26 @@ pub(crate) fn installation(app: &tauri::AppHandle) -> Result<String, String> {
 }
 
 fn installation_directory(identifier: &str) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe()
-        .and_then(|path| path.canonicalize())
-        .map_err(|e| e.to_string())?;
+    let executable =
+        std::env::current_exe().map_err(|e| format!("Cannot locate desktop executable: {e}"))?;
+    let exe = executable.canonicalize().map_err(|e| {
+        format!(
+            "Cannot resolve desktop executable {}: {e}",
+            executable.display(),
+        )
+    })?;
     let identity = format!("{:x}", Sha256::digest(exe.to_string_lossy().as_bytes()));
     let path = dirs::data_local_dir()
         .ok_or("App data directory unavailable")?
         .join(identifier)
         .join("installations")
         .join(identity);
-    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| {
+        format!(
+            "Cannot create installation coordination directory {}: {e}",
+            path.display(),
+        )
+    })?;
     Ok(path)
 }
 
@@ -42,8 +55,34 @@ pub(crate) fn register_desktop(identifier: &str) -> Result<Option<Registration>,
     let directory = installation_directory(identifier)?;
     // NSIS can launch the new executable just before its own process exits.
     // No runtime or Computer Use process is started during this handoff.
+    let mut waiting_since = None;
+    #[cfg(windows)]
+    let mut attention = super::windows::InstallerAttention::default();
     while installer_running(&directory)? {
+        let started = waiting_since.get_or_insert_with(|| {
+            startup_diagnostics::record(
+                "Wait for installer",
+                format!("record={}", directory.join("installer").display()),
+            );
+            Instant::now()
+        });
+        #[cfg(windows)]
+        if startup_diagnostics::interactive_desktop() {
+            attention.poll(started.elapsed(), &directory);
+        }
+        #[cfg(not(windows))]
+        let _ = started;
         std::thread::sleep(Duration::from_millis(200));
+    }
+    // Dispose the waiting notice before creating a WebView or returning an
+    // error. Its UI timer also handles cancellation during dialog creation.
+    #[cfg(windows)]
+    drop(attention);
+    if let Some(started) = waiting_since {
+        startup_diagnostics::record(
+            "Installer handoff finished",
+            format!("waited_ms={}", started.elapsed().as_millis()),
+        );
     }
     match register(&directory, backend::runtime::directory()?, false) {
         Ok(registration) => Ok(Some(registration)),
@@ -59,7 +98,7 @@ pub(super) fn open_lock(path: &Path) -> Result<File, String> {
         .create(true)
         .truncate(false)
         .open(path)
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("Cannot open installation lock {}: {e}", path.display()))
 }
 
 fn exclusive(file: &File) -> Result<bool, String> {
@@ -104,10 +143,17 @@ pub(crate) fn register(
         return Err(UPDATING.into());
     }
     let members = directory.join("members");
-    std::fs::create_dir_all(&members).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&members).map_err(|e| {
+        format!(
+            "Cannot create installation members directory {}: {e}",
+            members.display()
+        )
+    })?;
     let path = members.join(format!("{}.lock", uuid::Uuid::new_v4()));
     let lease = open_lock(&path)?;
-    lease.lock_exclusive().map_err(|e| e.to_string())?;
+    lease
+        .lock_exclusive()
+        .map_err(|e| format!("Cannot lock desktop registration {}: {e}", path.display()))?;
     let member = Member {
         pid: std::process::id(),
         runtime,
@@ -115,11 +161,22 @@ pub(crate) fn register(
     };
     // Windows byte-range locks also prohibit reads through another handle.
     // Keep readable metadata separate from the process-lifetime lease.
+    let metadata = path.with_extension("json");
     std::fs::write(
-        path.with_extension("json"),
-        serde_json::to_vec(&member).map_err(|e| e.to_string())?,
+        &metadata,
+        serde_json::to_vec(&member).map_err(|e| {
+            format!(
+                "Cannot serialize desktop registration {}: {e}",
+                metadata.display()
+            )
+        })?,
     )
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        format!(
+            "Cannot write desktop registration {}: {e}",
+            metadata.display()
+        )
+    })?;
     Ok(Registration { _lease: lease })
 }
 
@@ -322,11 +379,19 @@ fn installer_running(directory: &Path) -> Result<bool, String> {
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                return Err(format!(
+                    "Cannot read installer record {}: {e}",
+                    path.display()
+                ))
+            }
         };
-        let installer: super::windows::Installer =
-            serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-        if installer.running()? {
+        let installer: super::windows::Installer = serde_json::from_slice(&bytes)
+            .map_err(|e| format!("Cannot parse installer record {}: {e}", path.display()))?;
+        if installer
+            .running()
+            .map_err(|e| format!("Cannot inspect installer record {}: {e}", path.display()))?
+        {
             return Ok(true);
         }
         let _ = std::fs::remove_file(path);
@@ -352,4 +417,77 @@ pub(super) fn check_installers(app_data: &Path) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestDirectory;
+
+    #[test]
+    fn missing_installer_record_remains_available() {
+        let directory = TestDirectory::new();
+        assert!(!installer_running(&directory.0).unwrap());
+    }
+
+    #[test]
+    fn lock_open_error_identifies_path_and_operation() {
+        let directory = TestDirectory::new();
+        let blocked = directory.0.join("blocked");
+        std::fs::write(&blocked, "file").unwrap();
+        let path = blocked.join("admission.lock");
+        let error = open_lock(&path).unwrap_err();
+        assert!(error.contains("Cannot open installation lock"));
+        assert!(error.contains(&path.display().to_string()));
+    }
+
+    #[test]
+    fn busy_admission_keeps_updating_sentinel_unchanged() {
+        let directory = TestDirectory::new();
+        let admission = open_lock(&directory.0.join("admission.lock")).unwrap();
+        admission.lock_exclusive().unwrap();
+        let result = register(&directory.0, directory.0.join("runtime"), false);
+        assert!(matches!(result, Err(error) if error == UPDATING));
+    }
+
+    #[test]
+    fn member_directory_failure_includes_exact_path() {
+        let directory = TestDirectory::new();
+        let members = directory.0.join("members");
+        std::fs::write(&members, "file").unwrap();
+        let result = register(&directory.0, directory.0.join("runtime"), false);
+        match result {
+            Err(error) => {
+                assert!(error.contains("Cannot create installation members directory"));
+                assert!(error.contains(&members.display().to_string()));
+            }
+            Ok(_) => panic!("Registration unexpectedly succeeded"),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn malformed_installer_record_reports_parse_error_and_path() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("installer");
+        std::fs::write(&path, "not JSON").unwrap();
+        let error = installer_running(&directory.0).unwrap_err();
+        assert!(error.contains("Cannot parse installer record"));
+        assert!(error.contains(&path.display().to_string()));
+        assert!(path.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn reused_pid_does_not_block_startup_and_record_is_cleaned() {
+        let directory = TestDirectory::new();
+        let path = directory.0.join("installer");
+        std::fs::write(
+            &path,
+            serde_json::json!({"pid": std::process::id(), "created": 0}).to_string(),
+        )
+        .unwrap();
+        assert!(!installer_running(&directory.0).unwrap());
+        assert!(!path.exists());
+    }
 }
