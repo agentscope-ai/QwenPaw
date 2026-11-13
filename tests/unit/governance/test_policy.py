@@ -2085,3 +2085,31 @@ class TestDefaultDetectionRules:
 
         # Restore cache for other tests
         monkeypatch.setattr(pol, "_DEFAULT_DETECTION_RULES_CACHE", None)
+
+
+def test_allow_rule_does_not_bypass_critical_finding():
+    """A broad ALLOW rule must not cancel a CRITICAL Phase-1 finding.
+
+    Regression for the #8048 review: ``Bash(gh *)`` released
+    ``gh --version && powershell -c New-Object -ComObject Excel.Application``
+    because Phase 2 returned on the first ALLOW match and discarded the
+    Office COM finding collected in Phase 1 (it would ``Quit()`` the user's
+    already-running Excel, see #8002). The finding must reach the approval
+    decision instead.
+    """
+    policy = _create_default_policy()
+    command = (
+        "gh --version && powershell -NoProfile -Command "
+        '"$app = New-Object -ComObject Excel.Application; $app.Quit()"'
+    )
+    decision = policy.evaluate(_tc("Bash", command))
+    assert decision.action is GovernanceAction.ASK
+    rule_ids = [getattr(f, "rule_id", "") for f in (decision.findings or [])]
+    assert "TOOL_CMD_OFFICE_COM_AUTOMATION" in rule_ids
+
+
+def test_allow_rule_still_allows_when_no_critical_finding():
+    """The CRITICAL override must not turn ordinary ALLOW matches into ASK."""
+    policy = _create_default_policy()
+    decision = policy.evaluate(_tc("Bash", "gh --version"))
+    assert decision.action is GovernanceAction.ALLOW
