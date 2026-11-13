@@ -264,3 +264,32 @@ class TestShouldSkipAuthDefenseInDepth:
         req.method = "GET"
         # pylint: disable=protected-access
         assert AuthMiddleware._should_skip_auth(req) is False
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{"xff": "203.0.113.9"}, {"real_ip": "203.0.113.9"}],
+    )
+    @patch("qwenpaw.app.auth._get_config_cached")
+    @patch("qwenpaw.app.auth.is_auth_enabled", return_value=True)
+    @patch("qwenpaw.app.auth.has_registered_users", return_value=True)
+    def test_same_host_proxy_with_default_config_blocked(
+        self,
+        _a,
+        _b,
+        mock_cfg,
+        kwargs,
+    ):
+        """Same-host reverse proxy, default empty trusted_proxies.
+
+        The peer is loopback but the request carries proxy headers, so it
+        did not come from a local client and must not skip auth.
+        """
+        from qwenpaw.app.auth import AuthMiddleware  # noqa: F811
+
+        mock_cfg.return_value = _make_config_return()
+        req = _make_request("127.0.0.1", **kwargs)
+        req.url = MagicMock()
+        req.url.path = "/api/agents/abc"
+        req.method = "GET"
+        # pylint: disable=protected-access
+        assert AuthMiddleware._should_skip_auth(req) is False
