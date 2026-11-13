@@ -818,6 +818,25 @@ def is_token_plan_protocol(protocol: str) -> bool:
     return "token plan" in lowered or "tokenplan" in lowered
 
 
+def is_token_plan_endpoint(base_url: str) -> bool:
+    """True when *base_url* names the Token Plan gateway host.
+
+    A Token Plan key (``sk-sp-``) is scoped to its own gateway: the public
+    ``dashscope.aliyuncs.com`` refuses it (401) and the token-plan host
+    serves no ``/api/v1/uploads`` at all (404, both measured), so local
+    media bound for it must inline as Base64 instead of riding the
+    model-bound temporary upload. Hostname parsing (not a substring match)
+    mirrors ``is_maas_endpoint`` so a lookalike path cannot select it, and
+    every section decides through here rather than a private copy.
+    """
+    candidate = base_url if "://" in base_url else f"//{base_url}"
+    try:
+        hostname = (urlsplit(candidate).hostname or "").casefold()
+    except ValueError:
+        return False
+    return hostname == "token-plan" or hostname.startswith("token-plan.")
+
+
 # Gateways that reject any explicit ``temperature`` for a model. The seed
 # list omits the field up front for known cases (no wasted first request);
 # ``learn_temperature_unsupported`` records any others at runtime from the

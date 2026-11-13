@@ -399,6 +399,56 @@ def test_recover_requeues_only_with_durable_artifacts(
         assert len(spawned) == 1
 
 
+def test_cancel_for_asset_stops_a_live_build_before_its_next_stage(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    # Rewriting the Task record is not cancelling the build: the coroutine
+    # would go on into the next billed stage and then persist a memory graph
+    # derived from media that has just been deleted.
+    service = _service(tmp_path)
+    executions = _RecordingExecutions(_running_task(tmp_path))
+    service.executions = executions
+    entered = asyncio.Event()
+    continued: list = []
+
+    async def gated_execute(job) -> None:
+        entered.set()
+        await asyncio.sleep(30)
+        continued.append(job.task_id)
+
+    monkeypatch.setattr(service, "_execute", gated_execute)
+
+    async def run():
+        worker = service._spawn(_build_job(tmp_path))
+        assert worker is not None
+        await asyncio.wait_for(entered.wait(), timeout=30)
+        revoked = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id="asset-1",
+            version_id="version-1",
+        )
+        unrelated = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id="asset-other",
+            version_id="version-other",
+        )
+        return worker, revoked, unrelated
+
+    worker, revoked, unrelated = asyncio.run(run())
+
+    assert revoked == 1
+    assert worker.cancelled()
+    assert unrelated == 0, "a build fed by another asset must survive"
+    assert not continued, "a revoked build must not reach its next stage"
+    assert executions.transitions[-1]["status"] is TaskStatus.CANCELLED
+    assert (
+        executions.transitions[-1]["updates"]["error"]["code"]
+        == "SOURCE_ASSET_DELETED"
+    ), "the record a cancellation left behind must still terminalize"
+    assert not service._jobs and not service._job_specs
+
+
 def test_merge_projection_folds_reviewed_drafts_and_summary(
     tmp_path,
 ) -> None:

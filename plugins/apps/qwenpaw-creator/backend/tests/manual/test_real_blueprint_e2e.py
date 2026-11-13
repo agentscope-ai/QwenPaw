@@ -137,10 +137,10 @@ def test_blueprint_slice_end_to_end_with_real_model(client) -> None:
     assert created.status_code == 201, created.text
     project_id = created.json()["projectId"]
 
-    # 2. Snapshot must already be schema v9 with narrative fields.
+    # 2. Snapshot must already be migrated to the current schema version.
     snapshot = _snapshot(client, project_id)
     project = snapshot["project"] if "project" in snapshot else snapshot
-    assert project["schema_version"] == 9
+    assert project["schema_version"] == 10
     primary_id = project["timelines"]["order"][0]
 
     # 3. Real model call: draft a two-episode structure synopsis.

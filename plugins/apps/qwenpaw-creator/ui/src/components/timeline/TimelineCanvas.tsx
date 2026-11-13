@@ -31,7 +31,9 @@ import {
 import type { ElementPlaybackStatus } from "@/selectors/elementPlaybackSelectors";
 import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import TimelineLivePreview from "@/components/timeline/TimelineLivePreview";
-import TimelineTracks from "@/components/timeline/TimelineTracks";
+import TimelineTracks, {
+  type SubtitleBatchToggle,
+} from "@/components/timeline/TimelineTracks";
 import {
   buildSpanOperations,
   computeRippleChanges,
@@ -60,6 +62,12 @@ interface TimelineCanvasProps {
   variant?: "card" | "split";
   /** Extra controls at the right end of the transport row (e.g. 历史快照). */
   transportExtra?: React.ReactNode;
+  /**
+   * Batch caption switch for the subtitle lane's row header. Live timelines
+   * pass it; the snapshot side of a comparison omits it because a historical
+   * timeline has no captions to switch.
+   */
+  subtitleToggle?: SubtitleBatchToggle;
   onPreviewOpenChange: (open: boolean) => void;
   onPlayheadChange: (tick: number) => void;
   onSelectElement: (elementId: string) => void;
@@ -127,6 +135,7 @@ export default function TimelineCanvas({
   tasks,
   variant = "card",
   transportExtra,
+  subtitleToggle,
   onPreviewOpenChange,
   onPlayheadChange,
   onSelectElement,
@@ -1036,6 +1045,7 @@ export default function TimelineCanvas({
           selectedElementId={selectedElementId}
           playbackStates={playbackStates}
           agentWorking={agentWorking.working}
+          subtitleToggle={subtitleToggle}
           onPlayheadChange={onPlayheadChange}
           onSelectElement={onSelectElement}
           onActiveElementIdsChange={onActiveElementIdsChange}

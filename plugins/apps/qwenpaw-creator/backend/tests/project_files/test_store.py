@@ -76,6 +76,220 @@ def test_create_read_list_replace_and_delete(tmp_path):
     assert [item.project_id for item in store.list()] == ["project-a"]
 
 
+def test_listing_serves_from_summary_cache_without_reading(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A warm listing must not read, migrate or validate any document.
+
+    ``list()`` used to load every Project to build one card each -- measured
+    34 MB and 0.7 s across eight Projects, on every home-page load and every
+    return from a Project. The summary record is keyed on ``project.json``'s
+    ``(mtime_ns, size)``, so a real commit still forces the full read.
+    """
+
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "A"))
+
+    reads: list[str] = []
+    real_read = store.read
+
+    def spy_read(project_id):
+        reads.append(project_id)
+        return real_read(project_id)
+
+    monkeypatch.setattr(store, "read", spy_read)
+
+    first = store.list()
+    assert reads == ["project-a"]  # cold: the document has to be read
+
+    reads.clear()
+    assert store.list() == first  # warm: served from the record
+    assert reads == []
+
+    snapshot = real_read("project-a")
+    store.replace(
+        "project-a",
+        _next(snapshot.project, name="Renamed"),
+        expected_etag=snapshot.etag,
+    )
+    reads.clear()
+    third = store.list()
+    assert reads == ["project-a"]  # the moved document missed the cache
+    assert third[0].name == "Renamed"
+
+
+def test_a_damaged_summary_record_is_only_a_cache_miss(tmp_path) -> None:
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "A"))
+    store.list()
+
+    record = store.project_root("project-a") / "runtime" / "summary.json"
+    record.write_text("{not json", encoding="utf-8")
+
+    assert store.list()[0].name == "A"
+
+
+def test_a_well_formed_summary_with_a_typed_field_still_degrades_to_a_miss(
+    tmp_path,
+) -> None:
+    """JSON that parses but carries a non-string field must not 500 the list.
+
+    Review #243 blocking #3 / #255 remaining item: ``_cached_summary`` used
+    to hand ``raw["name"]`` straight to a ``ProjectSummary`` dataclass whose
+    annotations are compile-time only, so a ``42`` under a valid
+    ``sourceStamp`` sailed through and blew up later in
+    ``list(sort_by="name")`` on ``s.name.lower()`` -- which the surrounding
+    ``except (KeyError, TypeError, ValueError)`` does not catch (the crash
+    happens after the return). The listing must treat that record as a miss
+    exactly like malformed JSON, not as an authority.
+    """
+
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "A"))
+    store.list()
+
+    record = store.project_root("project-a") / "runtime" / "summary.json"
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    payload["name"] = 42
+    record.write_text(json.dumps(payload), encoding="utf-8")
+
+    # Previously this raised AttributeError on ``s.name.lower()``.
+    assert store.list(sort_by="name")[0].name == "A"
+
+    # Optional fields accept None but reject any other non-string, so a
+    # corrupt coverVersionId cannot leak into HomePage's image lookup.
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    payload["name"] = "A"
+    payload["coverVersionId"] = 3.14
+    record.write_text(json.dumps(payload), encoding="utf-8")
+    assert store.list()[0].cover_version_id is None
+
+
+def test_a_cached_naive_timestamp_degrades_to_a_miss(tmp_path) -> None:
+    """A UTC-persisted Project must never hand list() a naive datetime.
+
+    Follow-up on review #243 / #255: ``datetime.fromisoformat`` happily
+    parses ``"2026-11-12T10:00:00"`` (no offset) into a naive datetime.
+    Sorting that against a sibling's aware datetime blows up in
+    ``list()``'s compare step, outside this method's try/except -- so
+    one damaged cache row could 500 the whole listing. The check now
+    rejects a cached timestamp without tzinfo, and the test uses two
+    Projects (one valid, one damaged) to reproduce the mixed-type sort
+    the reviewer measured.
+    """
+
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "A"))
+    store.create(_project("project-b", "B"))
+    store.list()  # warm both summaries
+
+    damaged = (
+        store.project_root("project-a") / "runtime" / "summary.json"
+    )
+    payload = json.loads(damaged.read_text(encoding="utf-8"))
+    payload["updatedAt"] = "2026-11-12T10:00:00"  # naive but valid string
+    damaged.write_text(json.dumps(payload), encoding="utf-8")
+
+    # Would previously raise TypeError: can't compare offset-naive and
+    # offset-aware datetimes.
+    names = sorted(item.name for item in store.list())
+    assert names == ["A", "B"]
+
+    # Same for createdAt when sorting by creation time.
+    payload["updatedAt"] = (
+        "2026-07-15T08:00:01+00:00"  # restore aware value
+    )
+    payload["createdAt"] = "2026-11-12T10:00:00"
+    damaged.write_text(json.dumps(payload), encoding="utf-8")
+    created_order = store.list(sort_by="created_at")
+    assert {item.name for item in created_order} == {"A", "B"}
+
+
+def test_summary_cache_can_be_switched_off(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("CREATOR_LIST_SUMMARY_CACHE", "0")
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "A"))
+
+    reads: list[str] = []
+    real_read = store.read
+
+    def spy_read(project_id):
+        reads.append(project_id)
+        return real_read(project_id)
+
+    monkeypatch.setattr(store, "read", spy_read)
+
+    store.list()
+    store.list()
+    assert reads == ["project-a", "project-a"]
+
+
+def test_summary_cache_refuses_to_stamp_an_old_snapshot_with_a_new_document(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A commit landing between read and cache must not freeze the old card.
+
+    Regression for review #243 P2 (also the sole blocker on #255): the
+    previous ``_cache_summary`` re-statted ``project.json`` *after* the
+    snapshot had been read, so a legitimate commit that slipped into that
+    window paired the old summary with the new fingerprint. Every later
+    ``list()`` matched the fingerprint and served the stale card until the
+    next write happened to invalidate it -- not the transient skew list()
+    is allowed elsewhere, but a permanent misread of a legal change.
+    """
+
+    store = ProjectStore(tmp_path.resolve())
+    store.create(_project("project-a", "Old"))
+
+    real_cover = store_module._cover_reference
+    racing = [False]
+
+    def cover_then_commit(project):
+        # ``_cover_reference`` is what list() calls between read() and
+        # building the summary, so firing the commit here reproduces the
+        # exact race window the review named without needing a real thread.
+        if not racing[0]:
+            racing[0] = True
+            snapshot = store.read("project-a")
+            store.replace(
+                "project-a",
+                _next(snapshot.project, name="New"),
+                expected_etag=snapshot.etag,
+            )
+        return real_cover(project)
+
+    monkeypatch.setattr(store_module, "_cover_reference", cover_then_commit)
+
+    first = store.list()
+    # list() reports the snapshot it actually read; that skew is allowed.
+    assert first[0].name == "Old"
+
+    # What must not happen is caching that stale snapshot under the new
+    # document's fingerprint. The fix skips the write when the live stamp
+    # no longer matches the one taken before read.
+    second = store.list()
+    assert second[0].name == "New"
+
+    # A third listing is warm again from the corrected summary, so the
+    # refusal was one turn and not a permanent bypass.
+    reads: list[str] = []
+    real_read = store.read
+
+    def spy_read(project_id):
+        reads.append(project_id)
+        return real_read(project_id)
+
+    monkeypatch.setattr(store, "read", spy_read)
+    third = store.list()
+    assert third[0].name == "New"
+    assert reads == []
+
+
 def test_delete_returns_after_atomic_hide_without_waiting_for_tree_cleanup(
     tmp_path,
     monkeypatch,
@@ -321,3 +535,250 @@ def test_startup_gc_sweeps_legacy_locks_but_spares_project_assets(tmp_path):
 
     assert all(path.exists() for path in assets)
     assert not any(path.exists() for path in legacy)
+
+
+def test_detach_clears_intelligence_pointer_when_selected_version_deleted(
+    tmp_path,
+):
+    """Regression for deep-CR finding on commit c939b4c39.
+
+    Deleting a source version that owns an intelligence version must clear the
+    source's `current_intelligence_version_id` in the SAME batch the intel
+    version is removed. If the pointer is left dangling, the write path
+    re-validates the graph and raises instead of completing (a 500 on the
+    "delete an analysed source asset" path).
+    """
+    from services.project_files.models import (
+        IndexedFile,
+        ProjectSource,
+        SourceAssetVersion,
+        SourceIntelligenceVersion,
+    )
+
+    now = datetime(2026, 7, 15, 8, 0, tzinfo=timezone.utc)
+
+    def _file(file_id: str, kind: str) -> IndexedFile:
+        return IndexedFile(
+            file_id=file_id,
+            kind=kind,
+            relative_uri=f"assets/{file_id}.bin",
+            sha256="0" * 64,
+            size_bytes=1,
+            media_type="application/octet-stream",
+            created_at=now,
+        )
+
+    checksum = "1" * 64
+    v1 = SourceAssetVersion(
+        version_id="v1",
+        logical_asset_id="L1",
+        name="a",
+        file_id="F1",
+        checksum=checksum,
+        media_kind="image",
+        media_type="image/png",
+        created_at=now,
+    )
+    v2 = SourceAssetVersion(
+        version_id="v2",
+        logical_asset_id="L1",
+        name="a2",
+        file_id="F2",
+        checksum="2" * 64,
+        media_kind="image",
+        media_type="image/png",
+        created_at=now,
+    )
+    iv1 = SourceIntelligenceVersion(
+        intelligence_version_id="iv1",
+        source_asset_version_id="v1",
+        file_id="F3",
+        source_checksum=checksum,
+        created_at=now,
+    )
+    s1 = ProjectSource(
+        source_id="s1",
+        display_name="S",
+        logical_asset_id="L1",
+        selected_asset_version_id="v1",
+        current_intelligence_version_id="iv1",
+    )
+
+    project = _project("project-detach")
+    assets = project.assets.model_copy(
+        update={
+            "files_by_id": {
+                "F1": _file("F1", "source_original"),
+                "F2": _file("F2", "source_original"),
+                "F3": _file("F3", "source_intelligence"),
+            },
+            "source_versions_by_id": {"v1": v1, "v2": v2},
+            "intelligence_versions_by_id": {"iv1": iv1},
+        },
+    )
+    sources = project.sources.model_copy(
+        update={
+            "sources": project.sources.sources.model_copy(
+                update={"items": {"s1": s1}, "order": ["s1"]},
+            ),
+        },
+    )
+    project = project.model_copy(update={"assets": assets, "sources": sources})
+
+    detached = ProjectStore(tmp_path.resolve())._detach_source_version_refs(
+        project,
+        "v1",
+    )
+
+    survivor = detached.sources.sources.items["s1"]
+    # Re-pointed to the surviving sibling version...
+    assert survivor.selected_asset_version_id == "v2"
+    # ...and the pointer into the removed intelligence version is cleared
+    # (the old code left this as "iv1", dangling at write time).
+    assert survivor.current_intelligence_version_id is None
+    assert "iv1" not in detached.assets.intelligence_versions_by_id
+
+
+def _publish_asset_index(
+    store: ProjectStore,
+    project_id: str,
+    uris: list[str],
+) -> None:
+    """Publish one Project whose asset index points at *uris*.
+
+    Both write and read run :meth:`ProjectStore._validate_asset_paths`, so this
+    is the shape the containment rule has to accept or refuse.
+    """
+
+    current = store.read(project_id)
+    raw = current.project.model_dump(mode="json")
+    raw["generation"] = current.project.generation + 1
+    raw["updated_at"] = "2026-07-15T08:00:01Z"
+    raw["assets"]["files_by_id"] = {
+        f"file-{index}": {
+            "file_id": f"file-{index}",
+            "kind": "other",
+            "relative_uri": uri,
+            "sha256": "a" * 64,
+            "size_bytes": 1,
+            "media_type": "application/octet-stream",
+            "created_at": "2026-07-15T08:00:00Z",
+        }
+        for index, uri in enumerate(uris)
+    }
+    store.replace(
+        project_id,
+        Project.model_validate(raw),
+        expected_etag=current.etag,
+    )
+
+
+def test_asset_rule_accepts_everything_the_resolve_rule_accepted(tmp_path):
+    store = ProjectStore((tmp_path / "store").resolve())
+    store.create(_project("project-ok"))
+    project_root = store.project_root("project-ok")
+    artifacts = project_root / "assets" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    (artifacts / "real.bin").write_bytes(b"x")
+
+    _publish_asset_index(
+        store,
+        "project-ok",
+        [
+            "assets/artifacts/real.bin",
+            "assets/artifacts/missing.bin",
+            "assets/uploads/note.txt",
+        ],
+    )
+
+    assert store.read("project-ok").project.generation == 1
+
+
+def test_asset_rule_still_refuses_a_leaf_link_that_leaves_assets(
+    tmp_path,
+    file_symlink,
+):
+    store = ProjectStore((tmp_path / "store").resolve())
+    store.create(_project("project-leaf"))
+    project_root = store.project_root("project-leaf")
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"y")
+    link = project_root / "assets" / "leak.bin"
+    file_symlink(outside, link)
+
+    with pytest.raises(UnsafeProjectPath, match="escapes"):
+        _publish_asset_index(store, "project-leaf", ["assets/leak.bin"])
+
+
+def test_asset_rule_accepts_a_leaf_link_that_stays_inside_assets(
+    tmp_path,
+    file_symlink,
+):
+    store = ProjectStore((tmp_path / "store").resolve())
+    store.create(_project("project-inner"))
+    project_root = store.project_root("project-inner")
+    artifacts = project_root / "assets" / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    target = artifacts / "real.bin"
+    target.write_bytes(b"x")
+    file_symlink(target, project_root / "assets" / "alias.bin")
+
+    _publish_asset_index(store, "project-inner", ["assets/alias.bin"])
+
+    assert store.read("project-inner").project.generation == 1
+
+
+def test_asset_rule_refuses_a_directory_link_above_the_leaf(
+    tmp_path,
+    directory_link,
+):
+    """The per-parent resolve must catch a redirect that is not the leaf.
+
+    ``assets/uploads`` pointing outside the Project is exactly what the old
+    per-file ``resolve()`` refused, so caching resolved parents may not soften
+    it.
+    """
+
+    store = ProjectStore((tmp_path / "store").resolve())
+    store.create(_project("project-dirlink"))
+    project_root = store.project_root("project-dirlink")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "real.bin").write_bytes(b"y")
+    directory_link(outside, project_root / "assets" / "uploads")
+
+    with pytest.raises(UnsafeProjectPath, match="escapes"):
+        _publish_asset_index(
+            store,
+            "project-dirlink",
+            ["assets/uploads/real.bin"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("relative_uri", "expected"),
+    (
+        ("assets/artifacts/file.bin", ("assets", "artifacts", "file.bin")),
+        (
+            "assets/sub/../artifacts/file.bin",
+            ("assets", "artifacts", "file.bin"),
+        ),
+        ("assets/./file.bin", ("assets", "file.bin")),
+        ("assets", ("assets",)),
+        ("x/../assets/file.bin", ("assets", "file.bin")),
+    ),
+)
+def test_lexical_asset_parts_accepts_uris_that_return_inside(
+    relative_uri,
+    expected,
+):
+    assert store_module._lexical_asset_parts(relative_uri) == expected
+
+
+@pytest.mark.parametrize(
+    "relative_uri",
+    ("", "/etc/passwd", "../outside", "assets/../../escape", "media/file.bin"),
+)
+def test_lexical_asset_parts_refuses_every_form_of_escape(relative_uri):
+    with pytest.raises(UnsafeProjectPath, match="escapes"):
+        store_module._lexical_asset_parts(relative_uri)

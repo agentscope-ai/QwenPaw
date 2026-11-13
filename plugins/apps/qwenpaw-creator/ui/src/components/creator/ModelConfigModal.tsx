@@ -102,7 +102,7 @@ export const ASR_PROTOCOLS = [
   "DashScope Qwen3-ASR",
   "OpenAI Whisper",
 ];
-export const TTS_PROTOCOLS = ["DashScope（百炼）"];
+export const TTS_PROTOCOLS = ["DashScope（百炼）", "Aliyun Token Plan"];
 export const S2V_PROTOCOLS = ["DashScope（百炼）"];
 export const EMBEDDING_PROTOCOLS = ["DashScope（百炼）"];
 export const IMAGE_PROTOCOLS = [
@@ -195,6 +195,36 @@ const LLM_PROTOCOL_FALLBACK_BASE_URLS: Record<string, string> = {
   OpenCode: "https://opencode.ai/zen/v1",
 };
 
+// Documented model rosters for LLM protocols whose host provider entry
+// carries no models: the host only lists models for providers the operator
+// configured, so a fresh deployment would otherwise collapse the field to
+// free text with no hint of what the protocol actually serves. Token Plan's
+// roster is the plan's published text-generation list. The field stays an
+// AutoComplete, so anything unlisted can still be typed.
+const LLM_PROTOCOL_FALLBACK_MODELS: Record<string, string[]> = {
+  "Aliyun Token Plan": [
+    "qwen3.8-max",
+    "qwen3.8-flash",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.6-plus",
+    "qwen3.6-flash",
+    "deepseek-v4.1-flash",
+    "deepseek-v4.1-flash-1017",
+    "deepseek-v4-pro",
+    "deepseek-v4-pro-0813",
+    "deepseek-v4-flash-0731",
+    "kimi-k2.7-code",
+    "kimi-k2.6",
+    "kimi-k2.5",
+    "glm-5.3",
+    "glm-5.2",
+    "glm-5.1",
+    "glm-5",
+    "MiniMax-M2.5",
+  ],
+};
+
 // Presets seed a default endpoint when the user picks a protocol/model;
 // the URL always stays editable for self-hosted or proxied deployments.
 interface ProtocolPreset {
@@ -285,7 +315,31 @@ const TTS_PRESETS: Record<string, ProtocolPreset> = {
     // this build cannot drive.
     models: [],
   },
+  "Aliyun Token Plan": {
+    base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+    // Token Plan serves qwen-audio-3.0-tts-plus over the CosyVoice WebSocket
+    // endpoint; seed it so the section starts on the only plan TTS model.
+    models: ["qwen-audio-3.0-tts-plus"],
+  },
 };
+
+/** Speech models one protocol actually serves, keeping capability labels.
+ *
+ * The backend capability table lists every model this build can drive; a
+ * protocol preset with an explicit roster narrows that to what the gateway
+ * serves. Token Plan documents a single synthesis model, so offering the
+ * whole table there lets the user pick a model the plan answers "Model not
+ * exist" for.
+ */
+export function ttsModelsForProtocol(
+  models: { model: string; label: string }[],
+  protocol: string,
+): { value: string; label: string }[] {
+  const roster = TTS_PRESETS[protocol]?.models ?? [];
+  return models
+    .filter((item) => !roster.length || roster.includes(item.model))
+    .map((item) => ({ value: item.model, label: item.label }));
+}
 
 const S2V_PRESETS: Record<string, ProtocolPreset> = {
   "DashScope（百炼）": {
@@ -381,7 +435,9 @@ const IMAGE_PRESETS: Record<string, ProtocolPreset> = {
   },
   "Aliyun Token Plan": {
     base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
-    models: ["wan2.7-image-pro", "wan2.7-image"],
+    // qwen-image-3.0-pro leads: the reference/edit-capable model verified
+    // live on Token Plan; the wan2.7-image family is text-to-image first.
+    models: ["qwen-image-3.0-pro", "wan2.7-image-pro", "wan2.7-image"],
   },
 };
 
@@ -475,7 +531,7 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   },
   "Aliyun Token Plan": {
     base_url: "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
-    models: ["happyhorse-1.1"],
+    models: ["happyhorse-1.1", "wan3.0-video"],
   },
 };
 
@@ -887,9 +943,17 @@ export function supportsQwenNativeSearch(item: ModelConfigItem): boolean {
   const protocol = item.protocol.toLocaleLowerCase();
   if (protocol.includes("dashscope") || item.protocol.includes("百炼"))
     return true;
+  // Token Plan models carry the built-in web_search tool, invoked through
+  // the Responses API, so the plan is a native-search provider too.
+  if (protocol.includes("token plan") || protocol.includes("tokenplan"))
+    return true;
   try {
     const host = new URL(item.base_url).hostname.toLocaleLowerCase();
-    return host.includes("dashscope");
+    return (
+      host.includes("dashscope") ||
+      host === "token-plan" ||
+      host.startsWith("token-plan.")
+    );
   } catch {
     return false;
   }
@@ -1880,25 +1944,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
           message.warning(t("modelConfig.groundingDefaultOn"));
           return;
         }
-        const searchModel = groundingSearchModel(config);
-        const searchFree = isFreeTierProtocol(
-          searchModel.protocol,
-          hostProviders,
-        );
-        const nativeSearchReady =
-          config.grounding.native_search_enabled &&
-          !!searchModel.base_url &&
-          !!searchModel.model_name &&
-          (searchFree || hasUsableApiKey(searchModel)) &&
-          supportsQwenNativeSearch(searchModel);
-        if (
-          !config.grounding.tavily_api_key &&
-          !config.grounding.serper_api_key &&
-          !nativeSearchReady
-        ) {
-          message.warning(t("modelConfig.groundingSearchNotConfigured"));
-          return;
-        }
+        // Whether any search provider is reachable is an operational
+        // detail, not a config error: the connectivity test is the gate
+        // the operator asked for, and a grounding section with no search
+        // channel simply degrades at runtime instead of blocking every
+        // unrelated model update in the same save.
       }
 
       const dirtySections: TabType[] = [];
@@ -2006,12 +2056,15 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         ...provider.models.map((m) => m.id),
         ...provider.extra_models.map((m) => m.id),
       ];
+      // An empty registry entry (provider known, no configured models) must
+      // not collapse the field to free text: fall back to the documented
+      // roster for the protocol.
+      const models = hostIds.length
+        ? [...hostIds, ...opencodeIds.filter((id) => !hostIds.includes(id))]
+        : LLM_PROTOCOL_FALLBACK_MODELS[protocol] ?? [];
       return {
         base_url: provider.base_url,
-        models: [
-          ...hostIds,
-          ...opencodeIds.filter((id) => !hostIds.includes(id)),
-        ],
+        models,
         base_url_options:
           provider.meta?.base_url_options ??
           (providerId === "opencode" ? OPENCODE_BASE_URL_OPTIONS : undefined),
@@ -2022,10 +2075,15 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     if (type === "tts") {
       const preset = TTS_PRESETS[protocol];
       if (!preset) return null;
-      // Supported speech models come from the backend capability table.
+      // A preset roster (Token Plan) names exactly what the gateway serves;
+      // only protocols without one fall back to the backend capability
+      // table. Supported speech models come from that table either way.
+      const models = preset.models.length
+        ? preset.models
+        : ttsModels.map((item) => item.model);
       return {
         ...preset,
-        models: ttsModels.map((item) => item.model),
+        models,
       };
     }
     if (type === "embedding") return EMBEDDING_PRESETS[protocol] || null;
@@ -2068,15 +2126,16 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             true,
         );
       }
-      return options;
+      if (options.length) return options;
+      return (LLM_PROTOCOL_FALLBACK_MODELS[protocol] ?? []).map((m) => ({
+        value: m,
+        label: m,
+      }));
     }
     if (type === "tts") {
       // Label each speech model with what it can do, so the choice between
       // "has system voices" and "must design a voice first" is visible.
-      return ttsModels.map((item) => ({
-        value: item.model,
-        label: item.label,
-      }));
+      return ttsModelsForProtocol(ttsModels, protocol);
     }
     const preset = getPresetForType(type, protocol);
     if (!preset?.models.length) return [];
@@ -2324,26 +2383,40 @@ export default function ModelConfigModal({ open, onClose }: Props) {
             </div>
           )}
         {type === "asr" && (
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-            <Checkbox
-              checked={config.asr.reuse_llm_key}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                updateItem("asr", "reuse_llm_key", checked);
-                if (checked) {
-                  updateItem("asr", "api_key", "");
-                }
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+              <Checkbox
+                checked={config.asr.reuse_llm_key}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  updateItem("asr", "reuse_llm_key", checked);
+                  if (checked) {
+                    updateItem("asr", "api_key", "");
+                  }
+                }}
+              >
+                {t("modelConfig.reuseLlmApiKey")}
+              </Checkbox>
+              <Input
+                style={{ width: 220 }}
+                placeholder={t("modelConfig.languageOptional")}
+                value={config.asr.language}
+                onChange={(e) => updateItem("asr", "language", e.target.value)}
+              />
+            </div>
+            {/* Creator transcribes local source audio, and Token Plan has no
+                working channel for local audio (measured: uploads 401/404,
+                Base64 inline 400, public URL 200), so the plan is not
+                offered here instead of failing every real transcription. */}
+            <span
+              style={{
+                fontSize: 11,
+                color: "var(--color-text-tertiary)",
               }}
             >
-              {t("modelConfig.reuseLlmApiKey")}
-            </Checkbox>
-            <Input
-              style={{ width: 220 }}
-              placeholder={t("modelConfig.languageOptional")}
-              value={config.asr.language}
-              onChange={(e) => updateItem("asr", "language", e.target.value)}
-            />
-          </div>
+              {t("modelConfig.asrNoTokenPlan")}
+            </span>
+          </>
         )}
         {type === "tts" && (
           <div

@@ -4,17 +4,28 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
 import stat
 import sys
 from typing import NamedTuple
+from uuid import uuid4
 import zipfile
 
 from domain.errors import BadRequestError
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.path_safety import is_link_stat
 from .models import Project
+
+logger = logging.getLogger("qwenpaw.creator.project_files.archive")
+
+
+def _log_safe(value: object) -> str:
+    """Neutralize CR/LF in archive-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
 
 # Multi-episode Projects include media plus revision history. Keep explicit
 # upload/extraction bounds, shared by export, rather than rejecting our own
@@ -25,6 +36,106 @@ MAX_MEMBERS = 20000
 # Members are copied in bounded chunks so a budget can stop the byte that
 # would exceed it before that byte is written, not after.
 _COPY_CHUNK_BYTES = 1024 * 1024
+
+# Windows forbids these characters in a single path component, reserves a
+# handful of device names, and silently strips trailing spaces and dots at
+# the shell layer even though the file APIs keep them. Archives produced
+# on Linux/macOS routinely embed an id such as ``source:<uuid>`` inside
+# the source-intelligence layout; aborting extraction over one such member
+# throws away every other file in the bundle, so we rewrite the offending
+# component instead and reconcile the Project registry to match.
+_WINDOWS_FORBIDDEN = re.compile(r'[<>:"\\|?*\x00-\x1f]')
+
+
+def _is_windows_illegal_part(part: str) -> bool:
+    return (
+        _WINDOWS_FORBIDDEN.search(part) is not None
+        or part.rstrip(" .") != part
+        or PureWindowsPath(part).is_reserved()
+    )
+
+
+def _sanitize_windows_part(part: str) -> str:
+    """Map one POSIX component to a Windows-legal equivalent.
+
+    Deterministic and idempotent: already-legal names pass through
+    untouched, forbidden characters become underscores, trailing spaces
+    and dots are stripped, a name that resolves to a reserved device gets
+    a leading underscore, and a fully-stripped result falls back to a
+    single underscore so the component never disappears.
+    """
+
+    sanitized = _WINDOWS_FORBIDDEN.sub("_", part).rstrip(" .")
+    if not sanitized:
+        sanitized = "_"
+    if PureWindowsPath(sanitized).is_reserved():
+        sanitized = f"_{sanitized}"
+    return sanitized
+
+
+def _sanitize_member(member: PurePosixPath) -> PurePosixPath:
+    return PurePosixPath(*(_sanitize_windows_part(p) for p in member.parts))
+
+
+def _rewrite_project_relative_uris(project_json: Path) -> int:
+    """Reconcile IndexedFile.relative_uri with the on-disk layout.
+
+    Only the registry path field is touched; logical identifiers such as
+    ``source_id``, the ``sources.items`` dict keys and the ``order``
+    arrays are JSON-internal and legal on every platform. Returns how
+    many entries changed, so the caller can log the summary once. The
+    rewrite is published through a same-directory temp file plus
+    ``atomic_replace_path``: a crash mid-rewrite must never leave the
+    example flow a truncated registry it would publish on ``is_file()``.
+    """
+
+    try:
+        data = json.loads(project_json.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        # Substitutions already happened on disk; a registry we cannot
+        # reconcile would leave dangling relative_uris, so make the skip
+        # observable instead of silent.
+        logger.warning(
+            "skipped Windows relative_uri rewrite, project.json is "
+            "unreadable or unparseable: %s (%s)",
+            _log_safe(project_json),
+            exc,
+        )
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    assets = data.get("assets")
+    if not isinstance(assets, dict):
+        return 0
+    files_by_id = assets.get("files_by_id")
+    if not isinstance(files_by_id, dict):
+        return 0
+    changed = 0
+    for entry in files_by_id.values():
+        if not isinstance(entry, dict):
+            continue
+        uri = entry.get("relative_uri")
+        if not isinstance(uri, str) or not uri:
+            continue
+        rewritten = "/".join(
+            _sanitize_windows_part(part) for part in uri.split("/")
+        )
+        if rewritten != uri:
+            entry["relative_uri"] = rewritten
+            changed += 1
+    if not changed:
+        return 0
+    # Match the canonical on-disk form (serialization.canonical_json_bytes
+    # with pretty=True): indent=2 plus a final newline.
+    payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    temporary = project_json.with_suffix(f".{uuid4().hex}.tmp")
+    try:
+        temporary.write_text(payload, encoding="utf-8")
+        atomic_replace_path(temporary, project_json)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return changed
 
 
 class ArchiveLimits(NamedTuple):
@@ -115,37 +226,49 @@ def extract_archive(
     *,
     limits: ArchiveLimits | None = None,
 ) -> None:
-    """Preserve indexed paths without renaming or merging members."""
+    """Preserve indexed paths without renaming or merging members.
+
+    On Windows a member whose path cannot be represented is rewritten to
+    a legal name and every :class:`IndexedFile.relative_uri` that still
+    points at the original spelling is reconciled in ``project.json``.
+    An archive that would collide with itself after that rewrite is
+    still refused: that is real corruption, not a platform limitation.
+    """
     budget = archive_limits() if limits is None else limits
     validate_archive(path, limits=budget)
     base = destination.resolve()
     extracted = 0
+    substitutions: dict[PurePosixPath, PurePosixPath] = {}
     with zipfile.ZipFile(path) as archive:
-        seen = set()
+        seen: dict[Path, str] = {}
         for info in archive.infolist():
             member = PurePosixPath(info.filename)
             if sys.platform == "win32" and any(
-                re.search(r'[<>:"\\|?*\x00-\x1f]', part)
-                or part.rstrip(" .") != part
-                or PureWindowsPath(part).is_reserved()
-                for part in member.parts
+                _is_windows_illegal_part(part) for part in member.parts
             ):
-                raise BadRequestError(
-                    "archive path is not supported on Windows: "
-                    f"{info.filename!r}; import on Linux or macOS "
-                    "to preserve its media references",
-                )
+                sanitized = _sanitize_member(member)
+                if sanitized != member:
+                    substitutions[member] = sanitized
+                    member = sanitized
             target = (base / member).resolve()
             if not target.is_relative_to(base):
                 raise BadRequestError(
                     "archive entry escapes extraction root: "
                     f"{info.filename!r}",
                 )
-            if target in seen:
+            previous = seen.get(target)
+            if previous is not None:
+                if previous == info.filename:
+                    raise BadRequestError(
+                        f"archive contains duplicate path: {info.filename!r}",
+                    )
                 raise BadRequestError(
-                    f"archive contains duplicate path: {info.filename!r}",
+                    "archive paths collide after Windows sanitization: "
+                    f"{previous!r} and {info.filename!r} both map to "
+                    f"{member.as_posix()!r}; re-export the project from "
+                    "Linux or macOS to preserve its media references",
                 )
-            seen.add(target)
+            seen[target] = info.filename
             if sys.platform == "win32" and len(str(target)) > 240:
                 target = Path("\\\\?\\" + str(target))
             if info.is_dir():
@@ -159,6 +282,44 @@ def extract_archive(
                     remaining=budget.extracted_bytes - extracted,
                     member_bytes=budget.member_bytes,
                 )
+    if substitutions:
+        _report_windows_substitutions(substitutions)
+        for project_json in base.glob("*/project.json"):
+            rewritten = _rewrite_project_relative_uris(project_json)
+            if rewritten:
+                logger.info(
+                    "reconciled %d IndexedFile.relative_uri entries in %s "
+                    "after Windows path sanitization",
+                    rewritten,
+                    project_json,
+                )
+
+
+def _report_windows_substitutions(
+    substitutions: dict[PurePosixPath, PurePosixPath],
+) -> None:
+    """Log one summary line instead of one warning per archived member.
+
+    A source-intelligence directory typically carries one JSON sidecar,
+    but a Project copied from a Linux host can also nest media under the
+    same unrepresentable folder; the user only needs to know that the
+    rewrite happened and which top-level folders moved.
+    """
+
+    sample = sorted(
+        (
+            f"{_log_safe(original.as_posix())} -> {rewritten.as_posix()}"
+            for original, rewritten in substitutions.items()
+        ),
+    )
+    shown = sample[:5]
+    tail = f" (+{len(sample) - len(shown)} more)" if len(sample) > 5 else ""
+    logger.warning(
+        "extracted %d archive member(s) to Windows-safe names: %s%s",
+        len(substitutions),
+        "; ".join(shown),
+        tail,
+    )
 
 
 def validate_archive(

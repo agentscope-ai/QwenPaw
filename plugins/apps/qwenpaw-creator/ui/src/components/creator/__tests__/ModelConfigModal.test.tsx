@@ -15,6 +15,7 @@ import ModelConfigModal, {
   VIDEO_PROTOCOLS,
   VLM_PROTOCOLS,
   modelSupportsImage,
+  ttsModelsForProtocol,
 } from "../ModelConfigModal";
 import type { HostProviderInfo } from "@/api/creator";
 import { installMockFetch } from "@/test/mockFetch";
@@ -710,5 +711,32 @@ describe("ModelConfigModal OpenCode support", () => {
     expect(
       modelSupportsImage("deepseek", "deepseek-chat", hostProviders),
     ).toBeUndefined();
+  });
+});
+
+describe("ttsModelsForProtocol", () => {
+  const models = [
+    { model: "qwen-audio-3.0-tts-plus", label: "Qwen-Audio 3.0 TTS Plus" },
+    { model: "qwen-audio-3.0-tts-flash", label: "Qwen-Audio 3.0 TTS Flash" },
+    { model: "cosyvoice-v3.5-plus", label: "CosyVoice 3.5 Plus" },
+  ];
+
+  it("narrows Token Plan to the plan's documented synthesis model", () => {
+    // The plan's model table lists exactly one speech-synthesis model; the
+    // others here are Bailian-direct models the plan gateway answers
+    // "Model not exist" for.
+    expect(
+      ttsModelsForProtocol(models, "Aliyun Token Plan").map((o) => o.value),
+    ).toEqual(["qwen-audio-3.0-tts-plus"]);
+  });
+
+  it("keeps the whole capability table where no roster exists", () => {
+    expect(
+      ttsModelsForProtocol(models, "DashScope（百炼）").map((o) => o.value),
+    ).toEqual([
+      "qwen-audio-3.0-tts-plus",
+      "qwen-audio-3.0-tts-flash",
+      "cosyvoice-v3.5-plus",
+    ]);
   });
 });

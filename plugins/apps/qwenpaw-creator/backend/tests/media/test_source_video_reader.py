@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -197,3 +198,74 @@ def test_replay_fails_closed_on_an_orphaned_running_task(tmp_path) -> None:
     assert replay.status is TaskStatus.FAILED
     assert executions.failures
     assert "process restarted" in executions.failures[0]["message"]
+
+
+def test_cancel_for_asset_stops_the_worker_before_frames_persist(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    # Deleting the asset must revoke the coroutine, not only its Task: an
+    # unrevoked read would finish extracting and then write frames of media
+    # that no longer exists.
+    service = _service(tmp_path)
+    executions = _Executions()
+    service.executions = executions
+    entered = threading.Event()
+    hold = threading.Event()
+
+    def blocked_extraction(path, **kwargs):
+        entered.set()
+        hold.wait(30)
+        return {
+            "frames": [(0.0, b"frame0")],
+            "duration": 10.0,
+            "fps_used": 0.1,
+            "target_h": 288,
+            "target_w": 512,
+        }
+
+    monkeypatch.setattr(
+        source_video_reader,
+        "read_video_frames_sync",
+        blocked_extraction,
+    )
+    persisted: list = []
+    monkeypatch.setattr(
+        service,
+        "_persist_frames",
+        lambda job, extraction: persisted.append(job.task_id) or {},
+    )
+
+    async def run():
+        task = await _schedule(service)
+        worker = service._jobs[task.task_id]
+        await asyncio.to_thread(entered.wait, 30)
+        revoked = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id="asset-1",
+            version_id="version-1",
+        )
+        unrelated = await service.cancel_for_asset(
+            "project-1",
+            logical_asset_id="asset-other",
+            version_id="version-other",
+        )
+        return task, worker, revoked, unrelated
+
+    try:
+        task, worker, revoked, unrelated = asyncio.run(run())
+    finally:
+        hold.set()
+
+    assert revoked == 1
+    assert worker.cancelled()
+    assert unrelated == 0, "a read of another asset must survive this"
+    assert (
+        executions.tasks[task.task_id].status is TaskStatus.CANCELLED
+    ), "the record a cancellation left behind must still terminalize"
+    assert {
+        "code": "SOURCE_ASSET_DELETED",
+        "message": "Source asset was deleted",
+    } in executions.failures
+    assert not persisted, "a revoked read must not write any frame"
+    assert not service._jobs and not service._job_specs

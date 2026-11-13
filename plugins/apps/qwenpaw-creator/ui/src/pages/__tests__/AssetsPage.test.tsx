@@ -1,13 +1,21 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import type { ReactElement } from "react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Modal, message } from "antd";
 import AssetsPage, {
   GenerationPromptEditor,
   visualEntityPromptTarget,
   VoiceGenerationModal,
 } from "@/pages/AssetsPage";
 import BlueprintPrepDrawer from "@/components/blueprint/BlueprintPrepDrawer";
-import { NavigationRuntime } from "@/routing/navigation";
+import { navigate, NavigationRuntime } from "@/routing/navigation";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
@@ -101,6 +109,114 @@ function intelVersion(
     created_at: "2026-07-20T00:03:00Z",
     ...over,
   };
+}
+
+/** Snapshot/task/session reads any Project page fires while it renders. */
+function projectRoutes(projectId: string) {
+  return [
+    {
+      match: `/projects/${projectId}/project`,
+      method: "GET",
+      response: {
+        json: {
+          projectId,
+          generation: 3,
+          etag: '"sha256:g3"',
+          syncStatus: "healthy",
+          project: cloneProject(),
+        },
+      },
+    },
+    {
+      match: `/projects/${projectId}/specialist-runs`,
+      response: { json: { items: [] } },
+    },
+    {
+      match: `/projects/${projectId}/tasks`,
+      response: { json: { items: [] } },
+    },
+    {
+      match: `/projects/${projectId}/session`,
+      response: { json: { session: null } },
+    },
+  ] as Parameters<typeof installMockFetch>[0];
+}
+
+/**
+ * Install routes whose DELETE answer is held back until `release()`, so a test
+ * can move the user elsewhere while the request is still in flight.
+ */
+function gateSourceDelete(routes: Parameters<typeof installMockFetch>[0]) {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const mock = installMockFetch([
+    {
+      match: "/assets/cat-video-v1",
+      method: "DELETE",
+      response: { ok: true, status: 204, json: null },
+    },
+    ...routes,
+  ]);
+  const inner = mock.fetchMock;
+  const attempted: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if ((init?.method ?? "GET").toUpperCase() === "DELETE") {
+        // Recorded before the wait: the caller only learns the request left the
+        // browser once the answer is released.
+        attempted.push(url);
+        await blocked;
+      }
+      return inner(url as never, init as never) as unknown as Response;
+    }),
+  );
+  const deleteLanded = () => attempted.length > 0;
+  // Reads only: the gated DELETE is recorded once its answer is released.
+  const p1Reads = () =>
+    mock.calls.filter(
+      (call) => call.method === "GET" && call.url.includes("/projects/p1/"),
+    ).length;
+  return { release, deleteLanded, p1Reads, calls: mock.calls };
+}
+
+type ConfirmOptions = Parameters<typeof Modal.confirm>[0];
+
+/** Replace the confirm dialog with a capturable handler (no portal needed). */
+function captureConfirmDialog() {
+  let options: ConfirmOptions | undefined;
+  vi.spyOn(Modal, "confirm").mockImplementation(((config: ConfirmOptions) => {
+    options = config;
+    return { destroy: vi.fn(), update: vi.fn() };
+  }) as typeof Modal.confirm);
+  return {
+    open: () => options !== undefined,
+    accept: () => void options?.onOk?.(),
+  };
+}
+
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-location>{`${location.pathname}${location.search}`}</output>
+  );
+}
+
+function renderAssetsRoutes(entry: string) {
+  return render(
+    <MemoryRouter initialEntries={[entry]}>
+      <NavigationRuntime />
+      <Routes>
+        <Route path="/project/:id/assets" element={<AssetsPage />} />
+        {/* Sibling page of the same Project: leaving it must not be undone. */}
+        <Route path="/project/:id/plan" element={<div data-plan-page />} />
+      </Routes>
+      <LocationProbe />
+    </MemoryRouter>,
+  );
 }
 
 /** Project whose cat video has a built v1 intelligence; optionally select an unbuilt v2. */
@@ -475,4 +591,525 @@ it("uses the uploaded audio picked by the user even after entering a voice descr
       preferredName: project.visual.entities.items.cat.name,
     }),
   );
+});
+
+describe("AssetsPage delete callback ownership", () => {
+  beforeEach(() => {
+    message.destroy();
+    useProjectSnapshotStore.getState().reset();
+    useCreatorTaskViewStore.getState().reset();
+    useCreatorInteractionStore.getState().reset();
+    useAgentDockUiStore.getState().reset();
+    seedProject();
+  });
+  afterEach(() => {
+    // antd's message API is a module singleton; leftover toasts would make the
+    // "delete landed" text ambiguous in the next test.
+    message.destroy();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const locationPath = () =>
+    document.querySelector("[data-location]")?.textContent ?? "";
+  // antd's message list is a module singleton, so count the success toasts
+  // instead of querying their text: the count grows exactly when the delete
+  // callback resumes after the gated response.
+  const successToasts = () =>
+    document.querySelectorAll(".ant-message-notice-success").length;
+
+  it("does not rebind stores when the delete lands after the user switched Project", async () => {
+    const gate = gateSourceDelete([
+      ...projectRoutes("p1"),
+      ...projectRoutes("p2"),
+    ]);
+    const dialog = captureConfirmDialog();
+    renderAssetsRoutes("/project/p1/assets?asset=cat-video-v1");
+
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+    expect(dialog.open()).toBe(true);
+    dialog.accept();
+    await waitFor(() => expect(gate.deleteLanded()).toBe(true));
+
+    act(() => navigate("/project/p2/plan"));
+    await waitFor(() => expect(locationPath()).toBe("/project/p2/plan"));
+    useProjectSnapshotStore.setState({
+      projectId: "p2",
+      project: cloneProject(),
+      generation: 3,
+      etag: '"sha256:g3"',
+      syncStatus: "healthy",
+    });
+    useCreatorTaskViewStore.setState({ projectId: "p2", tasks: [] });
+    const readsBefore = gate.p1Reads();
+    const toastsBefore = successToasts();
+
+    act(() => gate.release());
+    await waitFor(() => expect(successToasts()).toBeGreaterThan(toastsBefore));
+
+    expect(gate.p1Reads()).toBe(readsBefore);
+    expect(useProjectSnapshotStore.getState().projectId).toBe("p2");
+    expect(useCreatorTaskViewStore.getState().projectId).toBe("p2");
+    expect(locationPath()).toBe("/project/p2/plan");
+  });
+
+  it("does not pull the user back to the assets page after leaving it", async () => {
+    const gate = gateSourceDelete(projectRoutes("p1"));
+    const dialog = captureConfirmDialog();
+    renderAssetsRoutes("/project/p1/assets?asset=cat-video-v1");
+
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+    dialog.accept();
+    await waitFor(() => expect(gate.deleteLanded()).toBe(true));
+
+    act(() => navigate("/project/p1/plan"));
+    await waitFor(() => expect(locationPath()).toBe("/project/p1/plan"));
+    const readsBefore = gate.p1Reads();
+    const toastsBefore = successToasts();
+
+    act(() => gate.release());
+    await waitFor(() => expect(successToasts()).toBeGreaterThan(toastsBefore));
+
+    // The selection cleanup navigates, and the deleted asset was selected when
+    // the request started, so the late callback used to yank this page away.
+    expect(locationPath()).toBe("/project/p1/plan");
+    expect(gate.p1Reads()).toBe(readsBefore);
+  });
+
+  it("keeps the asset selected while the delete was in flight", async () => {
+    const gate = gateSourceDelete(projectRoutes("p1"));
+    const dialog = captureConfirmDialog();
+    renderAssetsRoutes("/project/p1/assets?asset=cat-video-v1");
+
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+    dialog.accept();
+    await waitFor(() => expect(gate.deleteLanded()).toBe(true));
+
+    fireEvent.click(screen.getByText("测试项目最终成片"));
+    await waitFor(() => expect(locationPath()).toContain("asset="));
+    const selectedPath = locationPath();
+    const toastsBefore = successToasts();
+
+    act(() => gate.release());
+    await waitFor(() => expect(successToasts()).toBeGreaterThan(toastsBefore));
+    // The stale closure over the pre-delete selection used to clear this.
+    expect(locationPath()).toBe(selectedPath);
+  });
+
+  it("refreshes and drops the deleted selection when the user stayed", async () => {
+    const gate = gateSourceDelete(projectRoutes("p1"));
+    const dialog = captureConfirmDialog();
+    renderAssetsRoutes("/project/p1/assets?asset=cat-video-v1");
+
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+    dialog.accept();
+    await waitFor(() => expect(gate.deleteLanded()).toBe(true));
+    const readsBefore = gate.p1Reads();
+    const toastsBefore = successToasts();
+
+    act(() => gate.release());
+    await waitFor(() => expect(successToasts()).toBeGreaterThan(toastsBefore));
+    await waitFor(() => expect(gate.p1Reads()).toBeGreaterThan(readsBefore));
+    expect(locationPath()).toBe("/project/p1/assets");
+  });
+
+  it("still owns the page when the assets URL carries a trailing slash", async () => {
+    // Router matches "/project/p1/assets/" too and keeps that slash in
+    // location.pathname. Comparing it strictly made every post-delete step
+    // look like the user had left, so the deleted asset stayed in the list,
+    // in the detail pane and in the URL.
+    const gate = gateSourceDelete(projectRoutes("p1"));
+    const dialog = captureConfirmDialog();
+    renderAssetsRoutes("/project/p1/assets/?asset=cat-video-v1");
+
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+    expect(dialog.open()).toBe(true);
+    dialog.accept();
+    await waitFor(() => expect(gate.deleteLanded()).toBe(true));
+    const readsBefore = gate.p1Reads();
+    const toastsBefore = successToasts();
+
+    act(() => gate.release());
+    await waitFor(() => expect(successToasts()).toBeGreaterThan(toastsBefore));
+    await waitFor(() => expect(gate.p1Reads()).toBeGreaterThan(readsBefore));
+    expect(locationPath()).toBe("/project/p1/assets");
+  });
+});
+
+/**
+ * One 409 ASSET_IN_USE body: the backend names every Element that still
+ * points at the asset, plus whether a force delete may clear it.
+ */
+function inUseBody(references: Array<Record<string, unknown>>) {
+  return {
+    code: "ASSET_IN_USE",
+    message:
+      "Cannot delete source asset version cat-video-v1: actively used in " +
+      "timeline by ['i2v-first-frame:elem:shot-1']",
+    retryable: false,
+    details: { versionId: "cat-video-v1", timelineReferences: references },
+  };
+}
+
+const DETACHABLE_REFERENCES = [
+  {
+    timelineId: "timeline:main",
+    timelineName: "主时间线",
+    isSnapshot: false,
+    elementId: "elem:shot-1",
+    elementLabel: "镜头一｜风雪定场",
+    creationType: "i2v",
+    refKind: "i2v-first-frame",
+    detachable: true,
+    pointer: "i2v-first-frame:elem:shot-1",
+  },
+  {
+    timelineId: "snapshot:timeline:main:1",
+    timelineName: "快照 · 主时间线",
+    isSnapshot: true,
+    elementId: "snapshot:timeline:main:1:elem:shot-1",
+    elementLabel: "镜头一｜风雪定场",
+    creationType: "i2v",
+    refKind: "i2v-first-frame",
+    detachable: true,
+    pointer: "snapshot:timeline:main:1/i2v-first-frame:elem:shot-1",
+  },
+];
+
+const BLOCKING_REFERENCES = [
+  {
+    timelineId: "timeline:main",
+    timelineName: "主时间线",
+    isSnapshot: false,
+    elementId: "elem:vo-1",
+    elementLabel: "旁白",
+    creationType: "audio",
+    refKind: "audio-source",
+    detachable: false,
+    pointer: "audio-source:elem:vo-1",
+  },
+];
+
+/** Capture both dialog flavours without their portals, like captureConfirmDialog. */
+function captureDialogs() {
+  const confirms: ConfirmOptions[] = [];
+  const warnings: Array<Parameters<typeof Modal.warning>[0]> = [];
+  vi.spyOn(Modal, "confirm").mockImplementation(((config: ConfirmOptions) => {
+    confirms.push(config);
+    return { destroy: vi.fn(), update: vi.fn() };
+  }) as typeof Modal.confirm);
+  vi.spyOn(Modal, "warning").mockImplementation(((
+    config: Parameters<typeof Modal.warning>[0],
+  ) => {
+    warnings.push(config);
+    return { destroy: vi.fn(), update: vi.fn() };
+  }) as typeof Modal.warning);
+  return {
+    confirms,
+    warnings,
+    accept: (index: number) => void confirms[index]?.onOk?.(),
+  };
+}
+
+describe("AssetsPage delete of an asset the timeline still uses", () => {
+  beforeEach(() => {
+    message.destroy();
+    useProjectSnapshotStore.getState().reset();
+    useCreatorTaskViewStore.getState().reset();
+    useCreatorInteractionStore.getState().reset();
+    useAgentDockUiStore.getState().reset();
+    seedProject();
+  });
+  afterEach(() => {
+    message.destroy();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const startDelete = () => {
+    fireEvent.click(
+      document.querySelector('[data-asset-delete="cat-video-v1"]')!,
+    );
+  };
+  const deleteUrls = (calls: Array<{ method: string; url: string }>) =>
+    calls.filter((call) => call.method === "DELETE").map((call) => call.url);
+  const toasts = (kind: "success" | "error") =>
+    document.querySelectorAll(`.ant-message-notice-${kind}`).length;
+  // antd's message list is a module singleton shared with the other suites in
+  // this file, so only the growth of each kind says anything about this delete.
+  const toastCount = () => ({
+    success: toasts("success"),
+    error: toasts("error"),
+  });
+
+  it("names the shot, then retries once the user insists", async () => {
+    const mock = installMockFetch([
+      {
+        match: "/assets/cat-video-v1?force=true",
+        method: "DELETE",
+        response: { ok: true, status: 204, json: null },
+      },
+      {
+        match: "/assets/cat-video-v1",
+        method: "DELETE",
+        response: {
+          ok: false,
+          status: 409,
+          json: inUseBody(DETACHABLE_REFERENCES),
+        },
+      },
+      ...projectRoutes("p1"),
+    ]);
+    const dialogs = captureDialogs();
+    renderAssetsRoutes("/project/p1/assets");
+    const before = toastCount();
+
+    startDelete();
+    dialogs.accept(0);
+    await waitFor(() => expect(dialogs.confirms).toHaveLength(2));
+    expect(dialogs.warnings).toHaveLength(0);
+    expect(dialogs.confirms[1].okText).toBe("仍要删除");
+
+    // The dialog is what the user judges the risk on: named shots in Chinese,
+    // not the internal ids the backend sentence used to expose.
+    const dialog = render(dialogs.confirms[1].content as ReactElement);
+    expect(dialog.getAllByText(/镜头一｜风雪定场/)).toHaveLength(2);
+    expect(dialog.getAllByText(/首帧/)).toHaveLength(2);
+    expect(
+      dialog.getByText(/历史快照中的引用也会一并解除/),
+    ).toBeInTheDocument();
+    dialog.unmount();
+
+    dialogs.accept(1);
+    await waitFor(() =>
+      expect(deleteUrls(mock.calls)).toEqual([
+        expect.stringContaining("/assets/cat-video-v1"),
+        expect.stringContaining("/assets/cat-video-v1?force=true"),
+      ]),
+    );
+    await waitFor(() =>
+      expect(toasts("success")).toBeGreaterThan(before.success),
+    );
+    expect(toasts("error")).toBe(before.error);
+  });
+
+  it("refuses to retry when a reference cannot detach", async () => {
+    const mock = installMockFetch([
+      {
+        match: "/assets/cat-video-v1",
+        method: "DELETE",
+        response: {
+          ok: false,
+          status: 409,
+          json: inUseBody(BLOCKING_REFERENCES),
+        },
+      },
+      ...projectRoutes("p1"),
+    ]);
+    const dialogs = captureDialogs();
+    renderAssetsRoutes("/project/p1/assets");
+    const before = toastCount();
+
+    startDelete();
+    dialogs.accept(0);
+    await waitFor(() => expect(dialogs.warnings).toHaveLength(1));
+
+    const dialog = render(dialogs.warnings[0].content as ReactElement);
+    expect(dialog.getByText(/旁白/)).toBeInTheDocument();
+    expect(dialog.getByText(/音轨元素的源素材不可为空/)).toBeInTheDocument();
+    dialog.unmount();
+
+    // A force retry over an audio Element would fail the same way, so the UI
+    // must send exactly one DELETE and point at the Element to remove.
+    expect(deleteUrls(mock.calls)).toHaveLength(1);
+    expect(dialogs.confirms).toHaveLength(1);
+    expect(toasts("success")).toBe(before.success);
+    expect(toasts("error")).toBe(before.error);
+  });
+
+  it("re-reads the conflict when the library changed mid-dialog", async () => {
+    // Someone attached an audio Element while the confirm dialog was open, so
+    // the force retry comes back refused. That late 409 must still name the
+    // Element instead of dumping the backend's internal sentence in a toast.
+    const mock = installMockFetch([
+      {
+        match: "/assets/cat-video-v1?force=true",
+        method: "DELETE",
+        response: {
+          ok: false,
+          status: 409,
+          json: inUseBody(BLOCKING_REFERENCES),
+        },
+      },
+      {
+        match: "/assets/cat-video-v1",
+        method: "DELETE",
+        response: {
+          ok: false,
+          status: 409,
+          json: inUseBody(DETACHABLE_REFERENCES),
+        },
+      },
+      ...projectRoutes("p1"),
+    ]);
+    const dialogs = captureDialogs();
+    renderAssetsRoutes("/project/p1/assets");
+    const before = toastCount();
+
+    startDelete();
+    dialogs.accept(0);
+    await waitFor(() => expect(dialogs.confirms).toHaveLength(2));
+    dialogs.accept(1);
+
+    await waitFor(() => expect(dialogs.warnings).toHaveLength(1));
+    const dialog = render(dialogs.warnings[0].content as ReactElement);
+    expect(dialog.getByText(/旁白/)).toBeInTheDocument();
+    dialog.unmount();
+
+    // No third attempt and no success claim: the bytes are still held.
+    expect(deleteUrls(mock.calls)).toHaveLength(2);
+    expect(dialogs.confirms).toHaveLength(2);
+    expect(toasts("success")).toBe(before.success);
+    expect(toasts("error")).toBe(before.error);
+  });
+
+  it("keeps the plain failure toast for other errors", async () => {
+    const mock = installMockFetch([
+      {
+        match: "/assets/cat-video-v1",
+        method: "DELETE",
+        response: {
+          ok: false,
+          status: 500,
+          json: { code: "STORAGE_INTEGRITY_ERROR", message: "素材库读取失败" },
+        },
+      },
+      ...projectRoutes("p1"),
+    ]);
+    const dialogs = captureDialogs();
+    renderAssetsRoutes("/project/p1/assets");
+    const toastBaseline = toastCount();
+
+    startDelete();
+    dialogs.accept(0);
+    await waitFor(() =>
+      expect(toasts("error")).toBeGreaterThan(toastBaseline.error),
+    );
+
+    expect(deleteUrls(mock.calls)).toHaveLength(1);
+    expect(dialogs.confirms).toHaveLength(1);
+    expect(dialogs.warnings).toHaveLength(0);
+    expect(screen.queryByText(/仍要删除/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AssetsPage upload of a file the Project already holds", () => {
+  beforeEach(() => {
+    message.destroy();
+    useProjectSnapshotStore.getState().reset();
+    useCreatorTaskViewStore.getState().reset();
+    useCreatorInteractionStore.getState().reset();
+    useAgentDockUiStore.getState().reset();
+    seedProject();
+  });
+  afterEach(() => {
+    message.destroy();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // antd's message list is a module singleton and its nodes outlive a test, so
+  // every assertion here compares each kind against a per-test baseline.
+  const toastCounts = () => ({
+    success: document.querySelectorAll(".ant-message-notice-success").length,
+    info: document.querySelectorAll(".ant-message-notice-info").length,
+  });
+
+  it("reports the reuse instead of congratulating a second upload", async () => {
+    // The backend folded these bytes into the Asset it already had, so the
+    // page must not promise a card that never arrived.
+    const { calls } = installMockFetch(
+      ingestRoutes({
+        json: {
+          assetId: "asset:existing",
+          taskId: "task:existing",
+          status: "SUCCEEDED",
+          assetVersionId: "cat-video-v1",
+          reused: true,
+        },
+      }),
+    );
+    const { container } = renderPage();
+    const before = toastCounts();
+
+    uploadFile(container, "同一张图.png", "image/png");
+
+    expect(
+      await screen.findByText(/同一张图\.png 与已有素材内容相同/),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(calls.some((call) => call.url.endsWith("p1/project"))).toBe(true),
+    );
+    await waitFor(() =>
+      expect(toastCounts().info).toBeGreaterThan(before.info),
+    );
+    expect(toastCounts().success).toBe(before.success);
+  });
+
+  it("names the stored asset when the reused bytes came from a rename", async () => {
+    // The card in the library keeps the first name, so the toast has to point
+    // at that one or the user looks for a card that never existed.
+    installMockFetch(
+      ingestRoutes({
+        json: {
+          assetId: "asset:existing",
+          taskId: "task:existing",
+          status: "SUCCEEDED",
+          assetVersionId: "cat-video-v1",
+          reused: true,
+          reusedName: "开场图.png",
+        },
+      }),
+    );
+    const { container } = renderPage();
+
+    uploadFile(container, "later-name.png", "image/png");
+
+    expect(
+      await screen.findByText(/开场图\.png 与已有素材内容相同/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the success toast for a genuinely new asset", async () => {
+    installMockFetch(
+      ingestRoutes({
+        json: {
+          assetId: "asset:new",
+          taskId: "task:new",
+          status: "QUEUED",
+          assetVersionId: "cat-video-v2",
+          reused: false,
+        },
+      }),
+    );
+    const { container } = renderPage();
+    const before = toastCounts();
+
+    uploadFile(container, "fresh.png", "image/png");
+
+    await waitFor(() =>
+      expect(toastCounts().success).toBeGreaterThan(before.success),
+    );
+    expect(toastCounts().info).toBe(before.info);
+  });
 });

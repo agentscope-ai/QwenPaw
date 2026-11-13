@@ -10,20 +10,32 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfigProvider, message } from "antd";
 import SkillsConfigPane from "../SkillsConfigPane";
-import type { SkillContent, SkillItem } from "@/api/creator/skills";
+import type {
+  MarketSkillResult,
+  SkillContent,
+  SkillItem,
+} from "@/api/creator/skills";
 import zh from "@/locales/zh.json";
 
 // Controllable API mocks so a test can hold skill "alpha"'s save open while
 // the editor moves on to "beta" -- the state transition the save-completion
 // sequence guard defends against (see the note inside that test on why the
 // drive-through is synthetic rather than user-reachable).
-const { listSkillsMock, getSkillContentMock, saveSkillMock, importUrlMock } =
-  vi.hoisted(() => ({
-    listSkillsMock: vi.fn(),
-    getSkillContentMock: vi.fn(),
-    saveSkillMock: vi.fn(),
-    importUrlMock: vi.fn(),
-  }));
+const {
+  listSkillsMock,
+  getSkillContentMock,
+  saveSkillMock,
+  importUrlMock,
+  searchMarketMock,
+  listProvidersMock,
+} = vi.hoisted(() => ({
+  listSkillsMock: vi.fn(),
+  getSkillContentMock: vi.fn(),
+  saveSkillMock: vi.fn(),
+  importUrlMock: vi.fn(),
+  searchMarketMock: vi.fn(),
+  listProvidersMock: vi.fn(),
+}));
 
 vi.mock("@/api/creator", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/creator")>();
@@ -33,6 +45,8 @@ vi.mock("@/api/creator", async (importOriginal) => {
     getSkillContent: getSkillContentMock,
     saveSkill: saveSkillMock,
     importSkillFromUrl: importUrlMock,
+    searchMarketSkills: searchMarketMock,
+    listMarketProviders: listProvidersMock,
   };
 });
 
@@ -190,10 +204,15 @@ async function openUrlImportDialog(): Promise<void> {
   await screen.findByRole("dialog");
 }
 
+// The example typed by these tests, deliberately different from the field's
+// own placeholder example.
 const _URL_INPUT = "https://skills.sh/owner/repo/skill";
 
+// Match the placeholder by shape instead of literal text: the component's
+// example URL is product copy that moves with the recommended market, and a
+// hard-coded copy of it here would only fail once the test already broke.
 function urlInput(): HTMLElement {
-  return screen.getByPlaceholderText(_URL_INPUT);
+  return within(screen.getByRole("dialog")).getByPlaceholderText(/^https:\/\//);
 }
 
 function importNameInput(): HTMLElement {
@@ -484,5 +503,116 @@ describe("SkillsConfigPane pending-write freeze", () => {
     });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(importUrlMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** One catalogue row, shaped like the market search response. */
+function marketItem(slug: string): MarketSkillResult {
+  return {
+    source: "qwenpaw",
+    source_label: null,
+    slug,
+    name: slug,
+    description: `${slug} description`,
+    source_url: `https://market.test/${slug}`,
+    version: null,
+    author: null,
+    icon_url: null,
+    stats: null,
+  };
+}
+
+/** Open the market browser through the "Add skill" dropdown. */
+async function openMarket(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: zh.skills.add }));
+  const item = await screen.findByRole("menuitem", {
+    name: zh.skills.browseMarket,
+  });
+  fireEvent.click(item);
+  await screen.findByRole("dialog");
+}
+
+// Anchored, because "安装" is a substring of "已安装", and spaced, because
+// antd renders a two-CJK-character button label as "安 装".
+function dialogButtonByLabel(label: string): HTMLElement {
+  const name = new RegExp(`^${label.split("").join("\\s*")}$`);
+  return within(screen.getByRole("dialog")).getByRole("button", { name });
+}
+
+function installButtons(): HTMLElement[] {
+  return within(screen.getByRole("dialog")).queryAllByRole("button", {
+    name: new RegExp(`^${zh.skills.marketInstall.split("").join("\\s*")}$`),
+  });
+}
+
+async function submitMarketSearch(term: string): Promise<void> {
+  const box = within(screen.getByRole("dialog")).getByPlaceholderText(
+    zh.skills.marketSearchPlaceholder,
+  );
+  // Flush the draft through a render before clicking, or the click would run
+  // against the previous query closure.
+  await act(async () => {
+    fireEvent.change(box, { target: { value: term } });
+  });
+  await act(async () => {
+    fireEvent.click(dialogButtonByLabel(zh.common.search));
+  });
+}
+
+describe("SkillsConfigPane market install identity", () => {
+  beforeEach(() => {
+    listSkillsMock.mockReset();
+    importUrlMock.mockReset();
+    searchMarketMock.mockReset();
+    listProvidersMock.mockReset();
+    window.localStorage.clear();
+    listProvidersMock.mockResolvedValue({
+      providers: [
+        {
+          key: "qwenpaw",
+          label: "QwenPaw",
+          available: true,
+          reason: null,
+          supports_browse: true,
+        },
+      ],
+    });
+    searchMarketMock.mockResolvedValue({
+      results: [marketItem("p1-alpha")],
+      has_more: false,
+      totals: { qwenpaw: 1 },
+    });
+  });
+
+  it("keeps a renamed install marked after the pane remounts", async () => {
+    // Settings renders this pane behind `activePane === "skills"`, so
+    // switching panes rebuilds the whole tree -- the boundary the install
+    // identity has to survive, unlike a close/reopen of the modal alone.
+    listSkillsMock.mockResolvedValue({ items: [] });
+    importUrlMock.mockResolvedValue({
+      ...importResult("my-skill"),
+      renamed_from: "My Skill",
+    });
+
+    const first = renderPane();
+    await openMarket();
+    await submitMarketSearch("alpha");
+    await act(async () => {
+      fireEvent.click(installButtons()[0]);
+    });
+    expect(importUrlMock).toHaveBeenCalledWith("https://market.test/p1-alpha");
+
+    first.unmount();
+    // The refetched library reports the folded name while the catalogue still
+    // labels the row "p1-alpha"; only the remembered identity links them.
+    listSkillsMock.mockResolvedValue({ items: [skillItem("my-skill")] });
+    renderPane();
+    await screen.findByText("my-skill");
+
+    await openMarket();
+    await submitMarketSearch("alpha");
+
+    expect(installButtons()).toHaveLength(0);
+    expect(dialogButtonByLabel(zh.skills.marketInstalled)).toBeDisabled();
   });
 });

@@ -1323,6 +1323,9 @@ export default function AgentDock({
   };
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickBottom = useRef(true);
+  const prevIsReplaying = useRef(isReplaying);
+  const userScrolledDuringReplay = useRef(false);
+  const realignTimerIds = useRef<number[]>([]);
   const previousPendingAuthorizationCount = useRef(0);
   const lastOpenedFileReviewToken = useRef<string | null>(null);
   const lastOpenedExecutionPause = useRef<string | null>(null);
@@ -1652,11 +1655,91 @@ export default function AgentDock({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mentionQuery, open, setOpen]);
 
-  useEffect(() => {
-    if (open && feedSlot == null && scrollRef.current && stickBottom.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  const suppressFollow = isReplaying && connectionState === "connected";
+
+  useLayoutEffect(() => {
+    const replayJustEnded = prevIsReplaying.current && !isReplaying;
+    prevIsReplaying.current = isReplaying;
+
+    // Replay settling is an explicit "land on newest" intent, except when the
+    // user deliberately scrolled up during the suppressed replay window. This
+    // runs BEFORE every early return: the dock unmounts entirely when closed
+    // (`{open && ...}`), so consuming the edge and clearing the flag here stops
+    // it leaking into a later replay / project switch and silently suppressing
+    // the bottom-follow we set out to guarantee.
+    if (replayJustEnded) {
+      if (!userScrolledDuringReplay.current) {
+        stickBottom.current = true;
+        setShowJump(false);
+      }
+      userScrolledDuringReplay.current = false;
     }
-  }, [open, feedSlot, orderedMessages, queued, toolCalls, subagentActivities]);
+
+    // Suppress per-frame bottom-follow only while the replay stream is
+    // genuinely healthy. If SSE is disconnected / reconnecting we must not lock
+    // the viewport at the top — fall through to the normal follow below so the
+    // feed still lands on the newest message even when replay never settles.
+    if (suppressFollow) return;
+
+    if (!open || feedSlot != null) return;
+    const element = scrollRef.current;
+    if (!element) return;
+
+    if (!stickBottom.current) return;
+    element.scrollTop = element.scrollHeight;
+
+    // After replay ends, re-snap a few times to absorb late layout growth
+    // (images / markdown / code finishing after the paint). Timers live in a ref
+    // so a streaming `orderedMessages` change that re-runs this effect re-arms
+    // them rather than cancelling the only pass that fixes a post-replay gap.
+    if (replayJustEnded) {
+      realignTimerIds.current.forEach((id) => window.clearTimeout(id));
+      realignTimerIds.current = [120, 320, 640].map((delay) =>
+        window.setTimeout(() => {
+          if (stickBottom.current && scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        }, delay),
+      );
+    }
+  }, [
+    open,
+    feedSlot,
+    orderedMessages,
+    queued,
+    toolCalls,
+    subagentActivities,
+    isReplaying,
+    connectionState,
+    suppressFollow,
+  ]);
+
+  // Clear any pending re-align timers on unmount.
+  useEffect(
+    () => () => {
+      realignTimerIds.current.forEach((id) => window.clearTimeout(id));
+      realignTimerIds.current = [];
+    },
+    [],
+  );
+
+  // A ResizeObserver keeps the viewport pinned while the feed box itself
+  // changes size (dock drag-resize, window resize, the pause bar / workspace
+  // panel mounting or unmounting) — none of which appear in the follow effect's
+  // deps, so without this a late container resize could leave the newest
+  // message just out of view. Content growth from slow images / markdown after
+  // replay is already covered by the re-align timers above; this covers box
+  // growth and only acts while the user is still stuck to the bottom.
+  useEffect(() => {
+    if (!open || feedSlot != null) return;
+    const element = scrollRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickBottom.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [open, feedSlot]);
 
   // Apply a pending draft before inserting any selection pill: callers like
   // the blueprint "request changes" action set both, and the draft must land
@@ -1749,6 +1832,11 @@ export default function AgentDock({
     const nearBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight < 60;
     stickBottom.current = nearBottom;
+    // A deliberate upward scroll during the suppressed replay window must
+    // survive the replay-end snap, so remember it until replay settles.
+    if (!nearBottom && useCreatorSessionStore.getState().isReplaying) {
+      userScrolledDuringReplay.current = true;
+    }
     setShowJump(!nearBottom);
   };
   // Older-history loading: capture the scroll anchor before the request so
@@ -1759,16 +1847,31 @@ export default function AgentDock({
     scrollTop: number;
   } | null>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
-  const loadOlder = useCallback(() => {
-    const element = scrollRef.current;
-    const state = useCreatorSessionStore.getState();
-    if (!element || state.loadingOlder || !state.hasMoreMessages) return;
-    olderAnchor.current = {
-      scrollHeight: element.scrollHeight,
-      scrollTop: element.scrollTop,
-    };
-    void loadOlderMessages();
-  }, [loadOlderMessages]);
+  const loadOlder = useCallback(
+    (origin: "sentinel" | "manual" = "sentinel") => {
+      const element = scrollRef.current;
+      const state = useCreatorSessionStore.getState();
+      if (!element || state.loadingOlder || !state.hasMoreMessages) return;
+      // The suppressed replay window parks the viewport at the top, which would
+      // otherwise auto-fire this and pull an extra history page that fights the
+      // replay-end snap for the scroll position. That argument only covers the
+      // automatic sentinel, and only while the stream is healthy: an EventSource
+      // that dies before finishing the replay leaves isReplaying raised, and
+      // locking the explicit button here would make an already-available HTTP
+      // history page permanently unreachable.
+      if (
+        state.isReplaying &&
+        (origin !== "manual" || state.connectionState === "connected")
+      )
+        return;
+      olderAnchor.current = {
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      };
+      void loadOlderMessages();
+    },
+    [loadOlderMessages],
+  );
   useLayoutEffect(() => {
     if (loadingOlder) return;
     const anchor = olderAnchor.current;
@@ -1779,20 +1882,23 @@ export default function AgentDock({
     if (delta > 0) element.scrollTop = anchor.scrollTop + delta;
   }, [loadingOlder, orderedMessages]);
   useEffect(() => {
-    if (!open || !hasMoreMessages) return;
+    // Do not arm the auto-load-history sentinel while replay is suppressing the
+    // viewport at the top (the sentinel would be falsely intersecting).
+    if (!open || !hasMoreMessages || isReplaying) return;
     if (typeof IntersectionObserver === "undefined") return;
     const sentinel = topSentinelRef.current;
     const root = scrollRef.current;
     if (!sentinel || !root) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) loadOlder();
+        if (entries.some((entry) => entry.isIntersecting))
+          loadOlder("sentinel");
       },
       { root, rootMargin: "160px 0px 0px 0px" },
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [open, hasMoreMessages, loadOlder]);
+  }, [open, hasMoreMessages, isReplaying, loadOlder]);
   const jumpToBottom = () => {
     if (scrollRef.current)
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -2276,7 +2382,7 @@ export default function AgentDock({
                     <button
                       type="button"
                       disabled={loadingOlder}
-                      onClick={loadOlder}
+                      onClick={() => loadOlder("manual")}
                       className="flex w-full items-center justify-center gap-1 text-center text-[11px] text-[var(--color-text-tertiary)]"
                     >
                       {loadingOlder && (
@@ -2398,6 +2504,11 @@ export default function AgentDock({
                           {t("agent.rateLimitContinue")}
                         </Button>
                       </div>
+                    ) : session.error.code === "MODEL_CONTEXT_UNFIT" ? (
+                      // The backend proved nothing more can be given up and
+                      // parked the run, so the generic "you can retry to
+                      // continue" hint would promise a resume that never runs.
+                      <span>{t("agent.contextUnfit")}</span>
                     ) : (
                       simplifyErrorMessage(session.error.message)
                     )}

@@ -41,6 +41,19 @@ class CasConflictError(ConflictError):
     code = "CAS_CONFLICT"
 
 
+class SourceAssetInUseError(ConflictError):
+    """One source asset version is still referenced by timeline content.
+
+    ``details["timelineReferences"]`` holds one structured record per
+    reference (timeline/element names, ref kind, whether a force delete can
+    detach it) so the caller can name the shot instead of parsing internal
+    ids out of the English message.
+    """
+
+    code = "ASSET_IN_USE"
+    retryable = False
+
+
 class PermissionDeniedError(CreatorError):
     status_code = 403
     code = "PERMISSION_DENIED"

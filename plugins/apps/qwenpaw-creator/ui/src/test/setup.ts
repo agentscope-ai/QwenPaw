@@ -6,6 +6,29 @@ import i18n from "@/i18n";
 await i18n.init();
 await i18n.changeLanguage("zh");
 
+// Node 22+ carries an experimental localStorage that stays unavailable unless
+// the process was started with --localstorage-file, and that shadowed jsdom's.
+// Restore a working in-memory Storage so persistence and quota paths are
+// exercised instead of silently degrading.
+if (!globalThis.localStorage) {
+  const entries = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return entries.size;
+    },
+    clear: () => entries.clear(),
+    getItem: (key: string) => entries.get(String(key)) ?? null,
+    key: (index: number) => [...entries.keys()][index] ?? null,
+    removeItem: (key: string) => void entries.delete(String(key)),
+    setItem: (key: string, value: string) =>
+      void entries.set(String(key), String(value)),
+  };
+  Object.defineProperty(globalThis, "localStorage", {
+    value: memoryStorage,
+    configurable: true,
+  });
+}
+
 // antd/rc-component need these browser APIs under jsdom; polyfill them.
 if (!("ResizeObserver" in globalThis)) {
   class ResizeObserver {

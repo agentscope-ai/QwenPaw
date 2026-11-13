@@ -1,14 +1,16 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { message } from "antd";
+import { message, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 import {
   AudioWaveform,
   Blend,
   Captions,
+  CaptionsOff,
   Film,
+  Loader2,
   MessageSquarePlus,
   Sparkles,
   Wand2,
@@ -49,6 +51,18 @@ interface TimelineSelection {
   kind: "point" | "range";
 }
 
+/**
+ * Batch caption switch carried by the subtitle lane's own row header. The
+ * page owns the state (it knows which copy overlays the backend toggle will
+ * actually reach); the track only renders and defers.
+ */
+export interface SubtitleBatchToggle {
+  enabled: boolean;
+  count: number;
+  busy: boolean;
+  onToggle: () => void;
+}
+
 interface TimelineTracksProps {
   project: ProjectDocument;
   /** Effective timeline for rendering (drag overrides already applied). */
@@ -65,6 +79,8 @@ interface TimelineTracksProps {
   selectedElementId: string | null;
   playbackStates: Map<string, ElementPlaybackStatus>;
   agentWorking: boolean;
+  /** Present only when the timeline has subtitles to switch. */
+  subtitleToggle?: SubtitleBatchToggle;
   onPlayheadChange: (tick: number) => void;
   onSelectElement: (elementId: string) => void;
   /**
@@ -101,6 +117,79 @@ const TRACK_DECOR: Record<
 /** Diagonal-stripe overlays mark copy/motion overlays like the design mock. */
 const STRIPED_TRACKS = new Set<TimelineTrackType>(["subtitle", "motion"]);
 
+/**
+ * The subtitle lane's row-header icon. When the page has captions to
+ * switch, that icon itself becomes the batch control, so the timeline needs
+ * no separate toolbar button; every other header keeps the plain decor icon
+ * and its whole-lane click selection.
+ */
+function SubtitleLaneHeader({
+  toggle,
+  trackType,
+  laneIndex,
+  Icon,
+}: {
+  toggle?: SubtitleBatchToggle;
+  trackType: TimelineTrackType;
+  laneIndex: number;
+  Icon: ComponentType<{ className?: string }>;
+}) {
+  const { t } = useTranslation();
+  // The switch is a timeline-wide action, so only the first subtitle lane
+  // carries it; duplicating it per lane would advertise N actions for one.
+  if (!toggle || trackType !== "subtitle" || laneIndex !== 0) {
+    return <Icon className="h-3 w-3 shrink-0" aria-hidden />;
+  }
+  // The count is the promise the backend toggle keeps: subtitles only, so
+  // the label states how many rows are about to change.
+  const action = t(
+    toggle.enabled ? "plan.subtitleRemove" : "plan.subtitleAdd",
+  );
+  const label = `${action} · ${toggle.count}`;
+  return (
+    // A native `title` waits about a second and ignores the app theme, so
+    // the lane hint rides the styled antd bubble and shows on arrival.
+    <Tooltip
+      mouseEnterDelay={0}
+      placement="top"
+      title={
+        <span className="flex flex-col gap-0.5">
+          <span className="font-semibold">{action}</span>
+          <span className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+            {t("plan.subtitleToggleTip", { count: toggle.count })}
+          </span>
+        </span>
+      }
+    >
+      <button
+        type="button"
+        data-subtitle-toggle
+        aria-label={label}
+        aria-pressed={!toggle.enabled}
+        disabled={toggle.busy}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggle.onToggle();
+        }}
+        className={`-ml-0.5 shrink-0 rounded p-0.5 ${
+          toggle.enabled
+            ? "text-[var(--color-accent)]"
+            : "text-[var(--color-text-tertiary)]"
+        } hover:bg-[var(--color-bg-secondary)]`}
+      >
+        {toggle.busy ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : toggle.enabled ? (
+          <Captions className="h-3 w-3" />
+        ) : (
+          <CaptionsOff className="h-3 w-3" />
+        )}
+      </button>
+    </Tooltip>
+  );
+}
+
 function seconds(tick: number, ticksPerSecond: number): string {
   return formatSeconds(tick, ticksPerSecond);
 }
@@ -122,6 +211,36 @@ function niceScaleStep(secondsValue: number): number {
   const nice =
     normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
   return nice * power;
+}
+
+const CAPTION_ROLE_LABEL: Record<string, string> = {
+  dialogue: "/",
+  narration: "VO",
+  opening_title: "T",
+  opening_credit: "★",
+  ending_credit: "End",
+  location: "📍",
+  chapter: "§",
+  interview_summary: "Σ",
+};
+
+function CaptionRoleTag({
+  element,
+  trackType,
+}: {
+  element: TimelineElementDocument;
+  trackType: TimelineTrackType | null;
+}) {
+  if (trackType !== "subtitle") return null;
+  const creation = element.creation;
+  if (creation.type !== "overlay") return null;
+  const role = creation.caption_role;
+  if (!role || !CAPTION_ROLE_LABEL[role]) return null;
+  return (
+    <span className="pointer-events-none truncate whitespace-nowrap text-[8px] font-medium opacity-50">
+      {CAPTION_ROLE_LABEL[role]}
+    </span>
+  );
 }
 
 interface BlockDragState {
@@ -152,6 +271,7 @@ export default function TimelineTracks({
   selectedElementId,
   playbackStates,
   agentWorking,
+  subtitleToggle,
   onPlayheadChange,
   onSelectElement,
   onActiveElementIdsChange,
@@ -881,6 +1001,7 @@ export default function TimelineTracks({
               )}
               {element.label || t("timeline.timelineContent")}
             </span>
+            <CaptionRoleTag element={element} trackType={trackType} />
             <span className="pointer-events-none truncate whitespace-nowrap text-[9px] font-medium opacity-75">
               {seconds(element.span.start_tick, timeline.ticks_per_second)}s –{" "}
               {seconds(
@@ -1091,9 +1212,11 @@ export default function TimelineTracks({
                                 }}
                                 className="sticky left-0 z-40 flex w-[68px] shrink-0 cursor-pointer items-center gap-1.5 border-r border-[var(--color-border)] bg-[var(--color-bg-primary)] pl-2.5 pr-1 text-[10px] hover:bg-[var(--color-bg-secondary)]"
                               >
-                                <decor.Icon
-                                  className="h-3 w-3 shrink-0"
-                                  aria-hidden
+                                <SubtitleLaneHeader
+                                  toggle={subtitleToggle}
+                                  trackType={track.type}
+                                  laneIndex={laneIndex}
+                                  Icon={decor.Icon}
                                 />
                                 <b
                                   className="font-semibold"

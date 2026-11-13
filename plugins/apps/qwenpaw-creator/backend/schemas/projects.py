@@ -50,6 +50,49 @@ class ExecutionPreauthorizationPolicy(StrictModel):
         return value
 
 
+class SubtitleStylePolicy(StrictModel):
+    """Camel-case mirror of ``models.SubtitleStyle`` for the create API."""
+
+    color: str | None = Field(
+        default=None,
+        pattern=r"^#[0-9a-fA-F]{6}$",
+    )
+    font_scale: float | None = Field(
+        default=None,
+        alias="fontScale",
+        ge=0.6,
+        le=1.8,
+    )
+    stroke_scale: float | None = Field(
+        default=None,
+        alias="strokeScale",
+        ge=0.0,
+        le=3.0,
+    )
+    background_opacity: float | None = Field(
+        default=None,
+        alias="backgroundOpacity",
+        ge=0.0,
+        le=1.0,
+    )
+    font_family: Literal["default", "song", "hei", "kai"] | None = Field(
+        default=None,
+        alias="fontFamily",
+    )
+
+
+class SubtitleAnimationPolicy(StrictModel):
+    """Camel-case mirror of ``models.SubtitleAnimation`` for the create API.
+
+    Entrance / exit / loop the project's captions default to; every field
+    optional, ``None`` keeps the style pack's signature motion.
+    """
+
+    entrance: Literal["soft_fade", "pop", "slide", "type_on"] | None = None
+    exit: Literal["none", "soft_fade", "shrink"] | None = None
+    loop: bool | None = None
+
+
 class ProjectCreateRequest(StrictModel):
     production_stage: Literal["script", "media"] | None = Field(
         None,
@@ -63,6 +106,19 @@ class ProjectCreateRequest(StrictModel):
     resolution: str = "720P"
     content_type: str | None = Field(None, alias="contentType")
     template_id: str | None = Field(None, alias="templateId")
+    subtitle_policy: Literal["auto", "on", "off"] | None = Field(
+        None,
+        alias="subtitlePolicy",
+    )
+    subtitle_template: str | None = Field(None, alias="subtitleTemplate")
+    subtitle_style: SubtitleStylePolicy | None = Field(
+        None,
+        alias="subtitleStyle",
+    )
+    subtitle_animation: SubtitleAnimationPolicy | None = Field(
+        None,
+        alias="subtitleAnimation",
+    )
     execution_preauthorization: ExecutionPreauthorizationPolicy | None = Field(
         None,
         alias="executionPreauthorization",

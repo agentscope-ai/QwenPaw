@@ -1,13 +1,14 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Button, Dropdown, Input, Modal, Switch, Tooltip, message } from "antd";
-import { Eye, Globe, Pencil, Plus, Trash2, Upload } from "lucide-react";
+import { Eye, Globe, Pencil, Plus, ShoppingBag, Trash2, Upload } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -20,6 +21,7 @@ import {
   uploadSkillZip,
   type SkillItem,
 } from "@/api/creator";
+import SkillMarketBrowser from "./SkillMarketBrowser";
 
 const SKILL_TEMPLATE = `---
 name: my-video-skill
@@ -59,6 +61,83 @@ const SKILL_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/;
 /** The backend refuses anything else, and a market page URL is never a bare host. */
 const SKILL_URL_RE = /^https?:\/\//;
 
+/** Known skill market sources for URL import validation and display. */
+const SKILL_MARKETS: Array<{
+  key: string;
+  name: string;
+  homepage: string;
+  host: string;
+  example: string;
+}> = [
+  {
+    key: "qwenpaw",
+    name: "QwenPaw",
+    homepage: "https://platform.agentscope.io/skills",
+    host: "platform.agentscope.io",
+    example: "https://platform.agentscope.io/skills/@agentscope/example-skill",
+  },
+  {
+    key: "skills-sh",
+    name: "Skills.sh",
+    homepage: "https://skills.sh",
+    host: "skills.sh",
+    example: "https://skills.sh/vercel-labs/skills/find-skills",
+  },
+  {
+    key: "github",
+    name: "GitHub",
+    homepage: "https://github.com",
+    host: "github.com",
+    example: "https://github.com/anthropics/skills/tree/main/skills/skill-creator",
+  },
+  {
+    key: "clawhub",
+    name: "ClawHub",
+    homepage: "https://clawhub.ai",
+    host: "clawhub.ai",
+    example: "https://clawhub.ai/ivangdavila/skills/word-docx",
+  },
+  {
+    key: "lobehub",
+    name: "LobeHub",
+    homepage: "https://lobehub.com",
+    host: "lobehub.com",
+    example: "https://lobehub.com/zh/skills/openclaw-skills-cli-developer",
+  },
+  {
+    key: "modelscope",
+    name: "ModelScope",
+    homepage: "https://modelscope.cn/skills",
+    host: "modelscope.cn",
+    example: "https://modelscope.cn/skills/@anthropics/skill-creator",
+  },
+  {
+    key: "skillsmp",
+    name: "SkillsMP",
+    homepage: "https://skillsmp.com",
+    host: "skillsmp.com",
+    example:
+      "https://skillsmp.com/skills/anthropics-skills-skills-skill-creator-skill-md",
+  },
+];
+
+function detectMarketSource(url: string): string | null {
+  if (!url) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  for (const market of SKILL_MARKETS) {
+    if (host === market.host) return market.name;
+  }
+  // Also match market.lobehub.com
+  if (host === "market.lobehub.com") return "LobeHub Market";
+  return null;
+}
+
 export default function SkillsConfigPane() {
   const { t } = useTranslation();
   const [items, setItems] = useState<SkillItem[]>([]);
@@ -75,6 +154,7 @@ export default function SkillsConfigPane() {
   const [previewMode, setPreviewMode] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [truncated, setTruncated] = useState(false);
+  const [marketOpen, setMarketOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Monotonic guard so a slow openEdit/openPreview read cannot land after a
   // newer open (or a create) and clobber the modal with stale content.
@@ -343,6 +423,11 @@ export default function SkillsConfigPane() {
   const urlReady =
     SKILL_URL_RE.test(urlValue.trim()) && !urlTargetInvalid && !urlTargetTaken;
 
+  const installedNames = useMemo(
+    () => items.map((item) => item.name),
+    [items],
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -388,6 +473,13 @@ export default function SkillsConfigPane() {
                 label: t("skills.importUrl"),
                 icon: <Globe size={14} />,
                 onClick: openUrlImport,
+              },
+              { type: "divider" },
+              {
+                key: "market",
+                label: t("skills.browseMarket"),
+                icon: <ShoppingBag size={14} />,
+                onClick: () => setMarketOpen(true),
               },
             ],
           }}
@@ -664,32 +756,44 @@ export default function SkillsConfigPane() {
         confirmLoading={importingUrl}
         onOk={handleImportUrl}
         onCancel={() => setUrlOpen(false)}
-        width={520}
+        width={560}
         centered
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Frozen while an import is in flight, for the same reason as the
-              editor body: the request carries these values as of the click and
-              success closes this dialog and clears both, so a URL retyped
-              during the wait would vanish without a word. */}
           <div>
             <label className="field-label">{t("skills.importUrlLabel")}</label>
             <Input
               value={urlValue}
               readOnly={importingUrl}
-              placeholder="https://skills.sh/owner/repo/skill"
+              placeholder="https://platform.agentscope.io/skills/@owner/skill-name"
               onChange={(event) => setUrlValue(event.target.value)}
             />
-            {!SKILL_URL_RE.test(urlValue.trim()) && (
+            {/* Source detection feedback */}
+            {urlValue.trim().length > 0 && SKILL_URL_RE.test(urlValue.trim()) && (
               <div
                 style={{
                   fontSize: 11,
                   marginTop: 4,
                   lineHeight: 1.5,
-                  color:
-                    urlValue.trim().length > 0
-                      ? "var(--color-error)"
-                      : "var(--color-text-tertiary)",
+                  color: detectMarketSource(urlValue)
+                    ? "var(--color-success)"
+                    : "var(--color-text-tertiary)",
+                }}
+              >
+                {detectMarketSource(urlValue)
+                  ? t("skills.importUrlSourceDetected", {
+                      source: detectMarketSource(urlValue),
+                    })
+                  : t("skills.importUrlSourceUnknown")}
+              </div>
+            )}
+            {urlValue.trim().length > 0 && !SKILL_URL_RE.test(urlValue.trim()) && (
+              <div
+                style={{
+                  fontSize: 11,
+                  marginTop: 4,
+                  lineHeight: 1.5,
+                  color: "var(--color-error)",
                 }}
               >
                 {t("skills.urlInvalid")}
@@ -724,6 +828,63 @@ export default function SkillsConfigPane() {
                 : t("skills.importUrlNameHint")}
             </div>
           </div>
+
+          {/* Supported market sources */}
+          <div
+            style={{
+              border: "1px solid var(--color-border)",
+              borderRadius: 8,
+              padding: "8px 12px",
+              background: "var(--color-bg-layout)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--color-text-secondary)",
+                marginBottom: 6,
+              }}
+            >
+              {t("skills.importUrlSourceHint")}
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: "2px 12px",
+              }}
+            >
+              {SKILL_MARKETS.map((market) => (
+                <button
+                  key={market.key}
+                  type="button"
+                  disabled={importingUrl}
+                  style={{
+                    fontSize: 11,
+                    color: "var(--color-accent)",
+                    background: "none",
+                    border: "none",
+                    cursor: importingUrl ? "default" : "pointer",
+                    padding: "2px 0",
+                    textAlign: "left",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={market.example}
+                  onClick={() => {
+                    if (!importingUrl) {
+                      setUrlValue(market.example);
+                    }
+                  }}
+                >
+                  {market.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div
             style={{
               fontSize: 11.5,
@@ -735,6 +896,13 @@ export default function SkillsConfigPane() {
           </div>
         </div>
       </Modal>
+
+      <SkillMarketBrowser
+        open={marketOpen}
+        onClose={() => setMarketOpen(false)}
+        onInstalled={() => void refresh()}
+        installedNames={installedNames}
+      />
     </div>
   );
 }

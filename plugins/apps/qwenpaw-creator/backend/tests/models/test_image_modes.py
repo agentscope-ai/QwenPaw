@@ -114,6 +114,175 @@ def test_edit_body_keeps_images_first_and_disables_watermark() -> None:
     assert body["parameters"] == {"size": "1664*928", "watermark": False}
 
 
+def test_token_plan_reference_inlines_base64_not_upload(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A Token Plan endpoint has no upload route: the public dashscope
+    uploads answer its sk-sp- key 401 and the token-plan host serves no
+    /api/v1/uploads, so a local reference is inlined as a Base64 data URL
+    (which the multimodal-generation endpoint accepts) instead of uploaded.
+    """
+    from PIL import Image
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    reference = tmp_path / "ref.png"
+    Image.new("RGB", (8, 8), "red").save(reference, format="PNG")
+    model = DashScopeImageModel(
+        model_name="qwen-image-2.0-pro",
+        api_key="sk-sp-test",
+        base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+        timeout=30,
+    )
+    resolved = asyncio.run(model._public_reference_url(reference.as_uri()))
+    assert resolved.startswith("data:image/png;base64,")
+
+
+def _token_plan_image_model() -> DashScopeImageModel:
+    return DashScopeImageModel(
+        model_name="qwen-image-2.0-pro",
+        api_key="sk-sp-test",
+        base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
+        timeout=30,
+    )
+
+
+def _noise_png_bytes() -> bytes:
+    """Deterministic noise PNG: ~31KB raw, ~11KB as an optimised JPEG.
+
+    The gap lets a test put the inline ceiling between the two, so the
+    downscale path is exercised without building a 7MB fixture.
+    """
+    import io
+
+    from PIL import Image
+
+    output = io.BytesIO()
+    Image.effect_noise((128, 128), 128).convert("RGB").save(
+        output,
+        format="PNG",
+    )
+    return output.getvalue()
+
+
+def test_token_plan_reference_over_inline_ceiling_errors(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A generate reference that cannot shrink under the 7MB Base64 ceiling
+    fails with guidance rather than sending a doomed upload, and fails fast:
+    the ceiling is a provider constant, so retrying cannot help."""
+    from PIL import Image
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    # Force the tiny test image over the ceiling without building a 7MB file.
+    # 16 bytes is below even the smallest ladder rung, so no downscale can
+    # rescue it and the refusal path is what runs.
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        16,
+    )
+    reference = tmp_path / "big.png"
+    Image.new("RGB", (8, 8), "red").save(reference, format="PNG")
+    model = _token_plan_image_model()
+    with pytest.raises(ModelError, match="7MB") as excinfo:
+        asyncio.run(model._public_reference_url(reference.as_uri()))
+    assert excinfo.value.retryable is False
+
+
+def test_token_plan_generate_reference_downscales_under_ceiling(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A generate reference only carries subject and style, so shrinking it
+    beats failing a request the provider could have served.
+
+    The re-encoded payload is JPEG whatever the source was, so the data URL
+    must not keep the source's PNG MIME: ``reference_media_data_url`` reads
+    the type from the filename suffix first.
+    """
+    import base64
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        20_000,
+    )
+    raw = _noise_png_bytes()
+    reference = tmp_path / "big.png"
+    reference.write_bytes(raw)
+    assert len(raw) > 20_000
+
+    model = _token_plan_image_model()
+    resolved = asyncio.run(model._public_reference_url(reference.as_uri()))
+
+    assert resolved.startswith("data:image/jpeg;base64,")
+    payload = base64.b64decode(resolved.split(",", 1)[1])
+    assert len(payload) <= 20_000
+    assert len(payload) < len(raw)
+
+
+@pytest.mark.parametrize("mode", ["edit", "translate"])
+def test_token_plan_edit_and_translate_references_never_downscale(
+    tmp_path,
+    monkeypatch,
+    mode,
+) -> None:
+    """An edit/translate reference *is* the canvas the instruction operates
+    on, so its pixels are never silently resampled even when the ladder
+    could fit them: the request fails fast with guidance instead."""
+
+    async def refuse_upload(*args, **kwargs):
+        raise AssertionError("Token Plan reference reached the upload API")
+
+    monkeypatch.setattr(
+        dashscope_provider,
+        "upload_reference_bytes_to_dashscope_temp",
+        refuse_upload,
+    )
+    # The same bytes do downscale under mode=generate (see the test above),
+    # so a refusal here can only come from the mode gate.
+    monkeypatch.setattr(
+        dashscope_provider,
+        "TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES",
+        20_000,
+    )
+    reference = tmp_path / "big.png"
+    reference.write_bytes(_noise_png_bytes())
+
+    model = _token_plan_image_model()
+    with pytest.raises(ModelError, match="7MB") as excinfo:
+        asyncio.run(
+            model._public_reference_url(reference.as_uri(), mode=mode),
+        )
+    assert excinfo.value.retryable is False
+    assert f"mode={mode}" in str(excinfo.value)
+    assert "不会被自动" in str(excinfo.value)
+
+
 @respx.mock
 def test_translate_submits_async_task_polls_and_downloads_result(
     monkeypatch,

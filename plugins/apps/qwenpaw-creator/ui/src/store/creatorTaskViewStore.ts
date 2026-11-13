@@ -12,7 +12,10 @@ interface CreatorTaskViewState {
   tasks: TaskView[];
   loading: boolean;
   error: string | null;
-  refresh: (projectId: string) => Promise<void>;
+  refresh: (
+    projectId: string,
+    options?: { dedupe?: boolean },
+  ) => Promise<void>;
   consumeEvent: (event: CreatorEvent) => void;
   cancel: (taskId: string) => Promise<void>;
   reset: () => void;
@@ -31,13 +34,13 @@ export const useCreatorTaskViewStore = create<CreatorTaskViewState>(
     tasks: [],
     loading: false,
     error: null,
-    refresh: async (projectId) => {
+    refresh: async (projectId, options) => {
       const generation = ++refreshGeneration;
       set({ projectId, loading: true, error: null });
       try {
         const [runs, tasks] = await Promise.all([
-          listSpecialistRuns(projectId),
-          listTasks(projectId),
+          listSpecialistRuns(projectId, {}, options),
+          listTasks(projectId, options),
         ]);
         if (generation !== refreshGeneration || get().projectId !== projectId)
           return;

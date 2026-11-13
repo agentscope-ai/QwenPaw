@@ -770,6 +770,13 @@ _PROJECT_SCHEMA_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
         "intensity、theme、variant、motif、html、fps、loop、"
         "design_notes）必须放在 creation.motion 子对象内，"
         "不得直接写在 creation 上；"
+        "台词卡 Overlay 必须声明 caption_role 指定字幕角色："
+        "dialogue（对白）/ narration（旁白）/ opening_title（片名）/"
+        "opening_credit（演职员）/ ending_credit（片尾）/"
+        "location（地点标注）/ chapter（章节标题）/"
+        "interview_summary（访谈摘要）；"
+        "未声明时默认为 dialogue（对白），"
+        "宠物 OS 台词卡则有意留空（专用气泡布局，不属字幕）。"
         "Overlay 没有 overlay_kind 字段：台词卡把文案写入 text，"
         "text 为空的装饰/媒体 Overlay 必须携带非空 prompt 或引用版本",
     ),

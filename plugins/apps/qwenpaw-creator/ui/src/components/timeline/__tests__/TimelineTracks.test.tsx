@@ -238,3 +238,53 @@ describe("TimelineTracks direct manipulation", () => {
     ]);
   });
 });
+
+describe("TimelineTracks subtitle lane switch", () => {
+  it("carries the batch caption toggle inside the CC row header", () => {
+    const onToggle = vi.fn();
+    const { container, props } = setup({
+      subtitleToggle: { enabled: true, count: 2, busy: false, onToggle },
+    });
+    const button = query(container, "[data-subtitle-toggle]");
+    // The switch is the lane's own caption icon, not a separate control.
+    expect(button.closest('[data-track="subtitle"]')).not.toBeNull();
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    // Toggling captions must not also select the whole lane or seek.
+    expect(props.onActiveElementIdsChange).not.toHaveBeenCalled();
+    expect(props.onPlayheadChange).not.toHaveBeenCalled();
+  });
+
+  it("marks the switch off, keeps one copy per timeline", () => {
+    const project = structuredClone(projectDocument) as ProjectDocument;
+    const timeline = project.timelines.items[
+      "timeline:main"
+    ] as TimelineDocument;
+    // An overlapping copy overlay forces a second CC lane; a timeline-wide
+    // switch must not be duplicated on every lane header.
+    timeline.elements_by_id["overlay-late"] = {
+      ...structuredClone(timeline.elements_by_id["overlay-title"]),
+      element_id: "overlay-late",
+      span: { start_tick: 3000, duration_tick: 2000 },
+    };
+    const { container } = setup({
+      project,
+      timeline,
+      subtitleToggle: {
+        enabled: false,
+        count: 3,
+        busy: true,
+        onToggle: vi.fn(),
+      },
+    });
+    const switches = container.querySelectorAll("[data-subtitle-toggle]");
+    expect(switches).toHaveLength(1);
+    expect(switches[0].getAttribute("aria-pressed")).toBe("true");
+    expect(switches[0]).toBeDisabled();
+
+    const plain = setup();
+    expect(
+      plain.container.querySelector("[data-subtitle-toggle]"),
+    ).not.toBeInTheDocument();
+  });
+});

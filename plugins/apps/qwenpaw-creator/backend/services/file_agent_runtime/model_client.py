@@ -41,15 +41,161 @@ from models.dashscope_multimodal import DashScopeNativeFormatter
 from models.native_content import native_content_blocks
 from services.media_files.transient_errors import is_transient_error_message
 from utils.logger import setup_logger
+from . import media_vault
 from .tool_protocol import (
     NativeToolTextStream,
     NonNativeToolMarkupError,
 )
 from .model_context import (
     MODEL_INPUT_BYTES,
+    MediaVault,
     ModelContextBudgetError,
+    _TEXT_BYTES_PER_TOKEN,
+    budget_diagnostics,
+    context_window,
+    demote_derived_inline_media,
+    demote_human_inline_media,
+    format_budget_failure,
+    format_demotion_record,
+    media_could_bridge_the_gap,
+    media_observation_degrade_enabled,
     prepare_model_messages,
 )
+
+try:
+    # The platform owns the recovery boundary (one attempt, one retry, and a
+    # refusal to replay output the model already spoke).  The plugin imports
+    # only that boundary; the marker list and the classifier that feeds it
+    # stay on this side of the plugin boundary so enabling compression never
+    # has to patch the host package.
+    from qwenpaw.agents.context.overflow_recovery import (
+        call_with_overflow_recovery,
+    )
+
+    _HOST_OVERFLOW_RECOVERY_AVAILABLE = True
+except ImportError:  # pragma: no cover - standalone plugin installs
+    _HOST_OVERFLOW_RECOVERY_AVAILABLE = False
+
+    async def call_with_overflow_recovery(
+        call_model: Callable[..., Awaitable[Any]],
+        recover: Callable[[Exception], Awaitable[Any]],
+        **kwargs: Any,
+    ) -> Any:
+        """Standalone stand-in for the platform's one-shot boundary.
+
+        Creator consumes a stream inside ``complete()`` and hands back a
+        finished turn, so there is no generator for the platform wrapper to
+        own here; the retry shape is the part worth keeping identical.
+        """
+        try:
+            return await call_model(**kwargs)
+        except Exception as exc:
+            return await recover(exc)
+
+
+# Gateway streaming wrappers render the HTTP status inside brackets
+# (``Streaming response failed: [400] ...``) instead of ``Error code: 400``.
+# The host's ``extract_status_code`` matches this shape; the plugin-local
+# fallback has to as well, or a standalone install silently misses the
+# overflow signal on group-only phrases.
+_STREAMING_ERROR_STATUS_RE = re.compile(
+    r"Streaming response failed:\s*\[(\d{3})\]",
+)
+
+
+def _local_extract_status_code(exc: Exception) -> Any:
+    """Plugin-local reader for the HTTP status the classifier gates on.
+
+    Covers every provider refusal shape we've actually seen: SDK attribute
+    lookups (int or digit string), ``response.status*``, streaming
+    ``[NNN]`` wrappers, and the module's own body regex as last resort.
+    """
+    for attr in ("status_code", "status", "code"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    response = getattr(exc, "response", None)
+    if response is not None:
+        for attr in ("status_code", "status"):
+            value = getattr(response, attr, None)
+            if isinstance(value, int):
+                return value
+    streaming = _STREAMING_ERROR_STATUS_RE.search(str(exc))
+    if streaming is not None:
+        return int(streaming.group(1))
+    return _provider_http_status(exc)
+
+
+# ``providers.error_utils`` is a separate host module.  Keep its availability
+# independent of ``overflow_recovery`` so a future rename on one side does
+# not silently flip the other capability off.
+try:
+    from qwenpaw.providers.error_utils import (
+        extract_status_code as _host_extract_status_code,
+    )
+except ImportError:
+    _host_extract_status_code = _local_extract_status_code
+
+
+# Plugin-owned classification of "the provider said this input was too
+# long".  ``react_agent._is_context_overflow_error`` keeps the platform's
+# own copy; this list is what the recovery boundary checks before it asks
+# the host to retry.  The extra phrases (compared with the platform copy)
+# cover gateway bodies that wrap the original refusal without a structured
+# status code, which the host's inline path cannot see.
+CONTEXT_OVERFLOW_MARKERS: tuple[str, ...] = (
+    "range of input length",
+    "context length exceeded",
+    "context_length_exceeded",
+    "maximum context length",
+    "maximum context window",
+    "context window exceeded",
+    "max input length",
+    "input length should be",
+    "input is too long",
+    "prompt is too long",
+    "prompt too long",
+    "too many input tokens",
+)
+_CONTEXT_OVERFLOW_MARKER_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("tokens", "exceeds the available context size"),
+    (
+        "input token count",
+        "exceeds the maximum number of tokens allowed",
+    ),
+    (
+        "input token count",
+        "model only supports up to",
+    ),
+)
+
+
+def _matches_overflow_markers(error_str: str) -> bool:
+    """Whether *error_str* names an overflow by a marker or a marker group.
+
+    The platform classifies some refusals with one phrase and others only
+    with a group of phrases that must all appear. Both the bare-400
+    classifier and the widened 413/422/text-only path scan through this one
+    helper so neither can drift from the other.
+    """
+    if any(marker in error_str for marker in CONTEXT_OVERFLOW_MARKERS):
+        return True
+    return any(
+        all(marker in error_str for marker in marker_group)
+        for marker_group in _CONTEXT_OVERFLOW_MARKER_GROUPS
+    )
+
+
+def is_context_overflow_error(exc: Exception) -> bool:
+    """Return whether *exc* is a provider refusal for an oversized input."""
+    status = _host_extract_status_code(exc)
+    error_str = str(exc).lower()
+    if status != 400 and "error code: 400" not in error_str:
+        return False
+    return _matches_overflow_markers(error_str)
+
 
 logger = setup_logger("creator.model_client")
 
@@ -58,8 +204,28 @@ class AgentModelError(RuntimeError):
     pass
 
 
+class OverflowAfterOutputError(AgentModelError):
+    """A provider overflow that arrived after the model already started reply.
+
+    The recovery boundary degrades the input and calls again, which would say
+    the same thing to the user twice. This is how a streamed turn tells the
+    boundary to stop rather than retry.
+    """
+
+
 class AgentModelConfigurationError(AgentModelError):
     pass
+
+
+class ModelContextUnfitError(AgentModelError):
+    """The input was proven too large with nothing left to give up.
+
+    Everything the recovery ladder can move has moved, so an automatic resume
+    would re-send bytes the same window already refused and buy one error
+    message at the price of a full model call. The run stops and waits for a
+    human to shorten the input; every other ``AgentModelError`` describes a
+    fault a retry can plausibly clear.
+    """
 
 
 class RateLimitExhaustedError(AgentModelError):
@@ -190,18 +356,21 @@ def is_rate_limit_error(exc: Exception) -> bool:
 
 
 def is_context_length_error(exc: Exception) -> bool:
+    """Whether the provider refused this input for being too long.
+
+    The plugin-owned classifier answers first so a refusal already on the
+    marker list cannot be argued with here.  This plugin also has to
+    survive gateways that answer 413/422 (or only leak text, no status at
+    all) where the SDK path answers a bare 400, so those cases widen via
+    the same marker list rather than a second list - and they scan the
+    marker groups too, so a group-only refusal is not dropped just because
+    its status is not a bare 400.
+    """
+    if is_context_overflow_error(exc):
+        return True
     if _provider_http_status(exc) not in (None, 400, 413, 422):
         return False
-    return any(
-        marker in str(exc).casefold()
-        for marker in (
-            "input length should be",
-            "context_length_exceeded",
-            "maximum context length",
-            "context window exceeded",
-            "prompt is too long",
-        )
-    )
+    return _matches_overflow_markers(str(exc).casefold())
 
 
 def _rate_limit_retry_delay(attempt: int) -> float:
@@ -277,6 +446,15 @@ class AgentModelTurn:
     provider_message_id: str | None = None
     finish_reason: str = "completed"
     usage: dict[str, Any] | None = field(default=None, compare=False)
+    # The request this turn actually answers. Compaction and the demotion
+    # ladder can both leave a different shape than the caller handed over, and
+    # a turn that hides which one the model read lets the next turn rebuild
+    # the bytes that were already refused.
+    sent_messages: list[dict[str, Any]] | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 _ARGS_PREVIEW_CHARS = 160
@@ -865,6 +1043,370 @@ class AgentScopeAgentChatClient:
             self._configuration = configuration
         return self.model
 
+    def _budget_model_name(self) -> str:
+        """Model name used to resolve the token window for this client.
+
+        The base client issues requests through the text model, so the
+        default is the text model name.  ``AgentScopeVlmChatClient``
+        overrides this: VLM and text catalogs can carry different context
+        windows, and pricing a VLM turn against the text window either
+        demotes media that would have fitted or admits input the VLM
+        actually cannot take.
+        """
+        return model_config.get_text_model_name()
+
+    def _input_token_budget(self) -> int | None:
+        """Input ceiling for this deployment's model context window.
+
+        Resolves the window from the same host catalog the platform scroll
+        reads, so the plugin never prices against a different ceiling.  The
+        name is taken from ``_budget_model_name`` so a VLM turn is measured
+        against the VLM window.  When no window is available the byte
+        transport floor stays the sole limit.
+        """
+        context_size = context_window(
+            self._budget_model_name(),
+        )
+        if context_size is None:
+            return None
+        # Match the platform scroll output reserve:
+        #   min(_MAX_OUTPUT_RESERVE_TOKENS=4096, max(1, hard_limit * 0.05))
+        reserve = min(4096, max(1, int(context_size * 0.05)))
+        return max(1024, context_size - reserve)
+
+    def _media_vault(self) -> MediaVault | None:
+        """Durable home for demoted media, or ``None`` when there is none.
+
+        The returned vault opens the store per block, so an unavailable data
+        root is answered inside it (a pointer with no handle, which is what a
+        machine without a resolved root can honestly promise). This guard only
+        covers building the vault itself.
+        """
+        try:
+            return media_vault.make_vault()
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "creator media vault unavailable; demoted pointers will carry "
+                "no recall handle",
+                exc_info=True,
+            )
+            return None
+
+    def _fit_refused_request(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        *,
+        max_bytes: int,
+        failure: ModelContextBudgetError,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Rebuild a locally refused request in two pressure steps.
+
+        First the runtime's own observations, which any tool can produce
+        again. Only if the request still does not fit does a human attachment
+        move, and only with a durable copy behind it. A refusal that survives
+        both steps is reported with what was given up, because the input the
+        caller sees failing is no longer the input it sent. The record comes
+        back with the rebuilt request for the same reason: a provider refusal
+        further along still describes this request.
+        """
+        if not media_observation_degrade_enabled():
+            raise AgentModelError(format_budget_failure(failure)) from failure
+        vault = self._media_vault()
+        token_budget = self._input_token_budget()
+        record: list[tuple[str, Mapping[str, Any]]] = []
+
+        def prepare(
+            candidate: Sequence[Mapping[str, Any]],
+        ) -> tuple[
+            list[dict[str, Any]] | None,
+            ModelContextBudgetError | None,
+        ]:
+            try:
+                return (
+                    prepare_model_messages(
+                        candidate,
+                        tools,
+                        max_bytes=max_bytes,
+                        max_tokens=token_budget,
+                    ),
+                    None,
+                )
+            except ModelContextBudgetError as exc:
+                return None, exc
+
+        candidate: Sequence[Mapping[str, Any]] = messages
+        demoted, receipt = demote_derived_inline_media(
+            messages,
+            budget_bytes=max_bytes,
+            vault=vault,
+        )
+        record.append(("派生观察媒体", receipt))
+        if receipt["demoted_blocks"]:
+            candidate = demoted
+            prepared, refused = prepare(demoted)
+            if prepared is not None:
+                return prepared, self._report_demotions(record, max_bytes)
+            failure = refused or failure
+        # Pressure has to be media-shaped before an upload moves. The very
+        # accounting that refused the request says whether it is: when every
+        # inline block together costs less than the overage, no amount of
+        # demotion can fit, and the ladder would strip a person's attachments
+        # one by one while heading for the identical failure.
+        if not failure.diagnostics:
+            # A provider refusal arrives without a local measurement, and an
+            # empty reading opens that gate unconditionally: the ladder would
+            # strip a person's uploads one by one on the promise that media is
+            # what does not fit, while the request may be overflowing on
+            # contract text no demotion can shrink. Measure the shape this step
+            # aims at, through the same compaction its own success test
+            # applies, so the gap the gate reads is the gap this request has to
+            # close. What the caller was told keeps its own words: this probe
+            # states a budget the ladder tightened, not the one that refused.
+            probed, refused = prepare(candidate)
+            reading = (
+                refused.diagnostics
+                if refused is not None and refused.diagnostics
+                else budget_diagnostics(
+                    probed if probed is not None else candidate,
+                    tools,
+                    max_bytes=max_bytes,
+                    max_tokens=token_budget,
+                )
+            )
+            failure = ModelContextBudgetError(
+                str(failure),
+                diagnostics=reading,
+            )
+        if not media_could_bridge_the_gap(failure.diagnostics):
+            raise ModelContextUnfitError(
+                "\n".join(
+                    part
+                    for part in (
+                        format_budget_failure(failure),
+                        "缺口不是媒体造成的，真人附件未移动。",
+                        format_demotion_record(record),
+                    )
+                    if part
+                ),
+            ) from failure
+        # Proven pressure is what earns this step, and it is paid one
+        # attachment at a time: the most expensive upload moves, the request
+        # is measured again, and the trade stops the moment it fits. Demoting
+        # the whole batch instead would let one oversized screenshot cost every
+        # other upload in the same conversation its bytes.
+        current: list[dict[str, Any]] = demoted
+        totals: dict[str, Any] = {
+            "demoted_blocks": 0,
+            "demoted_charge_bytes": 0,
+            "stored_blocks": 0,
+            "refused_blocks": 0,
+            "handles": [],
+        }
+        while True:
+            candidate, step = demote_human_inline_media(
+                current,
+                vault=vault,
+                budget_bytes=max_bytes,
+                one_step=True,
+            )
+            if not step["demoted_blocks"]:
+                break
+            for key in (
+                "demoted_blocks",
+                "demoted_charge_bytes",
+                "stored_blocks",
+                "refused_blocks",
+            ):
+                totals[key] += step[key]
+            totals["handles"].extend(step["handles"])
+            current = candidate
+            prepared, refused = prepare(current)
+            if prepared is not None:
+                record.append(("真人附件媒体", totals))
+                return prepared, self._report_demotions(record, max_bytes)
+            failure = refused or failure
+        record.append(("真人附件媒体", totals))
+        logger.warning(
+            "Model input exceeded the window and nothing left can be given "
+            "up: %s",
+            failure,
+        )
+        raise ModelContextUnfitError(
+            "\n".join(
+                part
+                for part in (
+                    format_budget_failure(failure),
+                    format_demotion_record(record),
+                )
+                if part
+            ),
+        ) from failure
+
+    @staticmethod
+    def _report_demotions(
+        record: list[tuple[str, Mapping[str, Any]]],
+        max_bytes: int,
+    ) -> str:
+        """Log the demotion that let a refused request through, keep its text.
+
+        The text outlives the log line: a request that fits now can still be
+        refused by the provider, and that failure has to say what was already
+        given up to produce it.
+        """
+        note = format_demotion_record(record)
+        logger.warning(
+            "creator context guard: fit %d bytes by demoting media; %s",
+            max_bytes,
+            note,
+        )
+        return note
+
+    def _gentle_overflow_relief(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        *,
+        max_bytes: int,
+    ) -> tuple[list[dict[str, Any]], int, str] | None:
+        """First recovery step: give up only what a tool can produce again.
+
+        A provider refusing an input that is too long says the request cost
+        more than the window, not that the conversation was wrong. The media
+        the runtime observed itself is all this step may trade, and every
+        traded block leaves a handle behind, so a person's upload keeps its
+        bytes until the forced step proves they are what does not fit.
+
+        ``None`` means there was nothing to trade here, which sends the caller
+        to the one lever left: retiring older completed tool exchanges.
+        """
+        if not media_observation_degrade_enabled():
+            return None
+        demoted, receipt = demote_derived_inline_media(
+            messages,
+            budget_bytes=max_bytes,
+            vault=self._media_vault(),
+        )
+        if not receipt["demoted_blocks"]:
+            return None
+        note = self._report_demotions(
+            [("溢出恢复·派生观察媒体", receipt)],
+            max_bytes,
+        )
+        try:
+            prepared = prepare_model_messages(
+                demoted,
+                tools,
+                max_bytes=max_bytes,
+                max_tokens=self._input_token_budget(),
+            )
+        except ModelContextBudgetError:
+            return None
+        if prepared == list(messages):
+            return None
+        return prepared, max_bytes, note
+
+    def _overflow_history_fallback(
+        self,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        *,
+        max_bytes: int,
+    ) -> tuple[list[dict[str, Any]] | None, int]:
+        """Rebuild at half the budget so compaction retires old tool exchanges.
+
+        A provider that answers 400 on length knows a window this runtime did
+        not assume; the request it refused is otherwise identical. Halving the
+        budget is the only trade left that touches nothing a person uploaded:
+        ``prepare_model_messages`` drops whole completed tool exchanges, which
+        a healthy long session accumulates far faster than media.
+
+        Returns ``(None, budget)`` when even that cannot produce a smaller
+        request, so the caller stops rather than replaying the refusal.
+        """
+        smaller_budget = max(
+            1024,
+            min(
+                max_bytes // 2,
+                len(
+                    json.dumps(
+                        {"messages": messages, "tools": tools},
+                        ensure_ascii=False,
+                    ).encode("utf-8"),
+                )
+                // 2,
+            ),
+        )
+        try:
+            smaller = prepare_model_messages(
+                messages,
+                tools,
+                max_bytes=smaller_budget,
+                max_tokens=self._input_token_budget(),
+            )
+        except ModelContextBudgetError:
+            return None, smaller_budget
+        if smaller == list(messages):
+            return None, smaller_budget
+        return smaller, smaller_budget
+
+    async def _recover_forced_overflow(
+        self,
+        exc: Exception,
+        *,
+        messages: Sequence[Mapping[str, Any]],
+        tools: Sequence[Mapping[str, Any]],
+        max_bytes: int,
+        retry_kwargs: Mapping[str, Any],
+        demotion_notes: Sequence[str],
+    ) -> AgentModelTurn:
+        """Second recovery step, for a gentle request that overflowed too.
+
+        Everything the demotion ladder can still move goes, including a human
+        attachment with a durable copy behind it, and the byte budget tightens
+        so compaction gives up old tool exchanges as well. Anything that is not
+        an overflow propagates untouched: this boundary degrades input, it does
+        not re-run work the provider already answered.
+        """
+        if isinstance(exc, OverflowAfterOutputError) or not (
+            is_context_length_error(exc)
+        ):
+            raise exc
+        if not media_observation_degrade_enabled():
+            # With the ladder switched off this boundary stops where the
+            # feature stops, and keeps the terminal the driver refuses to
+            # resume: a reclassified retryable failure would spend another
+            # call on bytes no longer allowed to move.
+            raise ModelContextUnfitError(
+                "\n".join((str(exc), *demotion_notes)),
+            ) from exc
+        # ``max_bytes`` is the caller's ``_context_budget_bytes``: the 384 KB
+        # transport floor on a top-level turn, not the effective
+        # token-window budget ``prepare_bytes`` may have derived. Halving the
+        # floor therefore over-compresses a large window on purpose - a
+        # strictly smaller request cannot re-trigger the refusal, and it
+        # mirrors the host's forced-trigger semantics; the rebuilt request is
+        # measured again by the byte and token gates before it is sent.
+        forced_budget = max(1024, max_bytes // 2)
+        rebuilt, forced_note = self._fit_refused_request(
+            messages,
+            tools,
+            max_bytes=forced_budget,
+            failure=ModelContextBudgetError(str(exc)),
+        )
+        logger.warning(
+            "creator overflow recovery: forced demotion of the full ladder "
+            "into %d bytes",
+            forced_budget,
+        )
+        return await self.complete(
+            messages=rebuilt,
+            tools=tools,
+            _context_budget_bytes=forced_budget,
+            _demotion_notes=(*demotion_notes, forced_note),
+            **retry_kwargs,
+        )
+
     # Provider recovery paths return as soon as a complete turn is available.
     # pylint: disable-next=too-many-return-statements
     async def complete(
@@ -882,15 +1424,45 @@ class AgentScopeAgentChatClient:
         _markup_retries_remaining: int = 4,
         _context_retries_remaining: int = 1,
         _context_budget_bytes: int = MODEL_INPUT_BYTES,
+        _demotion_notes: Sequence[str] = (),
     ) -> AgentModelTurn:
+        token_budget = self._input_token_budget()
+        # The byte budget prepare_model_messages checks can be two orders of
+        # magnitude larger than the transport floor: a 1M-token window is
+        # ~4 MB of plain text, so a 384 KB transport floor would refuse
+        # every substantial request before the provider ever sees it.  Only
+        # the top-level call derives this ceiling from the token window;
+        # recovery paths already carry a tightened budget. Equality with the
+        # transport floor is therefore the sentinel for "top-level call":
+        # every recovery step halves its budget before it recurses, so a
+        # recovery path never hands MODEL_INPUT_BYTES back in here.
+        if token_budget is None or _context_budget_bytes != MODEL_INPUT_BYTES:
+            prepare_bytes = _context_budget_bytes
+        else:
+            prepare_bytes = max(
+                MODEL_INPUT_BYTES,
+                int(token_budget * _TEXT_BYTES_PER_TOKEN),
+            )
         try:
             messages = prepare_model_messages(
                 messages,
                 tools,
-                max_bytes=_context_budget_bytes,
+                max_bytes=prepare_bytes,
+                max_tokens=token_budget,
             )
         except ModelContextBudgetError as exc:
-            raise AgentModelError(str(exc)) from exc
+            # This refusal happens locally, before a request goes out, so the
+            # provider-side recovery below never gets to run. Compaction
+            # stops at contract content, which leaves only demoted media as
+            # relief; the ladder in _fit_refused_request decides how far to
+            # go before handing the failure and its record back to the user.
+            messages, note = self._fit_refused_request(
+                messages,
+                tools,
+                max_bytes=prepare_bytes,
+                failure=exc,
+            )
+            _demotion_notes = (*_demotion_notes, note)
         native_messages = records_to_agentscope_messages(messages)
         allowed_names = {
             str((item.get("function") or {}).get("name") or "")
@@ -908,11 +1480,17 @@ class AgentScopeAgentChatClient:
         streamed_tool_names: dict[str, str] = {}
         pending_tool_inputs: dict[str, list[str]] = {}
         provider_tool_chunk_counts: dict[str, int] = {}
+        # Nothing the user can see has been streamed yet; the platform's
+        # recovery boundary never replays output a model already spoke.
+        emitted_model_output = False
 
         try:
-            async with model_slot("text"), _buffered_thinking(
-                guarded_thinking_delta,
-            ) as thinking_buffer:
+            async with (
+                model_slot("text"),
+                _buffered_thinking(
+                    guarded_thinking_delta,
+                ) as thinking_buffer,
+            ):
                 configured = self._configured_model()
                 if not self._injected and self._configuration is not None:
                     (
@@ -948,6 +1526,7 @@ class AgentScopeAgentChatClient:
                             if isinstance(block, TextBlock):
                                 if block.text:
                                     await text_stream.feed(block.text)
+                                    emitted_model_output = True
                             elif isinstance(block, ThinkingBlock):
                                 if (
                                     block.thinking
@@ -957,6 +1536,7 @@ class AgentScopeAgentChatClient:
                                         block.thinking,
                                     )
                                     streamed_thinking = True
+                                    emitted_model_output = True
                             elif isinstance(block, ToolCallBlock) and block.id:
                                 raw_name = str(block.name or "").strip()
                                 if raw_name in allowed_names:
@@ -966,6 +1546,9 @@ class AgentScopeAgentChatClient:
                                     raw_name,
                                 )
                                 if block.input:
+                                    # A streamed tool-call argument is model
+                                    # output the user can already see.
+                                    emitted_model_output = True
                                     if effective_name in allowed_names:
                                         deltas = [
                                             *pending_tool_inputs.pop(
@@ -1054,6 +1637,7 @@ class AgentScopeAgentChatClient:
                     _markup_retries_remaining=_markup_retries_remaining - 1,
                     _context_retries_remaining=_context_retries_remaining,
                     _context_budget_bytes=_context_budget_bytes,
+                    _demotion_notes=_demotion_notes,
                 )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of "
@@ -1088,51 +1672,167 @@ class AgentScopeAgentChatClient:
                 if not self._injected:
                     self.model = None
                     self._configuration = None
-            if is_context_length_error(exc) and _context_retries_remaining:
-                # A context 400 is deterministic. Retry only after producing
-                # a strictly smaller valid context, never as rate limiting.
-                smaller_budget = min(
-                    _context_budget_bytes // 2,
-                    len(
-                        json.dumps(
-                            {"messages": messages, "tools": tools},
-                            ensure_ascii=False,
-                        ).encode("utf-8"),
-                    )
-                    // 2,
-                )
-                try:
-                    smaller = prepare_model_messages(
+            if is_context_length_error(exc):
+                if emitted_model_output:
+                    # Part of this answer is already on screen; degrading the
+                    # input and calling again would repeat it.
+                    raise OverflowAfterOutputError(
+                        "\n".join(
+                            (
+                                "Creator model input overflowed after the "
+                                f"model already streamed output: {exc}",
+                                *_demotion_notes,
+                            ),
+                        ),
+                    ) from exc
+                if _context_retries_remaining:
+                    # A provider overflow is deterministic, so it is answered
+                    # by handing back a strictly smaller request and never by
+                    # waiting. The platform boundary owns that one retry:
+                    # gentle relief first, which gives up only what a tool can
+                    # produce again; the forced step runs solely when the
+                    # gentle request overflowed as well.
+                    retry_kwargs: dict[str, Any] = {
+                        "on_text_delta": on_text_delta,
+                        "on_thinking_delta": on_thinking_delta,
+                        "on_tool_call_delta": on_tool_call_delta,
+                        "on_rate_limit_retry": on_rate_limit_retry,
+                        "_empty_retries_remaining": _empty_retries_remaining,
+                        "_rate_limit_retries_remaining": (
+                            _rate_limit_retries_remaining
+                        ),
+                        "_transient_retries_remaining": (
+                            _transient_retries_remaining
+                        ),
+                        "_markup_retries_remaining": _markup_retries_remaining,
+                        "_context_retries_remaining": 0,
+                    }
+                    relief = self._gentle_overflow_relief(
                         messages,
                         tools,
-                        max_bytes=smaller_budget,
+                        max_bytes=_context_budget_bytes,
                     )
-                except ModelContextBudgetError:
-                    smaller = None
-                if smaller is not None and smaller != messages:
+                    if relief is None:
+                        # Nothing media-shaped can leave *the gentle step*. The
+                        # lever still available retires older completed tool
+                        # exchanges by re-running compaction against half the
+                        # budget: the window the provider just refused is
+                        # smaller than the one assumed here, and a text-only
+                        # overflow has no media to demote. Without this step a
+                        # long plain-text session fails on its first refusal.
+                        smaller, half_budget = self._overflow_history_fallback(
+                            messages,
+                            tools,
+                            max_bytes=_context_budget_bytes,
+                        )
+                        if smaller is None:
+                            # Compaction having nothing to retire is not the
+                            # same as the request having nothing to give up. A
+                            # turn carrying only a person's uploads has no
+                            # gentle relief to fail into, and this is the
+                            # ordinary way the oversized input gets reported:
+                            # the local byte guard prices inline media at a
+                            # fraction of what a vision window charges, so the
+                            # provider, not the guard, is the one that refuses.
+                            # Ending here left every turn of an uploaded
+                            # reference session paying one burned call before
+                            # stopping as non-retryable, with the ladder that
+                            # could have moved those bytes never entered.
+                            # A notice promises a second request, and with the
+                            # ladder switched off the boundary makes none.
+                            if on_rate_limit_retry is not None and (
+                                media_observation_degrade_enabled()
+                            ):
+                                await on_rate_limit_retry(
+                                    RateLimitRetryNotice(
+                                        attempt=1,
+                                        max_attempts=2,
+                                        delay_seconds=0,
+                                        reason="context_recovery",
+                                    ),
+                                )
+                            return await self._recover_forced_overflow(
+                                exc,
+                                messages=messages,
+                                tools=tools,
+                                max_bytes=_context_budget_bytes,
+                                retry_kwargs=retry_kwargs,
+                                demotion_notes=_demotion_notes,
+                            )
+                        logger.warning(
+                            "creator overflow recovery: compacting history "
+                            "into %d bytes after a provider refusal",
+                            half_budget,
+                        )
+                        if on_rate_limit_retry is not None:
+                            await on_rate_limit_retry(
+                                RateLimitRetryNotice(
+                                    attempt=1,
+                                    max_attempts=2,
+                                    delay_seconds=0,
+                                    reason="context_recovery",
+                                ),
+                            )
+                        # The compacted request is still this client's, so a
+                        # second refusal has to reach the forced step the same
+                        # way a gentle one does. Left unwrapped, a session that
+                        # needed compaction could never trade a media block.
+                        # The forced step rebuilds from what the provider just
+                        # refused, not from the shape before compaction: handed
+                        # the original, it re-retires every exchange a second
+                        # time and measures them against the budget that was
+                        # never in force for this retry.
+                        return await call_with_overflow_recovery(
+                            self.complete,
+                            lambda retry_exc: self._recover_forced_overflow(
+                                retry_exc,
+                                messages=smaller,
+                                tools=tools,
+                                max_bytes=_context_budget_bytes,
+                                retry_kwargs=retry_kwargs,
+                                demotion_notes=_demotion_notes,
+                            ),
+                            messages=smaller,
+                            tools=tools,
+                            _context_budget_bytes=half_budget,
+                            _demotion_notes=_demotion_notes,
+                            **retry_kwargs,
+                        )
+                    smaller, smaller_budget, gentle_note = relief
+                    notes = (*_demotion_notes, gentle_note)
                     if on_rate_limit_retry is not None:
                         await on_rate_limit_retry(
                             RateLimitRetryNotice(
                                 attempt=1,
-                                max_attempts=1,
+                                max_attempts=2,
                                 delay_seconds=0,
                                 reason="context_recovery",
                             ),
                         )
-                    return await self.complete(
+                    return await call_with_overflow_recovery(
+                        self.complete,
+                        lambda retry_exc: self._recover_forced_overflow(
+                            retry_exc,
+                            messages=smaller,
+                            tools=tools,
+                            max_bytes=_context_budget_bytes,
+                            retry_kwargs=retry_kwargs,
+                            demotion_notes=notes,
+                        ),
                         messages=smaller,
                         tools=tools,
-                        on_text_delta=on_text_delta,
-                        on_thinking_delta=on_thinking_delta,
-                        on_tool_call_delta=on_tool_call_delta,
-                        on_rate_limit_retry=on_rate_limit_retry,
-                        _empty_retries_remaining=_empty_retries_remaining,
-                        _rate_limit_retries_remaining=_rate_limit_retries_remaining,
-                        _transient_retries_remaining=_transient_retries_remaining,
-                        _markup_retries_remaining=_markup_retries_remaining,
-                        _context_retries_remaining=0,
                         _context_budget_bytes=smaller_budget,
+                        _demotion_notes=notes,
+                        **retry_kwargs,
                     )
+                # Reaching here means the ladder already ran: this call only
+                # exists with its retry budget spent, so the provider has now
+                # refused a request this client cannot make any smaller. The
+                # notes name the media that already left, because the input it
+                # refused is not the input the caller wrote.
+                raise ModelContextUnfitError(
+                    "\n".join((exc_text, *_demotion_notes)),
+                ) from exc
             is_rate_limit = is_rate_limit_error(exc)
             if is_rate_limit and _rate_limit_retries_remaining > 0:
                 attempt = (
@@ -1178,6 +1878,7 @@ class AgentScopeAgentChatClient:
                     _markup_retries_remaining=_markup_retries_remaining,
                     _context_retries_remaining=_context_retries_remaining,
                     _context_budget_bytes=_context_budget_bytes,
+                    _demotion_notes=_demotion_notes,
                 )
             if is_rate_limit:
                 model_name = (
@@ -1254,6 +1955,7 @@ class AgentScopeAgentChatClient:
                     _markup_retries_remaining=_markup_retries_remaining,
                     _context_retries_remaining=_context_retries_remaining,
                     _context_budget_bytes=_context_budget_bytes,
+                    _demotion_notes=_demotion_notes,
                 )
             logger.error(
                 "Model request failed with unexpected error: %s: %s",
@@ -1262,7 +1964,12 @@ class AgentScopeAgentChatClient:
                 exc_info=True,
             )
             raise AgentModelError(
-                f"Creator AgentScope model request failed: {exc}",
+                "\n".join(
+                    (
+                        f"Creator AgentScope model request failed: {exc}",
+                        *_demotion_notes,
+                    ),
+                ),
             ) from exc
 
         finish_reason = str(
@@ -1371,6 +2078,7 @@ class AgentScopeAgentChatClient:
                     _markup_retries_remaining=_markup_retries_remaining - 1,
                     _context_retries_remaining=_context_retries_remaining,
                     _context_budget_bytes=_context_budget_bytes,
+                    _demotion_notes=_demotion_notes,
                 )
             raise AgentModelError(
                 "Creator Agent returned textual tool-call markup instead of an "
@@ -1404,6 +2112,7 @@ class AgentScopeAgentChatClient:
                     _markup_retries_remaining=_markup_retries_remaining,
                     _context_retries_remaining=_context_retries_remaining,
                     _context_budget_bytes=_context_budget_bytes,
+                    _demotion_notes=_demotion_notes,
                 )
             raise AgentModelError(
                 "Creator AgentScope model returned empty text and no ToolCallBlock",
@@ -1438,6 +2147,7 @@ class AgentScopeAgentChatClient:
             ),
             finish_reason=finish_reason,
             usage=_usage_payload(getattr(response, "usage", None)),
+            sent_messages=list(messages),
         )
 
 
@@ -1449,6 +2159,16 @@ class AgentScopeVlmChatClient(AgentScopeAgentChatClient):
     ``vlm`` section of ``model_config.json`` via
     ``model_config.get_vlm_protocol()``.
     """
+
+    def _budget_model_name(self) -> str:
+        """Bind the token budget to the VLM catalog entry, not the text one.
+
+        ``_configured_model`` picks up ``get_vlm_model_name()`` at request
+        time; the budget has to read the same name or a wide-window VLM
+        pays for a narrow text model (real case: 12 4K PNGs at 142k tokens
+        against qwen-plus' 126,976 while qwen3.7-plus offers 1,000,000).
+        """
+        return (model_config.get_vlm_model_name() or "qwen3.7-plus").strip()
 
     def _configured_model(self) -> ChatModelBase:
         if self._injected:

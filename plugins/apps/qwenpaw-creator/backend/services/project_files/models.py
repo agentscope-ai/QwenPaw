@@ -31,7 +31,7 @@ from pydantic import (
     model_validator,
 )
 
-CURRENT_PROJECT_SCHEMA_VERSION = 9
+CURRENT_PROJECT_SCHEMA_VERSION = 10
 DEFAULT_TIMELINE_ID = "timeline:main"
 DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
 
@@ -110,6 +110,51 @@ class ExecutionPreauthorization(StrictModel):
         return self
 
 
+class SubtitleStyle(StrictModel):
+    """User overrides for the standard subtitle bar.
+
+    Every field is optional: ``None`` keeps the renderer default so an
+    untouched project behaves exactly as before.  These values style the
+    deterministic plain-subtitle path (PIL burn-in and its live preview);
+    designed 花字 (blueprint / VLM motion documents) keep their own
+    per-footage styling.
+    """
+
+    # Solid text colour, ``#rrggbb``.  None = renderer default (white).
+    color: str | None = Field(
+        default=None,
+        pattern=r"^#[0-9a-fA-F]{6}$",
+    )
+    # Font-size multiplier applied to the fitted base size.
+    font_scale: float | None = Field(default=None, ge=0.6, le=1.8)
+    # Outline-width multiplier; ``0`` disables the stroke entirely.
+    stroke_scale: float | None = Field(default=None, ge=0.0, le=3.0)
+    # Opacity of the pack's plate (the pill behind the glyphs), ``0`` = no
+    # plate.  It re-alpha's the plate the pack already draws and invents none:
+    # a pack without a plate stays plate-free whatever this says, so the value
+    # can never promise a block the renderer will not paint.
+    background_opacity: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Subtitle font-family id (see overlay._SUBTITLE_FONT_FAMILIES).  None or
+    # "default" keeps the historical auto-detected sans CJK face, so an
+    # untouched project renders byte for byte as before.
+    font_family: Literal["default", "song", "hei", "kai"] | None = None
+
+
+class SubtitleAnimation(StrictModel):
+    """Project-level entrance / exit / loop default for the caption bar.
+
+    Every field is optional: ``None`` hands that decision to the selected
+    style pack, exactly like the per-caption picker leaving a choice unset.
+    The vocabulary is the renderer's own (``CAPTION_ENTRANCES`` and the
+    ``data-motion-exit`` contract), so a persisted pick can never name a
+    motion the pixels skip.
+    """
+
+    entrance: Literal["soft_fade", "pop", "slide", "type_on"] | None = None
+    exit: Literal["none", "soft_fade", "shrink"] | None = None
+    loop: bool | None = None
+
+
 class ProjectSettings(StrictModel):
     production_stage: Literal["script", "media"] = "media"
     script_approval_fingerprint: Sha256 | None = None
@@ -119,6 +164,18 @@ class ProjectSettings(StrictModel):
     language: str = "zh-CN"
     target_duration_seconds: float | None = Field(default=None, ge=0)
     content_type: str | None = None
+    # Captions are opt-in end to end: a Project without an explicit choice
+    # never grows subtitle Overlays on its own.
+    subtitle_policy: Literal["auto", "on", "off"] = "off"
+    # Optional JianYing-like subtitle style pack id (see
+    # motion_blueprints.SUBTITLE_TEMPLATE_PACKS).  None = smart recommend.
+    subtitle_template: str | None = None
+    # Optional per-project overrides for the standard subtitle bar.
+    subtitle_style: SubtitleStyle | None = None
+    # Optional project-level entrance / exit / loop default; captions drawn
+    # later adopt it over their pack's signature motion until a per-caption
+    # pick stamps something else.
+    subtitle_animation: SubtitleAnimation | None = None
     execution_preauthorization: ExecutionPreauthorization | None = None
 
 
@@ -1016,6 +1073,19 @@ class OverlayCreation(StrictModel):
     type: Literal["overlay"] = "overlay"
     text: str = ""
     vibe: str = "chill"
+    caption_role: (
+        Literal[
+            "dialogue",
+            "narration",
+            "opening_title",
+            "opening_credit",
+            "ending_credit",
+            "location",
+            "chapter",
+            "interview_summary",
+        ]
+        | None
+    ) = None
     prompt: str = ""
     reference_version_ids: list[EntityId] = Field(default_factory=list)
     motion: MotionGraphic | None = None
@@ -1039,6 +1109,60 @@ def overlay_role(creation: OverlayCreation) -> str:
     """
 
     return "caption" if creation.text.strip() else "decoration"
+
+
+# The launch form writes ``pet_video`` (ui CONTENT_TYPE_OPTIONS) while the
+# motion palettes and the composer's bubble styling spell the same idea
+# ``pets``.  Classification has to accept both, otherwise every pet project
+# started from the UI would have its OS bubbles counted as subtitles.  The
+# styling side deliberately keeps its own narrower ``pets`` check: switching
+# a project from the interview card to the comic bubble would re-render
+# frames that already exist, which is a separate decision from defining what
+# a subtitle is.
+_PET_CONTENT_TYPES = frozenset({"pets", "pet_video"})
+
+
+def is_pet_content_type(content_type: str | None) -> bool:
+    """Whether ``content_type`` marks pet footage, accepting both spellings."""
+
+    return content_type in _PET_CONTENT_TYPES
+
+
+def is_pet_os_bubble(*, vibe: str, content_type: str | None) -> bool:
+    """Pet-OS first-person bubble rather than a subtitle card.
+
+    ``vibe="summary"`` is the migrated interview summary and stays a
+    subtitle even inside a pet project.
+    """
+
+    return is_pet_content_type(content_type) and vibe != "summary"
+
+
+def is_subtitle_overlay(
+    *,
+    text: str,
+    vibe: str,
+    caption_role: str | None,
+    content_type: str | None,
+) -> bool:
+    """Single source of truth for ``this overlay is a subtitle``.
+
+    Non-empty ``text`` is what turns an overlay into a caption card, and a
+    filled-in ``caption_role`` is the author declaring one.  A blank role is
+    not a declaration: the current model cannot store one (the field is a
+    ``Literal | None``), but legacy documents written while ``caption_role``
+    was a free string can carry ``""``, and the styling path already reads the
+    role by truthiness.  The pet-OS bubble is excluded on purpose: the prompts
+    tell the author to leave its ``caption_role`` empty and give it a dedicated
+    layout, so bulk subtitle work (the toolbar toggle, the v9->v10 stamping)
+    must never claim it.
+    """
+
+    if not (text or "").strip():
+        return False
+    if caption_role:
+        return True
+    return not is_pet_os_bubble(vibe=vibe, content_type=content_type)
 
 
 class TransitionCreation(StrictModel):
@@ -1370,7 +1494,7 @@ def narrative_timeline_ids(project: "Project") -> tuple[str, ...]:
 
 
 class Project(StrictModel):
-    schema_version: Literal[9] = CURRENT_PROJECT_SCHEMA_VERSION
+    schema_version: Literal[10] = CURRENT_PROJECT_SCHEMA_VERSION
     project_id: EntityId
     generation: int = Field(default=0, ge=0)
     created_at: UtcDateTime
@@ -2222,5 +2346,8 @@ __all__ = [
     "VisualDevelopment",
     "VisualEntity",
     "VisualVariant",
+    "is_pet_content_type",
+    "is_pet_os_bubble",
+    "is_subtitle_overlay",
     "OverlayCreation",
 ]

@@ -145,8 +145,10 @@ def _editing_guidance(capability, scenario: str) -> str:
             "的专属音色。",
         )
         lines.append(
-            "- voice 参数只接受以下系统音色（其它名字会直接报错）："
-            f"{'、'.join(capability.system_voices)}；省略时用默认音色。",
+            "- voice 参数只接受该模型自己发布的系统音色（其它名字会直接报错），"
+            f"共 {len(capability.system_voices)} 个，如："
+            f"{'、'.join(capability.system_voices[:6])}等；不确定就省略 voice，"
+            "系统会取配置的默认音色；它不在这份清单里时改用清单第一条。",
         )
     else:
         lines.append(
