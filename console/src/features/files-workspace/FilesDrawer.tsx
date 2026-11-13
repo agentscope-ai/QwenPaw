@@ -4,7 +4,9 @@ import {
   Download,
   Expand,
   FileText,
+  Maximize2,
   MessageSquarePlus,
+  Minimize2,
   X,
 } from "lucide-react";
 import {
@@ -81,6 +83,7 @@ export default function FilesDrawer({
   const [loading, setLoading] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [memoryTagToBrowse, setMemoryTagToBrowse] = useState<string>();
   const prefersReducedMotion = useReducedMotion();
   const isWorkspace = state.kind === "workspace";
@@ -107,14 +110,21 @@ export default function FilesDrawer({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !event.defaultPrevented) {
         event.preventDefault();
-        close();
+        if (isFullscreen) {
+          setIsFullscreen(false);
+        } else {
+          close();
+        }
       }
     };
     document.addEventListener("keydown", handleKeyDown);
-    drawerRef.current?.focus();
     return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [close, isFullscreen]);
+
+  useEffect(() => {
+    drawerRef.current?.focus();
   }, [close]);
 
   useEffect(() => {
@@ -259,7 +269,8 @@ export default function FilesDrawer({
     window.addEventListener("pointercancel", up);
   };
 
-  const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
+  const drawerStyle =
+    !isFullscreen && width > 0 ? { width: `${width}px` } : undefined;
   const filename = target?.path.split("/").pop() ?? t("files.title");
   const canCopy =
     metadata?.preview_kind === "text" || metadata?.preview_kind === "csv";
@@ -278,7 +289,9 @@ export default function FilesDrawer({
       ref={drawerRef}
       className={`${styles.drawer} ${
         isWorkspace ? styles.drawerWorkspace : styles.drawerPreview
-      } ${isResizing ? styles.drawerResizing : ""}`}
+      } ${isResizing ? styles.drawerResizing : ""} ${
+        isFullscreen ? styles.drawerFullscreen : ""
+      }`}
       style={drawerStyle}
       layout={isResizing || prefersReducedMotion ? false : "size"}
       initial={
@@ -309,40 +322,42 @@ export default function FilesDrawer({
       aria-label={t("files.title")}
       tabIndex={-1}
     >
-      <div
-        className={styles.resizeHandle}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("files.resize")}
-        aria-valuenow={Math.round(width)}
-        tabIndex={0}
-        onPointerDown={resizeFromPointer}
-        onKeyDown={(event) => {
-          if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-            return;
-          }
-          event.preventDefault();
-          setWidth((current) => {
-            const base = current || 640;
-            const containerWidth =
-              drawerRef.current?.parentElement?.getBoundingClientRect().width ??
-              window.innerWidth;
-            const maximum = Math.max(
-              MIN_DRAWER_WIDTH,
-              containerWidth - MIN_CHAT_WIDTH,
-            );
-            const next = Math.min(
-              Math.max(
+      {!isFullscreen && (
+        <div
+          className={styles.resizeHandle}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t("files.resize")}
+          aria-valuenow={Math.round(width)}
+          tabIndex={0}
+          onPointerDown={resizeFromPointer}
+          onKeyDown={(event) => {
+            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+              return;
+            }
+            event.preventDefault();
+            setWidth((current) => {
+              const base = current || 640;
+              const containerWidth =
+                drawerRef.current?.parentElement?.getBoundingClientRect()
+                  .width ?? window.innerWidth;
+              const maximum = Math.max(
                 MIN_DRAWER_WIDTH,
-                base + (event.key === "ArrowLeft" ? 24 : -24),
-              ),
-              maximum,
-            );
-            localStorage.setItem(widthStorageKey, String(next));
-            return next;
-          });
-        }}
-      />
+                containerWidth - MIN_CHAT_WIDTH,
+              );
+              const next = Math.min(
+                Math.max(
+                  MIN_DRAWER_WIDTH,
+                  base + (event.key === "ArrowLeft" ? 24 : -24),
+                ),
+                maximum,
+              );
+              localStorage.setItem(widthStorageKey, String(next));
+              return next;
+            });
+          }}
+        />
+      )}
       <header className={styles.drawerHeader}>
         <div className={styles.fileMark}>
           <FileText size={17} />
@@ -405,6 +420,20 @@ export default function FilesDrawer({
             <Download size={16} />
           </button>
         )}
+        <button
+          type="button"
+          className={styles.iconButton}
+          aria-label={t(
+            isFullscreen ? "files.exitFullscreen" : "files.enterFullscreen",
+          )}
+          title={t(
+            isFullscreen ? "files.exitFullscreen" : "files.enterFullscreen",
+          )}
+          aria-pressed={isFullscreen}
+          onClick={() => setIsFullscreen((current) => !current)}
+        >
+          {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+        </button>
         <button
           type="button"
           className={styles.iconButton}

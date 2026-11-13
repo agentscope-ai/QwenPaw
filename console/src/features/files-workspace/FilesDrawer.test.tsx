@@ -60,6 +60,7 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
 
 describe("FilesDrawer", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.spyOn(agentsApi, "getAgent").mockResolvedValue({
       id: "default",
       name: "Default",
@@ -69,6 +70,125 @@ describe("FilesDrawer", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     localStorage.clear();
+  });
+
+  it("restores the saved width after toggling fullscreen", async () => {
+    localStorage.setItem("qwenpaw-files-preview-width", "480");
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: { source: "workspace", path: "readme.md" },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+    await screen.findByRole("button", { name: "common.copy" });
+    const drawer = screen.getByRole("region");
+    expect(drawer).toHaveStyle({ width: "480px" });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.enterFullscreen" }),
+    );
+    expect(drawer.className).toContain("drawerFullscreen");
+    expect(drawer.style.width).toBe("");
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.exitFullscreen" }),
+    );
+    expect(drawer.className).not.toContain("drawerFullscreen");
+    expect(drawer).toHaveStyle({ width: "480px" });
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(localStorage.getItem("qwenpaw-files-preview-width")).toBe("480");
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("exits fullscreen before closing the preview with Escape", async () => {
+    const dispatch = vi.fn();
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: { source: "workspace", path: "readme.md" },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+    await screen.findByRole("button", { name: "common.copy" });
+    const toggle = screen.getByRole("button", {
+      name: "files.enterFullscreen",
+    });
+    toggle.focus();
+    fireEvent.click(toggle);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(toggle).toHaveAccessibleName("files.enterFullscreen");
+    expect(toggle).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "CLOSE" });
+  });
+
+  it("keeps file actions working in fullscreen", async () => {
+    const { downloadFileFromUrl } = await import(
+      "../../utils/downloadFileFromUrl"
+    );
+    const dispatch = vi.fn();
+    vi.mocked(workspaceApi.loadFileText).mockResolvedValueOnce({
+      content: "# Fullscreen document",
+      etag: "v1",
+    });
+    renderWithProviders(
+      <FilesDrawer
+        state={{
+          kind: "preview",
+          target: { source: "workspace", path: "readme.md" },
+          trigger: null,
+        }}
+        dispatch={dispatch}
+        scope={{
+          kind: "session",
+          agentId: "default",
+          sessionId: "session-1",
+        }}
+      />,
+    );
+    const heading = await screen.findByRole("heading", {
+      name: "Fullscreen document",
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.enterFullscreen" }),
+    );
+    expect(heading).toBeInTheDocument();
+    expect(workspaceApi.loadFileText).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "common.copy" }));
+    await waitFor(() => {
+      expect(clipboardMocks.copyText).toHaveBeenCalledWith(
+        "# Fullscreen document",
+      );
+    });
+    fireEvent.click(screen.getByRole("button", { name: "files.download" }));
+    expect(downloadFileFromUrl).toHaveBeenCalledWith(
+      "/api/files/download/readme.md",
+      "readme.md",
+      expect.any(Object),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.close" }));
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith({ type: "CLOSE" });
   });
 
   it("opens Markdown relatives in the same preview root", async () => {
