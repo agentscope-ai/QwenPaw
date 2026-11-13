@@ -1579,6 +1579,10 @@
     "selectAtLeastOneDay": "Selecione pelo menos um dia."
   },
   "channels": {
+    "update": {
+      "action": "Atualizar",
+      "available": "Nova versão disponível: {{version}}"
+    },
     "qrcodeInstallRequired": "Instale o plugin para escanear um código QR",
     "runtime": {
       "missing_code": "Plugin não instalado"

@@ -29,6 +29,13 @@ env:
   IMAGE: agentscope/qwenpaw
 
 jobs:
+  plugin-versions:
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/plugin-release-guard.yml
+    secrets: inherit
+
   # ── Stage 1: Verify Docker image boots correctly ───────────────────────────
   verify-docker:
     uses: ./.github/workflows/release-verify.yml
@@ -38,7 +45,7 @@ jobs:
 
   # ── Stage 2: Build multi-arch and push ─────────────────────────────────────
   build-and-push:
-    needs: [verify-docker]
+    needs: [verify-docker, plugin-versions]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -24,6 +24,7 @@ on:
 concurrency:
   group: plugins-release
   cancel-in-progress: false
+  queue: max
 
 jobs:
   upload-oss:
@@ -116,44 +117,22 @@ jobs:
             -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
             -L CH
 
-      - name: Sync plugin zips to OSS (long-cache, immutable)
-        run: |
-          # nullglob ensures empty globs expand to nothing in this bash session
-          shopt -s nullglob
-          for kind in bundle tool memory apps channel hub harness; do
-            while IFS= read -r -d '' f; do
-              rel="${f#dist/plugins/}"
-              echo "Uploading $f -> files/plugins/${rel}"
-              ossutil cp "$f" \
-                "oss://qwenpaw-download/files/plugins/${rel}" \
-                --acl public-read \
-                --force \
-                --meta "Cache-Control:public, max-age=31536000, immutable"
-            done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
-          done
-          # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
-          # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
-          for kind in bundle tool memory apps channel hub harness; do
-            remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
-              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
-              | sed 's|.*/||' \
-              | sort -u || true)
-            for name in $remote_flat; do
-              echo "Removing legacy flat OSS object: ${kind}/${name}"
-              ossutil rm \
-                "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
-                --force
-            done
-          done
+      - name: Verify and publish immutable plugin ZIPs
+        uses: ./.github/actions/check-plugin-release
+        with:
+          artifacts-root: dist/plugins
+          publish: "true"
+        env:
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
 
       - name: Merge historical versions into index
         run: |
-          ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
-            existing-index.json 2>/dev/null || echo '{}' > existing-index.json
-
           python3 scripts/pack/merge_plugin_index.py \
             --new dist/plugins/index.json \
-            --old existing-index.json \
+            --old dist/plugins/.published-index.json \
             --out dist/plugins/index.json \
             --retire-plugin-id computer-use-tool \
             --retire-plugin-id qwenpaw-hub \

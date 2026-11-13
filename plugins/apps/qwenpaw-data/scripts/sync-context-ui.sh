@@ -44,7 +44,7 @@ if [[ ! -f "$BRIDGE_FILE" ]]; then
   exit 1
 fi
 
-SOURCE_COMMIT="$(git -C "$QWENPAW_DATA_SOURCE_DIR" rev-parse --short HEAD)"
+SOURCE_COMMIT="$(git -C "$QWENPAW_DATA_SOURCE_DIR" rev-parse HEAD)"
 SOURCE_BRANCH="$(git -C "$QWENPAW_DATA_SOURCE_DIR" rev-parse --abbrev-ref HEAD)"
 SOURCE_DIRTY="clean"
 # Untracked files are ignored: the internal checkout ships no lockfile, so
@@ -124,13 +124,12 @@ for asset in "$DEST_DIR"/*.png; do
   done
 done
 
+# Keep shipped metadata identical across checkout directories and rebuild times.
 cat > "$DEST_DIR/BUILD_INFO" <<EOF
-source_repo=$QWENPAW_DATA_SOURCE_DIR
-source_branch=$SOURCE_BRANCH
 source_commit=$SOURCE_COMMIT
 source_tree=$SOURCE_DIRTY
 gateway_base=$GATEWAY_BASE
-built_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+source_date=$(git -C "$QWENPAW_DATA_SOURCE_DIR" show -s --format=%cI HEAD)
 patches=createBrowserRouter->createHashRouter
 EOF
 

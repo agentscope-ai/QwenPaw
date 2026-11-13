@@ -1342,6 +1342,10 @@
     "selectAtLeastOneDay": "Выберите хотя бы один день."
   },
   "channels": {
+    "update": {
+      "action": "Обновить",
+      "available": "Доступна новая версия: {{version}}"
+    },
     "qrcodeInstallRequired": "Установите плагин для сканирования QR-кода",
     "runtime": {
       "missing_code": "Плагин не установлен"

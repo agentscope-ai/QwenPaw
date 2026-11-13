@@ -30,11 +30,18 @@ concurrency:
   cancel-in-progress: ${{ github.event_name != 'release' }}
 
 jobs:
+  plugin-versions:
+    uses: ./.github/workflows/plugin-release-guard.yml
+    with:
+      dry-run: ${{ github.event_name != 'release' && inputs.upload_to_oss != true }}
+    secrets: inherit
+
   # On release events, fail fast if the DashScope secret is missing.
   # Without it, the verifier would silently skip the LLM chat round
   # and emit a misleading "PASS". Forks / manual dispatch are allowed
   # to run without the secret (UI-load checks still execute).
   check-release-secrets:
+    needs: [plugin-versions]
     name: Check release secrets (release only)
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
@@ -160,9 +167,10 @@ jobs:
           path: dist/QwenPaw-*.zip
 
   build-tauri-windows:
-    needs: [check-release-secrets]
+    needs: [check-release-secrets, plugin-versions]
     if: |
       always() &&
+      needs.plugin-versions.result == 'success' &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: windows-latest
@@ -356,9 +364,10 @@ jobs:
             dist/tauri-windows-x86_64-updater.json.sha256
 
   build-tauri-macos:
-    needs: [check-release-secrets]
+    needs: [check-release-secrets, plugin-versions]
     if: |
       always() &&
+      needs.plugin-versions.result == 'success' &&
       (needs.check-release-secrets.result == 'success' ||
        needs.check-release-secrets.result == 'skipped')
     runs-on: macos-15
@@ -533,7 +542,7 @@ jobs:
             dist/tauri-darwin-*-updater.json.sha256
 
   upload-release:
-    needs: [build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos, plugin-versions]
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     env:
@@ -605,12 +614,13 @@ jobs:
             "${files[@]}"
 
   upload-oss:
-    needs: [build-tauri-windows, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-macos, plugin-versions]
     # Run on: 1) release trigger, or 2) manual trigger with upload_to_oss checked
     if: |
       always() &&
       (github.event_name == 'release' ||
        (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')) &&
+      needs.plugin-versions.result == 'success' &&
       needs.build-tauri-windows.result == 'success' &&
       needs.build-tauri-macos.result == 'success'
     runs-on: ubuntu-latest

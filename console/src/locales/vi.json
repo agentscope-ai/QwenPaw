@@ -3263,6 +3263,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "update": {
+      "action": "Cập nhật",
+      "available": "Có phiên bản mới: {{version}}"
+    },
     "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
     "runtime": {
       "missing_code": "Chưa cài đặt plugin"

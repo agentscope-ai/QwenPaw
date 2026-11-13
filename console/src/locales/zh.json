@@ -1851,6 +1851,10 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "update": {
+      "action": "更新",
+      "available": "发现新版本：{{version}}"
+    },
     "runtime": {
       "missing_code": "插件未安装"
     },
