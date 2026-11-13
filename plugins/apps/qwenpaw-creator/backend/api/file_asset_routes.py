@@ -2394,6 +2394,7 @@ async def delete_source_asset_version(
             ):
                 continue
 
+            cancelled = False
             try:
                 await asyncio.to_thread(
                     exec_store.transition_specialist_run,
@@ -2408,9 +2409,62 @@ async def delete_source_asset_version(
                         },
                     },
                 )
+                cancelled = True
+            except ExecutionStateConflict:
+                # A concurrent terminalizer (worker finaliser, another
+                # DELETE) already settled the record — it owns the event.
+                pass
             except Exception:  # noqa: BLE001 - best-effort cancellation
                 logger.warning(
                     "asset delete: failed to cancel run %s",
+                    run.run_id,
+                    exc_info=True,
+                )
+
+            if not cancelled:
+                continue
+
+            # The run was settled through the durable CAS above, but unlike
+            # the live-worker path (`cancel_specialist_run` returning True),
+            # no `subagent.failed{cancelled}` lifecycle event was emitted.
+            # The frontend `subagentActivities` is purely SSE-event-driven:
+            # without this terminal event it stays `completed: false` and
+            # the Agent status bar shows the specialist's activity (e.g.
+            # "素材理解中") forever, even though the durable record is
+            # already CANCELLED and `agentStatusBar.runningTaskCount` is 0.
+            try:
+                session = await asyncio.to_thread(
+                    services.sessions.get_project_session_snapshot,
+                    project_id,
+                )
+                await asyncio.to_thread(
+                    services.sessions.append_event,
+                    project_id,
+                    session.session_id,
+                    event_type="subagent.failed",
+                    actor="file_agent_runtime",
+                    round_id=(
+                        f"agent-round-"
+                        f"{run.metadata.get('parentRunId') or run.run_id}"
+                    ),
+                    payload={
+                        "runId": run.run_id,
+                        "role": run.role.value,
+                        "parentActionId": (
+                            run.metadata.get("parentActionId") or ""
+                        ),
+                        "targetRefs": list(run.target_refs),
+                        "cancelled": True,
+                        "error": "source_asset_deleted",
+                    },
+                )
+            except RuntimeSessionNotFound:
+                # No active runtime session — nothing to notify, but the
+                # run is already CANCELLED in the execution store.
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: terminal event for run %s failed",
                     run.run_id,
                     exc_info=True,
                 )
@@ -2430,6 +2484,109 @@ async def delete_source_asset_version(
                     continue
                 settled_task_ids.add(task.task_id)
                 await _cancel_deleted_asset_task(exec_store, project_id, task)
+
+        # --- Post-deletion re-check ---
+        # Between the initial list and the mass cancellation a specialist
+        # run may have been durably created: the driver discovered the
+        # source in the project snapshot, but the DELETE landed before
+        # the handle was registered in `_specialist_tasks`.  One extra
+        # sweep catches these late-arriving orphans and emits the
+        # terminal event the frontend needs.
+        late_runs = await asyncio.to_thread(
+            exec_store.list_specialist_runs,
+            project_id,
+        )
+        first_pass_ids = {r.run_id for r in runs}
+        for run in late_runs:
+            if run.run_id in first_pass_ids:
+                continue
+            if run.status not in active_run_statuses:
+                continue
+            should_cancel = False
+            for ref in run.target_refs:
+                if ref.startswith("asset:"):
+                    if (
+                        deleted_logical_id
+                        and ref.removeprefix("asset:") == deleted_logical_id
+                    ):
+                        should_cancel = True
+                        break
+                elif ref.startswith("source:"):
+                    if ref.removeprefix("source:") not in remaining_source_ids:
+                        should_cancel = True
+                        break
+            if not should_cancel:
+                continue
+
+            if runtime is not None and runtime.cancel_specialist_run(
+                project_id,
+                run.run_id,
+                reason="source_asset_deleted",
+            ):
+                continue
+
+            # Same durable CAS + event pattern as the primary loop.
+            cancelled = False
+            try:
+                await asyncio.to_thread(
+                    exec_store.transition_specialist_run,
+                    project_id,
+                    run.run_id,
+                    expected_status=active_run_statuses,
+                    status=SpecialistRunStatus.CANCELLED,
+                    updates={
+                        "metadata": {
+                            **run.metadata,
+                            "cancelReason": "SOURCE_ASSET_DELETED",
+                        },
+                    },
+                )
+                cancelled = True
+            except ExecutionStateConflict:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: late-check failed to cancel run %s",
+                    run.run_id,
+                    exc_info=True,
+                )
+            if not cancelled:
+                continue
+            try:
+                session = await asyncio.to_thread(
+                    services.sessions.get_project_session_snapshot,
+                    project_id,
+                )
+                await asyncio.to_thread(
+                    services.sessions.append_event,
+                    project_id,
+                    session.session_id,
+                    event_type="subagent.failed",
+                    actor="file_agent_runtime",
+                    round_id=(
+                        f"agent-round-"
+                        f"{run.metadata.get('parentRunId') or run.run_id}"
+                    ),
+                    payload={
+                        "runId": run.run_id,
+                        "role": run.role.value,
+                        "parentActionId": (
+                            run.metadata.get("parentActionId") or ""
+                        ),
+                        "targetRefs": list(run.target_refs),
+                        "cancelled": True,
+                        "error": "source_asset_deleted",
+                    },
+                )
+            except RuntimeSessionNotFound:
+                pass
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "asset delete: late-check terminal event "
+                    "for run %s failed",
+                    run.run_id,
+                    exc_info=True,
+                )
 
         # Standalone media Tasks (observation, memory build, frame read) belong
         # to no SpecialistRun, so the loop above never reached them. Each owner

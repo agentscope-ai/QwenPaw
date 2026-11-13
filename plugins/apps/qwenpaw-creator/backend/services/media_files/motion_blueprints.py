@@ -1248,6 +1248,638 @@ DECORATION_BLUEPRINTS = {
 # Deterministic rotation order for the caption fallback chain.
 CAPTION_BLUEPRINT_ORDER = ("stagger_pop", "ink_reveal", "glow_breath")
 
+# Font stacks are preferences, not guarantees: CI only ships Noto CJK, so
+# every stack falls back to a face that always exists.  The attributes that
+# actually distinguish a pack everywhere (weight / spacing / stroke / plate /
+# glow) are set independently of the family.
+_SANS_FAMILY = (
+    "\"PingFang SC\",\"Noto Sans CJK SC\",\"Microsoft YaHei\",sans-serif"
+)
+_SERIF_FAMILY = "\"Songti SC\",\"Noto Serif CJK SC\",\"SimSun\",serif"
+_HAND_FAMILY = "\"Kaiti SC\",\"STKaiti\",\"Noto Serif CJK SC\",serif"
+# The exact stack the plain-subtitle template has always emitted; the
+# baseline typography below reuses it so "no pack" stays pixel-identical.
+_LEGACY_SANS_FAMILY = (
+    "\"Noto Sans CJK SC\",\"Noto Sans SC\",\"PingFang SC\","
+    "\"Microsoft YaHei\",sans-serif"
+)
+# The historical plain-subtitle look.  Kept byte-for-byte identical so a
+# project that never picked a pack renders exactly as it did before.
+DEFAULT_CAPTION_TYPOGRAPHY: dict[str, object] = {
+    "fontFamily": _LEGACY_SANS_FAMILY,
+    "fontWeight": 600,
+    "letterSpacing": "0em",
+    "lineHeight": 1.35,
+    "strokeScale": 1.0,
+    "tiltDeg": 0.0,
+}
+DEFAULT_CAPTION_ANIMATION: dict[str, object] = {
+    "entrance": "soft_fade",
+    "exit": "none",
+    "loop": False,
+}
+
+# User-facing subtitle style packs (JianYing-like categories).  A pack is no
+# longer only a prompt-time bias: every pack carries the plain-subtitle
+# ``typography`` the deterministic renderer paints, the ``animation`` triple
+# it defaults to, and the canonical ``style_line`` wording that both the
+# agents and the element's 动效描述 reuse, so "chosen style", "generation
+# prompt" and "final pixels" all describe the same thing.  An explicit
+# blueprint or a hand-authored html still wins over the pack.
+# ``None`` (the UI's "smart recommend") keeps the content-type / default
+# order and the renderer's historical typography untouched.
+#
+# ``animation.loop`` means "keep moving after the entrance": the document
+# carries an ambient animation that runs inside its own period.  It is not
+# ``MotionGraphic.loop`` — tiling one period would replay the entrance, so
+# caption documents stay ``loop=False`` everywhere.
+SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
+    "variety_pop": {
+        "name": "综艺花字",
+        "description": "活泼/搞笑/高光：逐字弹入与关键词强调",
+        "caption_order": ("stagger_pop", "keyword_spotlight", "brush_strike"),
+        "style_line": (
+            "综艺花字：特粗无衬线大字、紧凑字距、高对比白色描边，"
+            "弹入入场 + 关键词二次强调的活泼语汇"
+        ),
+        "typography": {
+            "fontFamily": _SANS_FAMILY,
+            "fontWeight": 800,
+            "letterSpacing": "0.02em",
+            "lineHeight": 1.25,
+            "strokeScale": 1.35,
+            "tiltDeg": 0.0,
+        },
+        "animation": {"entrance": "pop", "exit": "soft_fade", "loop": True},
+    },
+    "cinematic": {
+        "name": "电影叙事",
+        "description": "沉稳/文艺/短剧：横向揭示与低语独白",
+        "caption_order": ("ink_reveal", "drama_whisper", "editorial_title"),
+        "style_line": (
+            "电影叙事：细衬线大字宽字距、低饱和、仅极细描边，"
+            "缓慢横向滑入与淡出，不加底板"
+        ),
+        "typography": {
+            "fontFamily": _SERIF_FAMILY,
+            "fontWeight": 500,
+            "letterSpacing": "0.18em",
+            "lineHeight": 1.5,
+            "strokeScale": 0.6,
+            "tiltDeg": 0.0,
+        },
+        "animation": {"entrance": "slide", "exit": "soft_fade", "loop": False},
+    },
+    "clean_talk": {
+        "name": "简洁讲解",
+        "description": "口播/教程/纪录片：静态胶囊与精密字幕",
+        "caption_order": (
+            "static_capsule",
+            "precision_subtitle",
+            "chapter_label",
+        ),
+        "style_line": (
+            "简洁讲解：中等字重无衬线、半透明深色胶囊底板托字、"
+            "零动画静态呈现，只保留极短淡入"
+        ),
+        "typography": {
+            "fontFamily": _SANS_FAMILY,
+            "fontWeight": 600,
+            "letterSpacing": "0.01em",
+            "lineHeight": 1.35,
+            "strokeScale": 0.4,
+            "tiltDeg": 0.0,
+            "plate": "rgba(14,16,20,0.42)",
+            "plateRadius": "0.34em",
+        },
+        "animation": {"entrance": "soft_fade", "exit": "none", "loop": False},
+    },
+    "warm_note": {
+        "name": "治愈手写",
+        "description": "Vlog/日常/手账：纸纹手写与情绪光晕",
+        "caption_order": ("handwritten_note", "glow_breath", "ink_reveal"),
+        "style_line": (
+            "治愈手写：楷体手写气质、奶油纸色底板，"
+            "打字机式逐字浮现后静止"
+        ),
+        "typography": {
+            "fontFamily": _HAND_FAMILY,
+            "fontWeight": 500,
+            "letterSpacing": "0.04em",
+            "lineHeight": 1.45,
+            "strokeScale": 0.5,
+            "tiltDeg": 0.0,
+            "plate": "rgba(255,248,232,0.5)",
+            "plateRadius": "0.18em",
+        },
+        "animation": {"entrance": "type_on", "exit": "soft_fade", "loop": False},
+    },
+    "neon_music": {
+        "name": "霓虹音乐",
+        "description": "MV/夜间/音乐：霓虹脉冲与呼吸光晕",
+        "caption_order": ("neon_pulse", "glow_breath", "brush_strike"),
+        "style_line": (
+            "霓虹音乐：亮色文字叠多层霓虹发光、暗底压光，"
+            "弹入后持续呼吸脉冲"
+        ),
+        "typography": {
+            "fontFamily": _SANS_FAMILY,
+            "fontWeight": 700,
+            "letterSpacing": "0.06em",
+            "lineHeight": 1.3,
+            "strokeScale": 0.8,
+            "tiltDeg": 0.0,
+            "plate": "rgba(10,8,24,0.42)",
+            "plateRadius": "0.28em",
+            "glow": True,
+        },
+        "animation": {"entrance": "pop", "exit": "shrink", "loop": True},
+    },
+}
+SUBTITLE_TEMPLATE_PACK_ORDER = (
+    "variety_pop",
+    "cinematic",
+    "clean_talk",
+    "warm_note",
+    "neon_music",
+)
+
+
+def subtitle_pack_preview_specs() -> list[dict[str, object]]:
+    """Preview parameters for the style-window cards, from the pack table.
+
+    The picker cards paint a miniature of the deterministic renderer
+    instead of a decorative glyph: every field below is read straight from
+    ``SUBTITLE_TEMPLATE_PACKS`` (and from the historical default typography
+    for the "smart recommend" card), so card preview, prompt wording and
+    final pixels keep describing one same style.  ``fontFamily`` is
+    re-quoted with single quotes because the UI pastes the string into a
+    ``style`` attribute, where the table's double quotes would terminate
+    the attribute value.
+    """
+
+    def spec(
+        pack_id: str | None,
+        name: str,
+        desc: str,
+        typography: Mapping[str, object],
+        animation: Mapping[str, object],
+    ) -> dict[str, object]:
+        return {
+            "id": pack_id,
+            "name": name,
+            "desc": desc,
+            "fontFamily": str(typography["fontFamily"]).replace('"', "'"),
+            "fontWeight": typography.get("fontWeight", 400),
+            "letterSpacing": typography.get("letterSpacing", "0em"),
+            "lineHeight": typography.get("lineHeight", 1.35),
+            "strokeScale": typography.get("strokeScale", 1.0),
+            "tiltDeg": typography.get("tiltDeg", 0.0),
+            "plate": typography.get("plate", ""),
+            "plateRadius": typography.get("plateRadius", "0.28em"),
+            "glow": bool(typography.get("glow", False)),
+            "entrance": animation.get("entrance", "soft_fade"),
+            "loop": bool(animation.get("loop", False)),
+        }
+
+    specs = [
+        spec(
+            None,
+            "智能推荐",
+            "由 AI 按内容自动选择",
+            DEFAULT_CAPTION_TYPOGRAPHY,
+            DEFAULT_CAPTION_ANIMATION,
+        ),
+    ]
+    for pack_id in SUBTITLE_TEMPLATE_PACK_ORDER:
+        pack = SUBTITLE_TEMPLATE_PACKS[pack_id]
+        specs.append(
+            spec(
+                pack_id,
+                str(pack["name"]),
+                str(pack["description"]),
+                pack["typography"],  # type: ignore[arg-type]
+                pack["animation"],  # type: ignore[arg-type]
+            ),
+        )
+    return specs
+
+
+def subtitle_pack_caption_order(pack_id: str | None) -> tuple[str, ...] | None:
+    """Return a pack's preferred caption blueprint order, or ``None``.
+
+    Unknown or empty ids fall back to ``None`` so callers keep their
+    content-type / default rotation instead of failing.
+    """
+
+    if not pack_id:
+        return None
+    pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id)
+    if not pack:
+        return None
+    return tuple(pack["caption_order"])  # type: ignore[arg-type]
+
+
+def subtitle_pack_typography(pack_id: str | None) -> dict[str, object]:
+    """Typography the deterministic renderer paints for one pack.
+
+    ``None`` / unknown ids hand back ``DEFAULT_CAPTION_TYPOGRAPHY``, which is
+    the historical plain-subtitle look, so smart-recommend projects keep
+    rendering exactly as before.
+    """
+
+    pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id or "")
+    if not pack:
+        return dict(DEFAULT_CAPTION_TYPOGRAPHY)
+    return dict(pack["typography"])  # type: ignore[arg-type]
+
+
+def subtitle_pack_animation(pack_id: str | None) -> dict[str, object]:
+    """Entrance / exit / loop defaults of one pack."""
+
+    pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id or "")
+    if not pack:
+        return dict(DEFAULT_CAPTION_ANIMATION)
+    return dict(pack["animation"])  # type: ignore[arg-type]
+
+
+def subtitle_pack_style_line(pack_id: str | None) -> str | None:
+    """The pack's canonical Chinese wording, or ``None`` when unset."""
+
+    pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id or "")
+    if not pack:
+        return None
+    return str(pack["style_line"])
+
+
+def subtitle_style_override_line(
+    style: Mapping[str, object] | None,
+    pack_id: str | None = None,
+) -> str:
+    """Describe the user's colour / size / outline / plate picks in one clause.
+
+    Shared by the agent prompt, the design task text and the element's
+    动效描述 so a subtitle never reads a wording that contradicts what the
+    renderer will actually draw.
+    """
+
+    if not style:
+        return ""
+    colour = str(style.get("color") or "").strip()
+    font_scale = style.get("font_scale")
+    stroke_scale = style.get("stroke_scale")
+    parts: list[str] = []
+    if re.fullmatch(r"#[0-9a-fA-F]{6}", colour):
+        parts.append(f"文字颜色 {colour.upper()}")
+    for label, value in (("字号倍数", font_scale), ("描边倍数", stroke_scale)):
+        try:
+            number = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            continue
+        if number == 1.0:
+            continue
+        parts.append(
+            f"{label} {number:.2f}".rstrip("0").rstrip(".")
+            if number > 0
+            else f"{label} 0（关闭）",
+        )
+    background = style.get("background_opacity")
+    try:
+        alpha = float(background)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        alpha = None
+    if alpha is not None and math.isfinite(alpha) and subtitle_pack_typography(
+        pack_id,
+    ).get("plate"):
+        # A plate only exists where a pack draws one (smart recommend draws
+        # none), so the sentence is spoken for that plate or not at all:
+        # promising a background the template leaves transparent is the drift
+        # this wording exists to avoid.
+        parts.append(
+            "不加字幕底板"
+            if alpha <= 0.0
+            else f"字幕底板不透明度 {alpha * 100:.0f}%",
+        )
+    return "；".join(parts)
+
+
+def subtitle_pack_prompt_line(
+    pack_id: str | None,
+    style: Mapping[str, object] | None = None,
+    animation: Mapping[str, object] | None = None,
+) -> str:
+    """One canonical sentence covering pack, overrides and the animation.
+
+    Empty when the user left the style on smart recommend and set nothing
+    else, so callers can append it unconditionally.  ``animation`` names the
+    entrance / exit / loop the renderer will actually play, so a description
+    can never promise motion the pixels do not show; it is only spoken while
+    a pack or an override is in charge, because smart recommend deliberately
+    says nothing about the look.
+    """
+
+    style_line = subtitle_pack_style_line(pack_id) or ""
+    override_line = subtitle_style_override_line(style, pack_id)
+    parts = [
+        part for part in (
+            style_line,
+            f"用户覆盖样式：{override_line}" if override_line else "",
+            (
+                f"动画：{caption_animation_line(animation)}"
+                # Smart recommend promises nothing about the look, so it must not
+                # dictate the wording either: the animation sentence only belongs
+                # to a description once a pack or an override was actually picked.
+                if animation and (style_line or override_line)
+                else ""
+            ),
+        ) if part
+    ]
+    return "；".join(parts)
+
+
+def subtitle_pack_catalog_text() -> str:
+    """Prompt-ready listing of every style pack, straight from the table.
+
+    The agent prompts used to hand-copy the ``id 中文名`` list, which drifted
+    the moment a pack was added or reworded.  Both the listing and the
+    renderer read ``SUBTITLE_TEMPLATE_PACKS``, so the wording an agent is told
+    about a pack is the wording the pixels were built from.
+    """
+
+    lines = []
+    for pack_id in SUBTITLE_TEMPLATE_PACK_ORDER:
+        pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id)
+        if not pack:
+            continue
+        lines.append(
+            f"- `{pack_id}` {pack['name']}：{pack['style_line']}"
+            f"（默认动画：{caption_animation_line(pack['animation'])}）"
+            f"；适用：{pack['description']}",
+        )
+    return "\n".join(lines)
+
+
+def subtitle_style_prompt_block(
+    pack_id: str | None,
+    style: Mapping[str, object] | None = None,
+) -> str:
+    """The project's current subtitle style plus the whole pack catalogue.
+
+    Injected into the delegator and the AI editing director so the sentence
+    an agent writes into a subtitle's 动效描述 is drawn from the same source
+    as ``render_caption_template`` — three wordings for one style was exactly
+    the inconsistency this replaces.
+    """
+
+    current = subtitle_pack_prompt_line(pack_id, style)
+    return (
+        "当前项目字幕风格（与渲染器同源，描述字幕样式时沿用这些措辞）：\n"
+        "- 生效风格："
+        f"{current or '智能推荐（未选择风格包，按内容类型自由发挥，不要自行声明字体或配色）'}\n"
+        f"- 可选风格包：\n{subtitle_pack_catalog_text()}\n"
+        "- 字幕的动效描述首行由系统按上述风格自动维护（切换风格时重写该行），"
+        "你不要另写一句字体/字号/配色描述；写内容相关的动效意图即可。\n"
+        "- 用户明确指定样式时以用户为准；以上只描述风格，不决定字幕是否创建。"
+    )
+
+
+def subtitle_settings_prompt_block(settings: object | None) -> str:
+    """``subtitle_style_prompt_block`` for one project's settings object.
+
+    Reads the two fields defensively and tolerates ``None`` (a delegated role
+    that has no project yet), so the prompt builders never need the heavier
+    media-service imports just to describe a style.
+    """
+
+    style_model = getattr(settings, "subtitle_style", None)
+    return subtitle_style_prompt_block(
+        getattr(settings, "subtitle_template", None),
+        (
+            style_model.model_dump(mode="json")
+            if style_model is not None
+            else None
+        ),
+    )
+
+
+def subtitle_pack_marker(pack_id: str | None) -> str:
+    """Stable token identifying the pack inside a 动效描述.
+
+    ``sync_subtitle_prompt`` looks for it to decide whether the style clause
+    is already there, so a user's own wording is never duplicated nor
+    overwritten.
+    """
+
+    pack = SUBTITLE_TEMPLATE_PACKS.get(pack_id or "")
+    if not pack:
+        return ""
+    return f"【字幕风格：{pack['name']}】"
+
+
+def _is_caption_style_line(line: str) -> bool:
+    """Whether one line is a style clause the caption pipeline owns.
+
+    Recognising a pack's own opening (``综艺花字：…``) matters as much as the
+    marker: the prompt block shows the catalogue by name, so a model that
+    copies one into the first line still gets replaced on a style switch
+    instead of stacking a second, contradicting sentence under the new one.
+    """
+
+    markers = {
+        subtitle_pack_marker(pack_id)
+        for pack_id in SUBTITLE_TEMPLATE_PACK_ORDER
+    }
+    # The anchor used for colour overrides without a pack (see
+    # ``sync_subtitle_prompt``) belongs to the same family.
+    markers.add("【字幕样式】")
+    if line.startswith("【字幕") and any(
+        line.startswith(marker) for marker in markers if marker
+    ):
+        return True
+    return any(
+        line.startswith(f"{SUBTITLE_TEMPLATE_PACKS[pack_id]['name']}：")
+        for pack_id in SUBTITLE_TEMPLATE_PACK_ORDER
+        if pack_id in SUBTITLE_TEMPLATE_PACKS
+    )
+
+
+def sync_subtitle_prompt(
+    prompt: str,
+    pack_id: str | None,
+    style: Mapping[str, object] | None = None,
+    animation: Mapping[str, object] | None = None,
+) -> tuple[str, bool]:
+    """Return ``(prompt, changed)`` with the pack clause *filled in*.
+
+    Additive by design: the clause always owns the first line, everything the
+    user wrote stays below it verbatim, and switching a pack replaces only its
+    own line instead of stacking a second style sentence on the same subtitle.
+    """
+
+    clause = subtitle_pack_prompt_line(pack_id, style, animation)
+    marker = subtitle_pack_marker(pack_id) or (
+        # Overrides without a pack still need a stable anchor, otherwise
+        # every later edit would append another copy of the clause.
+        "【字幕样式】"
+        if clause
+        else ""
+    )
+    original = prompt or ""
+    lines = original.strip().splitlines()
+    had_clause = bool(lines and _is_caption_style_line(lines[0]))
+    if had_clause:
+        lines = lines[1:]
+    body = "\n".join(lines).strip()
+    if not clause:
+        # Style cleared: drop the stale clause, keep the author's own text.
+        # With nothing of ours to remove this is a strict no-op, so a project
+        # that never picked a pack cannot even see its descriptions trimmed.
+        if not had_clause:
+            return original, False
+        return body, body != original
+    joined = f"{marker}{clause}" if not body else f"{marker}{clause}\n{body}"
+    return joined, joined != original
+
+
+# Chinese wording for the deterministic caption animation triple.  Both the
+# 动效描述 text and the template document's ``design_notes`` use it, so the
+# sentence the user reads names the motion the renderer actually plays.
+CAPTION_ENTRANCE_LABELS = {
+    "soft_fade": "淡入",
+    "pop": "弹入",
+    "slide": "滑入",
+    "type_on": "逐字浮现",
+}
+CAPTION_EXIT_LABELS = {
+    "none": "不退场",
+    "soft_fade": "淡出",
+    "shrink": "缩小退场",
+}
+# Machine stamps written into a template caption document's ``design_notes``.
+# Same convention as ``interaction_fingerprint.FINGERPRINT_MARKER``: derived
+# documents carry the state they were derived from, so a settings change
+# invalidates them without any new schema field.
+CAPTION_STYLE_MARKER = "caption_style="
+CAPTION_ANIMATION_MARKER = "caption_animation="
+
+
+def _caption_scale(value: object) -> str:
+    """One normalised multiplier token, ``'1'`` for missing or broken input."""
+
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return "1"
+    if not math.isfinite(number):
+        return "1"
+    return f"{number:.4f}".rstrip("0").rstrip(".") or "1"
+
+
+def caption_style_state(
+    pack_id: str | None,
+    style: Mapping[str, object] | None = None,
+) -> str:
+    """Stamp of everything the deterministic renderer paints from settings.
+
+    It covers the pack (typography) plus the user's colour / size / outline
+    overrides, so switching either one makes existing caption documents
+    stale and the next design pass redraws them.
+    """
+
+    colour = str((style or {}).get("color") or "").strip().lower()
+    if not re.fullmatch(r"#[0-9a-f]{6}", colour):
+        colour = "default"
+    parts = [
+        pack_id or "auto",
+        colour,
+        _caption_scale((style or {}).get("font_scale")),
+        _caption_scale((style or {}).get("stroke_scale")),
+    ]
+    if (style or {}).get("background_opacity") is not None:
+        # Optional token: a project that never touched the control keeps the
+        # four-part stamp it always wrote, so adding the setting cannot make
+        # every existing caption document look stale on upgrade.
+        parts.append(_caption_scale((style or {}).get("background_opacity")))
+    return "|".join(parts)
+
+
+def caption_animation_state(animation: Mapping[str, object]) -> str:
+    """Stamp of the entrance / exit / loop triple a document was drawn with."""
+
+    loop = animation.get("loop")
+    if isinstance(loop, str):
+        loop = loop not in ("", "0", "false", "False")
+    return "/".join(
+        (
+            str(animation.get("entrance") or "soft_fade"),
+            str(animation.get("exit") or "none"),
+            "1" if loop else "0",
+        ),
+    )
+
+
+def caption_animation_line(animation: Mapping[str, object]) -> str:
+    """Human wording of the triple, matching ``caption_animation_state``."""
+
+    entrance = str(animation.get("entrance") or "soft_fade")
+    exit_style = str(animation.get("exit") or "none")
+    return (
+        f"入场 {CAPTION_ENTRANCE_LABELS.get(entrance, entrance)}"
+        f"／出场 {CAPTION_EXIT_LABELS.get(exit_style, exit_style)}"
+        f"／循环 {'开' if animation.get('loop') else '关'}"
+    )
+
+
+def caption_state_animation(state: str | None) -> dict[str, object]:
+    """Inverse of ``caption_animation_state`` (defaults for a broken stamp)."""
+
+    if not state:
+        return dict(DEFAULT_CAPTION_ANIMATION)
+    parts = [part.strip() for part in state.split("/")]
+    while len(parts) < 3:
+        parts.append("0")
+    return {
+        "entrance": parts[0] or DEFAULT_CAPTION_ANIMATION["entrance"],
+        "exit": parts[1] or DEFAULT_CAPTION_ANIMATION["exit"],
+        "loop": parts[2] == "1",
+    }
+
+
+def caption_document_notes(
+    concept: str,
+    style_state: str,
+    animation_state: str,
+) -> str:
+    """``design_notes`` for one derived caption document: prose plus stamps."""
+
+    return (
+        f"{concept}"
+        f"\n{CAPTION_STYLE_MARKER}{style_state}"
+        f" {CAPTION_ANIMATION_MARKER}{animation_state}"
+    )
+
+
+def caption_notes_states(notes: str | None) -> tuple[str | None, str | None]:
+    """Read the two stamps back out of one document's ``design_notes``.
+
+    ``(None, None)`` for documents written before the stamps existed, which
+    the caller treats as stale exactly once (their ``template_version`` is
+    older too), and never overwrites hand-authored prose that happens to
+    carry no stamp.
+    """
+
+    text = notes or ""
+
+    def _read(marker: str) -> str | None:
+        start = text.find(marker)
+        if start < 0:
+            return None
+        tail = text[start + len(marker) :]
+        return tail.split(" ", 1)[0].strip() or None
+
+    return _read(CAPTION_STYLE_MARKER), _read(CAPTION_ANIMATION_MARKER)
+
+
 _BLUEPRINT_HINTS = {
     "stagger_pop": "综艺花字：逐字弹入+强调下划线，适合活泼/惊喜/动作场面",
     "ink_reveal": "电影字幕：横向揭示+侧色条，适合叙事/沉稳/收尾语气",
@@ -1284,15 +1916,21 @@ def blueprint_catalog_text(
     kind: str,
     *,
     content_type: str | None = None,
+    subtitle_template: str | None = None,
 ) -> str:
     """Prompt-ready catalog listing for one blueprint family.
 
     When *content_type* is given the listing is filtered to the preferred
     subset for that type (4-6 entries); otherwise every registered
-    blueprint is listed (backward-compatible).
+    blueprint is listed (backward-compatible).  A *subtitle_template* pack
+    overrides the caption subset so the auto pipeline follows the user's
+    chosen style pack.
     """
 
-    if content_type and content_type in _CONTENT_TYPE_PALETTES:
+    pack_order = subtitle_pack_caption_order(subtitle_template)
+    if kind == "caption" and pack_order:
+        names = pack_order
+    elif content_type and content_type in _CONTENT_TYPE_PALETTES:
         prefs = _CONTENT_TYPE_PALETTES[content_type]
         if kind == "caption":
             names = prefs["caption_order"]
@@ -1839,9 +2477,19 @@ def content_type_frame(content_type: str) -> str:
     return "pop_variety"
 
 
-def content_type_caption_order(content_type: str) -> tuple[str, ...]:
-    """Caption blueprint fallback rotation for a content type."""
+def content_type_caption_order(
+    content_type: str,
+    subtitle_template: str | None = None,
+) -> tuple[str, ...]:
+    """Caption blueprint fallback rotation for a content type.
 
+    A *subtitle_template* pack takes priority over the content-type subset
+    so the user's chosen style pack drives the auto fallback chain.
+    """
+
+    pack_order = subtitle_pack_caption_order(subtitle_template)
+    if pack_order:
+        return pack_order
     prefs = _CONTENT_TYPE_PALETTES.get(content_type)
     if prefs:
         return tuple(prefs["caption_order"])  # type: ignore[arg-type]
@@ -1856,6 +2504,10 @@ __all__ = [
     "DECORATION_BLUEPRINTS",
     "FRAME_BLUEPRINTS",
     "SCENE_BLUEPRINTS",
+    "SUBTITLE_TEMPLATE_PACKS",
+    "SUBTITLE_TEMPLATE_PACK_ORDER",
+    "DEFAULT_CAPTION_TYPOGRAPHY",
+    "DEFAULT_CAPTION_ANIMATION",
     "BlueprintPalette",
     "blueprint_catalog_text",
     "content_type_caption_order",
@@ -1865,6 +2517,28 @@ __all__ = [
     "render_decoration_blueprint",
     "render_frame_blueprint",
     "render_scene_blueprint",
+    "CAPTION_ENTRANCE_LABELS",
+    "CAPTION_EXIT_LABELS",
+    "CAPTION_STYLE_MARKER",
+    "CAPTION_ANIMATION_MARKER",
+    "subtitle_pack_caption_order",
+    "subtitle_pack_catalog_text",
+    "subtitle_pack_preview_specs",
+    "subtitle_settings_prompt_block",
+    "subtitle_style_prompt_block",
+    "subtitle_pack_typography",
+    "subtitle_pack_animation",
+    "subtitle_pack_style_line",
+    "subtitle_pack_prompt_line",
+    "subtitle_pack_marker",
+    "subtitle_style_override_line",
+    "sync_subtitle_prompt",
+    "caption_animation_line",
+    "caption_animation_state",
+    "caption_document_notes",
+    "caption_notes_states",
+    "caption_state_animation",
+    "caption_style_state",
     "require_chinese_copy",
     "suggested_color_grade",
     "suggested_transitions_for_content",

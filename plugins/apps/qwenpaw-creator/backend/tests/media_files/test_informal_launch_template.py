@@ -209,7 +209,7 @@ async def test_version_four_does_not_preserve_corrupt_css(
     ] = overlay
     services.projects.create(project)
     if externalized:
-        stored, indexed = motion_design._externalized_motion(
+        stored, indexed = motion_design.externalize_motion_document(
             motion,
             AssetFileStore(services.projects.project_root(project.project_id)),
         )
@@ -1013,7 +1013,7 @@ async def test_custom_lettering_survives_design_and_compose(
     timeline.elements_by_id["caption"] = overlay
     services.projects.create(project)
     if externalized:
-        motion, indexed = motion_design._externalized_motion(
+        motion, indexed = motion_design.externalize_motion_document(
             motion,
             AssetFileStore(project_root),
         )

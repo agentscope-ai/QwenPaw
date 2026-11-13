@@ -788,6 +788,182 @@ def test_delete_asset_settles_durable_run_when_no_live_owner(
     assert run.metadata.get("cancelReason") == "SOURCE_ASSET_DELETED"
 
 
+def test_delete_asset_durable_cancel_emits_terminal_sse_event(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_scenario,
+) -> None:
+    # The durable CAS is invisible to the UI: `subagentActivities` is built
+    # only from SSE events, so the route must append the cancelled terminal
+    # event itself, or the status bar keeps showing the specialist's
+    # activity ("素材理解中") even though the record is already CANCELLED.
+    app, services = _app(tmp_path)
+    runtime = _RecordingRuntime(owns_run=False)
+    monkeypatch.setattr(
+        file_asset_routes,
+        "get_creator_agent_runtime",
+        lambda: runtime,
+    )
+    session_id = services.sessions.create_project_runtime(
+        "project-1",
+    ).session.session_id
+
+    async def scenario(client):
+        created = await _upload_source(
+            client,
+            _TEXT_ASSET_PAYLOAD,
+            "asset-del-1",
+        )
+        version_id = created.json()["assetVersionId"]
+        _seed_active_source_run(services, version_id, "spec-event")
+        deleted = await client.delete(
+            f"/projects/project-1/assets/{version_id}",
+            headers={"Idempotency-Key": "del-event"},
+        )
+        events = services.sessions.list_events("project-1", session_id)
+        return deleted, [
+            event for event in events if event.event_type == "subagent.failed"
+        ]
+
+    deleted, failed = run_scenario(app, scenario)
+    assert deleted.status_code == 204
+    assert [event.payload["runId"] for event in failed] == ["spec-event"]
+    event = failed[0]
+    assert event.actor == "file_agent_runtime"
+    assert event.round_id == "agent-round-spec-event"
+    assert event.payload["cancelled"] is True
+    assert event.payload["error"] == "source_asset_deleted"
+    assert event.payload["parentActionId"] == "delegate-call-del"
+    assert event.payload["role"] == SpecialistRole.SOURCE_INTELLIGENCE.value
+
+
+def test_delete_asset_with_live_owner_appends_no_terminal_event(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_scenario,
+) -> None:
+    # A live worker emits its own terminal lifecycle event. The route must
+    # not add a synthetic one after it: that would re-open the very
+    # activity the worker just closed.
+    app, services = _app(tmp_path)
+    runtime = _RecordingRuntime(owns_run=True)
+    monkeypatch.setattr(
+        file_asset_routes,
+        "get_creator_agent_runtime",
+        lambda: runtime,
+    )
+    session_id = services.sessions.create_project_runtime(
+        "project-1",
+    ).session.session_id
+
+    async def scenario(client):
+        created = await _upload_source(
+            client,
+            _TEXT_ASSET_PAYLOAD,
+            "asset-del-1",
+        )
+        version_id = created.json()["assetVersionId"]
+        run_id = _seed_active_source_run(services, version_id, "spec-live")
+        deleted = await client.delete(
+            f"/projects/project-1/assets/{version_id}",
+            headers={"Idempotency-Key": "del-live-event"},
+        )
+        executions = ProjectExecutionStore(services.root)
+        events = services.sessions.list_events("project-1", session_id)
+        return (
+            deleted,
+            executions.get_specialist_run("project-1", run_id),
+            [
+                event
+                for event in events
+                if event.event_type == "subagent.failed"
+            ],
+        )
+
+    deleted, run, failed = run_scenario(app, scenario)
+    assert deleted.status_code == 204
+    assert runtime.calls == [
+        ("project-1", "spec-live", "source_asset_deleted"),
+    ]
+    assert failed == []
+    assert run.status is SpecialistRunStatus.QUEUED
+
+
+def test_delete_asset_settles_run_created_after_the_first_sweep(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_scenario,
+) -> None:
+    # A run whose durable record lands after the route's opening listing is
+    # invisible to that loop; only the post-deletion re-check can settle it
+    # and tell the frontend the activity is over.
+    app, services = _app(tmp_path)
+    runtime = _RecordingRuntime(owns_run=False)
+    monkeypatch.setattr(
+        file_asset_routes,
+        "get_creator_agent_runtime",
+        lambda: runtime,
+    )
+    session_id = services.sessions.create_project_runtime(
+        "project-1",
+    ).session.session_id
+    real_list = ProjectExecutionStore.list_specialist_runs
+    sweeps: list[list[str]] = []
+    state = {"hiding": True}
+
+    def hide_late_run(self, project_id):
+        records = real_list(self, project_id)
+        if state["hiding"]:
+            # Simulate the race: the opening sweep cannot see the run that
+            # the driver was writing at the very same moment.
+            state["hiding"] = False
+            records = [
+                record for record in records if record.run_id != "spec-late"
+            ]
+        sweeps.append([record.run_id for record in records])
+        return records
+
+    monkeypatch.setattr(
+        ProjectExecutionStore,
+        "list_specialist_runs",
+        hide_late_run,
+    )
+
+    async def scenario(client):
+        created = await _upload_source(
+            client,
+            _TEXT_ASSET_PAYLOAD,
+            "asset-del-1",
+        )
+        version_id = created.json()["assetVersionId"]
+        _seed_active_source_run(services, version_id, "spec-early")
+        _seed_active_source_run(services, version_id, "spec-late")
+        deleted = await client.delete(
+            f"/projects/project-1/assets/{version_id}",
+            headers={"Idempotency-Key": "del-late"},
+        )
+        executions = ProjectExecutionStore(services.root)
+        late = executions.get_specialist_run("project-1", "spec-late")
+        events = services.sessions.list_events("project-1", session_id)
+        return (
+            deleted,
+            late,
+            [
+                event.payload["runId"]
+                for event in events
+                if event.event_type == "subagent.failed"
+            ],
+        )
+
+    deleted, late, notified = run_scenario(app, scenario)
+    assert deleted.status_code == 204
+    assert sweeps[0] == ["spec-early"]
+    assert "spec-late" in sweeps[-1]
+    assert late.status is SpecialistRunStatus.CANCELLED
+    assert late.metadata.get("cancelReason") == "SOURCE_ASSET_DELETED"
+    assert sorted(notified) == ["spec-early", "spec-late"]
+
+
 def test_delete_asset_route_names_references_and_accepts_force(
     tmp_path,
     run_scenario,

@@ -581,6 +581,7 @@ def _local_compose_blocker(project: Any, node: WorkNode) -> str | None:
             )
             and not _is_trusted_caption_motion(
                 getattr(creation, "motion", None),
+                project,
             )
         ):
             return "MOTION_DESIGN_REQUIRED"
