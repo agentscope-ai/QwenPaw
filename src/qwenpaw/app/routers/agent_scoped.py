@@ -4,12 +4,14 @@
 This provides agent isolation by injecting agentId into request.state,
 allowing downstream APIs to access the correct agent context.
 """
+
 from fastapi import APIRouter, Request
 from starlette.middleware.base import (
     BaseHTTPMiddleware,
     RequestResponseEndpoint,
 )
 from starlette.responses import Response
+from starlette.routing import get_route_path
 
 
 class AgentContextMiddleware(BaseHTTPMiddleware):
@@ -28,7 +30,7 @@ class AgentContextMiddleware(BaseHTTPMiddleware):
         agent_id = None
 
         # Priority 1: Extract agentId from path: /api/agents/{agentId}/...
-        path_parts = request.url.path.split("/")
+        path_parts = get_route_path(request.scope).split("/")
         if len(path_parts) >= 4 and path_parts[1] == "api":
             if path_parts[2] == "agents":
                 agent_id = path_parts[3]
@@ -77,10 +79,11 @@ def create_agent_scoped_router() -> APIRouter:
     from .mcp_oauth import router as mcp_oauth_router
     from .workspace import router as workspace_router
     from ..crons.api import router as cron_router
-    from ..runner.api import router as chats_router
+    from ..chats.api import router as chats_router
     from .console import router as console_router
     from .plugins import router as plugins_router
-    from .plan import router as plan_router
+    from .checkpoints import router as checkpoints_router
+    from .portability_imports import portability_import_router
 
     router = APIRouter(prefix="/agents/{agentId}", tags=["agent-scoped"])
 
@@ -104,6 +107,7 @@ def create_agent_scoped_router() -> APIRouter:
     router.include_router(workspace_router)
     router.include_router(console_router)
     router.include_router(plugins_router)
-    router.include_router(plan_router)
+    router.include_router(checkpoints_router)
+    router.include_router(portability_import_router)
 
     return router
