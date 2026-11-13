@@ -89,6 +89,32 @@ def test_video_only_message_uses_existing_media_placeholder():
     ]
 
 
+def test_text_only_request_strips_all_media_despite_per_media_flags():
+    """A text-only request drops every media block and keeps the text."""
+    message = Msg(
+        name=f"user",
+        role=f"user",
+        content=[
+            TextBlock(text=f"keep this"),
+            _data_block(f"image/png"),
+            _data_block(f"audio/mp3"),
+            _data_block(f"video/mp4"),
+        ],
+    )
+
+    result = normalize_messages_for_model_request(
+        [message],
+        supports_multimodal=False,
+        strip_image=True,
+        strip_audio=True,
+        strip_video=True,
+    )
+
+    assert [(block.type, block.text) for block in result[0].content] == [
+        (f"text", f"keep this"),
+    ]
+
+
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------

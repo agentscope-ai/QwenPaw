@@ -287,6 +287,24 @@ def _is_media_block(block: Any) -> bool:
     return False
 
 
+def _is_image_block(block: Any) -> bool:
+    """Recognize legacy image blocks and current image DataBlocks."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        source = block.get("source")
+    else:
+        block_type = getattr(block, "type", None)
+        source = getattr(block, "source", None)
+    media_type = (
+        source.get("media_type")
+        if isinstance(source, dict)
+        else getattr(source, "media_type", None)
+    ) or ""
+    return block_type == "image" or (
+        block_type == "data" and media_type.startswith("image/")
+    )
+
+
 def _is_audio_block(block: Any) -> bool:
     """Check if a block carries audio content."""
     if isinstance(block, dict):
@@ -400,6 +418,7 @@ def _is_empty_media_block(block: Any) -> bool:
 def _strip_media_blocks_in_place(
     msgs: list[Msg],
     *,
+    image_only: bool = False,
     audio_only: bool = False,
     video_only: bool = False,
     document_only: bool = False,
@@ -408,21 +427,21 @@ def _strip_media_blocks_in_place(
 ) -> int:
     """Strip media blocks from copied messages only.
 
-    Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
-    ``audio_only`` is true, image, video, and file blocks are preserved.
-    With ``video_only``, only video blocks are removed.
-    When ``document_only`` is true, only PDF document blocks are removed
-    (image/audio/video blocks are preserved). With ``tool_result_only``,
-    stripping applies only to blocks nested inside tool results, so
-    user-supplied document blocks keep their upstream formatting path.
-    With ``empty_only``, only media blocks with a zero-length payload are
-    removed (see :func:`_is_empty_media_block`).
+    Handles both 1.x dict blocks and 2.0 Pydantic block objects. The
+    ``image_only``, ``audio_only``, and ``video_only`` options preserve all
+    other media types. When ``document_only`` is true, only PDF document
+    blocks are removed. With ``tool_result_only``, stripping applies only to
+    blocks nested inside tool results, so user-supplied document blocks keep
+    their upstream formatting path. With ``empty_only``, only media blocks
+    with a zero-length payload are removed.
     """
     total_stripped = 0
     if empty_only:
         should_strip = _is_empty_media_block
     elif document_only:
         should_strip = _is_document_block
+    elif image_only:
+        should_strip = _is_image_block
     elif audio_only:
         should_strip = _is_audio_block
     elif video_only:
@@ -533,6 +552,7 @@ def normalize_messages_for_model_request(
     *,
     supports_multimodal: bool,
     target_family: str = "openai",
+    strip_image: bool = False,
     strip_audio: bool = False,
     strip_video: bool = False,
 ) -> list[Msg]:
@@ -544,6 +564,7 @@ def normalize_messages_for_model_request(
         target_family: Provider family of the *current* model
             (``"openai"`` | ``"anthropic"`` | ``"gemini"``).
             Used to strip fields that belong to other providers.
+        strip_image: Whether to remove only image blocks from the request copy.
         strip_audio: Whether to remove only audio blocks from the request copy.
         strip_video: Whether to remove video blocks before media preparation.
     """
@@ -565,9 +586,12 @@ def normalize_messages_for_model_request(
     _strip_media_blocks_in_place(normalized, empty_only=True)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
-    elif strip_audio:
+        return normalized
+    if strip_image:
+        _strip_media_blocks_in_place(normalized, image_only=True)
+    if strip_audio:
         _strip_media_blocks_in_place(normalized, audio_only=True)
-    elif target_family == "openai":
+    if target_family == f"openai":
         # OpenAI-compatible Chat Completions servers (vLLM, DeepSeek,
         # DashScope, ...) reject ``file`` content parts (that shape exists
         # only in the Responses API). PDF documents returned by tools would
@@ -583,7 +607,7 @@ def normalize_messages_for_model_request(
             document_only=True,
             tool_result_only=True,
         )
-    if supports_multimodal and strip_video:
+    if strip_video:
         _strip_media_blocks_in_place(normalized, video_only=True)
     return normalized
 

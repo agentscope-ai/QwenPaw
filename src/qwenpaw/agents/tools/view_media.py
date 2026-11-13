@@ -512,12 +512,14 @@ async def _probe_multimodal_if_needed(
     or None if no probe was needed or the probe failed.
     """
     try:
-        from ..prompt import _get_active_model_info, _get_active_model_slot
+        from ..prompt import _get_active_model_slot, get_active_media_decision
         from ...providers.provider_manager import ProviderManager
 
-        model_info, _ = await run_sync_io(_get_active_model_info)
-        if model_info is None or model_info.supports_multimodal is not None:
+        decision = await run_sync_io(get_active_media_decision, media_type)
+        if decision is None:
             return None
+        if decision.supported is not None:
+            return decision.supported
 
         manager = ProviderManager.get_instance()
         active = await run_sync_io(_get_active_model_slot)
@@ -578,27 +580,20 @@ async def _probe_multimodal_if_needed(
 def _check_multimodal_support(media_type: str = "image") -> bool:
     """Check whether the active model supports the given media type (sync).
 
-    For ``image``: returns True when supports_image or supports_multimodal
-    is explicitly True.
-    For ``video``: returns True only when supports_video is explicitly True.
+    Modality-specific overrides take precedence, and an explicit multimodal
+    opt-out blocks discovered modality support. Otherwise, images require
+    supports_image or supports_multimodal, while videos require
+    supports_video explicitly.
 
     Returns False for unknown (None) or explicitly unsupported (False).
     The tool is still *registered*; the async probe path handles the
     probe-on-demand logic.
     """
     try:
-        from ..prompt import _get_active_model_info
+        from ..prompt import get_active_media_decision
 
-        model_info, _ = _get_active_model_info()
-        if model_info is None:
-            return True
-        if media_type == "video":
-            return model_info.supports_video is True
-        # image: True if supports_image or the combined supports_multimodal
-        return (
-            model_info.supports_image is True
-            or model_info.supports_multimodal is True
-        )
+        decision = get_active_media_decision(media_type)
+        return decision is None or decision.supported is True
     except Exception:
         return True
 
@@ -610,48 +605,72 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     frontend/user can see it; the hint tells the agent it cannot perceive
     the media itself.
     """
+    capability = f"supports_{media_type}"
     try:
-        from ..prompt import get_active_model_multimodal_raw
+        from ..prompt import get_active_media_decision
 
-        raw = get_active_model_multimodal_raw()
+        decision = get_active_media_decision(media_type)
+        raw = decision.supported if decision is not None else None
     except Exception:
         raw = None
+        decision = None
 
     if raw is None:
         logger.warning(
-            "view_%s was called but multimodal capability has not been "
-            "confirmed for the active model. The %s at '%s' will be "
-            "shown to the user but the model cannot see it. "
-            "To fix, set supports_multimodal=true in provider settings.",
+            f"view_%s was called but %s capability has not been confirmed "
+            f"for the active model. The media at '%s' will be shown to "
+            f"the user but the model cannot see it. "
+            f"To enable this input, set %s=true in provider settings.",
             media_type,
             media_type,
             path,
+            capability,
         )
         return (
-            f"[Note: this model does not appear to support multimodal "
-            f"input — no multimodal capability was detected. You cannot "
-            f"see this {media_type}, but it has been shown to the user. "
-            f"Inform the user that you cannot analyze the {media_type} "
-            f"content. If they believe this model supports vision, they "
-            f"can override this in provider settings by setting "
-            f"`supports_multimodal: true`, then retry.]"
+            f"[Note: {media_type} input support for this model has not been "
+            f"confirmed. You cannot see this {media_type}, but it has "
+            f"been shown to the user. Inform the user that you cannot "
+            f"analyze the {media_type} content. If they believe this "
+            f"model supports {media_type} input, they can set "
+            f"`{capability}: true` in provider settings, then retry.]"
+        )
+
+    if raw is False and decision is not None and decision.explicit:
+        logger.warning(
+            f"view_%s was called but %s input is disabled in provider "
+            f"settings for the active model. To re-enable this input, "
+            f"set %s=true in provider settings.",
+            media_type,
+            media_type,
+            capability,
+        )
+        return (
+            f"[Note: {media_type} input is disabled for the active model "
+            f"in provider settings. You cannot see this {media_type}, "
+            f"but it has been shown to the user. Inform the user that "
+            f"you cannot analyze the {media_type} content. If the user "
+            f"wants to re-enable {media_type} input, they can set "
+            f"`{capability}: true` in provider settings.]"
         )
 
     logger.warning(
-        "view_%s was called but the active model explicitly does not "
-        "support multimodal input. The %s at '%s' will be shown to "
-        "the user but the model cannot see it.",
+        f"view_%s was called but the active model does not support %s "
+        f"input. The media at '%s' will be shown to the user but the "
+        f"model cannot see it. If this input is supported, set %s=true "
+        f"in provider settings.",
         media_type,
         media_type,
         path,
+        capability,
     )
     return (
-        f"[Note: the current model does not support multimodal input — "
+        f"[Note: the current model does not support {media_type} input — "
         f"you cannot see this {media_type}, but it has been shown to "
         f"the user. Inform the user that you cannot analyze the "
         f"{media_type} content. If they believe this model actually "
-        f"supports vision, they can override `supports_multimodal: true` "
-        f"in the provider settings, or switch to a vision-capable model.]"
+        f"supports {media_type} input, they can set `{capability}: true` "
+        f"in provider settings, or switch to a model that supports "
+        f"{media_type} input.]"
     )
 
 

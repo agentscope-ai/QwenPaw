@@ -16,6 +16,7 @@ from qwenpaw.exceptions import (
 
 from .memory.base_memory_manager import BaseMemoryManager
 from .utils.file_handling import read_text_file_with_encoding_fallback
+from ..providers.media_capability import MediaDecision, get_media_decision
 
 logger = logging.getLogger(__name__)
 
@@ -409,6 +410,8 @@ def _get_active_model_info(agent_config=None):
     """Resolve the active model's ModelInfo and model name.
 
     Uses explicit prompt config or the executing model, then agent/global.
+    Performs synchronous provider metadata lookups (filesystem access);
+    call it through ``run_sync_io`` from async code.
 
     Returns:
         A ``(ModelInfo, model_name)`` tuple.  Both elements are *None*
@@ -430,27 +433,59 @@ def _get_active_model_info(agent_config=None):
 
         for m in provider.all_models():
             if m.id == active.model:
-                return m, active.model
+                try:
+                    model_info = provider.model_capabilities(m)
+                except Exception:
+                    logger.warning(
+                        f"Failed to resolve capabilities for active model "
+                        f"%s/%s; using configured metadata",
+                        active.provider_id,
+                        active.model,
+                        exc_info=True,
+                    )
+                    model_info = m
+                logger.debug(
+                    f"Active model capabilities %s/%s: image=%s audio=%s "
+                    f"video=%s multimodal=%s overrides=%s provenance=%s",
+                    active.provider_id,
+                    active.model,
+                    model_info.supports_image,
+                    model_info.supports_audio,
+                    model_info.supports_video,
+                    model_info.supports_multimodal,
+                    model_info.config_overrides,
+                    model_info.capability_provenance,
+                )
+                return model_info, active.model
         return None, None
     except Exception:
         return None, None
 
 
-def get_active_model_supports_multimodal() -> bool:
-    """Check if the current active model supports multimodal input.
+def get_active_media_decision(
+    media_type: str = f"image",
+) -> MediaDecision | None:
+    """Return the active model's decision for one media type.
 
-    Defaults to True when model info is unavailable or the
-    capability has not been probed yet, so that unknown models
-    fail-open (sending an image to a text-only model yields a
-    recoverable API error, but stripping images from a
-    multimodal model silently breaks functionality).
+    Returns ``None`` when the active model cannot be resolved. Performs
+    synchronous provider metadata lookups; call it through
+    ``run_sync_io`` from async code.
     """
     model_info, _ = _get_active_model_info()
     if model_info is None:
-        return True
-    if model_info.supports_image or model_info.supports_video:
-        return True
-    return model_info.supports_multimodal is not False
+        return None
+    return get_media_decision(model_info, media_type)
+
+
+def get_active_model_supports_multimodal() -> bool:
+    """Check if the current active model supports multimodal input.
+
+    Explicit image settings and multimodal opt-outs take precedence over
+    discovered capabilities. Unknown capabilities fail open so that
+    multimodal models are not silently stripped of images.
+    """
+    decision = get_active_media_decision()
+    return decision is None or decision.supported is not False
 
 
 def get_model_supports_image(current_model: Any = None) -> bool:
@@ -459,13 +494,18 @@ def get_model_supports_image(current_model: Any = None) -> bool:
     QwenPaw model wrappers expose ``provider_id:model`` through
     ``model_key``. When no request-local model is supplied, use the configured
     active model. Visual Compact requires explicit image support; generic
-    multimodal support and unknown metadata are not sufficient.
+    multimodal support and unknown metadata are not sufficient. Explicit
+    image settings and multimodal opt-outs take precedence over discovery.
     """
     if current_model is None:
         model_info, _ = _get_active_model_info()
-        return bool(
-            model_info is not None and model_info.supports_image is True,
+        if model_info is None:
+            return False
+        decision = get_media_decision(
+            model_info,
+            allow_generic=False,
         )
+        return decision.supported is True
     try:
         model_key = getattr(current_model, "model_key", None)
         provider_id = ""
@@ -499,30 +539,24 @@ def get_model_supports_image(current_model: Any = None) -> bool:
                     None,
                 )
                 if model_info is not None:
-                    return model_info.supports_image is True
+                    try:
+                        model_info = provider.model_capabilities(model_info)
+                    except Exception:
+                        logger.warning(
+                            "Failed to resolve capabilities for request-local "
+                            "model %s/%s; using configured metadata",
+                            provider_id,
+                            model_name,
+                            exc_info=True,
+                        )
+                    decision = get_media_decision(
+                        model_info,
+                        allow_generic=False,
+                    )
+                    return decision.supported is True
     except Exception:
         pass
     return False
-
-
-def get_active_model_multimodal_raw() -> bool | None:
-    """Return the effective multimodal capability flag for the active model.
-
-    Checks ``supports_multimodal``, ``supports_image``, and
-    ``supports_video`` — any of them being ``True`` means multimodal
-    is confirmed.
-
-    - ``True``: confirmed multimodal support (via any of the three flags)
-    - ``False``: confirmed text-only (supports_multimodal is explicitly
-      False and neither supports_image nor supports_video is True)
-    - ``None``: unknown / not yet probed (all three are None)
-    """
-    model_info, _ = _get_active_model_info()
-    if model_info is None:
-        return None
-    if model_info.supports_image or model_info.supports_video:
-        return True
-    return model_info.supports_multimodal
 
 
 def build_multimodal_hint(agent_config=None) -> str:
@@ -540,12 +574,15 @@ def build_driver_policy_recheck_hint() -> str:
 
 def format_multimodal_hint(model_info, _model_name: str) -> str:
     """Format the multimodal hint string for the system prompt."""
-    if model_info.supports_image or model_info.supports_video:
+    image = get_media_decision(model_info, "image")
+    video = get_media_decision(
+        model_info,
+        "video",
+        allow_generic=False,
+    )
+    if image.supported is True or video.supported is True:
         return ""
-    if (
-        model_info.supports_image is None
-        and model_info.supports_multimodal is not False
-    ):
+    if image.supported is None and model_info.supports_multimodal is not False:
         return ""
     return (
         "You can only understand text content, so reading an image will not "
@@ -562,9 +599,9 @@ __all__ = [
     "build_multimodal_hint",
     "build_driver_policy_recheck_hint",
     "format_multimodal_hint",
+    f"get_active_media_decision",
     "get_active_model_supports_multimodal",
     "get_model_supports_image",
-    "get_active_model_multimodal_raw",
     "PromptBuilder",
     "PromptConfig",
     "DEFAULT_SYS_PROMPT",

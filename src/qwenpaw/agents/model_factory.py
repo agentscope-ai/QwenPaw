@@ -48,6 +48,7 @@ from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
 from ..providers.provider import ModelInfo, agent_thinking_level
+from ..providers.media_capability import get_media_decision
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -669,6 +670,9 @@ def _normalize_messages_for_formatter(
     formatter_instance: FormatterBase | None = None,
     *,
     supports_multimodal: bool = True,
+    strip_image: bool = False,
+    strip_audio: bool = False,
+    strip_video: bool = False,
 ) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -690,10 +694,10 @@ def _normalize_messages_for_formatter(
     )
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
-    strip_audio = bool(
+    strip_audio = strip_audio or bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_audio", False),
     )
-    strip_video = bool(
+    strip_video = strip_video or bool(
         getattr(formatter_instance, "_qwenpaw_force_strip_video", False),
     )
 
@@ -708,6 +712,7 @@ def _normalize_messages_for_formatter(
         msgs,
         supports_multimodal=supports_multimodal,
         target_family=target_family,
+        strip_image=strip_image,
         strip_audio=strip_audio,
         strip_video=strip_video,
     )
@@ -1656,6 +1661,9 @@ def _create_file_block_support_formatter(
     model_id: str | None = None,
     *,
     supports_multimodal: bool = True,
+    strip_image: bool = False,
+    strip_audio: bool = False,
+    strip_video: bool = False,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1941,6 +1949,9 @@ def _create_file_block_support_formatter(
                 base_formatter_class,
                 self,
                 supports_multimodal=supports_multimodal,
+                strip_image=strip_image,
+                strip_audio=strip_audio,
+                strip_video=strip_video,
             )
 
             has_reasoning = False
@@ -2706,6 +2717,9 @@ def _create_formatter_instance(
     provider_id: str | None = None,
     *,
     supports_multimodal: bool = True,
+    strip_image: bool = False,
+    strip_audio: bool = False,
+    strip_video: bool = False,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -2742,6 +2756,9 @@ def _create_formatter_instance(
         provider_id=provider_id,
         model_id=str(getattr(model, "model", "") or ""),
         supports_multimodal=supports_multimodal,
+        strip_image=strip_image,
+        strip_audio=strip_audio,
+        strip_video=strip_video,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
@@ -2777,13 +2794,27 @@ def _install_model_formatter(
     model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
+    decisions = {}
+    if model_info is not None:
+        decisions = {
+            media_type: get_media_decision(model_info, media_type)
+            for media_type in ("image", "audio", "video")
+        }
+    supports_multimodal = not decisions or any(
+        decision.supported is not False for decision in decisions.values()
+    )
     formatter = _create_formatter_instance(
         model,
         provider_id=provider_id,
-        supports_multimodal=(
-            model_info is None
-            or bool(model_info.supports_image or model_info.supports_video)
-            or model_info.supports_multimodal is not False
+        supports_multimodal=supports_multimodal,
+        strip_image=bool(
+            decisions and decisions["image"].supported is False,
+        ),
+        strip_audio=bool(
+            decisions and decisions["audio"].supported is False,
+        ),
+        strip_video=bool(
+            decisions and decisions["video"].supported is False,
         ),
     )
     model.formatter = formatter

@@ -191,7 +191,11 @@ class ChatGPTProvider(Provider):
             f"capability_provenance",
         }
         return model.model_copy(
-            update={field: getattr(discovered, field) for field in fields},
+            update={
+                field: getattr(discovered, field)
+                for field in fields
+                if field not in model.config_overrides
+            },
         )
 
     def resolve_model_info(self, model_id: str) -> ModelInfo:
