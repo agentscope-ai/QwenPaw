@@ -225,12 +225,6 @@ def _is_legacy_protocol_evidence(
     return status_code in {400, 404, 405, 422}
 
 
-class _ModernCallToolResult(mcp_types.CallToolResult):
-    """Accept any JSON structuredContent per MCP 2026-07-28."""
-
-    structuredContent: Any = None
-
-
 def _normalize_call_tool_result(result: Any) -> Any:
     """Normalize snake_case CallToolResult aliases for the installed SDK."""
     if not isinstance(result, dict):
@@ -737,7 +731,7 @@ class HttpStatelessClient(_HttpClientBase):
                     f"MCP tool returned unsupported resultType="
                     f"{result_type!r}",
                 )
-        return _ModernCallToolResult.model_validate(normalized)
+        return mcp_types.CallToolResult.model_validate(normalized)
 
     async def _negotiate(self) -> None:
         """Probe ``server/discover``; confirm the peer supports 2026-07-28."""

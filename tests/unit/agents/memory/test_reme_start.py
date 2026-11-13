@@ -53,7 +53,7 @@ def test_reme_rejects_build_without_watch_mode(monkeypatch) -> None:
     import reme
     from reme.steps.index.watch_changes import WatchChangesStep
 
-    monkeypatch.setattr(reme, "__version__", "0.4.2.0")
+    monkeypatch.setattr(reme, "__version__", "0.4.2.2")
 
     def old_init(_self, **_kwargs):
         pass

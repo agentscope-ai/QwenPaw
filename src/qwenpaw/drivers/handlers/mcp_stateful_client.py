@@ -23,12 +23,12 @@ import time
 from contextlib import AsyncExitStack
 from typing import Any, Literal
 
-import httpx
+import httpx2
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 from .mcp_streamable_http import timeout_seconds
 
@@ -50,11 +50,11 @@ except ImportError:
     _ANYIO_TRANSPORT_ERRORS = ()
 
 # All exception types that indicate a dead transport — anyio stream errors,
-# httpx transport failures, and low-level socket/pipe errors (including stdio
+# httpx2 transport failures, and low-level socket/pipe errors (including stdio
 # pipe breaks when an MCP subprocess exits unexpectedly).
 _TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     *_ANYIO_TRANSPORT_ERRORS,
-    httpx.TransportError,
+    httpx2.TransportError,
     EOFError,
     ConnectionResetError,
     BrokenPipeError,
@@ -83,9 +83,9 @@ def _is_transport_error(exc: BaseException) -> bool:
     if isinstance(exc, _TRANSPORT_ERRORS):
         return True
 
-    if isinstance(exc, McpError):
+    if isinstance(exc, MCPError):
         error = getattr(exc, "error", None)
-        message = str(getattr(error, "message", exc)).strip().casefold()
+        message = str(getattr(error, "message", "")).strip().casefold()
         return message in _TRANSPORT_MCP_MESSAGES
 
     sub_excs = getattr(exc, "exceptions", None)
@@ -96,13 +96,19 @@ def _is_transport_error(exc: BaseException) -> bool:
 
 def _is_401_error(exc: BaseException) -> bool:
     """Return True if exc (or any sub-exception) is HTTP 401."""
-    if isinstance(exc, httpx.HTTPStatusError):
+    if isinstance(exc, httpx2.HTTPStatusError):
         return exc.response.status_code == 401
     # ExceptionGroup wraps one or more sub-exceptions (Python 3.11+)
     sub_excs = getattr(exc, "exceptions", None)
     if sub_excs:
         return any(_is_401_error(e) for e in sub_excs)
     return False
+
+
+async def _raise_on_unauthorized(response: httpx2.Response) -> None:
+    """Preserve HTTP 401 before the SDK converts it to a generic MCP error."""
+    if response.status_code == 401:
+        response.raise_for_status()
 
 
 def _discard_task_result(task: asyncio.Future[Any]) -> None:
@@ -1057,9 +1063,9 @@ class HttpStatefulClient(_MCPClientMixin):
         stack: AsyncExitStack,
     ) -> tuple[Any, Any]:
         if self.transport == "streamable_http":
-            http_client = httpx.AsyncClient(
+            http_client = httpx2.AsyncClient(
                 headers=self.headers or {},
-                timeout=httpx.Timeout(
+                timeout=httpx2.Timeout(
                     connect=self.timeout,
                     read=self.sse_read_timeout,
                     write=self.timeout,
@@ -1067,6 +1073,7 @@ class HttpStatefulClient(_MCPClientMixin):
                 ),
                 **self.client_kwargs,
             )
+            http_client.event_hooks["response"].append(_raise_on_unauthorized)
             await stack.enter_async_context(http_client)
             context = await stack.enter_async_context(
                 streamable_http_client(url=self.url, http_client=http_client),

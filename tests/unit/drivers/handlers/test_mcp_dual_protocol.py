@@ -1002,7 +1002,7 @@ async def test_call_tool_structured_content_any_json_type(structured):
     await c.connect()
     try:
         result = await c.call_tool("echo", {})
-        assert result.structuredContent == structured
+        assert result.structured_content == structured
     finally:
         await c.close()
 
