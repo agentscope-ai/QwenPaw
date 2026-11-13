@@ -2145,6 +2145,43 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
         self._python_backend.cleanup_imports(plugin_id, source_path)
 
+    async def load_registration(
+        self,
+        manifest: PluginManifest,
+        source_path: Path,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Load the public registration entry for a host consumer.
+
+        A public Python entry is loaded independently of its channel driver.
+        Descriptor-only plugins retain passive discovery. Dependency checks
+        use installed packages; startup hooks and installation commits remain
+        separate from registration loading.
+        """
+        from ..utils.io_utils import run_sync_io
+        from .dependency_maintenance import lease_environment
+
+        binding = None
+        if manifest.entry.backend:
+            binding = await run_sync_io(
+                self.backend_resolver.resolve_registration,
+                source_path,
+                manifest,
+            )
+            targets = await self._python_backend.prepare_dependency_targets(
+                binding.description,
+            )
+            await run_sync_io(lease_environment, targets.targets)
+            targets.validate()
+        return await self.load_plugin(
+            manifest,
+            source_path,
+            config,
+            activate=False,
+            allow_install=False,
+            backend_binding=binding,
+        )
+
     async def load_plugin(
         self,
         manifest: PluginManifest,
@@ -5566,10 +5603,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
 
     async def _project_external_runtime(self, plugin_id: str) -> None:
         """Project providers and control commands for *plugin_id*."""
-        await self._project_providers(plugin_id)
+        await self.publish_provider_definitions(plugin_id)
         await self._project_control_commands(plugin_id)
 
-    async def _project_providers(self, plugin_id: str) -> None:
+    async def publish_provider_definitions(self, plugin_id: str) -> None:
         """Publish provider definitions without startup hooks or connections."""
         providers = [
             (pid, reg)

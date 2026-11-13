@@ -14,6 +14,58 @@ from qwenpaw.plugins.provision import inventory_path, record_tool_factory
 from qwenpaw.plugins.source_usage import source_writer
 
 
+@pytest.mark.parametrize("args", [[], ["status"], ["status", "--help"]])
+def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
+    from types import SimpleNamespace
+
+    import click
+
+    from qwenpaw.cli import plugin_cli
+
+    monkeypatch.setattr(
+        plugin_cli,
+        "catalog_for",
+        lambda ctx: SimpleNamespace(children=lambda path: set(), mounts={}),
+    )
+
+    class CustomGroup(click.Group):
+        __slots__ = ("message",)
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.message = "before"
+
+        def parse_args(self, ctx, args):
+            ctx.meta["custom_parser"] = True
+            return super().parse_args(ctx, args)
+
+        def invoke(self, ctx):
+            assert ctx.meta["custom_parser"]
+            click.echo(self.message)
+            result = super().invoke(ctx)
+            click.echo("after")
+            return result
+
+    @click.group(cls=CustomGroup, invoke_without_command=True)
+    def group():
+        pass
+
+    @group.command()
+    def status():
+        click.echo("ready")
+
+    runner = CliRunner()
+    native = runner.invoke(group, args)
+    mounted_group = plugin_cli.overlay(group)
+    assert isinstance(mounted_group, CustomGroup)
+    assert mounted_group.group_class is group.group_class
+    mounted = runner.invoke(mounted_group, args)
+    assert mounted.exit_code == native.exit_code == 0
+    assert mounted.output == native.output
+    assert type(group) is CustomGroup
+    assert group.commands == {"status": status}
+
+
 @pytest.mark.parametrize(
     "channel,requirement,available",
     [
@@ -218,14 +270,17 @@ def check(call):
     assert result.exit_code == 2, result.output
 
 
+@pytest.mark.parametrize("mode", ["command", "lazy", "alias", "nested"])
 def test_plugin_command_registers_runs_and_cleans_up(
     tmp_path,
     monkeypatch,
     fresh_registry,
     bounded_dependency_environment,
+    mode,
 ):
     from qwenpaw import constant
     from qwenpaw.cli import plugin_commands
+    from qwenpaw.cli.plugin_session import PluginSession
     from qwenpaw.config import utils
     from qwenpaw.plugins import api
 
@@ -264,6 +319,7 @@ def test_plugin_command_registers_runs_and_cleans_up(
                         "id": "status",
                         "path": ["models", "example"],
                         "help": "Example status",
+                        "kind": "command" if mode == "command" else "group",
                     },
                 ],
             },
@@ -271,7 +327,8 @@ def test_plugin_command_registers_runs_and_cleans_up(
         encoding="utf-8",
     )
     (source / "main.py").write_text(
-        """
+        f"MODE = {mode!r}\n"
+        + """
 import asyncio
 from pathlib import Path
 import threading
@@ -298,7 +355,20 @@ def build(call):
         click.echo(call.run(read()))
         if fail:
             raise click.ClickException('requested failure')
-    return status
+    if MODE == 'command':
+        return status
+    class LazyGroup(click.Group):
+        def list_commands(self, ctx):
+            return ['alias', 'nested', 'status']
+        def get_command(self, ctx, name):
+            if name == 'status':
+                return status
+            if name == 'alias':
+                return self.get_command(ctx, 'status')
+            if name == 'nested':
+                return LazyGroup('nested')
+            return None
+    return LazyGroup()
 
 class Plugin:
     def register(self, ctx):
@@ -326,8 +396,30 @@ plugin = Plugin()
 
     monkeypatch.setattr(api, "_write_tool_config", unexpected_install)
     monkeypatch.setattr(PluginApi, "_do_install_skills", unexpected_install)
+    execute_calls = []
+    execute = PluginSession.execute
+
+    def track_execution(session, plugin_id, registration, callback, *a, **kw):
+        execute_calls.append(plugin_id)
+
+        def guarded(*args, **kwargs):
+            instance = session.loader.lifecycle.get_instance(plugin_id)
+            assert instance.activity.tasks
+            return callback(*args, **kwargs)
+
+        return execute(session, plugin_id, registration, guarded, *a, **kw)
+
+    monkeypatch.setattr(PluginSession, "execute", track_execution)
     runner = CliRunner()
     args = ["models", "example"]
+    if mode != "command":
+        args.extend(
+            {
+                "lazy": ["status"],
+                "alias": ["alias"],
+                "nested": ["nested", "status"],
+            }[mode],
+        )
     assert runner.invoke(cli, args).exit_code == 2
     result = runner.invoke(cli, ["plugin", "install", str(source)])
     assert result.exit_code == 0, (result.output, result.exception)
@@ -346,8 +438,10 @@ plugin = Plugin()
     result = runner.invoke(cli, [*args, "--help"])
     assert result.exit_code == 0, result.output
     assert events.read_text().splitlines() == ["register"]
+    assert not execute_calls
     for tail, code in (([], 0), (["--fail"], 1)):
         events.write_text("", encoding="utf-8")
+        execute_calls.clear()
         result = runner.invoke(cli, [*args, *tail])
         assert result.exit_code == code, (result.output, result.exception)
         assert "ready" in result.output
@@ -357,6 +451,7 @@ plugin = Plugin()
             "run",
             "close",
         ]
+        assert execute_calls == ["terminal-example"]
         assert inventory.read_bytes() == saved
         assert not fresh_registry.leftover_registrations("terminal-example")
         with source_writer(source):
@@ -650,20 +745,31 @@ plugin = Plugin()
 
 
 @pytest.mark.parametrize("capability", ["providers", "channels"])
-def test_native_resource_discovery_preserves_cancellation(
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_native_resource_discovery_preserves_definition_lifecycle(
     tmp_path,
     monkeypatch,
     fresh_registry,
     bounded_dependency_environment,
     capability,
+    cancelled,
 ):
     import threading
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
 
     import click
 
     from qwenpaw import constant
     from qwenpaw.cli.plugin_resources import ensure_resources
     from qwenpaw.config import utils
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    manager = SimpleNamespace(
+        register_plugin_provider_async=AsyncMock(),
+        unregister_plugin_provider=Mock(),
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
 
     plugins = tmp_path / "plugins"
     source = plugins / "resource-control-flow"
@@ -684,14 +790,28 @@ def test_native_resource_discovery_preserves_cancellation(
         encoding="utf-8",
     )
     (source / "main.py").write_text(
-        """
+        f"CANCELLED = {cancelled!r}\nCAPABILITY = {capability!r}\n"
+        + """
 import asyncio
 from pathlib import Path
+from qwenpaw.plugins.channels import ChannelSpec
+from qwenpaw.plugins.providers import ProviderSpec
+
+def unexpected(*args):
+    raise AssertionError('Definition discovery started business resources')
 
 class Plugin:
     async def register(self, ctx):
         try:
-            raise asyncio.CancelledError()
+            if CANCELLED:
+                raise asyncio.CancelledError()
+            if CAPABILITY == 'providers':
+                ctx.register_provider(ProviderSpec('resource-example',
+                    'Resource example', unexpected))
+            else:
+                ctx.register_channel(ChannelSpec('resource-example',
+                    'Resource example', unexpected))
+            ctx.on_activate(unexpected)
         finally:
             await asyncio.sleep(0)
             Path(__file__).with_name('cleaned').touch()
@@ -704,14 +824,23 @@ plugin = Plugin()
     @click.command()
     def command():
         ensure_resources(capability)
+        ensure_resources(capability)
+        instance = fresh_registry.get_channel_catalog()
+        if capability == "channels":
+            assert "resource-example" in instance
+        else:
+            assert "resource-example" in fresh_registry.get_all_providers()
         click.echo("continued")
 
     threads = set(threading.enumerate())
     result = CliRunner().invoke(command)
-    assert result.exit_code == 1
-    assert "Aborted!" in result.output
-    assert "continued" not in result.output
+    assert result.exit_code == (1 if cancelled else 0), result.exception
+    assert ("Aborted!" in result.output) == cancelled
+    assert ("continued" in result.output) == (not cancelled)
     assert "unavailable:" not in result.output
+    assert manager.register_plugin_provider_async.await_count == (
+        1 if capability == "providers" and not cancelled else 0
+    )
     assert (source / "cleaned").exists()
     assert not fresh_registry.runtime_owners.leases()
     assert not fresh_registry.leftover_registrations(source.name)

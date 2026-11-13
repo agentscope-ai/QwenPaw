@@ -96,7 +96,8 @@ class PluginSession:
             self.loader = loader
         return self.loader
 
-    def load(self, manifest, source, settings=None):
+    def load_registration(self, manifest, source, settings=None):
+        """Retain source custody and register an invocation's contributions."""
         for retained in tuple(_retained_sessions):
             if (
                 retained.loader is not None
@@ -110,11 +111,11 @@ class PluginSession:
         from ..plugins.source_usage import source_reader
 
         self.sources.enter_context(source_reader(source))
-        result = self.run(self._load(manifest, source, settings))
+        result = self.run(self._load_registration(manifest, source, settings))
         self.records[key] = result
         return result
 
-    async def _load(self, manifest, source, settings):
+    async def _load_registration(self, manifest, source, settings):
         from ..plugins.discovery import read_manifest
         from .plugin_cli import read_settings
 
@@ -127,28 +128,10 @@ class PluginSession:
             else settings
         )
         loader = await self._loader()
-        binding = None
-        if manifest.entry.backend:
-            binding = loader.backend_resolver.resolve_registration(
-                source,
-                manifest,
-            )
-        if binding is not None:
-            from ..plugins.dependency_maintenance import lease_environment
-            from ..utils.io_utils import run_sync_io
-
-            targets = await loader._python_backend.prepare_dependency_targets(
-                binding.description,
-            )
-            await run_sync_io(lease_environment, targets.targets)
-            targets.validate()
-        record = await loader.load_plugin(
+        record = await loader.load_registration(
             fresh,
             source,
             settings,
-            activate=False,
-            allow_install=False,
-            backend_binding=binding,
         )
         if record.status == "failed":
             raise click.ClickException(

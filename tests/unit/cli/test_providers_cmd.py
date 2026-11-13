@@ -1212,14 +1212,23 @@ class TestSimpleDelegatingCmds:
         assert called == [True]
 
 
-def test_plugin_provider_explicit_target_normalizes_id(monkeypatch):
+@pytest.mark.parametrize("require_api_key", [False, True])
+def test_plugin_provider_explicit_target_normalizes_id(
+    monkeypatch,
+    require_api_key,
+):
     from contextlib import contextmanager
 
-    from qwenpaw.cli import http, plugin_resources
+    from qwenpaw.cli import http
     from qwenpaw.config import utils
 
     calls = []
-    manager = SimpleNamespace(plugin_providers={"example": {}})
+    provider = FakeProvider("example", require_api_key=require_api_key)
+    manager = SimpleNamespace(
+        plugin_providers={"example": {}},
+        get_provider=lambda provider_id: provider,
+    )
+    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
     monkeypatch.setattr(utils, "is_qwenpaw_running", lambda: False)
     monkeypatch.setattr(
         http,
@@ -1242,24 +1251,28 @@ def test_plugin_provider_explicit_target_normalizes_id(monkeypatch):
     @click.command()
     @click.option("--host", default="127.0.0.1")
     def command(host):
-        assert plugin_resources.update_provider_config(
-            manager,
-            "EXAMPLE",
-            {"api_key": "probe-key"},
-        )
+        pcmd.configure_provider_api_key_interactive("EXAMPLE")
 
-    result = CliRunner().invoke(command, ["--host", "remote"])
+    result = CliRunner().invoke(
+        command,
+        ["--host", "remote"],
+        input="http://new-base\nprobe-key\n",
+    )
     assert result.exit_code == 0, (result.output, result.exception)
-    assert calls == [("models/example/config", {"api_key": "probe-key"})]
+    values = {"base_url": "http://new-base"}
+    if require_api_key:
+        values["api_key"] = "probe-key"
+    assert calls == [("models/example/config", values)]
 
 
+@pytest.mark.parametrize("require_api_key", [False, True])
 def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
     tmp_path,
     monkeypatch,
+    require_api_key,
 ):
     import json
 
-    from qwenpaw.cli import plugin_resources
     from qwenpaw.config import utils
     from qwenpaw.security import secret_store
 
@@ -1288,6 +1301,7 @@ def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
         name="Example",
         base_url="https://old.invalid",
         api_key="old-key",
+        require_api_key=require_api_key,
         models_last_synced_at="2026-01-01T00:00:00Z",
         models_last_sync_error="old error",
         models_syncing=True,
@@ -1307,16 +1321,23 @@ def test_unavailable_plugin_provider_connection_change_invalidates_snapshot(
         "preserved_plugin_field": {"value": 17},
     }
     path.write_text(json.dumps(raw))
-    manager = SimpleNamespace(plugin_providers={})
-    assert plugin_resources.update_provider_config(
-        manager,
-        "EXAMPLE",
-        {"base_url": "https://new.invalid", "api_key": "new-key"},
-        saved=(snapshot, path),
+    manager = SimpleNamespace(
+        plugin_providers={},
+        plugin_path=tmp_path,
+        get_provider=lambda provider_id: None,
     )
+    monkeypatch.setattr(pcmd, "_manager", lambda: manager)
+    result = CliRunner().invoke(
+        pcmd.models_group,
+        ["config-key", "EXAMPLE"],
+        input="https://new.invalid\nnew-key\n",
+    )
+    assert result.exit_code == 0, (result.output, result.exception)
     actual = json.loads(path.read_text())
     assert actual["base_url"] == "https://new.invalid"
-    assert actual["api_key"] == "probe-encrypted:new-key"
+    assert actual["api_key"] == (
+        "probe-encrypted:new-key" if require_api_key else "old-key"
+    )
     assert actual["discovered_models"] == []
     assert actual["models_last_synced_at"] is None
     assert actual["models_last_sync_error"] is None

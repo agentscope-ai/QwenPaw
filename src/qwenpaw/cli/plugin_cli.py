@@ -13,6 +13,7 @@ import click
 
 if TYPE_CHECKING:
     from ..plugins.architecture import CliDeclaration, PluginManifest
+    from .plugin_session import PluginSession
 
 logger = logging.getLogger(__name__)
 _ALIASES = {
@@ -157,30 +158,18 @@ class ExtensibleGroup(click.Group):
 
     def get_command(self, ctx, name):
         command = self._get_builtin_command(ctx, name)
-        if (
-            command is not None
-            and getattr(self, "_plugin_owner_id", None) is None
-        ):
+        execution = getattr(self, "_plugin_execution", None)
+        if command is not None and execution is None:
             return overlay(command)
         path = command_path(ctx) + (name,)
         mounts = catalog_for(ctx).mounts.get(path, ())
         if command is not None:
-            return ConflictingCommand(name) if mounts else overlay(command)
+            return (
+                ConflictingCommand(name)
+                if mounts
+                else _execution_command(command, execution)
+            )
         return PluginCommand(name, mounts) if mounts else None
-
-
-class GroupOverlay(ExtensibleGroup):
-    """Invocation-local child mounting without mutating cached Click groups."""
-
-    def __init__(self, group):
-        self.__dict__ = group.__dict__.copy()
-        self.original = group
-
-    def _list_builtin_commands(self, ctx):
-        return self.original.list_commands(ctx)
-
-    def _get_builtin_command(self, ctx, name):
-        return self.original.get_command(ctx, name)
 
 
 def overlay(command):
@@ -188,13 +177,33 @@ def overlay(command):
         command,
         ExtensibleGroup,
     ):
-        return GroupOverlay(command)
+        # Preserve custom state and Click behavior on an invocation-local copy.
+        # Empty slots keep the original instance layout for class assignment.
+        group_type = type(
+            "ExtensibleGroup",
+            (ExtensibleGroup, type(command)),
+            {"__slots__": (), "group_class": command.group_class},
+        )
+        command = copy(command)
+        command.__class__ = group_type
     return command
 
 
-def _execution_tree(command, session, plugin_id, registration):
+@dataclass(frozen=True)
+class _CliExecution:
+    """Bind one registered contribution to commands resolved by Click."""
+
+    session: "PluginSession"
+    plugin_id: str
+    registration: tuple[str, object]
+
+
+def _execution_command(command, execution):
+    """Return an execution-bound command without modifying the original."""
+    if getattr(command, "_plugin_execution", None) is execution:
+        return command
     command = copy(command)
-    command._plugin_owner_id = plugin_id
+    command._plugin_execution = execution
 
     def wrap(callback, prepare=False):
         @wraps(callback)
@@ -203,9 +212,9 @@ def _execution_tree(command, session, plugin_id, registration):
             try:
                 if prepare and ctx.invoked_subcommand is not None:
                     return callback(*args, **kwargs)
-                return session.execute(
-                    plugin_id,
-                    registration,
+                return execution.session.execute(
+                    execution.plugin_id,
+                    execution.registration,
                     callback,
                     *args,
                     **kwargs,
@@ -214,7 +223,7 @@ def _execution_tree(command, session, plugin_id, registration):
                 raise
             except Exception as exc:
                 raise click.ClickException(
-                    f"Plugin '{plugin_id}': {exc}",
+                    f"Plugin '{execution.plugin_id}': {exc}",
                 ) from exc
 
         return execute
@@ -227,10 +236,6 @@ def _execution_tree(command, session, plugin_id, registration):
     if isinstance(command, click.Group):
         if command._result_callback is not None:
             command._result_callback = wrap(command._result_callback)
-        command.commands = {
-            name: _execution_tree(child, session, plugin_id, registration)
-            for name, child in command.commands.items()
-        }
     return overlay(command)
 
 
@@ -262,7 +267,7 @@ class PluginCommand(click.Command):
             )
         session = session_for(parent)
         try:
-            session.load(mount.manifest, mount.source)
+            session.load_registration(mount.manifest, mount.source)
             contributions = session.loader.registry.cli_contributions
             row = contributions.get((mount.manifest.id, mount.declaration.id))
             if row is None:
@@ -283,11 +288,13 @@ class PluginCommand(click.Command):
                 raise click.ClickException(
                     "CLI factory kind differs from manifest",
                 )
-            command = _execution_tree(
+            command = _execution_command(
                 command,
-                session,
-                mount.manifest.id,
-                (mount.declaration.id, row),
+                _CliExecution(
+                    session,
+                    mount.manifest.id,
+                    (mount.declaration.id, row),
+                ),
             )
             command.name = mount.declaration.path[-1]
             return command.make_context(

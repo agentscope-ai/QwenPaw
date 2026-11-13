@@ -164,9 +164,11 @@ def ensure_resources(capability):
     session = session_for(ctx)
     for manifest, source in candidates:
         try:
-            session.load(manifest, source)
+            session.load_registration(manifest, source)
             if capability == "providers":
-                session.run(session.loader._project_providers(manifest.id))
+                session.run(
+                    session.loader.publish_provider_definitions(manifest.id),
+                )
         except (click.Abort, click.exceptions.Exit):
             raise
         except Exception as exc:  # noqa: BLE001
@@ -200,7 +202,7 @@ def doctor_contributions(context):
             continue
         session = session_for(ctx)
         try:
-            session.load(manifest, source)
+            session.load_registration(manifest, source)
             checks = session.loader.registry.get_extensions(DOCTOR)
             for contribution in checks:
                 owner, name = contribution.plugin_id, contribution.id

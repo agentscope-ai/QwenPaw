@@ -219,10 +219,14 @@ def configure_provider_api_key_interactive(
         if not base_url:
             base_url = None
 
+    from .plugin_resources import update_provider_config
+
     if not defn.require_api_key:
-        if base_url is not None and not manager.update_provider(
+        if base_url is not None and not update_provider_config(
+            manager,
             provider_id,
             {"base_url": base_url},
+            saved=saved,
         ):
             raise click.ClickException("Failed to update provider base URL.")
         click.echo(
@@ -245,8 +249,6 @@ def configure_provider_api_key_interactive(
         show_default=False,
         prompt_suffix=f" [{'set' if current_key else 'not set'}]: ",
     )
-
-    from .plugin_resources import update_provider_config
 
     ok = update_provider_config(
         manager,

@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 
 from ...plugins.official_channel_catalog import official_channel_owners
+
+logger = logging.getLogger(__name__)
 
 OFFICIAL_CHANNEL_OWNERS = official_channel_owners()
 RESPONSE_FIELDS = frozenset(
@@ -150,17 +153,21 @@ def _catalog_files():
     from ..._version_compat import check_plugin_version_compat
 
     for manifest, source in discover_plugins([plugins_dir]).plugins:
-        if (
-            not manifest.entry.descriptor
-            or not check_plugin_version_compat(manifest)[0]
-        ):
+        if not manifest.entry.descriptor:
             continue
         try:
+            if not check_plugin_version_compat(manifest)[0]:
+                continue
             descriptions[manifest.id] = describe_channel(source, manifest)
             installed[manifest.id] = True
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError) as exc:
             # Malformed metadata cannot define a form. Saved settings remain
             # available through the key/value fallback below.
+            logger.warning(
+                "Cannot read channel metadata for plugin '%s': %s",
+                manifest.id,
+                exc,
+            )
             continue
     return descriptions, installed, load_config().plugins
 
