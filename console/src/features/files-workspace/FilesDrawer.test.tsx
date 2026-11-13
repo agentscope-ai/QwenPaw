@@ -2,6 +2,7 @@ import { renderWithProviders } from "@/test/common_setup";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AnimatePresence } from "motion/react";
 import { agentsApi } from "../../api/modules/agents";
 import FilesDrawer from "./FilesDrawer";
 import { workspaceApi } from "../../api/modules/workspace";
@@ -58,6 +59,44 @@ vi.mock("../../utils/downloadFileFromUrl", () => ({
   downloadFileFromUrl: vi.fn(),
 }));
 
+function PreviewFocusHarness() {
+  const [state, dispatch] = useReducer(filesDrawerReducer, { kind: "closed" });
+  return (
+    <>
+      <section data-testid="chat-background">
+        <button
+          type="button"
+          onClick={(event) =>
+            dispatch({
+              type: "OPEN_PREVIEW",
+              target: { source: "workspace", path: "readme.md" },
+              trigger: event.currentTarget,
+            })
+          }
+        >
+          Open preview
+        </button>
+        <div className="sender">
+          <textarea aria-label="Chat input" defaultValue="Draft " />
+        </div>
+      </section>
+      <AnimatePresence initial={false}>
+        {state.kind !== "closed" && (
+          <FilesDrawer
+            state={state}
+            dispatch={dispatch}
+            scope={{
+              kind: "session",
+              agentId: "default",
+              sessionId: "session-1",
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
 describe("FilesDrawer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,7 +108,95 @@ describe("FilesDrawer", () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     localStorage.clear();
+  });
+
+  it.each(["fullscreen", "tablet"])(
+    "closes the %s overlay before focusing a file mention in chat",
+    async (mode) => {
+      const mediaQuery = window.matchMedia("(max-width: 1024px)");
+      vi.stubGlobal(
+        "matchMedia",
+        vi.fn((query: string) => ({
+          ...mediaQuery,
+          media: query,
+          matches: mode === "tablet" && query === "(max-width: 1024px)",
+        })),
+      );
+      const user = userEvent.setup();
+      renderWithProviders(<PreviewFocusHarness />);
+      const composer = screen.getByRole("textbox", { name: "Chat input" });
+      await user.click(composer);
+      await user.keyboard("{End}");
+      const trigger = screen.getByRole("button", { name: "Open preview" });
+      await user.click(trigger);
+      await screen.findByRole("button", { name: "common.copy" });
+      if (mode === "fullscreen") {
+        await user.click(
+          screen.getByRole("button", { name: "files.enterFullscreen" }),
+        );
+      }
+      await user.click(
+        screen.getByRole("button", { name: "files.mentionInChat" }),
+      );
+      await waitFor(() => {
+        expect(composer).toHaveValue("Draft @ readme.md ");
+        expect(composer).toHaveFocus();
+        expect(screen.queryByRole("region")).not.toBeInTheDocument();
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      });
+      expect(trigger).not.toHaveFocus();
+    },
+  );
+
+  it("cycles fullscreen focus and restores the trigger on close", async () => {
+    vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+      new DOMRect(0, 0, 40, 40),
+    ] as unknown as DOMRectList);
+    const user = userEvent.setup();
+    renderWithProviders(<PreviewFocusHarness />);
+    const trigger = screen.getByRole("button", { name: "Open preview" });
+    await user.click(trigger);
+    const first = await screen.findByRole("button", { name: "common.copy" });
+    await user.click(
+      screen.getByRole("button", { name: "files.enterFullscreen" }),
+    );
+    expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
+    const background = screen.getByTestId("chat-background");
+    expect(background).toHaveAttribute("inert");
+    const last = screen.getByRole("button", { name: "files.expandWorkspace" });
+    last.focus();
+    await user.tab();
+    expect(first).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(last).toHaveFocus();
+    await user.keyboard("{Escape}");
+    const fullscreen = screen.getByRole("button", {
+      name: "files.enterFullscreen",
+    });
+    expect(fullscreen).toHaveFocus();
+    expect(background).not.toHaveAttribute("inert");
+    await user.click(fullscreen);
+    await user.click(screen.getByRole("button", { name: "common.close" }));
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(background).not.toHaveAttribute("inert");
+  });
+
+  it("restores existing background inert attributes on unmount", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderWithProviders(<PreviewFocusHarness />);
+    await user.click(screen.getByRole("button", { name: "Open preview" }));
+    await screen.findByRole("button", { name: "common.copy" });
+    const background = screen.getByTestId("chat-background");
+    background.setAttribute("inert", "already-inert");
+    fireEvent.click(
+      screen.getByRole("button", { name: "files.enterFullscreen" }),
+    );
+    expect(background).toHaveAttribute("inert", "");
+    unmount();
+    expect(background).toHaveAttribute("inert", "already-inert");
+    expect(document.body).not.toHaveAttribute("inert");
   });
 
   it("restores the saved width after toggling fullscreen", async () => {
