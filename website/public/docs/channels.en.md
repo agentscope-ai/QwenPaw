@@ -690,12 +690,12 @@ You can also configure directly in the agent workspace `agent.json` (e.g., `~/.q
 
 **WeChat Personal-specific fields:**
 
-| Field            | Type   | Default                       | Description                                                                           |
-| ---------------- | ------ | ----------------------------- | ------------------------------------------------------------------------------------- |
-| `bot_token`      | string | `""`                          | Bearer token obtained after QR code authorization. The channel uses this value first. |
+| Field            | Type   | Default                               | Description                                                                           |
+| ---------------- | ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
+| `bot_token`      | string | `""`                                  | Bearer token obtained after QR code authorization. The channel uses this value first. |
 | `bot_token_file` | string | `<workspace>/wechat/wechat_bot_token` | File the channel reads when no token is configured and writes after startup QR login. |
-| `base_url`       | string | official default              | iLink API base URL; leave empty to use the official default                           |
-| `media_dir`      | string | `~/.qwenpaw/media`            | Directory to save received images and files                                           |
+| `base_url`       | string | official default                      | iLink API base URL; leave empty to use the official default                           |
+| `media_dir`      | string | `~/.qwenpaw/media`                    | Directory to save received images and files                                           |
 
 Each agent stores its reply cache in `wechat/wechat_context_tokens.json` in its workspace. If you relied on the old `wechat_bot_token` in the QwenPaw data root, scan again or set `bot_token_file` to the old file's full path for the corresponding agent. Incoming messages rebuild the reply cache.
 

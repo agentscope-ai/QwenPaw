@@ -673,12 +673,12 @@ NapCat  ──反向 WS──▶  QwenPaw (:6199/ws)
 
 **微信个人专属字段说明：**
 
-| 字段             | 类型   | 默认值                        | 说明                                                |
-| ---------------- | ------ | ----------------------------- | --------------------------------------------------- |
-| `bot_token`      | string | `""`                          | 扫码授权后得到的 Bearer Token，启动时优先使用 |
+| 字段             | 类型   | 默认值                                | 说明                                                            |
+| ---------------- | ------ | ------------------------------------- | --------------------------------------------------------------- |
+| `bot_token`      | string | `""`                                  | 扫码授权后得到的 Bearer Token，启动时优先使用                   |
 | `bot_token_file` | string | `<workspace>/wechat/wechat_bot_token` | 配置未填写 Bot Token 时读取的文件，也是启动扫码成功后的保存位置 |
-| `base_url`       | string | 官方默认地址                  | iLink API 地址，一般留空使用默认值                  |
-| `media_dir`      | string | `~/.qwenpaw/media`            | 接收到的图片、文件保存目录                          |
+| `base_url`       | string | 官方默认地址                          | iLink API 地址，一般留空使用默认值                              |
+| `media_dir`      | string | `~/.qwenpaw/media`                    | 接收到的图片、文件保存目录                                      |
 
 回复缓存固定保存在各自工作区的 `wechat/wechat_context_tokens.json`。如果升级前只依赖数据根目录下的 `wechat_bot_token`，可以重新扫码，或将旧文件的完整路径填入对应智能体的 `bot_token_file`。收到新消息后会建立新的回复缓存。
 
