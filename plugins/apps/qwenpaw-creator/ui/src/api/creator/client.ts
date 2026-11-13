@@ -174,15 +174,58 @@ export async function creatorFetch(
   }
 }
 
-export async function creatorRequest<T>(
+async function creatorFetchJson<T>(
   path: string,
-  init: RequestInit = {},
-  options: { timeoutMs?: number } = {},
+  init: RequestInit,
+  options: { timeoutMs?: number; dedupe?: boolean },
 ): Promise<T> {
   const response = await creatorFetch(path, init, options);
   if (!response.ok) throw await errorFrom(response);
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+/**
+ * In-flight GETs share one request.
+ *
+ * Opening a Project page issued the same read several times over -- the
+ * execution-authorization lookup five times, the active-review lookup three,
+ * the Project document three, and tts-capabilities three on the way back. A
+ * duplicate is not merely a wasted round trip: every one of them costs the
+ * server a document load inside a process whose GIL measured 96% busy, so
+ * duplicates actively slow down the request that matters.
+ *
+ * Only signal-free GETs join a shared promise. Aborting a shared request would
+ * fail callers that never asked to cancel, so a caller that passes its own
+ * signal gets its own request -- which is exactly what cancellation needs.
+ *
+ * ``dedupe: false`` opts out for callers that must observe two independent
+ * responses; the store's refresh-ordering test is one of them.
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+export async function creatorRequest<T>(
+  path: string,
+  init: RequestInit = {},
+  options: { timeoutMs?: number; dedupe?: boolean } = {},
+): Promise<T> {
+  const method = (init.method ?? "GET").toUpperCase();
+  if (
+    method !== "GET" ||
+    init.body ||
+    init.signal ||
+    options.dedupe === false
+  ) {
+    return creatorFetchJson<T>(path, init, options);
+  }
+  const key = `${path}|${options.timeoutMs ?? 0}`;
+  const shared = inflightGets.get(key);
+  if (shared) return shared as Promise<T>;
+  const created = creatorFetchJson<T>(path, init, options).finally(() => {
+    inflightGets.delete(key);
+  });
+  inflightGets.set(key, created);
+  return created;
 }
 
 export function jsonBody(value: unknown): string {

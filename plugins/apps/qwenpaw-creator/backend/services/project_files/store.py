@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import json
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -64,6 +65,44 @@ _SAFE_PROJECT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # marker file so listing keeps them out of the user's own project shelf while
 # every id-addressed route still serves them normally.
 BUILTIN_EXAMPLE_MARKER: Final = ".builtin-example"
+PROJECT_SUMMARY_RECORD: Final = "runtime/summary.json"
+SUMMARY_RECORD_SCHEMA: Final = 1
+LIST_SUMMARY_CACHE_ENV: Final = "CREATOR_LIST_SUMMARY_CACHE"
+# Fields the listing projection treats as required strings. A damaged
+# record must be a miss, never an authority: ``_cached_summary`` checks
+# each one before handing it to a dataclass whose annotations are
+# compile-time only, so a ``name=42`` would otherwise sail through and
+# blow up later in ``list(sort_by="name")`` with an AttributeError on
+# ``s.name.lower()`` -- which the surrounding ``except (KeyError,
+# TypeError, ValueError)`` does not catch. ``str.lower()`` is not the
+# only consumer (HomePage renders name and scenario, the API returns
+# etag), so a corrupt field would 500 the whole listing rather than
+# downgrade to a full read.
+SUMMARY_REQUIRED_STR_FIELDS: Final = (
+    "name",
+    "description",
+    "scenario",
+    "aspectRatio",
+    "resolution",
+    "etag",
+)
+SUMMARY_OPTIONAL_STR_FIELDS: Final = (
+    "contentType",
+    "coverVersionId",
+    "coverVersionSource",
+    "finalVideoVersionId",
+)
+# ISO datetimes need more than ``isinstance(str)``: ``datetime.fromisoformat``
+# happily produces a naive value from ``"2026-11-12T10:00:00"`` (no offset),
+# and mixing it with a warm aware datetime in a later listing raises
+# ``TypeError: can't compare offset-naive and offset-aware datetimes`` --
+# outside this method's try/except, in ``list()``'s sort. Every Project
+# document persists in UTC, so a cached timestamp without tzinfo is damage
+# and must fall back to a full read (review #243 / #255 follow-up P2).
+SUMMARY_TZAWARE_DATETIME_FIELDS: Final = (
+    "createdAt",
+    "updatedAt",
+)
 
 
 class ProjectStoreError(RuntimeError):
@@ -135,6 +174,27 @@ class ProjectSummary:
     cover_version_id: str | None = None
     cover_version_source: str | None = None
     final_video_version_id: str | None = None
+
+
+def _project_json_stamp(entry: Path) -> tuple[int, int] | None:
+    """``(mtime_ns, size)`` of one Project document, None when unreadable.
+
+    The same fingerprint the reconcile fast path trusts: a commit replaces
+    ``project.json`` by rename, so either field moving means the bytes moved.
+    """
+
+    try:
+        info = (entry / "project.json").stat()
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size)
+
+
+def _list_summary_cache_enabled() -> bool:
+    """``CREATOR_LIST_SUMMARY_CACHE=0`` restores the always-read listing."""
+
+    raw = os.environ.get(LIST_SUMMARY_CACHE_ENV, "").strip().lower()
+    return raw not in {"0", "false", "off", "no"}
 
 
 # Storyboard frames represent a Project best; character/scene reference images
@@ -1346,32 +1406,53 @@ class ProjectStore:
             # Bundled example Projects never surface in "my projects".
             if (entry / BUILTIN_EXAMPLE_MARKER).exists():
                 continue
+            cached = (
+                self._cached_summary(entry, safe_id)
+                if _list_summary_cache_enabled()
+                else None
+            )
+            if cached is not None:
+                summaries.append(cached)
+                continue
+            # The stamp is captured *before* the read so it names the exact
+            # bytes the summary will describe. ``_cache_summary`` re-checks
+            # it against the live file before publishing and skips the write
+            # if a commit landed in the read/build window -- otherwise an
+            # old summary would be stamped with the new document's fingerprint
+            # and every later list would keep serving the stale card until
+            # the next write happened to invalidate it.
+            stamp_before_read = _project_json_stamp(entry)
             try:
                 snapshot = self.read(safe_id)
             except ProjectStoreError as exc:
                 logger.warning("Skipping corrupt Project %s: %s", safe_id, exc)
                 continue
             cover = _cover_reference(snapshot.project)
-            summaries.append(
-                ProjectSummary(
-                    project_id=safe_id,
-                    name=snapshot.project.name,
-                    description=snapshot.project.description,
-                    scenario=snapshot.project.scenario,
-                    aspect_ratio=snapshot.project.settings.aspect_ratio,
-                    resolution=snapshot.project.settings.resolution,
-                    content_type=snapshot.project.settings.content_type,
-                    generation=snapshot.generation,
-                    created_at=snapshot.project.created_at,
-                    updated_at=snapshot.project.updated_at,
-                    etag=snapshot.etag,
-                    cover_version_id=cover[0] if cover else None,
-                    cover_version_source=cover[1] if cover else None,
-                    final_video_version_id=_final_video_reference(
-                        snapshot.project,
-                    ),
+            summary = ProjectSummary(
+                project_id=safe_id,
+                name=snapshot.project.name,
+                description=snapshot.project.description,
+                scenario=snapshot.project.scenario,
+                aspect_ratio=snapshot.project.settings.aspect_ratio,
+                resolution=snapshot.project.settings.resolution,
+                content_type=snapshot.project.settings.content_type,
+                generation=snapshot.generation,
+                created_at=snapshot.project.created_at,
+                updated_at=snapshot.project.updated_at,
+                etag=snapshot.etag,
+                cover_version_id=cover[0] if cover else None,
+                cover_version_source=cover[1] if cover else None,
+                final_video_version_id=_final_video_reference(
+                    snapshot.project,
                 ),
             )
+            if stamp_before_read is not None:
+                self._cache_summary(
+                    entry,
+                    summary,
+                    expected_stamp=stamp_before_read,
+                )
+            summaries.append(summary)
         reverse = sort_order == "desc"
         if sort_by == "name":
             summaries.sort(key=lambda s: s.name.lower(), reverse=reverse)
@@ -1381,7 +1462,165 @@ class ProjectStore:
             summaries.sort(key=lambda s: s.updated_at, reverse=reverse)
         return summaries
 
-    def discover_project_ids(self) -> tuple[str, ...]:
+    def _cached_summary(
+        self,
+        entry: Path,
+        safe_id: str,
+    ) -> ProjectSummary | None:
+        """Return the cached listing projection while it still matches.
+
+        ``list()`` used to read, migrate and validate every Project document to
+        build one card each -- measured 34 MB and 0.7 s across eight Projects,
+        on every home-page load and every return from a Project, competing for
+        the GIL with whatever else the process was doing. The record is keyed on
+        the document's ``(mtime_ns, size)``, so a moved document simply misses
+        and the previous full read happens exactly as before. Anything malformed
+        in the record is also a miss: this is a cache, never an authority.
+        """
+
+        try:
+            raw = json.loads(
+                (entry / PROJECT_SUMMARY_RECORD).read_text("utf-8"),
+            )
+        except (OSError, ValueError):
+            return None
+        if (
+            not isinstance(raw, dict)
+            or raw.get("schema") != SUMMARY_RECORD_SCHEMA
+        ):
+            return None
+        if raw.get("projectId") != safe_id:
+            # A record naming another Project is a miss, never a read.
+            return None
+        stamp = _project_json_stamp(entry)
+        if stamp is None or raw.get("sourceStamp") != list(stamp):
+            return None
+        # Field-level validation is the difference between "damage is only
+        # a cache miss" and "damage 500s every listing"; see the constants
+        # above for the specific crash a missing check would enable.
+        for key in SUMMARY_REQUIRED_STR_FIELDS:
+            if not isinstance(raw.get(key), str):
+                return None
+        for key in SUMMARY_OPTIONAL_STR_FIELDS:
+            present = raw.get(key)
+            if present is not None and not isinstance(present, str):
+                return None
+        generation = raw.get("generation")
+        if not isinstance(generation, (int, str)) or isinstance(
+            generation,
+            bool,
+        ):
+            return None
+        # Parse datetimes here and refuse naive values before the
+        # ``ProjectSummary`` construction; the exception that a mixed
+        # naive/aware sort raises lives one call site up and this
+        # method's try/except cannot see it. See the constant's comment.
+        try:
+            parsed_datetimes = {
+                key: datetime.fromisoformat(raw[key])
+                for key in SUMMARY_TZAWARE_DATETIME_FIELDS
+            }
+        except (KeyError, TypeError, ValueError):
+            return None
+        if any(
+            value.tzinfo is None for value in parsed_datetimes.values()
+        ):
+            return None
+        try:
+            return ProjectSummary(
+                project_id=safe_id,
+                name=raw["name"],
+                description=raw["description"],
+                scenario=raw["scenario"],
+                aspect_ratio=raw["aspectRatio"],
+                resolution=raw["resolution"],
+                content_type=raw["contentType"],
+                generation=int(raw["generation"]),
+                created_at=parsed_datetimes["createdAt"],
+                updated_at=parsed_datetimes["updatedAt"],
+                etag=raw["etag"],
+                cover_version_id=raw.get("coverVersionId"),
+                cover_version_source=raw.get("coverVersionSource"),
+                final_video_version_id=raw.get("finalVideoVersionId"),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def _cache_summary(
+        self,
+        entry: Path,
+        summary: ProjectSummary,
+        *,
+        expected_stamp: tuple[int, int],
+    ) -> None:
+        """Persist the listing projection; a failed write is only a miss.
+
+        ``expected_stamp`` must be the fingerprint the summary was built
+        against, captured before :meth:`read`. If the live document has moved
+        on since (a concurrent commit that landed between the read and this
+        call), publishing the pair would stamp an old summary with a new
+        fingerprint and every later :meth:`list` would keep serving the stale
+        card until the next write -- a permanently-cached stale read of a
+        legal change, not the transient skew list() is allowed elsewhere.
+        Skipping this turn costs one full read on the next listing, which is
+        the pre-cache behaviour.
+        """
+
+        current_stamp = _project_json_stamp(entry)
+        if current_stamp is None or current_stamp != expected_stamp:
+            return
+        stamp = current_stamp
+        payload = {
+            "schema": SUMMARY_RECORD_SCHEMA,
+            "sourceStamp": list(stamp),
+            "projectId": summary.project_id,
+            "name": summary.name,
+            "description": summary.description,
+            "scenario": summary.scenario,
+            "aspectRatio": summary.aspect_ratio,
+            "resolution": summary.resolution,
+            "contentType": summary.content_type,
+            "generation": summary.generation,
+            "createdAt": summary.created_at.isoformat(),
+            "updatedAt": summary.updated_at.isoformat(),
+            "etag": summary.etag,
+            "coverVersionId": summary.cover_version_id,
+            "coverVersionSource": summary.cover_version_source,
+            "finalVideoVersionId": summary.final_video_version_id,
+        }
+        target = entry / PROJECT_SUMMARY_RECORD
+        temp_dir = target.parent
+        try:
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            descriptor, temp_name = tempfile.mkstemp(
+                prefix=".summary-",
+                suffix=".tmp",
+                dir=temp_dir,
+            )
+            temp_path = Path(temp_name)
+            try:
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    json.dump(payload, stream)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                atomic_replace_path(temp_path, target)
+            except BaseException:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+        except OSError:
+            logger.debug(
+                "Project summary cache skipped for %s",
+                summary.project_id,
+            )
+
+    def discover_project_ids(
+        self,
+        *,
+        include_builtin_examples: bool = True,
+    ) -> tuple[str, ...]:
         """Discover Project directory identities without loading their data.
 
         Startup recovery and health reporting must still be able to name a
@@ -1389,6 +1628,11 @@ class ProjectStore:
         validates every Project and therefore cannot serve that purpose.
         Internal staging/tombstone directories, symlinks, unsafe names and
         incomplete directories remain outside discovery.
+
+        *include_builtin_examples* keeps the bundled example Projects in the
+        result, which is what the per-tick scheduler wants. A caller acting on
+        behalf of the user's own work passes ``False`` so discovery matches
+        what ``list()`` reports.
         """
 
         try:
@@ -1413,6 +1657,11 @@ class ProjectStore:
             try:
                 (entry / "project.json").lstat()
             except (FileNotFoundError, OSError):
+                continue
+            if (
+                not include_builtin_examples
+                and (entry / BUILTIN_EXAMPLE_MARKER).exists()
+            ):
                 continue
             project_ids.append(safe_id)
         return tuple(project_ids)
@@ -1647,15 +1896,76 @@ class ProjectStore:
         ):
             raise UnsafeProjectPath("Project assets must be a real directory")
         resolved_assets = assets_root.resolve(strict=True)
+        # ``Path.resolve()`` walks every ancestor component, so doing it once
+        # per indexed file cost ~8 lstats per asset on every Project read --
+        # measured 2,500 lstats/second from the reconcile tick alone on a
+        # 166-asset Project.  Resolve each distinct parent once (a symlinked
+        # directory still lands outside) and only inspect the leaf itself.
+        resolved_parents: dict[Path, Path] = {assets_root: resolved_assets}
         for indexed in project.assets.files_by_id.values():
-            path = PurePosixPath(indexed.relative_uri)
-            candidate = project_root.joinpath(*path.parts)
+            candidate = project_root.joinpath(
+                *_lexical_asset_parts(indexed.relative_uri),
+            )
+            parent = candidate.parent
+            resolved_parent = resolved_parents.get(parent)
+            if resolved_parent is None:
+                resolved_parent = parent.resolve(strict=False)
+                resolved_parents[parent] = resolved_parent
             try:
-                candidate.resolve(strict=False).relative_to(resolved_assets)
-            except (OSError, ValueError) as exc:
+                resolved_parent.relative_to(resolved_assets)
+            except ValueError as exc:
                 raise UnsafeProjectPath(
                     f"Indexed file escapes Project assets: {indexed.relative_uri}",
                 ) from exc
+            try:
+                leaf_stat = candidate.lstat()
+            except FileNotFoundError:
+                # A leaf that is not on disk cannot escape anything, and the
+                # previous ``resolve(strict=False)`` accepted it the same way.
+                continue
+            except OSError as exc:
+                raise UnsafeProjectPath(
+                    f"Indexed file escapes Project assets: {indexed.relative_uri}",
+                ) from exc
+            if is_link_stat(leaf_stat):
+                # Only a real symlink needs the full walk to learn where it
+                # lands -- which is exactly the escape this check exists for.
+                try:
+                    candidate.resolve(strict=False).relative_to(
+                        resolved_assets,
+                    )
+                except (OSError, ValueError) as exc:
+                    raise UnsafeProjectPath(
+                        f"Indexed file escapes Project assets: "
+                        f"{indexed.relative_uri}",
+                    ) from exc
+
+
+def _lexical_asset_parts(relative_uri: str) -> tuple[str, ...]:
+    """Collapse ``.``/``..`` textually and require the result to stay in assets.
+
+    The Project schema already refuses traversal and absolute URIs, so this is
+    a second line of defense that costs no syscalls: a URI that normalizes back
+    inside the tree (``assets/sub/../artifacts/x``) keeps the same verdict the
+    old per-file ``Path.resolve()`` produced, while anything that leaves
+    ``assets`` is refused here instead of after a walk over every ancestor.
+    """
+
+    parts: list[str] = []
+    for part in PurePosixPath(relative_uri).parts:
+        if part in {"", ".", "/"}:
+            continue
+        if part == "..":
+            if not parts:
+                break
+            parts.pop()
+            continue
+        parts.append(part)
+    if not parts or parts[0] != "assets":
+        raise UnsafeProjectPath(
+            f"Indexed file escapes Project assets: {relative_uri}",
+        )
+    return tuple(parts)
 
 
 def _safe_project_id(value: str) -> str:

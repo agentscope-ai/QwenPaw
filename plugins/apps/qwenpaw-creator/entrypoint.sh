@@ -66,6 +66,14 @@ else
 fi
 
 export QWENPAW_PORT="${QWENPAW_PORT:-8088}"
+# glibc gives each busy thread its own 64 MB malloc arena, and an arena's
+# freed space is never handed back while a live block sits below it. With
+# ~70 threads that pinned 37 arenas = 2.4 GB of RSS while Python's own
+# accounting showed 125 MB live. Capping the arenas reuses one pool, so
+# freed blocks get re-used instead of duplicated per thread. 4 keeps most
+# of the lock-free benefit at 256 MB of arena ground; raise it only if
+# malloc contention shows up in CPU.
+export MALLOC_ARENA_MAX="${MALLOC_ARENA_MAX:-4}"
 warn_if_auth_off_container_bind
 
 envsubst '${QWENPAW_PORT}' \
