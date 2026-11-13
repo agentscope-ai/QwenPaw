@@ -78,6 +78,75 @@ async def test_user_cancel_raises_cancelled_with_user_reason():
 
 
 @pytest.mark.asyncio
+async def test_outer_cancellation_stops_owned_work_task():
+    ctx = ToolCallContext(
+        tool_call_id="tc-outer-cancel",
+        tool_name="shell",
+        session_id="s",
+        agent_id="a",
+        root_session_id="r",
+        started_at=0.0,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+    )
+    token = set_call_context(ctx)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    try:
+
+        async def work() -> None:
+            started.set()
+            try:
+                await asyncio.sleep(10)
+            finally:
+                cancelled.set()
+
+        wrapper = asyncio.create_task(cancellable_wait(work()))
+        await started.wait()
+        wrapper.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await wrapper
+
+        assert cancelled.is_set()
+    finally:
+        reset_call_context(token)
+
+
+@pytest.mark.asyncio
+async def test_outer_cancellation_preserves_caller_owned_task():
+    ctx = ToolCallContext(
+        tool_call_id="tc-outer-cancel-shared",
+        tool_name="shell",
+        session_id="s",
+        agent_id="a",
+        root_session_id="r",
+        started_at=0.0,
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+    )
+    token = set_call_context(ctx)
+
+    async def work() -> None:
+        await asyncio.sleep(10)
+
+    task = asyncio.create_task(work())
+    try:
+        wrapper = asyncio.create_task(cancellable_wait(task))
+        await asyncio.sleep(0)
+        wrapper.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await wrapper
+
+        assert not task.done()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        reset_call_context(token)
+
+
+@pytest.mark.asyncio
 async def test_shorter_kill_pulls_offload_deadline_back():
     """When tool kill budget is shorter than offload, shrink offload."""
     loop = asyncio.get_running_loop()
