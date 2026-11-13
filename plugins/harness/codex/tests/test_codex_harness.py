@@ -26,7 +26,10 @@ from qwenpaw.plugins.resources import ResourceOwner, ResourceScope
 from qwenpaw.plugins.storage import PluginStorage
 from qwenpaw.plugins.testing import PluginTestHost
 from plugins.harness.codex.adapter import CodexBackend
-from plugins.harness.codex.app_server import CodexAppServerClient
+from plugins.harness.codex.app_server import (
+    CodexAppServerClient,
+    CodexAppServerError,
+)
 from plugins.harness.codex.discovery import (
     bundled_cli_candidate,
     resolve_codex_binary_info,
@@ -42,6 +45,7 @@ class CodexProcess:
         self.lines, self.exited = asyncio.Queue(), asyncio.Event()
         self.returncode, self.stderr, self.counter = None, None, 0
         self.current = {}
+        self.loaded_threads = set()
         self.stdout = SimpleNamespace(readline=self.lines.get)
         self.stdin = SimpleNamespace(write=self.write, drain=AsyncMock())
 
@@ -102,12 +106,15 @@ class CodexProcess:
             answer = {"id": "a", "type": "agentMessage", "text": "Old answer"}
             response = {"thread": {"turns": [{"items": [user, answer]}]}}
         elif method == "turn/start":
+            assert params["threadId"] in self.loaded_threads
             self.previous_turn = self.current.get("turnId", "old-turn")
             self.current = {
                 "threadId": params["threadId"],
                 "turnId": f"turn-{len(self.requests)}",
             }
             response = {"turn": {"id": self.current["turnId"]}}
+        if method in {"thread/start", "thread/resume"}:
+            self.loaded_threads.add(response["thread"]["id"])
         self.emit({"id": message["id"], "result": response})
         if method == "turn/start":
             self.start_turn(params["input"][0]["text"])
@@ -158,6 +165,10 @@ class CodexProcess:
     def terminate(self):
         self.returncode = 0
         self.exited.set()
+
+    def disconnect(self):
+        self.terminate()
+        self.lines.put_nowait(b"")
 
     async def wait(self):
         await self.exited.wait()
@@ -242,6 +253,59 @@ async def collect(backend, call, prompt="Continue", attachments=()):
     request = HarnessRunRequest(prompt, attachments)
     async with asyncio.timeout(3):
         return [event async for event in backend.run_turn(call, request)]
+
+
+async def test_app_server_exit_fails_turn_and_next_turn_resumes(runtime):
+    backend, call = runtime.backend(), runtime.call()
+    ready = asyncio.Event()
+
+    async def consume():
+        async for event in backend.run_turn(call, HarnessRunRequest("wait")):
+            if event.kind == HarnessEventKind.TEXT_DELTA:
+                ready.set()
+
+    task = asyncio.create_task(consume())
+    try:
+        await asyncio.wait_for(ready.wait(), 2)
+        process = runtime.processes[-1]
+        thread_id = process.current["threadId"]
+        process.disconnect()
+        with pytest.raises(CodexAppServerError, match="app-server exited"):
+            await asyncio.wait_for(task, 2)
+
+        events = await collect(backend, call)
+        replacement = runtime.processes[-1]
+        assert replacement is not process
+        assert (
+            "thread/resume",
+            {"threadId": thread_id},
+        ) in replacement.requests
+        assert events[-1].kind == HarnessEventKind.COMPLETED
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_app_server_exit_reaches_full_queue(runtime):
+    client = CodexAppServerClient(binary=str(runtime.binary))
+    try:
+        await client.start()
+        queue = client.subscribe()
+        process = runtime.processes[-1]
+        for index in range(queue.maxsize):
+            process.notify("test/output", index=index)
+        process.disconnect()
+
+        # All fake output and EOF are consumed before this waiter resumes.
+        await asyncio.wait_for(asyncio.shield(client._reader_task), 2)
+        assert queue.qsize() == queue.maxsize
+        for index in range(1, queue.maxsize):
+            message = await client.next_notification(queue)
+            assert message["params"]["index"] == index
+        with pytest.raises(CodexAppServerError, match="app-server exited"):
+            await asyncio.wait_for(client.next_notification(queue), 2)
+    finally:
+        await client.stop()
 
 
 async def test_discovery_accounts_and_models(runtime):

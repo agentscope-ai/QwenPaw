@@ -34,6 +34,9 @@ class CodexAppServerError(SDKError):
     """Raised when the Codex app-server cannot satisfy a request."""
 
 
+NotificationQueue = asyncio.Queue[dict[str, Any] | CodexAppServerError]
+
+
 class CodexAppServerClient:
     """Own one Codex app-server subprocess and correlate JSON-RPC calls."""
 
@@ -51,7 +54,9 @@ class CodexAppServerClient:
         self._reader_task: asyncio.Task[None] | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._pending: dict[int, asyncio.Future[Any]] = {}
-        self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+        self._subscribers: set[NotificationQueue] = set()
+        self._notification_error: CodexAppServerError | None = None
+        self.generation = 0
         self._server_tasks: set[asyncio.Task] = set()
         self._request_id = 0
         self._write_lock = asyncio.Lock()
@@ -79,9 +84,10 @@ class CodexAppServerClient:
     async def start(self) -> None:
         """Start and initialize the app-server once."""
         async with self._start_lock:
-            if self._process is not None and self._process.returncode is None:
+            if self._process is not None:
                 if (
-                    self._reader_task is not None
+                    self._process.returncode is None
+                    and self._reader_task is not None
                     and not self._reader_task.done()
                 ):
                     return
@@ -115,6 +121,8 @@ class CodexAppServerClient:
                         f"Could not launch Codex app-server: {exc}. "
                         "Repair the plugin or configure a valid executable.",
                     ) from exc
+                self._notification_error = None
+                self.generation += 1
                 self._reader_task = asyncio.create_task(self._read_stdout())
                 self._stderr_task = asyncio.create_task(self._read_stderr())
                 await self.request(
@@ -172,6 +180,8 @@ class CodexAppServerClient:
             if method == "initialize":
                 raise CodexAppServerError("Codex app-server is not running")
             await self.start()
+        if self._notification_error is not None:
+            raise CodexAppServerError(str(self._notification_error))
         self._request_id += 1
         request_id = self._request_id
         loop = asyncio.get_running_loop()
@@ -199,21 +209,30 @@ class CodexAppServerClient:
 
     async def notifications(self) -> AsyncIterator[dict[str, Any]]:
         """Yield notifications for one temporary subscriber."""
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1000)
-        self._subscribers.add(queue)
+        queue = self.subscribe()
         try:
             while True:
-                yield await queue.get()
+                yield await self.next_notification(queue)
         finally:
-            self._subscribers.discard(queue)
+            self.unsubscribe(queue)
 
-    def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
+    def subscribe(self) -> NotificationQueue:
         """Register and return a bounded notification queue."""
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1000)
-        self._subscribers.add(queue)
+        queue: NotificationQueue = asyncio.Queue(maxsize=1000)
+        if self._notification_error is None:
+            self._subscribers.add(queue)
+        else:
+            queue.put_nowait(self._notification_error)
         return queue
 
-    def unsubscribe(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+    @staticmethod
+    async def next_notification(queue: NotificationQueue) -> dict[str, Any]:
+        message = await queue.get()
+        if isinstance(message, CodexAppServerError):
+            raise CodexAppServerError(str(message))
+        return message
+
+    def unsubscribe(self, queue: NotificationQueue) -> None:
         """Remove a notification queue."""
         self._subscribers.discard(queue)
 
@@ -249,8 +268,7 @@ class CodexAppServerClient:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._reader_task = self._stderr_task = None
         self._server_tasks.clear()
-        self._subscribers.clear()
-        self._fail_pending(CodexAppServerError("Codex app-server stopped"))
+        self._disconnect(CodexAppServerError("Codex app-server stopped"))
         self._pending.clear()
 
     async def _send(self, payload: dict[str, Any]) -> None:
@@ -282,7 +300,7 @@ class CodexAppServerClient:
                 f"Codex app-server output reader failed: {detail}",
             )
         finally:
-            self._fail_pending(error)
+            self._disconnect(error)
 
     async def _read_stderr(self) -> None:
         process = self._process
@@ -336,10 +354,21 @@ class CodexAppServerClient:
             result = {"decision": "decline"}
         await self._send({"id": request_id, "result": result})
 
-    def _fail_pending(self, error: Exception) -> None:
+    def _disconnect(self, error: CodexAppServerError) -> None:
+        if self._notification_error is not None:
+            return
+        self._notification_error = error
         for future in tuple(self._pending.values()):
             if not future.done():
-                future.set_exception(error)
+                future.set_exception(CodexAppServerError(str(error)))
+        for queue in self._subscribers:
+            if queue.full():
+                # Reserve space for the disconnect even for a stalled reader.
+                queue.get_nowait()
+            queue.put_nowait(error)
+        self._subscribers.clear()
+        for task in self._server_tasks:
+            task.cancel()
 
 
 __all__ = ["CodexAppServerClient", "CodexAppServerError"]

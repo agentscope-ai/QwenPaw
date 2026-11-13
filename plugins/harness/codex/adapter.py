@@ -80,7 +80,7 @@ class CodexBackend:
         self._threads: dict[str, str] = {}
         self._prepared = False
         self._closed = False
-        self._loaded_threads: set[tuple[int, str]] = set()
+        self._loaded_threads: dict[int, tuple[int, set[str]]] = {}
         self._thread_contexts: dict[str, HarnessCallContext] = {}
         self._mcp_tasks: set[asyncio.Task] = set()
         self._mcp_processes: set[Any] = set()
@@ -552,7 +552,7 @@ class CodexBackend:
             result = await client.request("turn/start", params)
             turn_id = str((result or {}).get("turn", {}).get("id", ""))
             while True:
-                message = await queue.get()
+                message = await client.next_notification(queue)
                 params = message.get("params") or {}
                 if params.get("threadId") != thread_id:
                     continue
@@ -656,9 +656,8 @@ class CodexBackend:
             thread_id = await self._claim_thread(context)
             self._threads.pop(session_id, None)
             if thread_id:
-                self._loaded_threads = {
-                    key for key in self._loaded_threads if key[1] != thread_id
-                }
+                for _, loaded_threads in self._loaded_threads.values():
+                    loaded_threads.discard(thread_id)
                 self._thread_contexts.pop(thread_id, None)
             self._session_clients.pop(session_id, None)
             self._session_fingerprints.pop(session_id, None)
@@ -718,17 +717,24 @@ class CodexBackend:
         settings: dict[str, Any],
     ) -> str:
         async with self._session_lock:
+            client_id = id(client)
+            generation = client.generation
+            cached = self._loaded_threads.get(client_id)
+            if cached is None or cached[0] != generation:
+                loaded_threads = set()
+                self._loaded_threads[client_id] = (generation, loaded_threads)
+            else:
+                loaded_threads = cached[1]
             session_id = self._session_key(context)
             thread_id = await self._claim_thread(context)
             if thread_id:
-                loaded_key = (id(client), thread_id)
-                if loaded_key not in self._loaded_threads:
+                if thread_id not in loaded_threads:
                     try:
                         await client.request(
                             "thread/resume",
                             {"threadId": thread_id},
                         )
-                        self._loaded_threads.add(loaded_key)
+                        loaded_threads.add(thread_id)
                         return thread_id
                     except CodexAppServerError:
                         self._threads.pop(session_id, None)
@@ -749,7 +755,7 @@ class CodexBackend:
             if not thread_id:
                 raise CodexAppServerError("Codex did not return a thread id")
             self._threads[session_id] = thread_id
-            self._loaded_threads.add((id(client), thread_id))
+            loaded_threads.add(thread_id)
             await self._save_threads()
             return thread_id
 
@@ -903,7 +909,7 @@ class CodexBackend:
             turn_id = str((result or {}).get("turn", {}).get("id") or "")
             events: list[HarnessEvent] = []
             while True:
-                message = await queue.get()
+                message = await client.next_notification(queue)
                 params = message.get("params") or {}
                 if params.get("threadId") != review_thread_id:
                     continue
