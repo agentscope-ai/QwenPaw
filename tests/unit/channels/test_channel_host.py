@@ -1155,6 +1155,9 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
     business.write_text("keep")
     user_config = ws.workspace_dir / "agent.json"
     config_before = user_config.read_bytes()
+    host.loader._recovery_blocked[
+        KEY
+    ] = "Recovery has runtime resources; unload first"
     await host.loader.lifecycle.set_enabled(KEY, False)
     assert (
         not alive(before["pid"])
