@@ -5,6 +5,8 @@ import ast
 import importlib.util
 from pathlib import Path
 import runpy
+import shutil
+from types import SimpleNamespace
 
 import pytest
 
@@ -153,6 +155,76 @@ def test_desktop_spec_collects_reme_entry_point_plugins():
     assert plugin_modules <= _collected_submodule_packages()
     assert plugin_modules <= _called_packages("collect_data_files")
     assert {"reme-ai", *plugin_distributions} <= _metadata_packages()
+
+
+def test_optional_runtimes_stay_out_of_full_and_desktop():
+    import tomllib
+    from packaging.requirements import Requirement
+
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())[
+        "project"
+    ]
+    full = {
+        extra
+        for item in project["optional-dependencies"]["full"]
+        for extra in Requirement(item).extras
+    }
+    assert {"channels", "qwenpaw-data", "hub", "local"} <= full
+    assert not {"whisper", "codex", "qoder"} & full
+    assert (
+        not {
+            "openai-whisper",
+            "openai-codex",
+            "openai-codex-cli-bin",
+            "qoder-agent-sdk",
+        }
+        & _metadata_packages()
+    )
+    tree = ast.parse(SPEC_PATH.read_text(encoding="utf-8"))
+    analysis = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "Analysis"
+    )
+    excluded = {
+        item.value
+        for keyword in analysis.keywords
+        if keyword.arg == "excludes"
+        for item in keyword.value.elts
+        if isinstance(item, ast.Constant)
+    }
+    assert {
+        "whisper",
+        "torch",
+        "openai_codex",
+        "codex_cli_bin",
+        "qoder_agent_sdk",
+    } <= excluded
+
+
+def test_optional_audio_verifier_accepts_shipped_plugin(tmp_path, monkeypatch):
+    """Validate the real adapter files without building desktop executables."""
+    bundle = tmp_path / "bundle"
+    shutil.copytree(
+        REPO_ROOT / "src/qwenpaw/plugins/optional/local_whisper",
+        bundle / "_internal/qwenpaw/plugins/optional/local_whisper",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    archive = SimpleNamespace(
+        toc={"PYZ.pyz": None},
+        open_embedded_archive=lambda _name: SimpleNamespace(toc={}),
+    )
+    monkeypatch.setattr(
+        "PyInstaller.archive.readers.CArchiveReader",
+        lambda _path: archive,
+    )
+    verify = runpy.run_path(
+        str(SPEC_PATH.parent / "verify_optional_audio.py"),
+    )["verify"]
+
+    assert verify(bundle)["optional_audio_check"] == "passed"
 
 
 def test_desktop_spec_reaches_analysis_without_vendor_sdks(

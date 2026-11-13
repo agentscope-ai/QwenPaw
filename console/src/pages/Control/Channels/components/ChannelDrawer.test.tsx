@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   act,
+  cleanup,
   render,
   screen,
   fireEvent,
@@ -184,6 +185,7 @@ function renderDrawer(
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   langRef.current = "en";
   mockOpenExternalLink.mockClear();
   mockConfirm.mockClear();
@@ -192,8 +194,18 @@ beforeEach(() => {
   mockMessage.warning.mockClear();
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
+afterEach(async () => {
+  // Vaul schedules animation callbacks on close. Settle them while jsdom is
+  // alive, including callbacks left by components unmounted during a test.
+  try {
+    cleanup();
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+  } finally {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  }
 });
 
 // ---- Builtin channel field branches ---------------------------------------

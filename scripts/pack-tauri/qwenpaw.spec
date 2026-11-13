@@ -11,8 +11,10 @@ option.
 import os
 import runpy
 import sys
+from importlib.metadata import packages_distributions
 from pathlib import Path
 
+from PyInstaller.building.utils import format_binaries_and_datas
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_submodules,
@@ -55,7 +57,7 @@ def collect_tree(source_dir, target_dir):
             str(Path(target_dir) / path.relative_to(source_dir).parent),
         )
         for path in source_dir.rglob("*")
-        if path.is_file()
+        if path.is_file() and "__pycache__" not in path.parts
     ]
 
 
@@ -87,6 +89,8 @@ datas = [
 ]
 datas.append((str(REPO_ROOT / "plugins/hub"), "qwenpaw/plugins/bundled/hub"))
 datas += collect_tree(CONSOLE_DIST, "qwenpaw/console")
+# Ship the SDK adapter as source data, without analysing its optional imports.
+datas += collect_tree(SRC / "plugins/optional", "qwenpaw/plugins/optional")
 datas.append(
     (
         str(SRC / "browser/control_link/injected/engine.js"),
@@ -107,7 +111,6 @@ datas.append(
 datas += collect_data_files("reme")
 datas += collect_data_files("reme_auto_fin")
 datas += collect_data_files("reme_daily_paper")
-datas += collect_data_files("whisper")
 datas += collect_data_files("agentscope")
 datas += collect_data_files(
     "agentscope.tool._builtin._scripts",
@@ -163,7 +166,6 @@ _metadata_pkgs = [
     "reme-daily-paper",
     "huggingface_hub",
     "modelscope",
-    "openai-whisper",
 ]
 for _pkg in _metadata_pkgs:
     try:
@@ -181,6 +183,8 @@ a = Analysis(
     binaries=[],
     datas=datas,
     hiddenimports=[
+        # Optional PyTorch imports this stdlib module after installation.
+        "pickletools",
         # Bundled Hub entrypoints are plugin data, not statically imported.
         "qwenpaw.market.providers.qwenpaw",
         "qwenpaw.market.providers.clawhub",
@@ -244,14 +248,18 @@ a = Analysis(
         "modelscope.hub.snapshot_download",
         *collect_submodules("agentscope.tool._builtin._scripts"),
         *collect_submodules("agentscope.workspace._mcp_gateway"),
-        *collect_submodules("whisper"),
         *collect_submodules("chromadb"),
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Optional Harness runtimes belong to independently installed plugins.
+    # Keep optional audio, Harness and external Channel modules out of the backend.
     excludes=[
+        "whisper",
+        "torch",
+        "torchaudio",
+        "torchvision",
+        "triton",
         "qwenpaw.harnesses",
         "openai_codex",
         "codex_cli_bin",
@@ -263,6 +271,27 @@ a = Analysis(
     ],
     noarchive=False,
 )
+
+# Runtime plugin installs must see the versions of all bundled host packages,
+# including packages that never query their own metadata. Only collect metadata
+# for modules actually included by Analysis, not unused build-environment tools.
+_distributions = packages_distributions()
+_bundled_roots = {
+    name.replace("/", ".").split(".", 1)[0]
+    for name, *_ in [*a.pure, *a.binaries]
+}
+_bundled_packages = {
+    package
+    for root in _bundled_roots
+    for package in _distributions.get(root, ())
+}
+for _pkg in sorted(_bundled_packages):
+    a.datas += [
+        (destination, source, "DATA")
+        for destination, source in format_binaries_and_datas(
+            copy_metadata(_pkg)
+        )
+    ]
 
 pyz = PYZ(a.pure)
 

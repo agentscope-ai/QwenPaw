@@ -78,6 +78,12 @@ PUBLIC_API = MappingProxyType(
             "ConnectionResult",
             "ProviderSpec",
         ),
+        "qwenpaw.plugins.transcription": (
+            "TranscriptionSpec",
+            "TranscriptionContext",
+            "TranscriptionResult",
+            "TranscriptionStatus",
+        ),
         "qwenpaw.plugins.memory": (
             "MemorySpec",
             "MemoryBackend",
@@ -197,7 +203,12 @@ API_EXPORTS = tuple(
     APIExport(
         module,
         symbol,
-        since="1.1.0" if module == "qwenpaw.plugins.harnesses" else "1.0.0",
+        since=(
+            "1.1.0"
+            if module
+            in {"qwenpaw.plugins.transcription", "qwenpaw.plugins.harnesses"}
+            else "1.0.0"
+        ),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
     for module, symbols in PUBLIC_API.items()

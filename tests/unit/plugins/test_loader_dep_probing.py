@@ -2438,3 +2438,228 @@ sys.stdout.buffer.flush()
         record = records["publication-probe"]
         assert record.status == "active", record.diagnostics
         await following.unload_plugin("publication-probe")
+
+
+@pytest.mark.parametrize("shadows_loaded_module", [False, True])
+async def test_additions_keep_dependency_inspection_scope_stable(
+    tmp_path,
+    shadows_loaded_module,
+):
+    """A newly reachable dependency is inspected equally before/after writes."""
+    import hashlib
+    import zipfile
+
+    from qwenpaw.plugins.dependency_gate import (
+        SharedDependencyError,
+        prepare_shared_dependencies,
+    )
+    from qwenpaw.plugins.dependency_usage import HostModuleFact
+    from qwenpaw.plugins.execution.dependencies import (
+        observe_dependencies,
+        repair_marker,
+    )
+    from qwenpaw.plugins.wheel_additions import WheelAddition
+    from .test_manifest_dependencies import write_wheel
+
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "audit-owner",
+        payload={
+            "audit-owner-extra.pth": "# Existing file, discovered by a deeper audit\n",
+            "audit_owner/_vendor/loaded_external.py": "VALUE = 'embedded'\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    before = {
+        str(p.relative_to(site)): p.read_bytes()
+        for p in site.rglob("*")
+        if p.is_file()
+    }
+    wheel = write_wheel(
+        tmp_path,
+        "audit-request",
+        metadata_headers="Requires-Dist: audit-owner>=1\n",
+        payload={"loaded_external.py": "VALUE = 'public'\n"}
+        if shadows_loaded_module
+        else {},
+    )
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("audit-request==1.0\n")
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["audit-request==1.0"],
+    }
+    initial = observe_dependencies(packet)
+    assert initial.distributions["audit-owner"]["top_level"] == (
+        "audit_owner",
+    )
+    facts = tuple(
+        HostModuleFact(name, 1, str(site / path), (), ())
+        for name, path in (
+            ("audit_owner", "audit_owner/__init__.py"),
+            ("loaded_external", "audit_owner/_vendor/loaded_external.py"),
+        )
+    )
+    use = SimpleNamespace(
+        origin="host",
+        plugin_id="running-hub",
+        host_modules=facts,
+        snapshot=None,
+        read_admitted=False,
+        environment=SimpleNamespace(sites=(str(site),)),
+    )
+    usage = SimpleNamespace(
+        snapshot=lambda *args, **kwargs: SimpleNamespace(uses=(use,)),
+    )
+
+    async def audit(_spec):
+        return SimpleNamespace(snapshot=observe_dependencies(packet))
+
+    install = prepare_shared_dependencies(
+        SimpleNamespace(audit=audit),
+        SimpleNamespace(
+            python_executable=sys.executable,
+            support_root=Path(__file__).resolve().parents[3] / "src",
+        ),
+        plugin_id="incoming",
+        requirements_file=requirements,
+        usage_registry=usage,
+        install_target=site,
+        wheels=(
+            WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+    )
+    if shadows_loaded_module:
+        with pytest.raises(
+            SharedDependencyError,
+            match="audit-request.*shadows",
+        ):
+            await install
+        assert not (site / "audit_request").exists()
+    else:
+        result = await install
+        assert result.distributions["audit-request"]["version"] == "1.0"
+        assert (
+            "audit-owner-extra"
+            in result.distributions["audit-owner"]["top_level"]
+        )
+        assert (site / "audit_request/__init__.py").is_file()
+    assert all(
+        (site / path).read_bytes() == content
+        for path, content in before.items()
+    )
+    assert not repair_marker(site).exists()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    ["validation_cancel", "audit_error", "audit_cancel"],
+)
+async def test_shared_install_closes_mapping_at_cancellation_boundaries(
+    tmp_path,
+    monkeypatch,
+    failure,
+):
+    import asyncio
+    import hashlib
+    import mmap
+    import threading
+
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.dependency_gate import prepare_shared_dependencies
+    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from .test_manifest_dependencies import write_wheel
+
+    wheel = write_wheel(
+        tmp_path,
+        "close-probe",
+        payload={"close_probe/data.bin": b"x" * 8192},
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original_map = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original_map(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    site = tmp_path / "site"
+    site.mkdir()
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("close-probe==1.0\n")
+    ready, release = threading.Event(), threading.Event()
+    original_validate = wheels.validate_additions
+
+    def validate(*args, **kwargs):
+        result = original_validate(*args, **kwargs)
+        if failure == "validation_cancel":
+            ready.set()
+            assert release.wait(5)
+        return result
+
+    monkeypatch.setattr(wheels, "validate_additions", validate)
+
+    async def audit(_spec):
+        if (site / "close_probe/data.bin").exists():
+            ready.set()
+            if failure == "audit_error":
+                raise RuntimeError("audit failed")
+            await asyncio.Event().wait()
+        return SimpleNamespace(
+            snapshot=observe_dependencies(
+                {
+                    "code_root": str(tmp_path / "candidate"),
+                    "_audit_sites": [str(site)],
+                    "_requirements": ["close-probe==1.0"],
+                },
+            ),
+        )
+
+    task = asyncio.create_task(
+        prepare_shared_dependencies(
+            SimpleNamespace(audit=audit),
+            SimpleNamespace(
+                python_executable=sys.executable,
+                support_root=Path(__file__).resolve().parents[3] / "src",
+            ),
+            plugin_id="close-probe",
+            requirements_file=requirements,
+            usage_registry=SimpleNamespace(
+                snapshot=lambda *a, **k: SimpleNamespace(uses=()),
+            ),
+            install_target=site,
+            wheels=(
+                wheels.WheelAddition(
+                    wheel,
+                    hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                ),
+            ),
+        ),
+    )
+    try:
+        assert await asyncio.to_thread(ready.wait, 5)
+        if failure != "audit_error":
+            task.cancel()
+        release.set()
+        expected = (
+            RuntimeError
+            if failure == "audit_error"
+            else asyncio.CancelledError
+        )
+        with pytest.raises(expected) as error:
+            await task
+        assert error.value.__traceback__ is not None
+        assert mappings and all(value.closed for value in mappings)
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

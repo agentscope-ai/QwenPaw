@@ -848,6 +848,7 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
 ):
     from qwenpaw.config.utils import load_config
     from qwenpaw.plugins.settings import persist_plugin_settings
+    from qwenpaw.plugins.loader import PluginLoader
 
     ws = await host.workspace("first", use_sdk=True)
     source = host.artifact(sdk=True)
@@ -855,18 +856,17 @@ async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     local_certifi_wheel(wheels)
     calls = []
 
-    def offline(command, *, timeout, plugin_id):
+    def offline(command, *, timeout, plugin_id, cancel=None):
         calls.append(command)
         assert (
             command[1:6] == ["-I", "-B", "-m", "pip", "wheel"]
             and plugin_id == KEY
         )
-        return subprocess.run(
+        return PluginLoader._run_subprocess_with_streaming_log(
             [*command, "--no-index", "--find-links", str(wheels)],
-            capture_output=True,
-            text=True,
-            check=False,
             timeout=timeout,
+            plugin_id=plugin_id,
+            cancel=cancel,
         )
 
     monkeypatch.setattr(

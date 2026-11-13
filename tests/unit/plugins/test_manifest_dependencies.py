@@ -252,7 +252,8 @@ def test_wheel_preserves_package_executable_modes(tmp_path):
 
 
 @pytest.mark.parametrize("over_budget", [False, True])
-def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
+@pytest.mark.parametrize("budget", ["packed", "unpacked"])
+def test_wheel_size_budget(tmp_path, monkeypatch, over_budget, budget):
     import hashlib
     import zipfile
     from qwenpaw.plugins import wheel_additions
@@ -263,8 +264,11 @@ def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
         expanded = sum(info.file_size for info in archive.infolist())
     monkeypatch.setattr(
         wheel_additions,
-        "_MAX_WHEEL_UNPACKED_BYTES",
-        expanded - int(over_budget),
+        "_MAX_WHEEL_BYTES"
+        if budget == "packed"
+        else "_MAX_WHEEL_UNPACKED_BYTES",
+        (wheel.stat().st_size if budget == "packed" else expanded)
+        - int(over_budget),
     )
     addition = wheel_additions.WheelAddition(
         wheel,
@@ -279,6 +283,176 @@ def test_wheel_unpacked_size_budget(tmp_path, monkeypatch, over_budget):
     else:
         assert wheel_additions._members(addition)
     assert not (tmp_path / "site").exists()
+
+
+def test_large_wheel_payload_stays_private_and_file_backed(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+    import sys
+    from pathlib import Path
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+
+    payload = b"binary data\x00" * 8192
+    binary = "b01_probe/library.so"
+    wheel = write_wheel(tmp_path, "b01-probe", payload={binary: payload})
+    addition = wheels.WheelAddition(
+        wheel,
+        hashlib.sha256(wheel.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    # Neither the archive nor its large payload may use a whole-file read.
+    original = Path.read_bytes
+
+    def read(path):
+        assert path != wheel
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+    files, _ = wheels.validate_additions((addition,), snapshot, target)
+    content = files[binary]
+    try:
+        assert isinstance(content, memoryview)
+        assert content.readonly
+        with pytest.raises(TypeError):
+            content[0] = 0
+        wheel.write_bytes(b"changed after validation")
+        dependency_gate._write_additions(target, files)
+        assert (target / binary).read_bytes() == payload
+    finally:
+        files.close()
+    with pytest.raises(ValueError):
+        len(content)
+
+
+def test_invalid_record_closes_mapping_while_exception_is_retained(
+    tmp_path,
+    monkeypatch,
+):
+    import hashlib
+    import mmap
+    import sys
+    import zipfile
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        payload={"b01_probe/library.so": b"x" * 8192},
+    )
+    with zipfile.ZipFile(wheel) as archive:
+        entries = {name: archive.read(name) for name in archive.namelist()}
+    record = "b01_probe-1.0.dist-info/RECORD"
+    entries[record] = entries[record].replace(b"sha256=", b"sha256=invalid", 1)
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, value in entries.items():
+            archive.writestr(name, value)
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    with pytest.raises(ProtocolValidationError) as failure:
+        wheels.validate_additions(
+            (
+                wheels.WheelAddition(
+                    wheel,
+                    hashlib.sha256(wheel.read_bytes()).hexdigest(),
+                ),
+            ),
+            snapshot,
+            target,
+        )
+    assert failure.value.__traceback__ is not None
+    assert mappings and all(value.closed for value in mappings)
+
+
+def test_large_members_use_bounded_mapping_resources(tmp_path, monkeypatch):
+    import hashlib
+    import mmap
+    import sys
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        payload={f"b01_probe/member_{n}.bin": b"x" * 4097 for n in range(96)},
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    mappings = []
+    original = mmap.mmap
+
+    def mapped(*args, **kwargs):
+        value = original(*args, **kwargs)
+        mappings.append(value)
+        return value
+
+    monkeypatch.setattr(mmap, "mmap", mapped)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    files, _ = wheels.validate_additions(
+        (
+            wheels.WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+        snapshot,
+        target,
+    )
+    try:
+        assert all(
+            bytes(files[f"b01_probe/member_{n}.bin"]) == b"x" * 4097
+            for n in range(96)
+        )
+        # Resource usage must stay bounded as the member count grows.
+        assert 0 < len(mappings) <= 2
+    finally:
+        files.close()
+    assert all(value.closed for value in mappings)
 
 
 @pytest.mark.parametrize(
@@ -428,7 +602,15 @@ def test_wheel_data_cannot_overwrite_files_or_add_metadata(tmp_path, payload):
     } == before
 
 
-def install_case(tmp_path, source, expected, *, repair=False, tool=False):
+def install_case(
+    tmp_path,
+    source,
+    expected,
+    *,
+    repair=False,
+    tool=False,
+    migration=False,
+):
     """Run resolver, publication and admission in one disposable interpreter."""
     import os
     import subprocess
@@ -504,7 +686,13 @@ def observe(args, *values, **kwargs):
     return spawn(args, *values, **kwargs)
 
 subprocess.Popen = observe
-before = {p.name:p.read_bytes() for p in source.iterdir()}
+def source_files():
+    return {
+        p.relative_to(source).as_posix(): p.read_bytes()
+        for p in source.rglob('*')
+        if p.is_file() and '__pycache__' not in p.relative_to(source).parts
+    }
+before = source_files()
 async def main():
     async with PluginTestHost(root) as host:
         if sys.argv[6] == 'tool':
@@ -535,7 +723,29 @@ async def main():
             usage.observe_host(token, snapshot)
             usage.withdraw(token)
             shutil.rmtree(candidate)
-        if sys.argv[5] == 'repair':
+        if sys.argv[5] == 'migration':
+            from qwenpaw.config.utils import mutate_config
+            from qwenpaw.plugins import local_whisper as local
+            local.SOURCE = source
+            mutate_config(lambda c: setattr(
+                c.agents, 'transcription_provider_type', 'local_whisper',
+            ))
+            service = local.LocalWhisperInstallService(
+                host._loader,
+                root / 'plugin_runtime/migrations/local-whisper.json',
+            )
+            try:
+                await service.start()
+                assert service.task is not None
+                await service.task
+                assert not service.error, service.error
+                record = host._loader.get_loaded_plugin(local.PLUGIN_ID)
+                assert record.status == 'active'
+                assert record.source_path == root / 'plugins' / local.PLUGIN_ID
+                assert host._loader.registry.get_transcription_backend('local_whisper')
+            finally:
+                await service.close()
+        elif sys.argv[5] == 'repair':
             try:
                 await host.load(source)
             except SDKError as exc:
@@ -578,7 +788,7 @@ async def main():
         assert (source / 'requirements.txt').is_file()
         assert (source / 'requirements.txt').read_bytes() == before['requirements.txt']
     if sys.argv[5] != 'repair':
-        assert {p.name:p.read_bytes() for p in source.iterdir()} == before
+        assert source_files() == before
     print(json.dumps({'commands':commands,'installed':sorted(expected)}))
 asyncio.run(main())
 """
@@ -613,7 +823,7 @@ asyncio.run(main())
             str(source),
             str(tmp_path / "host"),
             json.dumps(sorted(expected)),
-            "repair" if repair else "install",
+            "migration" if migration else "repair" if repair else "install",
             "tool" if tool else "module",
         ],
         cwd=tmp_path,
@@ -653,9 +863,11 @@ def test_install_includes_every_declared_dependency(
     install_case(tmp_path, source, expected)
 
 
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_satisfied_and_marker_excluded_manifest_does_not_install(
     tmp_path,
     installer,
+    sdk,
 ):
     source = package(
         tmp_path,
@@ -663,28 +875,86 @@ async def test_satisfied_and_marker_excluded_manifest_does_not_install(
             f"packaging=={version('packaging')}",
             "b01-probe-never; python_version<'2'",
         ],
+        sdk=sdk,
     )
     async with PluginTestHost(tmp_path / "host") as host:
         assert (await host.install(source)).ok
     assert installer == []
 
 
+@pytest.mark.parametrize("sdk", [False, True])
+@pytest.mark.parametrize("needs_restart", [False, True])
+async def test_reload_dependency_rejection_reports_common_restart_decision(
+    tmp_path,
+    monkeypatch,
+    sdk,
+    needs_restart,
+):
+    from unittest.mock import AsyncMock
+
+    source = package(tmp_path, sdk=sdk)
+    incoming_root = tmp_path / "incoming"
+    incoming_root.mkdir()
+    incoming = package(
+        incoming_root,
+        ["b01-probe-missing==1.0"],
+        sdk=sdk,
+    )
+    (incoming / "main.py").write_text(
+        "raise AssertionError('Rejected plugin must not execute')\n",
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        assert (await host.install(source)).ok
+        loader = host._loader
+        # Exercise propagation of the shared installer's refusal. A version
+        # mismatch or an extra is not itself a restart/refusal under main.
+        prepare = AsyncMock(
+            side_effect=dependency_gate.SharedDependencyError(
+                dependency_gate.GateDecision(
+                    False,
+                    False,
+                    require_restart=needs_restart,
+                    reason="Dependency preparation refused",
+                ),
+            ),
+        )
+        monkeypatch.setattr(loader, "_prepare_python_dependencies", prepare)
+        previous = loader.get_loaded_plugin("extension-contract")
+        instance = loader.lifecycle.get_instance("extension-contract")
+        generation = instance.generation
+        report = await loader.lifecycle.reload(
+            "extension-contract",
+            new_source=incoming,
+            allow_install=True,
+        )
+        prepare.assert_awaited_once()
+        assert not report.ok and report.unchanged
+        assert report.needs_restart is needs_restart
+        assert "Dependency preparation refused" in " ".join(report.errors)
+        assert loader.get_loaded_plugin("extension-contract") is previous
+        assert loader.lifecycle.get_instance("extension-contract") is instance
+        assert instance.activated and instance.generation == generation
+
+
 @pytest.mark.parametrize("dependency", ["httpx==0.0.1", "uvicorn==0.0.1"])
 @pytest.mark.parametrize("origin", ["manifest", "requirements"])
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_existing_plugin_version_mismatch_is_a_load_warning(
     tmp_path,
     installer,
     dependency,
     origin,
+    sdk,
 ):
     source = package(
         tmp_path,
         [dependency] if origin == "manifest" else [],
         dependency if origin == "requirements" else None,
+        sdk=sdk,
     )
     async with PluginTestHost(tmp_path / "host") as host:
-        await host.load(source)
-        record = host._loader.get_loaded_plugin("extension-contract")
+        _, manifest = host._loader.read_source_manifest(source)
+        record = await host._loader.lifecycle.load(manifest, source)
         assert record.status == "active"
         assert any("installed" in message for message in record.diagnostics)
     assert installer == []
@@ -738,11 +1008,13 @@ async def test_both_constraints_apply_when_same_package_is_declared_twice(
     assert installer == []
 
 
+@pytest.mark.parametrize("sdk", [False, True])
 async def test_boot_checks_manifest_without_installing_or_mutating_source(
     tmp_path,
     installer,
+    sdk,
 ):
-    source = package(tmp_path, ["b01-probe-missing==1.0"])
+    source = package(tmp_path, ["b01-probe-missing==1.0"], sdk=sdk)
     before = {p.name: p.read_bytes() for p in source.iterdir()}
     source.chmod(0o555)
     try:
@@ -775,8 +1047,9 @@ async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
     assert len(installer) == 1
 
 
-def test_repair_installs_manifest_dependency_after_boot_failure(tmp_path):
-    source = package(tmp_path, ["b01-probe-repair==1.0"])
+@pytest.mark.parametrize("sdk", [False, True])
+def test_repair_installs_manifest_dependency_after_boot_failure(tmp_path, sdk):
+    source = package(tmp_path, ["b01-probe-repair==1.0"], sdk=sdk)
     install_case(tmp_path, source, {"b01-probe-repair"}, repair=True)
 
 
@@ -916,3 +1189,125 @@ async def test_cancelled_installer_keeps_normalized_input_until_thread_stops(
         assert task.cancelled()
         assert not inputs[0].exists()
         assert not (source / "requirements.txt").exists()
+
+
+def test_enabled_local_whisper_migrates_through_shared_installer(tmp_path):
+    """Use a tiny offline wheel to exercise migration's real install path."""
+    import shutil
+    from qwenpaw.plugins.local_whisper import SOURCE
+
+    source = tmp_path / "local-whisper"
+    shutil.copytree(SOURCE, source)
+    (source / "__pycache__").mkdir(exist_ok=True)
+    (source / "__pycache__/cached.pyc").write_bytes(b"cached bytecode")
+    manifest_path = source / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    # Only replace the heavyweight inference dependencies; keep the shipped
+    # plugin's entry point, SDK declaration and transcription registration.
+    manifest["dependencies"] = ["b01-probe-migration==1.0"]
+    manifest_path.write_text(json.dumps(manifest))
+    install_case(tmp_path, source, {"b01-probe-migration"}, migration=True)
+
+
+@pytest.mark.parametrize("directory", ["bin", "Scripts"])
+@pytest.mark.parametrize(
+    "conflict",
+    [None, "file", "module", "package", "link"],
+)
+def test_script_directory_claim_checks_actual_file_conflicts(
+    tmp_path,
+    directory,
+    conflict,
+):
+    """A PyODPS-style directory claim permits non-overlapping script files."""
+    import hashlib
+    import zipfile
+    from dataclasses import replace
+
+    from packaging.markers import default_environment
+    from qwenpaw.plugins.execution.dependencies import observe_dependencies
+    from qwenpaw.plugins.execution.errors import ProtocolValidationError
+    from qwenpaw.plugins.wheel_additions import (
+        WheelAddition,
+        validate_additions,
+    )
+
+    site = tmp_path / "site"
+    owner = write_wheel(
+        tmp_path,
+        "script-owner",
+        payload={
+            "script_owner-1.0.dist-info/top_level.txt": f"script_owner\n{directory}\n",
+            f"{directory}/kept.py": "# Existing owner's script\n",
+        },
+    )
+    with zipfile.ZipFile(owner) as archive:
+        archive.extractall(site)
+    kept = site / directory / "kept.py"
+    if conflict == "module":
+        (site / f"{directory}.py").write_text("# Import provider\n")
+    elif conflict == "package":
+        (site / directory / "__init__.py").write_text("# Import provider\n")
+    elif conflict == "link":
+        destination = tmp_path / "linked-scripts"
+        (site / directory).rename(destination)
+        try:
+            (site / directory).symlink_to(
+                destination,
+                target_is_directory=True,
+            )
+        except OSError:
+            pytest.skip("Directory symlinks are unavailable")
+    before = kept.read_bytes()
+    script = "kept.py" if conflict == "file" else "new-script.py"
+    wheel = write_wheel(
+        tmp_path,
+        "script-probe",
+        payload={
+            f"script_probe-1.0.data/scripts/{script}": "#!python\nprint('probe')\n",
+        },
+    )
+    packet = {
+        "code_root": str(tmp_path / "candidate"),
+        "_audit_sites": [str(site)],
+        "_requirements": ["script-owner==1.0"],
+    }
+    snapshot = observe_dependencies(packet)
+    environment = default_environment()
+    if directory == "Scripts":
+        environment.update(os_name="nt", sys_platform="win32")
+    snapshot = replace(
+        snapshot,
+        marker_environment=environment,
+        supported_tags=("py3-none-any",),
+    )
+    assert directory in snapshot.distributions["script-owner"]["top_level"]
+    additions = (
+        WheelAddition(wheel, hashlib.sha256(wheel.read_bytes()).hexdigest()),
+    )
+    if conflict:
+        with pytest.raises(
+            ProtocolValidationError,
+            match="DEPENDENCY_RESTART_REQUIRED",
+        ):
+            validate_additions(additions, snapshot, site)
+        assert not (site / "script_probe").exists()
+    else:
+        files, proposed = validate_additions(additions, snapshot, site)
+        dependency_gate._write_additions(site, files)
+        assert (site / directory / script).is_file()
+        audited = observe_dependencies(
+            {
+                **packet,
+                "_requirements": ["script-owner==1.0", "script-probe==1.0"],
+            },
+        )
+        assert (
+            audited.distributions["script-probe"]
+            == proposed.distributions["script-probe"]
+        )
+        assert (
+            audited.distributions["script-owner"]
+            == snapshot.distributions["script-owner"]
+        )
+    assert kept.read_bytes() == before

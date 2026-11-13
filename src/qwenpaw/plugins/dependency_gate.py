@@ -480,7 +480,7 @@ async def _usage_observation_roots(usage, token, sites, install_target=None):
 
 
 @asynccontextmanager
-async def _shared_observation(targets, *, timeout=300.0):
+async def _shared_observation(targets, *, timeout=None):
     from .install_lock import environment_observation, ObservationRootsChanged
 
     try:
@@ -711,7 +711,7 @@ async def prepare_shared_dependencies(
     admission_token=None,
     install_target: Path | None = None,
     wheels=(),
-    lock_timeout: float = 300.0,
+    lock_timeout: float | None = None,
     expected_snapshot=None,
     wheel_tags=None,
     installer_python=None,
@@ -721,8 +721,12 @@ async def prepare_shared_dependencies(
 ):
     """Coordinate, audit, query current usage and publish safe additions."""
     from .install_lock import canonical_environment_path as canonical
-    from .wheel_additions import validate_additions
-    from .execution.dependencies import protected_dependency_target
+    from .wheel_additions import WheelFiles, validate_additions
+    from .execution.dependencies import (
+        _complete_dependency_top_levels,
+        _dependency_closure,
+        protected_dependency_target,
+    )
     from ..utils.io_utils import run_sync_io
 
     def inspect_target():
@@ -735,12 +739,20 @@ async def prepare_shared_dependencies(
 
     target = await run_sync_io(inspect_target)
 
+    inspection_names = ()
+
     async def audit():
         from .execution.dependencies import DependencySnapshot
 
         observed = (await process.audit(spec)).snapshot
         if not isinstance(observed, DependencySnapshot):
             raise _unverified("complete write evidence required")
+        if inspection_names:
+            observed = await run_sync_io(
+                _complete_dependency_top_levels,
+                observed,
+                inspection_names,
+            )
         _refine_admission(usage_registry, admission_token, observed, plugin_id)
         return observed
 
@@ -863,106 +875,143 @@ async def prepare_shared_dependencies(
                         reason_code="DEPENDENCY_PLAN_UNVERIFIED",
                     ),
                 )
-            try:
-                from dataclasses import replace
+            async with WheelFiles() as files:
+                try:
+                    from dataclasses import replace
 
-                files, proposed = await run_sync_io(
-                    validate_additions,
-                    tuple(wheels),
-                    replace(
-                        snapshot,
-                        supported_tags=wheel_tags or snapshot.supported_tags,
-                        executable=installer_python or snapshot.executable,
-                        sites=tuple(
-                            dict.fromkeys(
-                                (*snapshot.sites, *map(str, collision_sites)),
+                    files, proposed = await run_sync_io(
+                        validate_additions,
+                        tuple(wheels),
+                        replace(
+                            snapshot,
+                            supported_tags=wheel_tags
+                            or snapshot.supported_tags,
+                            executable=installer_python or snapshot.executable,
+                            sites=tuple(
+                                dict.fromkeys(
+                                    (
+                                        *snapshot.sites,
+                                        *map(str, collision_sites),
+                                    ),
+                                ),
                             ),
                         ),
-                    ),
-                    target,
-                )
-                proposed = replace(
-                    proposed,
-                    supported_tags=snapshot.supported_tags,
-                    executable=snapshot.executable,
-                    sites=snapshot.sites,
-                )
-            except Exception as exc:
-                from .execution.errors import ProtocolValidationError
-
-                code = getattr(
-                    exc,
-                    "reason_code",
-                    "DEPENDENCY_PLAN_UNVERIFIED",
-                )
-                logger.info(
-                    "Dependency preparation failed: plugin=%s "
-                    "stage=wheel-validation code=%s exception=%s errno=%s",
-                    ascii(str(plugin_id))[1:-1][:160],
-                    ascii(str(code))[1:-1][:160],
-                    type(exc).__name__,
-                    exc.errno if isinstance(exc, OSError) else None,
-                )
-                raise SharedDependencyError(
-                    GateDecision(
-                        False,
-                        False,
-                        reason=(
-                            str(exc)
-                            if isinstance(exc, ProtocolValidationError)
-                            else code
-                        ),
-                        reason_code=code,
-                        require_restart=code == "DEPENDENCY_RESTART_REQUIRED",
-                    ),
-                ) from exc
-            for name, row in proposed.distributions.items():
-                if name not in snapshot.distributions:
-                    origin = Path(row["metadata_path"])
-                    record = (origin.relative_to(target) / "RECORD").as_posix()
-                    planned_records[str(origin)] = files[record].decode(
-                        "utf-8",
+                        target,
+                        files=files,
                     )
-            added = tuple(
-                f"{name}=={row['version']}"
-                for name, row in proposed.distributions.items()
-                if name not in snapshot.distributions
-            )
-            # No await separates the final usage check from submitting publication.
-            decision = await evaluate(proposed, added)
-            if not decision.already_satisfied:
-                raise SharedDependencyError(decision)
-            parsed_recovery = await run_sync_io(
-                parse_requirements_file,
-                requirements_file,
-            )
-            return await _publish_additions(
-                audit,
-                evaluate,
-                target,
-                files,
-                recovery={
-                    "plugin_id": plugin_id,
-                    "python_executable": spec.python_executable,
-                    "support_root": str(spec.support_root),
-                    "sites": list(snapshot.sites),
-                    "requirements": [
-                        *(str(req) for req in parsed_recovery.requirements),
-                        *added,
-                    ],
-                    "providers": {
-                        name: proposed.distributions[name]["metadata_path"]
-                        for name in proposed.distributions
-                        if name not in snapshot.distributions
+                    proposed = replace(
+                        proposed,
+                        supported_tags=snapshot.supported_tags,
+                        executable=snapshot.executable,
+                        sites=snapshot.sites,
+                    )
+                except Exception as exc:
+                    from .execution.errors import ProtocolValidationError
+
+                    code = getattr(
+                        exc,
+                        "reason_code",
+                        "DEPENDENCY_PLAN_UNVERIFIED",
+                    )
+                    logger.info(
+                        "Dependency preparation failed: plugin=%s "
+                        "stage=wheel-validation code=%s exception=%s errno=%s",
+                        ascii(str(plugin_id))[1:-1][:160],
+                        ascii(str(code))[1:-1][:160],
+                        type(exc).__name__,
+                        exc.errno if isinstance(exc, OSError) else None,
+                    )
+                    raise SharedDependencyError(
+                        GateDecision(
+                            False,
+                            False,
+                            reason=(
+                                str(exc)
+                                if isinstance(exc, ProtocolValidationError)
+                                else code
+                            ),
+                            reason_code=code,
+                            require_restart=code
+                            == "DEPENDENCY_RESTART_REQUIRED",
+                        ),
+                    ) from exc
+                for name, row in proposed.distributions.items():
+                    if name not in snapshot.distributions:
+                        origin = Path(row["metadata_path"])
+                        record = (
+                            origin.relative_to(target) / "RECORD"
+                        ).as_posix()
+                        planned_records[str(origin)] = files[record].decode(
+                            "utf-8",
+                        )
+                added = tuple(
+                    f"{name}=={row['version']}"
+                    for name, row in proposed.distributions.items()
+                    if name not in snapshot.distributions
+                )
+                # New wheels can make existing providers reachable for the first
+                # time. Complete those records before writing, then inspect the
+                # same providers after publication; richer audit evidence is not
+                # itself a package replacement.
+                inspection_names = tuple(
+                    {
+                        name
+                        for name, _ in _dependency_closure(
+                            added,
+                            proposed.distributions,
+                            proposed.marker_environment,
+                        )
+                        if name in snapshot.distributions
                     },
-                    "interpreter": installer_identity
-                    or {
-                        "executable": snapshot.executable,
-                        "prefix": snapshot.prefix,
-                        "supported_tags": list(snapshot.supported_tags),
+                )
+                snapshot = await run_sync_io(
+                    _complete_dependency_top_levels,
+                    snapshot,
+                    inspection_names,
+                )
+                proposed = await run_sync_io(
+                    _complete_dependency_top_levels,
+                    proposed,
+                    inspection_names,
+                )
+                # No await separates the final usage check from submitting publication.
+                decision = await evaluate(proposed, added)
+                if not decision.already_satisfied:
+                    raise SharedDependencyError(decision)
+                parsed_recovery = await run_sync_io(
+                    parse_requirements_file,
+                    requirements_file,
+                )
+                return await _publish_additions(
+                    audit,
+                    evaluate,
+                    target,
+                    files,
+                    recovery={
+                        "plugin_id": plugin_id,
+                        "python_executable": spec.python_executable,
+                        "support_root": str(spec.support_root),
+                        "sites": list(snapshot.sites),
+                        "requirements": [
+                            *(
+                                str(req)
+                                for req in parsed_recovery.requirements
+                            ),
+                            *added,
+                        ],
+                        "providers": {
+                            name: proposed.distributions[name]["metadata_path"]
+                            for name in proposed.distributions
+                            if name not in snapshot.distributions
+                        },
+                        "interpreter": installer_identity
+                        or {
+                            "executable": snapshot.executable,
+                            "prefix": snapshot.prefix,
+                            "supported_tags": list(snapshot.supported_tags),
+                        },
                     },
-                },
-            )
+                )
 
     raise _unverified("publication roots changed during inspection")
 
@@ -1067,7 +1116,10 @@ async def _publish_additions(audit, evaluate, target, files, *, recovery=None):
         return snapshot
 
 
-def _write_additions(target: Path, files: dict[str, bytes]) -> None:
+def _write_additions(
+    target: Path,
+    files: dict[str, bytes | memoryview],
+) -> None:
     """Publish the exact validated bytes while the site lock remains held."""
 
     def validate_path(path):

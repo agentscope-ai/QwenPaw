@@ -30,6 +30,8 @@ function VoiceTranscriptionPage() {
     transcriptionModel,
     setTranscriptionModel,
     localWhisperStatus,
+    installLocalWhisper,
+    enableLocalWhisper,
     availableProviders,
     showProviderSection,
     isLocalWhisper,
@@ -125,6 +127,8 @@ function VoiceTranscriptionPage() {
                   schedule();
                 }}
                 isLocalWhisper={isLocalWhisper}
+                onInstall={() => void installLocalWhisper()}
+                onEnable={() => void enableLocalWhisper()}
                 localWhisperStatus={localWhisperStatus}
               />
 

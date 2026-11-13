@@ -95,6 +95,11 @@ async def _shutdown_plugins(app: FastAPI) -> None:
     """Tear down plugin runtime resources before other services stop."""
     plugin_loader = getattr(app.state, "plugin_loader", None)
     if plugin_loader is not None:
+        await plugin_loader.stop_dependency_installs()
+    whisper_install = getattr(app.state, "local_whisper_install", None)
+    if whisper_install is not None:
+        await whisper_install.close()
+    if plugin_loader is not None:
         logger.info("Executing plugin shutdown (mode=shutdown)...")
         from ..plugins.lifecycle import UnloadMode
 
@@ -665,6 +670,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             logger.debug("Activating loaded plugins...")
             await plugin_loader.activate_all_loaded()
+
+            from ..plugins.local_whisper import LocalWhisperInstallService
+
+            app.state.local_whisper_install = LocalWhisperInstallService(
+                plugin_loader,
+                WORKING_DIR
+                / "plugin_runtime"
+                / "migrations"
+                / "local-whisper.json",
+            )
+            await app.state.local_whisper_install.start()
 
             # ---- Approval Service ----
             try:

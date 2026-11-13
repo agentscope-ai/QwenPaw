@@ -2,7 +2,6 @@
 """Plugin loader for discovering and loading plugins."""
 
 import asyncio
-import importlib.util
 import inspect
 import json
 import logging
@@ -45,6 +44,7 @@ from .dependency_gate import (
     combined_requirements,
     is_requirement_satisfied,
 )
+from .dependency_process import run_install_command
 from .lifecycle import (
     PluginLifecycle,
     QuiescenceError,
@@ -327,6 +327,8 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         # Distinct from the inter-process install-deps file lock.
         self._lifecycle_locks: Dict[str, asyncio.Lock] = {}
         self._lifecycle_locks_mu = threading.Lock()
+        self._dependency_installs: dict[asyncio.Task, threading.Event] = {}
+        self._closing = False
 
         # Resolve mutable host service references only when invoked. Existing
         # embedders replace their registry and dependency gate after creation.
@@ -381,6 +383,49 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             PluginType.CHANNEL,
             self._channel_backend,
         )
+
+    @asynccontextmanager
+    async def _dependency_install_scope(self, source):
+        """Keep cancellation and timeout policy with the owning transaction."""
+        from .dependency_process import install_cancel, install_timeout
+        from ..utils.io_utils import run_sync_io
+
+        if self._closing:
+            raise RuntimeError(
+                "Backend is shutting down; retry installation after restart",
+            )
+        owner = asyncio.current_task()
+        if owner in self._dependency_installs:
+            yield
+            return
+        timeout = await run_sync_io(self._dependency_install_timeout, source)
+        if self._closing:
+            raise RuntimeError(
+                "Backend is shutting down; retry installation after restart",
+            )
+        cancel = self._dependency_installs[owner] = threading.Event()
+        cancel_token = install_cancel.set(cancel)
+        timeout_token = install_timeout.set(timeout)
+        try:
+            yield
+        finally:
+            install_timeout.reset(timeout_token)
+            install_cancel.reset(cancel_token)
+            self._dependency_installs.pop(owner, None)
+
+    async def stop_dependency_installs(self) -> None:
+        """Cancel installers and await transaction cleanup before shutdown."""
+        from ..utils.io_utils import run_async_to_completion
+
+        self._closing = True
+        tasks = tuple(self._dependency_installs)
+        for task in tasks:
+            self._dependency_installs[task].set()
+            task.cancel()
+        if tasks:
+            await run_async_to_completion(
+                asyncio.gather(*tasks, return_exceptions=True),
+            )
 
     @classmethod
     async def create(cls, plugin_dirs, *, channel_runtime=None):
@@ -744,75 +789,81 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         Boot paths pass ``allow_install=False`` (check only). User-facing
         install / update / repair pass ``True`` so the gate may install.
         """
-        from ..utils.io_utils import run_sync_io
+        async with (
+            self._dependency_install_scope(source_path)
+            if allow_install
+            else AsyncExitStack()
+        ):
+            from ..utils.io_utils import run_sync_io
 
-        await self._publish_dependency_site(None)
-        from .execution.dependencies import repair_marker
-        from .dependency_maintenance import authorized
+            await self._publish_dependency_site(None)
+            from .execution.dependencies import repair_marker
+            from .dependency_maintenance import authorized
 
-        from .execution.dependencies import dependency_sites
-        from .install_lock import environment_observation
+            from .execution.dependencies import dependency_sites
+            from .install_lock import environment_observation
 
-        host_paths = tuple(sys.path)
-        roots = await run_sync_io(dependency_sites, host_paths)
-        from .dependency_recovery import recover_additions
+            host_paths = tuple(sys.path)
+            roots = await run_sync_io(dependency_sites, host_paths)
+            from .dependency_recovery import recover_additions
 
-        try:
-            await run_sync_io(recover_additions, roots, timeout=300)
-        except RuntimeError as exc:
-            if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
-                raise
-            # Keep the existing gate result for legacy or unverified damage.
-            logger.warning("Dependency recovery refused: %s", exc)
-        try:
-            async with environment_observation(roots):
-                dirty = await run_sync_io(
-                    lambda: any(
-                        repair_marker(path).exists() and not authorized(path)
-                        for path in host_paths
-                        if path and Path(path).is_dir()
-                    ),
-                )
-        except RuntimeError as exc:
-            if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
-                raise
-            dirty = True
-        if dirty:
-            return GateDecision(
-                False,
-                False,
-                require_restart=True,
-                reason="DEPENDENCY_REPAIR_REQUIRED",
-                reason_code="DEPENDENCY_REPAIR_REQUIRED",
-            )
-        if not self.lifecycle.delegate.owns_dependency_env(plugin_id):
-            return GateDecision(
-                allow_install=False,
-                already_satisfied=True,
-                reason="dependency env not owned by this process",
-            )
-        cleanup = ExitStack()
-        try:
             try:
-                requirements_file = await run_sync_io(
-                    cleanup.enter_context,
-                    combined_requirements(source_path),
+                await run_sync_io(recover_additions, roots, timeout=300)
+            except RuntimeError as exc:
+                if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
+                    raise
+                # Keep the existing gate result for legacy or unverified damage.
+                logger.warning("Dependency recovery refused: %s", exc)
+            try:
+                async with environment_observation(roots):
+                    dirty = await run_sync_io(
+                        lambda: any(
+                            repair_marker(path).exists()
+                            and not authorized(path)
+                            for path in host_paths
+                            if path and Path(path).is_dir()
+                        ),
+                    )
+            except RuntimeError as exc:
+                if not str(exc).startswith("DEPENDENCY_REPAIR_REQUIRED"):
+                    raise
+                dirty = True
+            if dirty:
+                return GateDecision(
+                    False,
+                    False,
+                    require_restart=True,
+                    reason="DEPENDENCY_REPAIR_REQUIRED",
+                    reason_code="DEPENDENCY_REPAIR_REQUIRED",
                 )
-            except ValueError as exc:
+            if not self.lifecycle.delegate.owns_dependency_env(plugin_id):
                 return GateDecision(
                     allow_install=False,
-                    already_satisfied=False,
-                    unsupported=[str(exc)],
-                    reason=str(exc),
+                    already_satisfied=True,
+                    reason="dependency env not owned by this process",
                 )
-            return await self._ensure_requirements_installed(
-                requirements_file,
-                source_path,
-                plugin_id,
-                allow_install=allow_install,
-            )
-        finally:
-            await run_sync_io(cleanup.close)
+            cleanup = ExitStack()
+            try:
+                try:
+                    requirements_file = await run_sync_io(
+                        cleanup.enter_context,
+                        combined_requirements(source_path),
+                    )
+                except ValueError as exc:
+                    return GateDecision(
+                        allow_install=False,
+                        already_satisfied=False,
+                        unsupported=[str(exc)],
+                        reason=str(exc),
+                    )
+                return await self._ensure_requirements_installed(
+                    requirements_file,
+                    source_path,
+                    plugin_id,
+                    allow_install=allow_install,
+                )
+            finally:
+                await run_sync_io(cleanup.close)
 
     async def _ensure_requirements_installed(
         self,
@@ -1049,279 +1100,293 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         source_path: Path | None = None,
     ):
         """Stage explicit legacy wheel installs through the shared gate."""
-        from .dependency_gate import (
-            SharedDependencyError,
-            prepare_shared_dependencies,
-        )
-        from .execution import PluginLaunchSpec, PluginProcess
-        from .execution.bootstrap import _hash_code_root
-        from ..utils.io_utils import run_sync_io
-
-        if os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local":
-            raise RuntimeError(
-                "Shared runtime requires explicit administrator repair",
+        async with self._dependency_install_scope(
+            source_path or requirements_file.parent,
+        ):
+            from .dependency_gate import (
+                SharedDependencyError,
+                prepare_shared_dependencies,
             )
-        frozen = _is_frozen()
-        validate_runtime_selection = _capture_runtime_selection(
-            lambda: self.registry.channel_runtime,
-            _is_frozen,
-        )
+            from .execution import PluginLaunchSpec, PluginProcess
+            from .execution.bootstrap import _hash_code_root
+            from ..utils.io_utils import run_sync_io
 
-        context = await run_sync_io(self._dependency_environment)
-        validate_runtime_selection()
-        target = context.install_target
-        python = context.python_executable
-        support = context.support_root
-        paths = context.dependency_paths
-        root = await run_sync_io(
-            (source_path or requirements_file.parent).resolve,
-        )
-        if frozen:
-            from .channel_bootstrap import (
-                validate_runtime_identity,
-            )
-            from .install_lock import (
-                async_lock,
-                environment_install_lock_path,
-                plugin_install_lock,
-            )
-
-            from .dependency_maintenance import canonical
-
-            def validate_target():
-                if target.is_symlink() or context.protected(target):
-                    raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
-                return canonical(target)
-
-            def prepare_target():
-                validate_target()
-                target.mkdir(parents=True, exist_ok=True)
-                return validate_target()
-
-            selected = await run_sync_io(prepare_target)
-            async with async_lock(
-                plugin_install_lock(
-                    await run_sync_io(environment_install_lock_path, selected),
-                ),
-            ):
-                if str(await run_sync_io(validate_target)) != str(
-                    selected,
-                ) or not await run_sync_io(selected.is_dir):
-                    raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
-                target = selected
-
-            def resolve_paths():
-                return tuple(
-                    Path(key)
-                    for key in dict.fromkeys(
-                        str(canonical(path)) for path in (*paths, target)
-                    )
+            if os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local":
+                raise RuntimeError(
+                    "Shared runtime requires explicit administrator repair",
                 )
-
-            paths = await run_sync_io(resolve_paths)
-            await self._publish_dependency_site(
-                target,
-                validate=validate_runtime_selection,
+            frozen = _is_frozen()
+            validate_runtime_selection = _capture_runtime_selection(
+                lambda: self.registry.channel_runtime,
+                _is_frozen,
             )
-        await self._stop_preparation(plugin_id)
-        cleanup = ExitStack()
-        try:
-            if source_path is not None:
 
-                def stage_requirements():
-                    temporary = cleanup.enter_context(
-                        tempfile.TemporaryDirectory(
-                            prefix="qwenpaw-dependency-audit-",
-                        ),
-                    )
-                    staged = Path(temporary) / "requirements.txt"
-                    shutil.copyfile(requirements_file, staged)
-                    return staged
-
-                requirements_file = await run_sync_io(stage_requirements)
-            audit_root = await run_sync_io(requirements_file.parent.resolve)
-            process, lease = self._own_preparation(
-                plugin_id,
-                PluginProcess,
-                root,
-                instance_id="dependency:" + plugin_id,
-                cleanup=cleanup.close,
-            )
-        except BaseException:
-            await run_sync_io(cleanup.close)
-            raise
-        usage = self.registry.dependency_usage
-        token = None
-        identity_error = None
-        try:
-            from .dependency_gate import parse_requirements_file
-            from .dependency_usage import DependencyDeclaration
-
-            def inspect_requirements():
-                return (
-                    _hash_code_root(audit_root),
-                    requirements_file.resolve(),
-                    parse_requirements_file(requirements_file),
-                )
-
-            revision, requirements_path, requirements = await run_sync_io(
-                inspect_requirements,
-            )
-            spec = PluginLaunchSpec(
-                python_executable=python,
-                support_root=support,
-                code_root=audit_root,
-                source_revision=revision,
-                plugin_id=plugin_id,
-                instance_id="dependency:" + plugin_id,
-                generation=lease.generation,
-                entrypoint="_dependency_audit:Driver",
-                config={},
-                requirements_path=requirements_path,
-                dependency_paths=paths,
-                startup_timeout=15,
-            )
-            token = usage.declare(
-                DependencyDeclaration(
-                    plugin_id,
-                    spec.source_revision,
-                    (
-                        ()
-                        if frozen
-                        else (
-                            tuple(
-                                str(item) for item in requirements.requirements
-                            )
-                            + tuple(requirements.unsupported)
-                        )
-                    ),
-                    None,
-                ),
-            )
-            usage.bind(lease, token)
-
-            def observe(snapshot):
-                nonlocal identity_error
-                if context.runtime_identity is not None:
-                    try:
-                        validate_runtime_identity(
-                            snapshot,
-                            context.runtime_identity,
-                            python,
-                        )
-                    except ValueError as exc:
-                        identity_error = exc
-                        raise
-                usage.observe(lease, snapshot)
-
-            process.dependency_observer = observe
-            from .install_lock import environment_observation
-
-            # The configured sites have parent reader custody. Unknown native
-            # interpreter sites remain subject to the child's cold audit.
-            async with environment_observation(paths):
-                snapshot = (await process.audit(spec)).snapshot
-            observe(snapshot)
-            installer_identity = {
-                "executable": snapshot.executable,
-                "prefix": snapshot.prefix,
-                "supported_tags": list(snapshot.supported_tags),
-            }
-            wheel_tags = snapshot.supported_tags if frozen else None
-            audit_process = process
-            if frozen:
-                from types import SimpleNamespace
-
-                async def host_audit(_spec):
-                    observed = await self._python_backend.audit_dependencies(
-                        SimpleNamespace(source_path=root, requirements=()),
-                        context=context,
-                        validate=validate_runtime_selection,
-                    )
-                    return SimpleNamespace(snapshot=observed)
-
-                # A worker proves installer identity. Ordinary plugin code
-                # executes in this host, whose metadata also fences additions.
-                audit_process = SimpleNamespace(audit=host_audit)
-                snapshot = (await audit_process.audit(spec)).snapshot
-            # A selected interpreter can expose package sites absent from the
-            # host's sys.path (including an active user site). Retain its real
-            # audited roots before the additive writer admits another audit.
-            from .dependency_maintenance import lease_environment
-
-            await run_sync_io(
-                lease_environment,
-                (target,) if frozen else snapshot.dependency_sites or (),
-            )
-            from .dependency_usage import current_admission_token
-
-            if not frozen:
-                context = await run_sync_io(
-                    self._dependency_environment,
-                    snapshot,
-                )
-                target = context.install_target
+            context = await run_sync_io(self._dependency_environment)
             validate_runtime_selection()
-            try:
-                await prepare_shared_dependencies(
-                    audit_process,
-                    spec,
-                    plugin_id=plugin_id,
-                    requirements_file=requirements_file,
-                    usage_registry=usage,
-                    admission_token=current_admission_token(
-                        usage,
-                        plugin_id,
-                        root,
-                    ),
-                    install_target=target,
-                    targets=snapshot.dependency_sites or (),
-                )
-            except SharedDependencyError as exc:
-                if (
-                    exc.reason_code != "DEPENDENCY_UNSATISFIED"
-                    or not exc.decision.missing
-                    or exc.decision.require_restart
-                    or exc.decision.unsupported
-                    or exc.decision.host_conflicts
-                ):
-                    raise
-                if target is None:
-                    raise RuntimeError(
-                        "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
-                    ) from exc
-                await self._acquire_dependency_wheels(
-                    audit_process,
-                    spec,
-                    snapshot,
-                    target,
-                    plugin_id,
-                    requirements_file,
-                    source_path=root,
-                    wheel_tags=wheel_tags,
-                    dependency_context=context if frozen else None,
-                    installer_identity=installer_identity,
-                )
+            target = context.install_target
+            python = context.python_executable
+            support = context.support_root
+            paths = context.dependency_paths
+            root = await run_sync_io(
+                (source_path or requirements_file.parent).resolve,
+            )
             if frozen:
+                from .channel_bootstrap import (
+                    validate_runtime_identity,
+                )
+                from .install_lock import (
+                    async_lock,
+                    environment_install_lock_path,
+                    plugin_install_lock,
+                )
+
+                from .dependency_maintenance import canonical
+
+                def validate_target():
+                    if target.is_symlink() or context.protected(target):
+                        raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
+                    return canonical(target)
+
+                def prepare_target():
+                    validate_target()
+                    target.mkdir(parents=True, exist_ok=True)
+                    return validate_target()
+
+                selected = await run_sync_io(prepare_target)
+                async with async_lock(
+                    plugin_install_lock(
+                        await run_sync_io(
+                            environment_install_lock_path,
+                            selected,
+                        ),
+                    ),
+                ):
+                    if str(await run_sync_io(validate_target)) != str(
+                        selected,
+                    ) or not await run_sync_io(selected.is_dir):
+                        raise ValueError("CHANNEL_RUNTIME_TARGET_INVALID")
+                    target = selected
+
+                def resolve_paths():
+                    return tuple(
+                        Path(key)
+                        for key in dict.fromkeys(
+                            str(canonical(path)) for path in (*paths, target)
+                        )
+                    )
+
+                paths = await run_sync_io(resolve_paths)
                 await self._publish_dependency_site(
                     target,
                     validate=validate_runtime_selection,
                 )
-            return GateDecision(False, True, reason="already satisfied")
-        except Exception:
-            if identity_error is not None:
-                raise identity_error
-            raise
-        finally:
+            await self._stop_preparation(plugin_id)
+            cleanup = ExitStack()
             try:
-                observed = getattr(process, "dependency_snapshot", None)
-                if token is not None and observed is not None:
-                    usage.observe(lease, observed)
+                if source_path is not None:
+
+                    def stage_requirements():
+                        temporary = cleanup.enter_context(
+                            tempfile.TemporaryDirectory(
+                                prefix="qwenpaw-dependency-audit-",
+                            ),
+                        )
+                        staged = Path(temporary) / "requirements.txt"
+                        shutil.copyfile(requirements_file, staged)
+                        return staged
+
+                    requirements_file = await run_sync_io(stage_requirements)
+                audit_root = await run_sync_io(
+                    requirements_file.parent.resolve,
+                )
+                process, lease = self._own_preparation(
+                    plugin_id,
+                    PluginProcess,
+                    root,
+                    instance_id="dependency:" + plugin_id,
+                    cleanup=cleanup.close,
+                )
+            except BaseException:
+                await run_sync_io(cleanup.close)
+                raise
+            usage = self.registry.dependency_usage
+            token = None
+            identity_error = None
+            try:
+                from .dependency_gate import parse_requirements_file
+                from .dependency_usage import DependencyDeclaration
+
+                def inspect_requirements():
+                    return (
+                        _hash_code_root(audit_root),
+                        requirements_file.resolve(),
+                        parse_requirements_file(requirements_file),
+                    )
+
+                revision, requirements_path, requirements = await run_sync_io(
+                    inspect_requirements,
+                )
+                spec = PluginLaunchSpec(
+                    python_executable=python,
+                    support_root=support,
+                    code_root=audit_root,
+                    source_revision=revision,
+                    plugin_id=plugin_id,
+                    instance_id="dependency:" + plugin_id,
+                    generation=lease.generation,
+                    entrypoint="_dependency_audit:Driver",
+                    config={},
+                    requirements_path=requirements_path,
+                    dependency_paths=paths,
+                    startup_timeout=15,
+                )
+                token = usage.declare(
+                    DependencyDeclaration(
+                        plugin_id,
+                        spec.source_revision,
+                        (
+                            ()
+                            if frozen
+                            else (
+                                tuple(
+                                    str(item)
+                                    for item in requirements.requirements
+                                )
+                                + tuple(requirements.unsupported)
+                            )
+                        ),
+                        None,
+                    ),
+                )
+                usage.bind(lease, token)
+
+                def observe(snapshot):
+                    nonlocal identity_error
+                    if context.runtime_identity is not None:
+                        try:
+                            validate_runtime_identity(
+                                snapshot,
+                                context.runtime_identity,
+                                python,
+                            )
+                        except ValueError as exc:
+                            identity_error = exc
+                            raise
+                    usage.observe(lease, snapshot)
+
+                process.dependency_observer = observe
+                from .install_lock import environment_observation
+
+                # The configured sites have parent reader custody. Unknown native
+                # interpreter sites remain subject to the child's cold audit.
+                async with environment_observation(paths):
+                    snapshot = (await process.audit(spec)).snapshot
+                observe(snapshot)
+                installer_identity = {
+                    "executable": snapshot.executable,
+                    "prefix": snapshot.prefix,
+                    "supported_tags": list(snapshot.supported_tags),
+                }
+                wheel_tags = snapshot.supported_tags if frozen else None
+                audit_process = process
+                if frozen:
+                    from types import SimpleNamespace
+
+                    async def host_audit(_spec):
+                        observed = (
+                            await self._python_backend.audit_dependencies(
+                                SimpleNamespace(
+                                    source_path=root,
+                                    requirements=(),
+                                ),
+                                context=context,
+                                validate=validate_runtime_selection,
+                            )
+                        )
+                        return SimpleNamespace(snapshot=observed)
+
+                    # A worker proves installer identity. Ordinary plugin code
+                    # executes in this host, whose metadata also fences additions.
+                    audit_process = SimpleNamespace(audit=host_audit)
+                    snapshot = (await audit_process.audit(spec)).snapshot
+                # A selected interpreter can expose package sites absent from the
+                # host's sys.path (including an active user site). Retain its real
+                # audited roots before the additive writer admits another audit.
+                from .dependency_maintenance import lease_environment
+
+                await run_sync_io(
+                    lease_environment,
+                    (target,) if frozen else snapshot.dependency_sites or (),
+                )
+                from .dependency_usage import current_admission_token
+
+                if not frozen:
+                    context = await run_sync_io(
+                        self._dependency_environment,
+                        snapshot,
+                    )
+                    target = context.install_target
+                validate_runtime_selection()
+                try:
+                    await prepare_shared_dependencies(
+                        audit_process,
+                        spec,
+                        plugin_id=plugin_id,
+                        requirements_file=requirements_file,
+                        usage_registry=usage,
+                        admission_token=current_admission_token(
+                            usage,
+                            plugin_id,
+                            root,
+                        ),
+                        install_target=target,
+                        targets=snapshot.dependency_sites or (),
+                    )
+                except SharedDependencyError as exc:
+                    if (
+                        exc.reason_code != "DEPENDENCY_UNSATISFIED"
+                        or not exc.decision.missing
+                        or exc.decision.require_restart
+                        or exc.decision.unsupported
+                        or exc.decision.host_conflicts
+                    ):
+                        raise
+                    if target is None:
+                        raise RuntimeError(
+                            "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+                        ) from exc
+                    await self._acquire_dependency_wheels(
+                        audit_process,
+                        spec,
+                        snapshot,
+                        target,
+                        plugin_id,
+                        requirements_file,
+                        source_path=root,
+                        wheel_tags=wheel_tags,
+                        dependency_context=context if frozen else None,
+                        installer_identity=installer_identity,
+                    )
+                if frozen:
+                    await self._publish_dependency_site(
+                        target,
+                        validate=validate_runtime_selection,
+                    )
+                return GateDecision(False, True, reason="already satisfied")
+            except Exception:
+                if identity_error is not None:
+                    raise identity_error
+                raise
             finally:
                 try:
-                    await self._finish_preparation(lease)
+                    observed = getattr(process, "dependency_snapshot", None)
+                    if token is not None and observed is not None:
+                        usage.observe(lease, observed)
                 finally:
-                    usage.withdraw(token)
+                    try:
+                        await self._finish_preparation(lease)
+                    finally:
+                        usage.withdraw(token)
 
     async def _acquire_dependency_wheels(
         self,
@@ -1338,394 +1403,432 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         installer_identity=None,
     ):
         """Build/stage wheels; the shared gate owns actual package writes."""
-        import hashlib
-        from packaging.utils import parse_wheel_filename
-        from ..config.utils import get_config_path
-        from .dependency_gate import (
-            SharedDependencyError,
-            WheelAddition,
-            prepare_shared_dependencies,
-        )
-
-        from .dependency_usage import current_admission_token
-        from ..utils.io_utils import run_sync_io
-
-        async def run(command):
-            return await run_sync_io(
-                self._run_subprocess_with_streaming_log,
-                command,
-                timeout=300,
-                plugin_id=plugin_id,
-            )
-
-        runtime = getattr(self.registry, "channel_runtime", None)
-        if (
-            dependency_context is None
-            and getattr(runtime, "runtime_identity", None) is not None
+        async with self._dependency_install_scope(
+            source_path or requirements_file.parent,
         ):
-            from .dependency_context import DependencyEnvironmentContext
-
-            dependency_context = await run_sync_io(
-                DependencyEnvironmentContext.from_runtime,
-                runtime,
+            from .dependency_transaction import _hash
+            from packaging.utils import parse_wheel_filename
+            from ..config.utils import get_config_path
+            from .dependency_gate import (
+                SharedDependencyError,
+                WheelAddition,
+                prepare_shared_dependencies,
             )
-        usage = self.registry.dependency_usage
-        immutable = (
-            await run_sync_io(dependency_context.immutable_providers)
-            if dependency_context is not None
-            else {}
-        )
-        if immutable:
-            from .dependency_gate import parse_requirements_file
-            from .execution.dependencies import _dependency_closure
 
-            parsed = await run_sync_io(
-                parse_requirements_file,
-                requirements_file,
-            )
-            for name, requirement in _dependency_closure(
-                [
-                    *(str(item) for item in parsed.requirements),
-                    CERTIFI_REQUIREMENT,
-                ],
-                {**immutable, **snapshot.distributions},
-                snapshot.marker_environment,
-            ):
-                if name in immutable and (
-                    name not in snapshot.distributions
-                    or not requirement.specifier.contains(
-                        immutable[name]["version"],
-                        prereleases=True,
-                    )
-                ):
-                    dependency_context.refuse_immutable_provider(
-                        name,
-                        immutable[name],
-                    )
-        cleanup = ExitStack()
-        try:
-            temporary = await run_sync_io(
-                lambda: cleanup.enter_context(
-                    tempfile.TemporaryDirectory(
-                        prefix="qwenpaw-dependency-wheels-",
+            from .dependency_usage import current_admission_token
+            from ..utils.io_utils import run_sync_io
+
+            async def run(command):
+                from .dependency_process import install_cancel, install_timeout
+                from ..utils.io_utils import run_async_to_completion
+
+                cancel = install_cancel.get()
+                timeout = install_timeout.get()
+                worker = asyncio.create_task(
+                    run_sync_io(
+                        self._run_subprocess_with_streaming_log,
+                        command,
+                        timeout=timeout,
+                        plugin_id=plugin_id,
+                        cancel=cancel,
                     ),
-                ),
-            )
-            staging = Path(temporary)
-            constraints = staging / "constraints.txt"
-            resolver = staging / "requirements.txt"
-
-            def prepare_requirements():
-                resolver.write_text(
-                    requirements_file.read_text(encoding="utf-8")
-                    + "\n"
-                    + CERTIFI_REQUIREMENT
-                    + "\n",
-                    encoding="utf-8",
                 )
-
-            await run_sync_io(prepare_requirements)
-
-            if not await run_sync_io(
-                require_pip,
-                spec.python_executable,
-                isolated=True,
-            ):
-                if _is_frozen() or (
-                    dependency_context is not None
-                    and dependency_context.runtime_identity is not None
-                ):
-                    logger.info(
-                        "Dependency installer unavailable: plugin=%s "
-                        "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
-                        ascii(str(plugin_id))[1:-1][:160],
+                try:
+                    return await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    cancel.set()
+                    await run_async_to_completion(
+                        asyncio.gather(worker, return_exceptions=True),
                     )
+                    raise
+                except subprocess.TimeoutExpired as exc:
                     raise RuntimeError(
-                        "DEPENDENCY_INSTALLER_UNAVAILABLE: bundled pip is "
-                        "missing; update QwenPaw Desktop.",
-                    )
-                # ensurepip uses bundled wheels, without upgrading installed
-                # packages. Only a missing installer authorizes this retry.
-                bootstrap = await run(
-                    [spec.python_executable, "-I", "-m", "ensurepip"],
+                        f"Dependency installation timed out for '{plugin_id}' "
+                        f"({timeout} s limit exceeded)",
+                    ) from exc
+
+            runtime = getattr(self.registry, "channel_runtime", None)
+            if (
+                dependency_context is None
+                and getattr(runtime, "runtime_identity", None) is not None
+            ):
+                from .dependency_context import DependencyEnvironmentContext
+
+                dependency_context = await run_sync_io(
+                    DependencyEnvironmentContext.from_runtime,
+                    runtime,
                 )
-                if not bootstrap.returncode:
-                    snapshot = (await process.audit(spec)).snapshot
-                if bootstrap.returncode or not await run_sync_io(
-                    require_pip,
-                    spec.python_executable,
-                    isolated=True,
+            usage = self.registry.dependency_usage
+            immutable = (
+                await run_sync_io(dependency_context.immutable_providers)
+                if dependency_context is not None
+                else {}
+            )
+            if immutable:
+                from .dependency_gate import parse_requirements_file
+                from .execution.dependencies import _dependency_closure
+
+                parsed = await run_sync_io(
+                    parse_requirements_file,
+                    requirements_file,
+                )
+                for name, requirement in _dependency_closure(
+                    [
+                        *(str(item) for item in parsed.requirements),
+                        CERTIFI_REQUIREMENT,
+                    ],
+                    {**immutable, **snapshot.distributions},
+                    snapshot.marker_environment,
                 ):
-                    logger.info(
-                        "Dependency installer unavailable: plugin=%s "
-                        "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
-                        ascii(str(plugin_id))[1:-1][:160],
-                    )
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            reason="DEPENDENCY_INSTALLER_UNAVAILABLE",
-                            reason_code="DEPENDENCY_INSTALLER_UNAVAILABLE",
-                        ),
-                    )
-            from .dependency_upgrade import (
-                DependencyUpgradeRequired,
-                PreparedResolution,
-                _candidate_scope,
-                _protected_providers,
-                _resolution_requirements,
-                _source_hash,
-                dependency_upgrades,
-                resolution_constraints,
-            )
-            from .dependency_gate import parse_requirements_file
-            from .execution.dependencies import DependencySnapshot
-            from .dependency_context import DependencyEnvironmentContext
-
-            parsed = await run_sync_io(
-                parse_requirements_file,
-                requirements_file,
-            )
-            requirements = _resolution_requirements(
-                snapshot,
-                tuple(map(str, parsed.requirements)),
-            )
-            context = dependency_context
-            if context is None and isinstance(snapshot, DependencySnapshot):
-                context = replace(
-                    DependencyEnvironmentContext.from_snapshot(snapshot),
-                    install_target=Path(target),
-                )
-            manager, candidates, binding = dependency_upgrades(self), [], None
-            origin = Path(source_path or spec.code_root)
-            if await run_sync_io((origin / "plugin.json").is_file):
-                binding = await manager._binding(origin)
-                candidates = await manager._consumer_candidates(
-                    binding,
-                    snapshot,
-                )
-            if binding is not None and dependency_context is None:
-                context = await manager._environment(binding, snapshot)
-            protected = (
-                await run_sync_io(
-                    _protected_providers,
-                    snapshot,
-                    context,
-                    get_config_path().parent / "plugin_runtime",
-                )
-                if isinstance(snapshot, DependencySnapshot)
-                else set()
-            )
-            preferences = manager._soft_preferences(candidates, snapshot)
-
-            def constrain(prefer_installed):
-                constraints.write_text(
-                    resolution_constraints(
-                        snapshot,
-                        requirements,
-                        immutable=immutable,
-                        protected=protected,
-                        prefer_installed=prefer_installed,
-                        soft_preferences=preferences,
-                    ),
-                    encoding="utf-8",
-                )
-                # Keep accepted pip options and the source's exact declaration.
-                resolver.write_text(
-                    requirements_file.read_text(encoding="utf-8")
-                    + "\n"
-                    + "\n".join(
-                        sorted(
-                            set(requirements)
-                            - set(map(str, parsed.requirements)),
-                        ),
-                    )
-                    + "\n",
-                    encoding="utf-8",
-                )
-
-            await run_sync_io(constrain, True)
-            command = [
-                spec.python_executable,
-                "-I",
-                "-B",
-                "-m",
-                "pip",
-                "wheel",
-                "--disable-pip-version-check",
-                "--no-input",
-                "--wheel-dir",
-                str(staging),
-                "--constraint",
-                str(constraints),
-                "-r",
-                str(resolver),
-            ]
-            result = await run(command)
-            preferences_failed = bool(result.returncode)
-            if result.returncode:
-                await run_sync_io(constrain, False)
-                for path in await run_sync_io(
-                    lambda: tuple(staging.glob("*.whl")),
-                ):
-                    await run_sync_io(path.unlink)
-                result = await run(command)
-            if result.returncode:
-                logger.info(
-                    "Dependency solver failed: plugin=%s returncode=%s code=DEPENDENCY_CONFLICT",
-                    ascii(str(plugin_id))[1:-1][:160],
-                    result.returncode,
-                )
-                raise SharedDependencyError(
-                    GateDecision(
-                        False,
-                        False,
-                        reason="Plugin requirements cannot be resolved for the selected Python environment.",
-                        reason_code="DEPENDENCY_CONFLICT",
-                    ),
-                )
-            replacements = await run_sync_io(
-                lambda: any(
-                    str(parse_wheel_filename(path.name)[0])
-                    in snapshot.distributions
-                    and snapshot.distributions[
-                        str(parse_wheel_filename(path.name)[0])
-                    ]["version"]
-                    != str(parse_wheel_filename(path.name)[1])
-                    for path in staging.glob("*.whl")
-                ),
-            )
-            if replacements:
-                if binding is None:
-                    raise SharedDependencyError(
-                        GateDecision(
-                            False,
-                            False,
-                            require_restart=True,
-                            reason=(
-                                "DEPENDENCY_RESTART_REQUIRED: shared dependency replacement "
-                                "requires a retained plugin source."
-                            ),
-                            reason_code="DEPENDENCY_RESTART_REQUIRED",
-                        ),
-                    )
-                from .dependency_transaction import environment_fingerprint
-
-                admission = current_admission_token(usage, plugin_id, origin)
-                owners = self.registry.runtime_owners
-                preparation = tuple(
-                    lease
-                    for lease in owners.leases(plugin_id)
-                    if lease.key.kind == "preparation"
-                    and lease.instance_id == getattr(spec, "instance_id", None)
-                    and lease.generation == getattr(spec, "generation", None)
-                    and owners.resource(lease) is process
-                )
-                excluded_tokens = tuple(
-                    token
-                    for token in (
-                        admission,
-                        *usage.capture_admissions(preparation).values(),
-                    )
-                    if token is not None
-                )
-                prepared = PreparedResolution(
-                    await run_sync_io(_source_hash, origin),
-                    await run_sync_io(
-                        environment_fingerprint,
-                        snapshot.to_mapping(),
-                    ),
-                    context.to_mapping(),
-                    tuple(requirements),
-                    _candidate_scope(candidates),
-                    await run_sync_io(
-                        lambda: tuple(
-                            WheelAddition(
-                                path,
-                                hashlib.sha256(path.read_bytes()).hexdigest(),
-                            )
-                            for path in staging.glob("*.whl")
-                        ),
-                    ),
-                    preferences_failed,
-                    excluded_tokens=excluded_tokens,
-                )
-                # Stage claims verified copies while this caller still owns the
-                # temporary directory; exceptions never carry temporary paths.
-                intent = _DEPENDENCY_FORCE.get()
-                force = bool(
-                    intent
-                    and intent[0] == self._lifecycle_hold_key(plugin_id)
-                    and intent[1],
-                )
-                # A stopped inspection must release its exact custody before
-                # stage can audit with another generation. Wheels remain owned
-                # by this method's separate temporary resource scope.
-                for lease in preparation:
-                    await self._finish_preparation(lease)
-                operation = await manager.stage(
-                    origin,
-                    force=force,
-                    prepared=prepared,
-                )
-                raise DependencyUpgradeRequired(operation)
-
-            def collect_wheels():
-                wheels = tuple(
-                    WheelAddition(
-                        path,
-                        hashlib.sha256(path.read_bytes()).hexdigest(),
-                    )
-                    for path in staging.glob("*.whl")
-                    if str(parse_wheel_filename(path.name)[0])
-                    not in snapshot.distributions
-                )
-                for item in wheels:
-                    name = str(parse_wheel_filename(item.path.name)[0])
-                    if name in immutable:
+                    if name in immutable and (
+                        name not in snapshot.distributions
+                        or not requirement.specifier.contains(
+                            immutable[name]["version"],
+                            prereleases=True,
+                        )
+                    ):
                         dependency_context.refuse_immutable_provider(
                             name,
                             immutable[name],
                         )
-                return wheels
+            cleanup = ExitStack()
+            try:
+                temporary = await run_sync_io(
+                    lambda: cleanup.enter_context(
+                        tempfile.TemporaryDirectory(
+                            prefix="qwenpaw-dependency-wheels-",
+                        ),
+                    ),
+                )
+                staging = Path(temporary)
+                constraints = staging / "constraints.txt"
+                resolver = staging / "requirements.txt"
 
-            wheels = await run_sync_io(collect_wheels)
-            logger.info(
-                "Dependency pip prepared wheels: plugin=%s returncode=%s "
-                "stage=wheel-validation count=%s artifacts=%s",
-                ascii(str(plugin_id))[1:-1][:160],
-                result.returncode,
-                len(wheels),
-                ", ".join(
-                    ascii(item.path.name)[1:-1][:160] for item in wheels[:8]
-                ),
-            )
-            await prepare_shared_dependencies(
-                process,
-                spec,
-                plugin_id=plugin_id,
-                requirements_file=resolver,
-                usage_registry=usage,
-                admission_token=current_admission_token(
-                    usage,
-                    plugin_id,
-                    source_path or spec.code_root,
-                ),
-                install_target=target,
-                wheels=wheels,
-                expected_snapshot=snapshot,
-                wheel_tags=wheel_tags,
-                installer_python=spec.python_executable,
-                installer_identity=installer_identity,
-                collision_sites=(
-                    dependency_context.immutable_roots
-                    if dependency_context
-                    else ()
-                ),
-            )
-        finally:
-            await run_sync_io(cleanup.close)
+                def prepare_requirements():
+                    resolver.write_text(
+                        requirements_file.read_text(encoding="utf-8")
+                        + "\n"
+                        + CERTIFI_REQUIREMENT
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                await run_sync_io(prepare_requirements)
+
+                if not await run_sync_io(
+                    require_pip,
+                    spec.python_executable,
+                    isolated=True,
+                ):
+                    if _is_frozen() or (
+                        dependency_context is not None
+                        and dependency_context.runtime_identity is not None
+                    ):
+                        logger.info(
+                            "Dependency installer unavailable: plugin=%s "
+                            "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
+                            ascii(str(plugin_id))[1:-1][:160],
+                        )
+                        raise RuntimeError(
+                            "DEPENDENCY_INSTALLER_UNAVAILABLE: bundled pip is "
+                            "missing; update QwenPaw Desktop.",
+                        )
+                    # ensurepip uses bundled wheels, without upgrading installed
+                    # packages. Only a missing installer authorizes this retry.
+                    bootstrap = await run(
+                        [spec.python_executable, "-I", "-m", "ensurepip"],
+                    )
+                    if not bootstrap.returncode:
+                        snapshot = (await process.audit(spec)).snapshot
+                    if bootstrap.returncode or not await run_sync_io(
+                        require_pip,
+                        spec.python_executable,
+                        isolated=True,
+                    ):
+                        logger.info(
+                            "Dependency installer unavailable: plugin=%s "
+                            "code=DEPENDENCY_INSTALLER_UNAVAILABLE",
+                            ascii(str(plugin_id))[1:-1][:160],
+                        )
+                        raise SharedDependencyError(
+                            GateDecision(
+                                False,
+                                False,
+                                reason="DEPENDENCY_INSTALLER_UNAVAILABLE",
+                                reason_code="DEPENDENCY_INSTALLER_UNAVAILABLE",
+                            ),
+                        )
+                from .dependency_upgrade import (
+                    DependencyUpgradeRequired,
+                    PreparedResolution,
+                    _candidate_scope,
+                    _protected_providers,
+                    _resolution_requirements,
+                    _source_hash,
+                    dependency_upgrades,
+                    resolution_constraints,
+                )
+                from .dependency_gate import parse_requirements_file
+                from .execution.dependencies import DependencySnapshot
+                from .dependency_context import DependencyEnvironmentContext
+
+                parsed = await run_sync_io(
+                    parse_requirements_file,
+                    requirements_file,
+                )
+                requirements = _resolution_requirements(
+                    snapshot,
+                    tuple(map(str, parsed.requirements)),
+                )
+                context = dependency_context
+                if context is None and isinstance(
+                    snapshot,
+                    DependencySnapshot,
+                ):
+                    context = replace(
+                        DependencyEnvironmentContext.from_snapshot(snapshot),
+                        install_target=Path(target),
+                    )
+                manager, candidates, binding = (
+                    dependency_upgrades(self),
+                    [],
+                    None,
+                )
+                origin = Path(source_path or spec.code_root)
+                if await run_sync_io((origin / "plugin.json").is_file):
+                    binding = await manager._binding(origin)
+                    candidates = await manager._consumer_candidates(
+                        binding,
+                        snapshot,
+                    )
+                if binding is not None and dependency_context is None:
+                    context = await manager._environment(binding, snapshot)
+                protected = (
+                    await run_sync_io(
+                        _protected_providers,
+                        snapshot,
+                        context,
+                        get_config_path().parent / "plugin_runtime",
+                    )
+                    if isinstance(snapshot, DependencySnapshot)
+                    else set()
+                )
+                preferences = manager._soft_preferences(candidates, snapshot)
+
+                def constrain(prefer_installed):
+                    constraints.write_text(
+                        resolution_constraints(
+                            snapshot,
+                            requirements,
+                            immutable=immutable,
+                            protected=protected,
+                            prefer_installed=prefer_installed,
+                            soft_preferences=preferences,
+                        ),
+                        encoding="utf-8",
+                    )
+                    # Keep accepted pip options and the source's exact declaration.
+                    resolver.write_text(
+                        requirements_file.read_text(encoding="utf-8")
+                        + "\n"
+                        + "\n".join(
+                            sorted(
+                                set(requirements)
+                                - set(map(str, parsed.requirements)),
+                            ),
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                await run_sync_io(constrain, True)
+                command = [
+                    spec.python_executable,
+                    "-I",
+                    "-B",
+                    "-m",
+                    "pip",
+                    "wheel",
+                    "--disable-pip-version-check",
+                    "--no-input",
+                    "--wheel-dir",
+                    str(staging),
+                    "--constraint",
+                    str(constraints),
+                    "-r",
+                    str(resolver),
+                ]
+                result = await run(command)
+                preferences_failed = bool(result.returncode)
+                if result.returncode:
+                    await run_sync_io(constrain, False)
+                    for path in await run_sync_io(
+                        lambda: tuple(staging.glob("*.whl")),
+                    ):
+                        await run_sync_io(path.unlink)
+                    result = await run(command)
+                if result.returncode:
+                    logger.info(
+                        "Dependency solver failed: plugin=%s returncode=%s code=DEPENDENCY_CONFLICT",
+                        ascii(str(plugin_id))[1:-1][:160],
+                        result.returncode,
+                    )
+                    raise SharedDependencyError(
+                        GateDecision(
+                            False,
+                            False,
+                            reason="Plugin requirements cannot be resolved for the selected Python environment.",
+                            reason_code="DEPENDENCY_CONFLICT",
+                        ),
+                    )
+                replacements = await run_sync_io(
+                    lambda: any(
+                        str(parse_wheel_filename(path.name)[0])
+                        in snapshot.distributions
+                        and snapshot.distributions[
+                            str(parse_wheel_filename(path.name)[0])
+                        ]["version"]
+                        != str(parse_wheel_filename(path.name)[1])
+                        for path in staging.glob("*.whl")
+                    ),
+                )
+                if replacements:
+                    if binding is None:
+                        raise SharedDependencyError(
+                            GateDecision(
+                                False,
+                                False,
+                                require_restart=True,
+                                reason=(
+                                    "DEPENDENCY_RESTART_REQUIRED: shared dependency replacement "
+                                    "requires a retained plugin source."
+                                ),
+                                reason_code="DEPENDENCY_RESTART_REQUIRED",
+                            ),
+                        )
+                    from .dependency_transaction import environment_fingerprint
+
+                    admission = current_admission_token(
+                        usage,
+                        plugin_id,
+                        origin,
+                    )
+                    owners = self.registry.runtime_owners
+                    preparation = tuple(
+                        lease
+                        for lease in owners.leases(plugin_id)
+                        if lease.key.kind == "preparation"
+                        and lease.instance_id
+                        == getattr(spec, "instance_id", None)
+                        and lease.generation
+                        == getattr(spec, "generation", None)
+                        and owners.resource(lease) is process
+                    )
+                    excluded_tokens = tuple(
+                        token
+                        for token in (
+                            admission,
+                            *usage.capture_admissions(preparation).values(),
+                        )
+                        if token is not None
+                    )
+                    prepared = PreparedResolution(
+                        await run_sync_io(_source_hash, origin),
+                        await run_sync_io(
+                            environment_fingerprint,
+                            snapshot.to_mapping(),
+                        ),
+                        context.to_mapping(),
+                        tuple(requirements),
+                        _candidate_scope(candidates),
+                        await run_sync_io(
+                            lambda: tuple(
+                                WheelAddition(
+                                    path,
+                                    _hash(path),
+                                )
+                                for path in staging.glob("*.whl")
+                            ),
+                        ),
+                        preferences_failed,
+                        excluded_tokens=excluded_tokens,
+                    )
+                    # Stage claims verified copies while this caller still owns the
+                    # temporary directory; exceptions never carry temporary paths.
+                    intent = _DEPENDENCY_FORCE.get()
+                    force = bool(
+                        intent
+                        and intent[0] == self._lifecycle_hold_key(plugin_id)
+                        and intent[1],
+                    )
+                    # A stopped inspection must release its exact custody before
+                    # stage can audit with another generation. Wheels remain owned
+                    # by this method's separate temporary resource scope.
+                    for lease in preparation:
+                        await self._finish_preparation(lease)
+                    operation = await manager.stage(
+                        origin,
+                        force=force,
+                        prepared=prepared,
+                    )
+                    raise DependencyUpgradeRequired(operation)
+
+                def collect_wheels():
+                    wheels = tuple(
+                        WheelAddition(
+                            path,
+                            _hash(path),
+                        )
+                        for path in staging.glob("*.whl")
+                        if str(parse_wheel_filename(path.name)[0])
+                        not in snapshot.distributions
+                    )
+                    for item in wheels:
+                        name = str(parse_wheel_filename(item.path.name)[0])
+                        if name in immutable:
+                            dependency_context.refuse_immutable_provider(
+                                name,
+                                immutable[name],
+                            )
+                    return wheels
+
+                wheels = await run_sync_io(collect_wheels)
+                logger.info(
+                    "Dependency pip prepared wheels: plugin=%s returncode=%s "
+                    "stage=wheel-validation count=%s artifacts=%s",
+                    ascii(str(plugin_id))[1:-1][:160],
+                    result.returncode,
+                    len(wheels),
+                    ", ".join(
+                        ascii(item.path.name)[1:-1][:160]
+                        for item in wheels[:8]
+                    ),
+                )
+                await prepare_shared_dependencies(
+                    process,
+                    spec,
+                    plugin_id=plugin_id,
+                    requirements_file=resolver,
+                    usage_registry=usage,
+                    admission_token=current_admission_token(
+                        usage,
+                        plugin_id,
+                        source_path or spec.code_root,
+                    ),
+                    install_target=target,
+                    wheels=wheels,
+                    expected_snapshot=snapshot,
+                    wheel_tags=wheel_tags,
+                    installer_python=spec.python_executable,
+                    installer_identity=installer_identity,
+                    collision_sites=(
+                        dependency_context.immutable_roots
+                        if dependency_context
+                        else ()
+                    ),
+                )
+            finally:
+                await run_sync_io(cleanup.close)
 
     async def _load_backend_module(
         self,
@@ -2548,59 +2651,46 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         *,
         timeout: int,
         plugin_id: str,
+        cancel: threading.Event | None = None,
     ) -> subprocess.CompletedProcess:
-        """Run *cmd*; stream stdout/stderr to debug logs in real time."""
-        logger.debug(
-            "Running install command for plugin '%s': %s",
-            plugin_id,
-            " ".join(cmd),
-        )
-        output_lines: List[str] = []
-        with subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        ) as proc:
-
-            def _read_output() -> None:
-                assert proc.stdout is not None
-                for line in proc.stdout:
-                    stripped = line.rstrip("\n\r")
-                    if stripped:
-                        output_lines.append(stripped)
-                        logger.debug("[%s] %s", plugin_id, stripped)
-
-            reader = threading.Thread(target=_read_output, daemon=True)
-            reader.start()
-            try:
-                returncode = proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                reader.join(timeout=2)
-                _log_dependency_subprocess_failure(
-                    plugin_id,
-                    "timeout",
-                    output_lines,
-                )
-                raise
-            reader.join(timeout=2)
-
-        if returncode:
+        try:
+            result = run_install_command(
+                cmd,
+                timeout=timeout,
+                plugin_id=plugin_id,
+                cancel=cancel,
+            )
+        except subprocess.TimeoutExpired as exc:
             _log_dependency_subprocess_failure(
                 plugin_id,
-                returncode,
-                output_lines,
+                "timeout",
+                (exc.output or "").splitlines(),
             )
-        combined = "\n".join(output_lines)
-        return subprocess.CompletedProcess(
-            args=cmd,
-            returncode=returncode,
-            stdout=combined,
-            stderr="",
+            raise
+        if result.returncode:
+            _log_dependency_subprocess_failure(
+                plugin_id,
+                result.returncode,
+                result.stdout.splitlines(),
+            )
+        return result
+
+    @staticmethod
+    def _dependency_install_timeout(source: Path) -> int:
+        """Bound downloads for optional large packages; default stays 300s."""
+        path = source / "plugin.json"
+        if not path.is_file():
+            return 300
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        value = (manifest.get("meta") or {}).get(
+            "dependency_install_timeout",
+            300,
         )
+        if not isinstance(value, int) or not 300 <= value <= 3600:
+            raise ValueError(
+                "dependency_install_timeout must be 300..3600 seconds",
+            )
+        return value
 
     def _install_requirements(
         self,
@@ -2672,6 +2762,13 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
     async def _reload_plugin_body(self, plugin_id, **kwargs):
         """Keep temporary admissions owned through switch and recovery."""
         async with AsyncExitStack() as admissions:
+            record = self._loaded_plugins.get(plugin_id)
+            if kwargs.get("allow_install") and record is not None:
+                await admissions.enter_async_context(
+                    self._dependency_install_scope(
+                        Path(kwargs.get("new_source") or record.source_path),
+                    ),
+                )
             return await self._reload_plugin_transaction(
                 plugin_id,
                 admissions=admissions,
@@ -3590,61 +3687,62 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         installation_source: str = "",
     ) -> PluginRecord:
         """Install offline; preparation tools may require check-only deps."""
-        from ..utils.io_utils import run_sync_io
+        async with self._dependency_install_scope(Path(source_path)):
+            from ..utils.io_utils import run_sync_io
 
-        source_path = await run_sync_io(Path(source_path).resolve)
-        _, manifest = await run_sync_io(
-            self._read_source_manifest,
-            source_path,
-        )
-        async with self.plugin_lifecycle(manifest.id):
-            self._require_recovered(manifest.id)
-            if not self.lifecycle.delegate.owns_commit(manifest.id):
-                raise RuntimeError(
-                    f"Plugin '{manifest.id}' commit is not owned "
-                    "by this process",
-                )
-            _, target = await run_sync_io(
-                self._install_paths,
-                manifest.id,
-                None,
-            )
-            if await run_sync_io(target.exists) and not force:
-                raise ValueError(
-                    f"Plugin '{manifest.id}' already exists. "
-                    "Use --force to reinstall.",
-                )
-            await self._recover_or_refuse_prepared_update(manifest.id)
-            binding = await run_sync_io(
-                self.backend_resolver.resolve,
+            source_path = await run_sync_io(Path(source_path).resolve)
+            _, manifest = await run_sync_io(
+                self._read_source_manifest,
                 source_path,
-                manifest,
             )
-            if manifest.entry.backend:
-                from .module_isolation import compile_plugin_import_closure
-
-                entry = source_path / manifest.entry.backend
-                await run_sync_io(
-                    compile_plugin_import_closure,
-                    entry,
-                    [str(entry.parent), str(source_path)],
+            async with self.plugin_lifecycle(manifest.id):
+                self._require_recovered(manifest.id)
+                if not self.lifecycle.delegate.owns_commit(manifest.id):
+                    raise RuntimeError(
+                        f"Plugin '{manifest.id}' commit is not owned "
+                        "by this process",
+                    )
+                _, target = await run_sync_io(
+                    self._install_paths,
+                    manifest.id,
+                    None,
                 )
-            await self.lifecycle.preflight_backend(
-                binding,
-                allow_install=allow_install,
-                probe=False,
-            )
-            record = await self._load_plugin_from_path_unlocked(
-                source_path,
-                manifest,
-                replace_files=force,
-                enabled=False,
-                installation_source=installation_source,
-            )
-            from .settings import clear_channel_tombstone
+                if await run_sync_io(target.exists) and not force:
+                    raise ValueError(
+                        f"Plugin '{manifest.id}' already exists. "
+                        "Use --force to reinstall.",
+                    )
+                await self._recover_or_refuse_prepared_update(manifest.id)
+                binding = await run_sync_io(
+                    self.backend_resolver.resolve,
+                    source_path,
+                    manifest,
+                )
+                if manifest.entry.backend:
+                    from .module_isolation import compile_plugin_import_closure
 
-            await run_sync_io(clear_channel_tombstone, manifest.id)
-            return record
+                    entry = source_path / manifest.entry.backend
+                    await run_sync_io(
+                        compile_plugin_import_closure,
+                        entry,
+                        [str(entry.parent), str(source_path)],
+                    )
+                await self.lifecycle.preflight_backend(
+                    binding,
+                    allow_install=allow_install,
+                    probe=False,
+                )
+                record = await self._load_plugin_from_path_unlocked(
+                    source_path,
+                    manifest,
+                    replace_files=force,
+                    enabled=False,
+                    installation_source=installation_source,
+                )
+                from .settings import clear_channel_tombstone
+
+                await run_sync_io(clear_channel_tombstone, manifest.id)
+                return record
 
     @staticmethod
     async def _write_installation_origin(
@@ -3724,120 +3822,126 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             RuntimeError: If dependency installation fails
         """
         # pylint: disable=too-many-branches
-        source_path = await asyncio.to_thread(Path(source_path).resolve)
-        _manifest_path, manifest = await asyncio.to_thread(
-            self._read_source_manifest,
-            source_path,
-        )
-        del _manifest_path
-        plugin_id = manifest.id
-        async with self.plugin_lifecycle(plugin_id, dependency_force=force):
-            await self._retry_plugin_recovery_unlocked(plugin_id)
-            if force and plugin_id in self._loaded_plugins:
-                report = await self.reload_plugin_unlocked(
-                    plugin_id,
-                    new_source=source_path,
-                    interrupt_tasks=interrupt_tasks,
-                    config=config,
-                    allow_install=True,
-                    owns_dependency_env=(
-                        self.lifecycle.delegate.owns_dependency_env(
-                            plugin_id,
-                        )
-                    ),
-                    after_unload=after_force_unload,
-                    before_unload=before_force_unload,
-                    wheels=wheels,
-                )
-                if not report.ok:
-                    detail = (
-                        "; ".join(report.errors)
-                        if report.errors
-                        else f"Reload of '{plugin_id}' failed"
-                    )
-                    if manifest.sdk is not None and report.needs_restart:
-                        from .errors import SDKRestartRequiredError
-
-                        raise SDKRestartRequiredError(detail)
-                    raise RuntimeError(detail)
-                record = self._loaded_plugins[plugin_id]
-                if after_load is not None:
-                    maybe_loaded = after_load(record)
-                    if inspect.isawaitable(maybe_loaded):
-                        await maybe_loaded
-                if pawport_owner is not None:
-                    await asyncio.to_thread(
-                        (record.source_path / _PAWPORT_MARKER).unlink,
-                        missing_ok=True,
-                    )
-                from .settings import clear_channel_tombstone
-
-                await asyncio.to_thread(clear_channel_tombstone, plugin_id)
-                await self._write_installation_origin(
-                    record,
-                    installation_source,
-                )
-                return record
-            record = None
-            from ..config import load_config
-            from .settings import is_plugin_enabled, runtime_config
-
-            saved = await asyncio.to_thread(load_config)
-            settings = (saved.plugins or {}).get(plugin_id)
-            enabled = is_plugin_enabled(settings)
-            incoming = runtime_config(
-                config if config is not None else settings,
+        async with self._dependency_install_scope(Path(source_path)):
+            source_path = await asyncio.to_thread(Path(source_path).resolve)
+            _manifest_path, manifest = await asyncio.to_thread(
+                self._read_source_manifest,
+                source_path,
             )
-            try:
-                record = await self._load_plugin_from_path_unlocked(
-                    source_path,
-                    manifest,
-                    incoming,
-                    install_dir,
-                    installation_source=installation_source,
-                    replace_files=force,
-                    pawport_owner=pawport_owner,
-                    recover_incomplete=recover_incomplete,
-                    enabled=enabled,
-                    wheels=wheels,
-                )
-                if record.status in {"active", "registered"}:
-                    await self.activate_plugin_unlocked(plugin_id)
-                if after_load is not None:
-                    maybe_loaded = after_load(record)
-                    if inspect.isawaitable(maybe_loaded):
-                        await maybe_loaded
-                if pawport_owner is not None:
-                    await asyncio.to_thread(
-                        (record.source_path / _PAWPORT_MARKER).unlink,
-                        missing_ok=True,
+            del _manifest_path
+            plugin_id = manifest.id
+            async with self.plugin_lifecycle(
+                plugin_id,
+                dependency_force=force,
+            ):
+                await self._retry_plugin_recovery_unlocked(plugin_id)
+                if force and plugin_id in self._loaded_plugins:
+                    report = await self.reload_plugin_unlocked(
+                        plugin_id,
+                        new_source=source_path,
+                        interrupt_tasks=interrupt_tasks,
+                        config=config,
+                        allow_install=True,
+                        owns_dependency_env=(
+                            self.lifecycle.delegate.owns_dependency_env(
+                                plugin_id,
+                            )
+                        ),
+                        after_unload=after_force_unload,
+                        before_unload=before_force_unload,
+                        wheels=wheels,
                     )
-                from .settings import clear_channel_tombstone
+                    if not report.ok:
+                        detail = (
+                            "; ".join(report.errors)
+                            if report.errors
+                            else f"Reload of '{plugin_id}' failed"
+                        )
+                        if manifest.sdk is not None and report.needs_restart:
+                            from .errors import SDKRestartRequiredError
 
-                await asyncio.to_thread(clear_channel_tombstone, plugin_id)
-                return record
-            except BaseException:
-                already_committed = self._install_already_committed(plugin_id)
-                if (
-                    record is not None
-                    and plugin_id in self._loaded_plugins
-                    and not already_committed
-                ):
-                    await self._unload_plugin_unlocked(
-                        plugin_id,
-                        delete_files=False,
+                            raise SDKRestartRequiredError(detail)
+                        raise RuntimeError(detail)
+                    record = self._loaded_plugins[plugin_id]
+                    if after_load is not None:
+                        maybe_loaded = after_load(record)
+                        if inspect.isawaitable(maybe_loaded):
+                            await maybe_loaded
+                    if pawport_owner is not None:
+                        await asyncio.to_thread(
+                            (record.source_path / _PAWPORT_MARKER).unlink,
+                            missing_ok=True,
+                        )
+                    from .settings import clear_channel_tombstone
+
+                    await asyncio.to_thread(clear_channel_tombstone, plugin_id)
+                    await self._write_installation_origin(
+                        record,
+                        installation_source,
                     )
-                if (
-                    record is not None
-                    and pawport_owner is not None
-                    and not already_committed
-                ):
-                    await self._remove_incomplete_pawport_plugin(
+                    return record
+                record = None
+                from ..config import load_config
+                from .settings import is_plugin_enabled, runtime_config
+
+                saved = await asyncio.to_thread(load_config)
+                settings = (saved.plugins or {}).get(plugin_id)
+                enabled = is_plugin_enabled(settings)
+                incoming = runtime_config(
+                    config if config is not None else settings,
+                )
+                try:
+                    record = await self._load_plugin_from_path_unlocked(
+                        source_path,
+                        manifest,
+                        incoming,
                         install_dir,
-                        plugin_id,
-                        pawport_owner,
+                        installation_source=installation_source,
+                        replace_files=force,
+                        pawport_owner=pawport_owner,
+                        recover_incomplete=recover_incomplete,
+                        enabled=enabled,
+                        wheels=wheels,
                     )
-                raise
+                    if record.status in {"active", "registered"}:
+                        await self.activate_plugin_unlocked(plugin_id)
+                    if after_load is not None:
+                        maybe_loaded = after_load(record)
+                        if inspect.isawaitable(maybe_loaded):
+                            await maybe_loaded
+                    if pawport_owner is not None:
+                        await asyncio.to_thread(
+                            (record.source_path / _PAWPORT_MARKER).unlink,
+                            missing_ok=True,
+                        )
+                    from .settings import clear_channel_tombstone
+
+                    await asyncio.to_thread(clear_channel_tombstone, plugin_id)
+                    return record
+                except BaseException:
+                    already_committed = self._install_already_committed(
+                        plugin_id,
+                    )
+                    if (
+                        record is not None
+                        and plugin_id in self._loaded_plugins
+                        and not already_committed
+                    ):
+                        await self._unload_plugin_unlocked(
+                            plugin_id,
+                            delete_files=False,
+                        )
+                    if (
+                        record is not None
+                        and pawport_owner is not None
+                        and not already_committed
+                    ):
+                        await self._remove_incomplete_pawport_plugin(
+                            install_dir,
+                            plugin_id,
+                            pawport_owner,
+                        )
+                    raise
 
     async def _load_plugin_from_path_unlocked(
         self,
@@ -4261,97 +4365,98 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     source_path,
                 )
                 del _path
-            if record is not None:
-                previous_binding = await self._binding_for_record(record)
-                # Repair explicitly inspects current disk contents, while the
-                # retained source keeps its backend and custody until stopped.
-                binding = BackendBinding(
-                    previous_binding.backend,
-                    await run_sync_io(
-                        previous_binding.backend.describe,
-                        source_path,
-                        previous_binding.description.manifest.model_copy(
-                            deep=True,
+            async with self._dependency_install_scope(source_path):
+                if record is not None:
+                    previous_binding = await self._binding_for_record(record)
+                    # Repair explicitly inspects current disk contents, while the
+                    # retained source keeps its backend and custody until stopped.
+                    binding = BackendBinding(
+                        previous_binding.backend,
+                        await run_sync_io(
+                            previous_binding.backend.describe,
+                            source_path,
+                            previous_binding.description.manifest.model_copy(
+                                deep=True,
+                            ),
                         ),
-                    ),
-                )
-            else:
-                binding = await run_sync_io(
-                    self.backend_resolver.resolve,
-                    source_path,
-                    manifest,
-                )
-            try:
-                await self.lifecycle.preflight_backend(
-                    binding,
-                    allow_install=True,
-                    probe=True,
-                    wheels=wheels,
-                )
-            except RuntimeError as exc:
-                from .dependency_upgrade import stage_dependency_refusal
-
-                await stage_dependency_refusal(
-                    self,
-                    source_path,
-                    exc,
-                    force=True,
-                )
-            from ..config.utils import load_config
-            from .settings import is_plugin_enabled, runtime_config
-
-            raw = (load_config().plugins or {}).get(plugin_id)
-            saved_config = None
-            inst = self.lifecycle.get_instance(plugin_id)
-            if inst is not None:
-                saved_config = dict(inst.config or {})
-            if record is not None and record.status == "failed":
-                if inst is not None:
-                    teardown = await inst.teardown_runtime()
-                    if not teardown.quiescent:
-                        record.diagnostics = list(inst.diagnostics)
-                        record.diagnostics.append(
-                            "Repair refused: hosted resources did "
-                            "not go quiescent; restart required.",
-                        )
-                        return record
-                self.registry.unregister_plugin(plugin_id)
-                self.registry.projector.drop_plugin(plugin_id)
-                self._loaded_plugins.pop(plugin_id, None)
-                self.lifecycle.drop_instance(plugin_id)
-            elif plugin_id in self._loaded_plugins and record is not None:
-                if record.status != "failed" and record.enabled:
-                    return record
-            if not is_plugin_enabled(raw):
-                repaired = PluginRecord(
-                    manifest=manifest,
-                    source_path=source_path,
-                    enabled=False,
-                    global_enabled=False,
-                    status="inactive",
-                    backend_binding=binding,
-                )
-                if discovers_disabled(binding):
-                    result = await binding.backend.load_definition(
-                        binding.description,
-                        {**runtime_config(raw), "enabled": False},
                     )
-                    self._apply_definition_result(repaired, result)
-                repaired.diagnostics.append(
-                    "dependencies installed; plugin remains disabled",
+                else:
+                    binding = await run_sync_io(
+                        self.backend_resolver.resolve,
+                        source_path,
+                        manifest,
+                    )
+                try:
+                    await self.lifecycle.preflight_backend(
+                        binding,
+                        allow_install=True,
+                        probe=True,
+                        wheels=wheels,
+                    )
+                except RuntimeError as exc:
+                    from .dependency_upgrade import stage_dependency_refusal
+
+                    await stage_dependency_refusal(
+                        self,
+                        source_path,
+                        exc,
+                        force=True,
+                    )
+                from ..config.utils import load_config
+                from .settings import is_plugin_enabled, runtime_config
+
+                raw = (load_config().plugins or {}).get(plugin_id)
+                saved_config = None
+                inst = self.lifecycle.get_instance(plugin_id)
+                if inst is not None:
+                    saved_config = dict(inst.config or {})
+                if record is not None and record.status == "failed":
+                    if inst is not None:
+                        teardown = await inst.teardown_runtime()
+                        if not teardown.quiescent:
+                            record.diagnostics = list(inst.diagnostics)
+                            record.diagnostics.append(
+                                "Repair refused: hosted resources did "
+                                "not go quiescent; restart required.",
+                            )
+                            return record
+                    self.registry.unregister_plugin(plugin_id)
+                    self.registry.projector.drop_plugin(plugin_id)
+                    self._loaded_plugins.pop(plugin_id, None)
+                    self.lifecycle.drop_instance(plugin_id)
+                elif plugin_id in self._loaded_plugins and record is not None:
+                    if record.status != "failed" and record.enabled:
+                        return record
+                if not is_plugin_enabled(raw):
+                    repaired = PluginRecord(
+                        manifest=manifest,
+                        source_path=source_path,
+                        enabled=False,
+                        global_enabled=False,
+                        status="inactive",
+                        backend_binding=binding,
+                    )
+                    if discovers_disabled(binding):
+                        result = await binding.backend.load_definition(
+                            binding.description,
+                            {**runtime_config(raw), "enabled": False},
+                        )
+                        self._apply_definition_result(repaired, result)
+                    repaired.diagnostics.append(
+                        "dependencies installed; plugin remains disabled",
+                    )
+                    return repaired
+                if saved_config is None:
+                    saved_config = runtime_config(raw)
+                return await self._load_plugin_unlocked(
+                    manifest,
+                    source_path,
+                    saved_config,
+                    allow_install=False,
+                    activate=True,
+                    backend_binding=binding,
+                    prepared=True,
                 )
-                return repaired
-            if saved_config is None:
-                saved_config = runtime_config(raw)
-            return await self._load_plugin_unlocked(
-                manifest,
-                source_path,
-                saved_config,
-                allow_install=False,
-                activate=True,
-                backend_binding=binding,
-                prepared=True,
-            )
 
     async def unload_plugin_with_mode(
         self,
