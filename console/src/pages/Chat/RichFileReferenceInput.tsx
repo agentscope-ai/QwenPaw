@@ -562,13 +562,34 @@ function EditorPastePlugin({
   return null;
 }
 
+function retargetCompositionEvent(
+  event: CompositionEvent<HTMLElement>,
+  textarea: HTMLTextAreaElement | null,
+): CompositionEvent<HTMLTextAreaElement> {
+  if (!textarea) {
+    return event as unknown as CompositionEvent<HTMLTextAreaElement>;
+  }
+
+  return new Proxy(event, {
+    get(target, property) {
+      if (property === "target" || property === "currentTarget") {
+        return textarea;
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as CompositionEvent<HTMLTextAreaElement>;
+}
+
 function EditableSurface({
+  textareaRef,
   onKeyDown,
   onFocus,
   onBlur,
   onCompositionStart,
   onCompositionEnd,
 }: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
   onKeyDown?: TextAreaProps["onKeyDown"];
   onFocus?: TextAreaProps["onFocus"];
   onBlur?: TextAreaProps["onBlur"];
@@ -594,13 +615,11 @@ function EditableSurface({
       }
       onCompositionStart={(event) =>
         onCompositionStart?.(
-          event as unknown as CompositionEvent<HTMLTextAreaElement>,
+          retargetCompositionEvent(event, textareaRef.current),
         )
       }
       onCompositionEnd={(event) =>
-        onCompositionEnd?.(
-          event as unknown as CompositionEvent<HTMLTextAreaElement>,
-        )
+        onCompositionEnd?.(retargetCompositionEvent(event, textareaRef.current))
       }
     />
   );
@@ -684,6 +703,7 @@ const RichFileReferenceInput = forwardRef<unknown, TextAreaProps>(
           <PlainTextPlugin
             contentEditable={
               <EditableSurface
+                textareaRef={hiddenTextarea}
                 onKeyDown={onKeyDown}
                 onFocus={onFocus}
                 onBlur={onBlur}
