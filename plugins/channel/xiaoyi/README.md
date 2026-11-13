@@ -44,10 +44,10 @@ Failed cleanup retains the remaining resource references and fails stop.
 Media storage uses the supplied execution `media_dir`, then
 `workspace_dir/media`, then `DEFAULT_MEDIA_DIR/xiaoyi`. Downloads run in the
 background and preserve message order within each session. Attachments are
-saved directly in the media directory, replacing files with the same sanitized
-name. The plugin infers missing extensions from the MIME type and reports
-failed downloads. Local outbound media must belong to the configured media or
-workspace roots.
+saved directly in the media directory with an eight-character UUID prefix to
+distinguish files with the same name. The plugin infers missing extensions
+from the MIME type and reports failed downloads. Local outbound media must
+belong to the configured media or workspace roots.
 
 The plugin declares `send.semantic_parts.v1`: completed-event text and media
 arrive with host-owned presentation roles via `content_source=event`. The

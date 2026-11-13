@@ -5,22 +5,11 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+import uuid
 
 from qwenpaw.utils.io_utils import make_dirs_async, write_bytes_async
 
 from .constants import TEXT_CHUNK_LIMIT
-
-_WINDOWS_DEVICE_NAMES = {
-    f"CON",
-    f"PRN",
-    f"AUX",
-    f"NUL",
-    *(
-        f"{prefix}{index}"
-        for prefix in (f"COM", f"LPT")
-        for index in range(1, 10)
-    ),
-}
 
 
 def chunk_text(text: str) -> list[str]:
@@ -56,12 +45,10 @@ async def download_file(url, media_dir: Path, filename, *, session):
             ).rstrip(f".")
             or f"file"
         )
-        if safe_name.partition(f".")[0].upper() in _WINDOWS_DEVICE_NAMES:
-            safe_name = f"_{safe_name}"
         if not Path(safe_name).suffix:
             extension = mimetypes.guess_extension(content_type) or f".bin"
             safe_name = f"{safe_name}{extension}"
-        path = media_dir / safe_name
+        path = media_dir / f"{uuid.uuid4().hex[:8]}_{safe_name}"
         if not path.resolve().is_relative_to(media_dir.resolve()):
             return None
         await make_dirs_async(media_dir)

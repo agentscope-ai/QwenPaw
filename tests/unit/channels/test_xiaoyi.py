@@ -447,7 +447,7 @@ async def test_short_connections_exhaust_retries_on_custom_gateway(
     assert list(connections) == [f"primary"]
 
 
-async def test_attachments_save_directly_and_replace_same_name(
+async def test_same_name_attachments_save_as_separate_files(
     xiaoyi,
     tmp_path,
 ):
@@ -468,10 +468,6 @@ async def test_attachments_save_directly_and_replace_same_name(
     await eventually(lambda: len(peer.batches) == 1)
     first = peer.batches[0][f"events"][0][f"content_parts"]
     assert first[0][f"text"] == f"hello [CON.txt: download failed]"
-    path = tmp_path / f"media" / f"_CON.txt"
-    assert first[1][f"file_url"] == str(path)
-    assert path.read_bytes() == b"first"
-
     await connections[f"backup"].send_json(
         with_files(
             f"second",
@@ -482,16 +478,18 @@ async def test_attachments_save_directly_and_replace_same_name(
     )
     await eventually(lambda: len(peer.batches) == 2)
     second = peer.batches[1][f"events"][0][f"content_parts"]
-    assert (
-        first[1]
-        == second[1]
-        == {
-            f"type": f"file",
-            f"file_url": str(path),
-            f"filename": f"CON.txt",
-        }
-    )
-    assert path.read_bytes() == b"second"
+    files = [first[1], second[1]]
+    assert [file[f"filename"] for file in files] == [f"CON.txt", f"CON.txt"]
+    paths = [Path(file[f"file_url"]) for file in files]
+    assert paths[0] != paths[1]
+    for path, content in zip(paths, (b"first", b"second")):
+        assert path.parent == tmp_path / f"media"
+        prefix, name = path.name.split(f"_", 1)
+        assert len(prefix) == 8 and all(
+            c in f"0123456789abcdef" for c in prefix
+        )
+        assert name == f"CON.txt"
+        assert path.read_bytes() == content
 
 
 async def test_stop_joins_pending_attachment_work(xiaoyi, monkeypatch):
@@ -719,32 +717,37 @@ async def test_worker_uses_configured_reply_mode(
         await proxy.stop()
 
 
-@pytest.mark.parametrize(f"xiaoyi", [{}, STREAMING], indirect=True)
-async def test_long_tool_text_preserves_code_fences_across_frames(xiaoyi):
-    driver, peer, identity, _, _, _ = xiaoyi
+@pytest.mark.parametrize(
+    (f"xiaoyi", f"append"),
+    [({}, True), (STREAMING, False)],
+    indirect=[f"xiaoyi"],
+)
+async def test_long_tool_text_preserves_code_fences_across_frames(
+    xiaoyi,
+    append,
+):
+    _, peer, identity, _, _, _ = xiaoyi
     handle = (await receive(xiaoyi))[f"response_handle"]
-    delivery = f"tool-result"
     output = f"x" * 4001
     text = f"**write_file**:\n```\n{output}\n```"
     reply = await send(
         peer,
         identity,
         handle,
-        delivery=delivery,
         parts=[{f"type": f"text", f"role": f"rendered", f"text": text}],
         content_source=f"event",
     )
     assert reply[f"state"] == f"acknowledged"
-    resource = driver._delivery_resource(handle, delivery)
-    count = int(dict(resource.attributes)[f"frame_count"])
-    await eventually(lambda: len(results(xiaoyi)) == count)
+    await eventually(
+        lambda: any(row[f"lastChunk"] for _, row in results(xiaoyi)),
+    )
     rows = [row for _, row in results(xiaoyi)]
     chunks = [row[f"artifact"][f"parts"][0][f"text"] for row in rows]
     assert len(chunks) > 1
     assert all(0 < len(chunk) <= 4000 for chunk in chunks)
     assert f"".join(chunks) == f"\n\n{text}\n\n"
     assert len({row[f"artifact"][f"artifactId"] for row in rows}) == 1
-    assert rows[0][f"append"] is (not driver.response_policy(handle).streaming)
+    assert rows[0][f"append"] is append
     assert all(row[f"append"] is True for row in rows[1:])
     assert not any(row[f"lastChunk"] for row in rows[:-1])
     assert rows[-1][f"lastChunk"] is True
