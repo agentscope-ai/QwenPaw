@@ -43,6 +43,11 @@ from services.skill_hub import (
     SkillHubUrlError,
     fetch_skill_bundle,
 )
+from services.skill_market import (
+    MarketUnavailable,
+    list_market_providers,
+    search_skills,
+)
 from services.storage_root import CreatorDataRootError
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -247,6 +252,75 @@ async def remove_skill(name: str) -> dict[str, Any]:
     if not deleted:
         raise HTTPException(status_code=404, detail=f"技能不存在或为内置: {name}")
     return {"deleted": name}
+
+
+@router.get("/market/search")
+async def market_search(
+    query: str = "",
+    page: int = 1,
+    limit: int = 20,
+    lang: str = "en",
+) -> dict[str, Any]:
+    """Search skill market providers for matching skills."""
+    try:
+        results, has_more, totals = await search_skills(
+            query=query,
+            page=page,
+            limit=limit,
+            lang=lang,
+        )
+    except MarketUnavailable as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"技能市场搜索失败：{exc}",
+        ) from exc
+    return {
+        "results": [
+            {
+                "source": r.source,
+                "source_label": r.source_label,
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+                "source_url": r.source_url,
+                "version": r.version,
+                "author": r.author,
+                "icon_url": r.icon_url,
+                "stats": r.stats,
+            }
+            for r in results
+        ],
+        "has_more": has_more,
+        "totals": totals,
+    }
+
+
+@router.get("/market/providers")
+async def market_providers() -> dict[str, Any]:
+    """List registered skill market providers and their availability."""
+    try:
+        providers = await asyncio.to_thread(list_market_providers)
+    except MarketUnavailable as exc:
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"获取市场提供者列表失败：{exc}",
+        ) from exc
+    return {
+        "providers": [
+            {
+                "key": p.key,
+                "label": p.label,
+                "available": p.available,
+                "reason": p.reason,
+                "supports_browse": p.supports_browse,
+            }
+            for p in providers
+        ],
+    }
 
 
 __all__ = ["router"]
