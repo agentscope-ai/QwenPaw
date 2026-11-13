@@ -168,6 +168,7 @@ function buildProtectionMasks(markdown: string): {
   const paragraphReset = new Uint8Array(markdown.length + 1);
   let fence: Fence | undefined;
   let fenceOffset = 0;
+  let listIndent = 0;
 
   for (let lineStart = 0; lineStart < markdown.length; ) {
     const newline = markdown.indexOf("\n", lineStart);
@@ -185,9 +186,22 @@ function buildProtectionMasks(markdown: string): {
       block.fill(1, lineStart, lineEndWithNewline);
       if (isClosingFence(line.slice(fenceOffset), fence)) fence = undefined;
     } else {
-      const offset = containerOffset(line);
+      const indent = line.length - line.replace(/^ +/, "").length;
+      // A list item keeps its content indent for the following lines, even
+      // across blank lines. Fences inside that continuation are indented
+      // relative to the item, not to the document, so the prefix to strip is
+      // the item's content indent rather than zero.
+      const continued = listIndent > 0 && indent >= listIndent;
+      const offset = continued ? listIndent : containerOffset(line);
       const content = line.slice(offset);
       const openingFence = getOpeningFence(content);
+      const item = /^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]+)/.exec(line);
+      if (item) {
+        const markerWidth = item[0].length - item[1].length - item[2].length;
+        listIndent = item[1].length + markerWidth + Math.min(item[2].length, 4);
+      } else if (!BLANK.test(line) && indent < listIndent) {
+        listIndent = 0;
+      }
       if (openingFence) {
         fence = openingFence;
         fenceOffset = offset;
@@ -300,16 +314,30 @@ function markLinkDestinations(
     index = close;
   }
 
-  // Reference definitions, possibly inside a blockquote, and possibly using an
-  // angle-bracket destination that spans several lines.
-  const definition =
-    /^[ \t]*(?:>[ \t]?)*\[[^\]\n]+\]:[ \t]*(?:<([^<>]*)>|(\S+))/gm;
-  for (const match of markdown.matchAll(definition)) {
-    const target = match[1] ?? match[2];
-    if (!target) continue;
-    const start = (match.index ?? 0) + match[0].length - target.length;
-    if (block[start]) continue;
-    protectedText.fill(1, start, start + target.length);
+  // Reference definitions, possibly inside a blockquote or a list item, and
+  // possibly using an angle-bracket destination or a destination that starts
+  // on the following line.
+  const definitionPrefix =
+    "^[ \\t]*(?:>[ \\t]?)*(?:(?:[-+*]|\\d{1,9}[.)])[ \\t]+)?";
+  const definitionPatterns = [
+    new RegExp(
+      `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*(?:<([^<>]*)>|(\\S+))`,
+      "gm",
+    ),
+    new RegExp(
+      `${definitionPrefix}\\[[^\\]\\n]+\\]:[ \\t]*\\r?\\n` +
+        "[ \\t]{0,3}(?:<([^<>\\n]*)>|(\\S+))",
+      "gm",
+    ),
+  ];
+  for (const pattern of definitionPatterns) {
+    for (const match of markdown.matchAll(pattern)) {
+      const target = match[1] ?? match[2];
+      if (!target) continue;
+      const start = (match.index ?? 0) + match[0].length - target.length;
+      if (block[start]) continue;
+      protectedText.fill(1, start, start + target.length);
+    }
   }
 
   // Autolinks: <https://...> and <user@host>. Their text is the destination.
@@ -334,6 +362,16 @@ function findClosingParen(
     if (character === "\\") {
       index++;
       continue;
+    }
+    if (character === "<") {
+      // An angle-bracketed destination is one unit: a `)` inside it belongs
+      // to the URL, not to the enclosing link.
+      const end = markdown.indexOf(">", index + 1);
+      const newline = markdown.indexOf("\n", index + 1);
+      if (end > index && (newline < 0 || end < newline)) {
+        index = end;
+        continue;
+      }
     }
     if (character === "(") {
       depth++;

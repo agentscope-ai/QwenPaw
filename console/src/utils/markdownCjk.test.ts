@@ -222,3 +222,36 @@ describe("normalizeCjkEmphasis container and destination guardrails", () => {
     expect(normalizeCjkEmphasis(source)).toBe(source);
   });
 });
+
+describe("normalizeCjkEmphasis continued-container guardrails", () => {
+  it("keeps a fenced block in a continued list item", () => {
+    const source = ["- item", "", "    ~~~", "  **代码。**后", "    ~~~"].join(
+      "\n",
+    );
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a reference destination that starts on the next line", () => {
+    const source = [
+      "[ref]:",
+      "https://example.com/**版本。**后续",
+      "",
+      "[下载][ref]",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a reference definition nested in a list item", () => {
+    const source = [
+      "- [ref]: https://example.com/**版本。**后续",
+      "",
+      "[下载][ref]",
+    ].join("\n");
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("keeps a parenthesis inside an angle-bracket destination", () => {
+    const source = "[Download](<docs/)/**版本。**后续>)";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+});
