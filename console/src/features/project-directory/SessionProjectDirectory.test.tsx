@@ -698,6 +698,82 @@ describe("SessionProjectDirectory new-task Agent default", () => {
     });
   });
 
+  it("consults beforeChange with the list it is about to save", async () => {
+    const user = userEvent.setup();
+    const order: string[] = [];
+    const beforeChange = vi.fn(
+      async (next?: Array<{ path: string }>): Promise<boolean> => {
+        order.push(`before ${next?.map((e) => e.path).join("+") ?? "none"}`);
+        return true;
+      },
+    );
+    mockSetAgentDirs.mockImplementationOnce(
+      async (entries: { path: string; label?: string | null }[]) => {
+        order.push(`save ${entries.map((e) => e.path).join("+")}`);
+        return {
+          project_dirs: entries.map((entry) => ({
+            path: entry.path,
+            label: entry.label ?? null,
+            exists: true,
+            nested_with: null,
+            is_workspace: false,
+          })),
+          source: "agent",
+          workspace_dir: "/projects/workspace",
+        };
+      },
+    );
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+        inline
+        beforeChange={beforeChange}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(mockSetAgentDirs).toHaveBeenCalled();
+    });
+    // The gate runs first: by the time the list is written the user has
+    // already been asked, so a refusal can still prevent the PUT. It carries
+    // the whole list — index 0 is what becomes the project directory.
+    expect(order).toEqual([
+      "before /projects/default+/projects/extra",
+      "save /projects/default+/projects/extra",
+    ]);
+  });
+
+  it("skips the write when beforeChange declines", async () => {
+    const user = userEvent.setup();
+    const beforeChange = vi.fn(async () => false);
+    renderWithProviders(
+      <SessionProjectDirectory
+        scope={{ kind: "agent", agentId: "default" }}
+        multiAgentDefault
+        inline
+        beforeChange={beforeChange}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "extra" }));
+    await user.click(
+      screen.getByRole("button", { name: "projectDirectory.add" }),
+    );
+    await user.click(screen.getByRole("button", { name: "common.apply" }));
+
+    await waitFor(() => {
+      expect(beforeChange).toHaveBeenCalled();
+    });
+    expect(mockSetAgentDirs).not.toHaveBeenCalled();
+  });
+
   it("renders the Agent default editor inline without another trigger", async () => {
     renderWithProviders(
       <SessionProjectDirectory
