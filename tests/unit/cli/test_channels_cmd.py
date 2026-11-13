@@ -7,10 +7,32 @@ from pathlib import Path
 import sys
 from unittest.mock import patch
 
+import click
+from click.testing import CliRunner
 import pytest
 
 from qwenpaw.cli import channels_cmd
+from qwenpaw.config.config import WeChatConfig
 from qwenpaw.plugins.registry import PluginRegistry
+
+
+@pytest.mark.parametrize("path", ["", "custom-token"])
+def test_wechat_configurator_keeps_the_token_file_input(path, monkeypatch):
+    config = WeChatConfig(enabled=True, bot_token_file=path)
+    monkeypatch.setattr(channels_cmd, f"prompt_confirm", lambda *a, **kw: True)
+
+    @click.command()
+    def configure():
+        channels_cmd.configure_wechat(config)
+
+    result = CliRunner().invoke(configure, input=f"\n" * 12)
+    assert result.exit_code == 0, result.output
+    assert config.bot_token_file == path
+    assert f"in this agent's workspace" in result.output
+    assert (
+        f"~/.qwenpaw/workspaces/default/wechat/wechat_bot_token"
+        in result.output
+    )
 
 
 @pytest.fixture()

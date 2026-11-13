@@ -1500,7 +1500,7 @@
     "wechatBotTokenTooltip": "QRコードログイン後に取得したBearerトークン。空の場合は起動時にQRコードログインが案内されます。",
     "wechatBotTokenPlaceholder": "QRログイン後に自動入力、または手動で貼り付け",
     "wechatBotTokenFile": "Tokenファイルパス",
-    "wechatBotTokenFileTooltip": "Botトークンの保存パス。デフォルトは ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Bot トークンファイルのパス。空欄の場合は、このエージェントのワークスペース内の wechat/wechat_bot_token を使用します。",
     "wechatMediaDir": "メディアディレクトリ",
     "wechatMessageMerge": "メッセージ統合",
     "wechatMessageMergeTooltip": "複数の返信メッセージを統合して送信し、WeChat の context_token あたり10件のメッセージ制限を回避します。遅延を0に設定すると、すべてのテキスト返信がリクエスト終了時に1つのメッセージに統合されます。正の遅延値（ミリ秒）は、その時間内の隣接メッセージを統合します。",

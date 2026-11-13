@@ -1452,6 +1452,8 @@ export function ChannelDrawer({
               onError={(type) => {
                 if (type === "expired") {
                   message.warning(t("channels.wechatQrcodeExpired"));
+                } else if (type === "account-in-use") {
+                  message.error(t("channels.botConflictTitle"));
                 } else {
                   message.error(t("channels.wechatQrcodeFailed"));
                 }
@@ -1471,7 +1473,7 @@ export function ChannelDrawer({
               label={t("channels.wechatBotTokenFile")}
               tooltip={t("channels.wechatBotTokenFileTooltip")}
             >
-              <Input placeholder="~/.qwenpaw/wechat_bot_token" />
+              <Input placeholder="<workspace>/wechat/wechat_bot_token" />
             </Form.Item>
             <Form.Item name="media_dir" label={t("channels.wechatMediaDir")}>
               <Input placeholder={defaultMediaDir} />

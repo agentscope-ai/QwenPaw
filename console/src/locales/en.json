@@ -2184,7 +2184,7 @@
     "wechatBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "wechatBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
     "wechatBotTokenFile": "Token File Path",
-    "wechatBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Path to the Bot Token file. Leave blank to use wechat/wechat_bot_token in this agent's workspace.",
     "wechatMediaDir": "Media Directory",
     "wechatMessageMerge": "Message Merge",
     "wechatMessageMergeTooltip": "Merge multiple reply messages into fewer messages to avoid hitting the WeChat 10-message limit per context_token. When enabled with delay 0, all text replies are merged into a single message sent at the end. A positive delay (in ms) merges adjacent messages within that time window.",

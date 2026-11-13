@@ -332,11 +332,15 @@ def configure_wechat(current_config: WeChatConfig) -> WeChatConfig:
         "persisted to bot_token_file; it is not prompted here.",
     )
 
+    click.echo(
+        f"Leave the token file path blank to use wechat/wechat_bot_token "
+        f"in this agent's workspace.\n"
+        f"Example for the default agent in a standard installation:\n"
+        f"  ~/.qwenpaw/workspaces/default/wechat/wechat_bot_token",
+    )
     bot_token_file = click.prompt(
-        "bot_token file path",
-        default=(
-            current_config.bot_token_file or "~/.qwenpaw/wechat_bot_token"
-        ),
+        f"Bot Token file path",
+        default=current_config.bot_token_file or f"",
         type=str,
     )
     current_config.bot_token_file = bot_token_file

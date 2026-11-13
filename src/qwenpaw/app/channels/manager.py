@@ -30,6 +30,7 @@ from .isolated_proxy import IsolatedChannelProxy
 from .command_registry import CommandRegistry
 from .registry import get_channel_registry
 from .unified_queue_manager import EnqueueResult, UnifiedQueueManager
+from .wechat_auth_custody import release_wechat_auth, reserve_wechat_auth
 from ...config import get_available_channels
 
 if TYPE_CHECKING:
@@ -389,7 +390,6 @@ def instantiate_channel(
             identity_claims=identity_claims,
         )
         settings = row.runtime_settings
-        claims = ()
         runtime_config = ch_cfg
         connection_timeout = settings.connection_timeout
         if (
@@ -442,18 +442,15 @@ def instantiate_channel(
                 lease,
             )
             channel._runtime_lease = lease
-            channel._wechat_auth_claims = claims
+            channel._wechat_auth_claims = ()
             channel._registration = row
             channel._admission_timeout = settings.admission_timeout
             context.adopt(manager, channel)
         except BaseException:
-            from .wechat_auth_custody import release_wechat_auth
-
             evidence = RuntimeStopReceipt(
                 True,
                 "construction produced no resources",
             )
-            release_wechat_auth(plugin_registry, claims, evidence)
             plugin_registry.runtime_owners.release(
                 lease,
                 evidence,
@@ -934,7 +931,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             and channel._owner_registry is not None
         ):
             from ...plugins.ownership import RuntimeStopReceipt
-            from .wechat_auth_custody import release_wechat_auth
 
             evidence = RuntimeStopReceipt(True, "never started")
             release_wechat_auth(
@@ -1283,7 +1279,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             self._start_task_channels[task] = channel
             task.add_done_callback(self._forget_start_task)
 
-    async def _reserve_channel_auth(self, channel):
+    def _reserve_channel_auth(self, channel):
         """Acquire claims before publishing or starting an isolated proxy."""
         if not isinstance(channel, IsolatedChannelProxy):
             return
@@ -1294,59 +1290,10 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         context.validate(self, channel)
         if context.row.plugin_id != "wechat" or context.key != "wechat":
             return
-        from ...utils.io_utils import run_sync_io
-        from .wechat_auth_custody import reserve_wechat_auth_async
-
-        registry = channel._owner_registry
-        owner = context.owner
-        configured_id = context.configured_id
-        state_root = context.state_root
-        workspace_dir = context.workspace_dir
-        runtime_config = context.execution.config
-
-        def authorize():
-            context.validate(self, channel)
-
-        authorize()
-        if channel._wechat_auth_claims:
-            if any(
-                claim not in registry.runtime_owners.leases()
-                or getattr(
-                    registry.runtime_owners.resource(claim),
-                    "owner",
-                    None,
-                )
-                != owner
-                for claim in channel._wechat_auth_claims
-            ):
-                raise RuntimeError("CHANNEL_PREPARATION_STALE")
-            return
-
-        def resolve_workspace_id():
-            if configured_id:
-                return configured_id
-            from ...config.utils import load_config
-
-            profiles = load_config().agents.profiles
-            directory = Path(workspace_dir).expanduser().resolve()
-            matches = [
-                key
-                for key, profile in profiles.items()
-                if Path(profile.workspace_dir).expanduser().resolve()
-                == directory
-            ]
-            return matches[0] if len(matches) == 1 else str(directory)
-
-        workspace_id = await run_sync_io(resolve_workspace_id)
-        authorize()
-        channel._wechat_auth_claims = await reserve_wechat_auth_async(
-            registry,
-            owner=owner,
-            workspace_id=workspace_id,
-            workspace_dir=workspace_dir,
-            config=runtime_config,
-            working_dir=state_root,
-            authorize=authorize,
+        channel._wechat_auth_claims = reserve_wechat_auth(
+            channel._owner_registry,
+            owner=context.owner,
+            config=context.execution.config,
         )
 
     async def _start_existing(self, channel):
@@ -1365,7 +1312,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 return
             try:
                 self._bind_enqueue(channel)
-                await self._reserve_channel_auth(channel)
+                self._reserve_channel_auth(channel)
                 await channel.start()
                 self._started_channels.add(id(channel))
                 self._start_contexts.pop(channel, None)
@@ -1383,7 +1330,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     )
 
     async def _start_owned(self, channel):
-        await self._reserve_channel_auth(channel)
         task = asyncio.create_task(channel.start())
         self._start_tasks.add(task)
         self._start_task_channels[task] = channel
@@ -1668,7 +1614,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         )
         registered = False
         try:
-            await self._reserve_channel_auth(channel)
+            self._reserve_channel_auth(channel)
             self._attach_runtime(channel)
             if self._workspace is not None:
                 channel.set_workspace(self._workspace, self._command_registry)
@@ -1815,8 +1761,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             isinstance(channel, IsolatedChannelProxy)
             and getattr(channel, "_runtime_lease", None) is not None
         ):
-            from .wechat_auth_custody import release_wechat_auth
-
             release_wechat_auth(
                 channel._owner_registry,
                 getattr(channel, "_wechat_auth_claims", ()),
@@ -2012,6 +1956,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     )
                 self._bind_enqueue(new_channel)
                 try:
+                    self._reserve_channel_auth(new_channel)
                     self._replace_binding(
                         key,
                         old,
