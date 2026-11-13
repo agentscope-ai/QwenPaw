@@ -27,6 +27,7 @@ from ..plugins._drivers import (
     workspace_is_current,
 )
 from ..plugins.registry import PluginRegistry
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from .driver_config_watcher import DriverConfigWatcher
 from .mcp_plugin_migration import (
     MCPUsageSnapshot,
@@ -224,14 +225,20 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         # Reuse storage's protocol/path validation before accepting metadata.
         self.card_store.path_for("monitoring", protocol=protocol)
         async with self._metadata_lock:
-            self._monitoring.add(protocol)
-            if protocol not in self._explicit_monitoring:
-                updated = self._explicit_monitoring | {protocol}
-                payload = json.dumps(
-                    {"version": 1, "protocols": sorted(updated)},
-                )
-                await asyncio.to_thread(self._write_monitoring, payload)
-                self._explicit_monitoring = updated
+            self._guard()
+
+            async def commit():
+                if protocol not in self._explicit_monitoring:
+                    updated = self._explicit_monitoring | {protocol}
+                    payload = json.dumps(
+                        {"version": 1, "protocols": sorted(updated)},
+                    )
+                    await run_sync_io(self._write_monitoring, payload)
+                    self._explicit_monitoring = updated
+                self._monitoring.add(protocol)
+
+            # Cancellation must not split disk and memory publication.
+            await run_async_to_completion(commit())
         await self._reconcile_watcher()
 
     def _write_monitoring(self, payload):
