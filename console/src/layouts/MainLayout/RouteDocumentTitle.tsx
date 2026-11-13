@@ -32,12 +32,11 @@ export function RouteDocumentTitle({
   useSessionFavicon(running, unread);
 
   useLayoutEffect(() => {
-    const baseTitle = sessionName
+    const nextTitle = sessionName
       ? `${sessionName} · QwenPaw`
       : title === "QwenPaw"
       ? title
       : `${title} · QwenPaw`;
-    const nextTitle = baseTitle;
     document.title = nextTitle;
     document.dispatchEvent(
       new CustomEvent("qwenpaw:document-title-change", {

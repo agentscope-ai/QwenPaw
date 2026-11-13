@@ -53,7 +53,6 @@ export function SessionListPollingController() {
         )
           useSessionListStore.setState({ loading: false });
         if (!cancelled && refreshAfterFlight) {
-          refreshAfterFlight = false;
           void fetchSessions();
         }
       }
@@ -65,6 +64,10 @@ export function SessionListPollingController() {
         return;
       }
       void fetchSessions();
+    };
+
+    const onSessionSwitchDone = () => {
+      if (refreshAfterFlight) void fetchSessions();
     };
 
     void fetchSessions(true);
@@ -82,6 +85,7 @@ export function SessionListPollingController() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener(SESSION_LIST_REFRESH_EVENT, onSessionListRefresh);
+    window.addEventListener("qwenpaw:sidebar-switch-done", onSessionSwitchDone);
 
     return () => {
       cancelled = true;
@@ -90,6 +94,10 @@ export function SessionListPollingController() {
       document.removeEventListener(
         SESSION_LIST_REFRESH_EVENT,
         onSessionListRefresh,
+      );
+      window.removeEventListener(
+        "qwenpaw:sidebar-switch-done",
+        onSessionSwitchDone,
       );
     };
   }, [selectedAgent]);
