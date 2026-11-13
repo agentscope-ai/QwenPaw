@@ -18,7 +18,8 @@ from qwenpaw.app.channels.utils import (
     materialize_data_url,
     split_text,
 )
-from qwenpaw.constant import DEFAULT_MEDIA_DIR, WORKING_DIR
+from qwenpaw.utils.io_utils import write_text_atomic_async
+
 from .client import ILinkClient, _DEFAULT_BASE_URL
 from .errors import WeChatDeliveryError
 from .messages import WeChatMessageParser
@@ -31,22 +32,17 @@ class WeChatPlatform:
         self._config = dict(config)
         self._on_message, self._on_state = on_message, on_state
         self._on_auth_required = on_auth_required
-        workspace = config.get("workspace_dir")
-        media = config.get("media_dir")
+        workspace = Path(config[f"workspace_dir"]).expanduser()
+        media = config.get(f"media_dir")
         self._media_dir = Path(
-            media
-            or (Path(workspace) / "media" if workspace else DEFAULT_MEDIA_DIR),
+            media or workspace / f"media",
         ).expanduser()
-        self._roots = [self._media_dir.resolve()]
-        if workspace:
-            self._roots.append(Path(workspace).expanduser().resolve())
+        self._roots = [self._media_dir.resolve(), workspace.resolve()]
+        state_dir = workspace / f"wechat"
         self._token_file = Path(
-            config.get("bot_token_file")
-            or Path(WORKING_DIR) / "wechat_bot_token",
+            config.get(f"bot_token_file") or state_dir / f"wechat_bot_token",
         ).expanduser()
-        self._context_file = (
-            self._token_file.parent / "wechat_context_tokens.json"
-        )
+        self._context_file = state_dir / f"wechat_context_tokens.json"
         self._contexts = {}
         self._processed = OrderedDict()
         self._text_seen = {}
@@ -121,8 +117,7 @@ class WeChatPlatform:
                     "/",
                 )
                 try:
-                    self._token_file.parent.mkdir(parents=True, exist_ok=True)
-                    self._token_file.write_text(token, encoding="utf-8")
+                    await write_text_atomic_async(self._token_file, token)
                 except OSError:
                     logger.warning("WeChat token could not be saved")
             self._poll_client = ILinkClient(token, self._client.base_url)

@@ -1961,7 +1961,7 @@
     "voiceSetupLink": "Buka Konsol Twilio",
     "wechatBotToken": "Token bot",
     "wechatBotTokenFile": "Jalur file token",
-    "wechatBotTokenFileTooltip": "Jalur penyimpanan token. Bawaan: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Jalur file Token Bot. Kosongkan untuk memakai wechat/wechat_bot_token di ruang kerja agen ini.",
     "wechatBotTokenPlaceholder": "Diisi setelah login QR, atau tempel manual",
     "wechatBotTokenTooltip": "Token Bearer setelah login QR. Kosongkan untuk memulai login QR saat dijalankan.",
     "wechatContextTokenLimit": "WeChat iLink membatasi setiap context_token hingga 10 balasan. Nonaktifkan keluaran penalaran dan alat, atau aktifkan penggabungan pesan agar pengiriman tidak gagal.",

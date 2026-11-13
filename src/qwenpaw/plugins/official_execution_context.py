@@ -50,10 +50,10 @@ def project_official_execution(
         )
         if not values.get("media_dir") and not workspace_dir:
             values["media_dir"] = str(legacy_state_dir / "media")
-    elif channel_key == "wechat":
-        values["bot_token_file"] = (
-            values.get("bot_token_file")
-            or legacy_state_dir / "wechat_bot_token"
+    elif channel_key == f"wechat" and workspace_dir is not None:
+        values[f"bot_token_file"] = (
+            values.get(f"bot_token_file")
+            or workspace_dir / f"wechat" / f"wechat_bot_token"
         )
     if channel_key in {"matrix", "azure_bot"}:
         # Overwrite client claims; this field is execution-only, never saved.

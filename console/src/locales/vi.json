@@ -3479,7 +3479,7 @@
     "usernamePlaceholder": "Nhập tên người dùng (tùy chọn)",
     "voiceSetupGuide": "Tạo tài khoản Twilio và mua số điện thoại. Nhập Account SID, Auth Token từ bảng điều khiển. Phone Number SID nằm trong Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Mở bảng điều khiển Twilio",
-    "wechatBotTokenFileTooltip": "Đường dẫn lưu mã thông báo. Mặc định: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Đường dẫn tệp Bot Token. Để trống để dùng wechat/wechat_bot_token trong không gian làm việc của tác tử.",
     "wechatContextTokenLimit": "WeChat iLink giới hạn mỗi context_token ở 10 phản hồi. Tắt đầu ra suy luận, công cụ hoặc bật gộp tin nhắn để tránh gửi thất bại.",
     "wechatGetQrcode": "Lấy mã QR đăng nhập",
     "wechatLoginSuccess": "Đăng nhập WeChat thành công, đã điền mã thông báo",

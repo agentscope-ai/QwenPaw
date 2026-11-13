@@ -2039,7 +2039,7 @@
     "wechatBotTokenTooltip": "扫码登录后获取的 Bearer Token。留空时将在启动时引导扫码登录。",
     "wechatBotTokenPlaceholder": "扫码登录后自动填入，也可手动粘贴",
     "wechatBotTokenFile": "Token 文件路径",
-    "wechatBotTokenFileTooltip": "Token 持久化存储路径，默认为 ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Bot Token 文件路径。留空时使用当前智能体工作区下的 wechat/wechat_bot_token。",
     "wechatMediaDir": "媒体文件目录",
     "wechatMessageMerge": "消息合并",
     "wechatMessageMergeTooltip": "将多条回复消息合并为更少的消息发送，避免触发微信 context_token 10 条消息的限制。开启并设置延时为 0 时，所有文本回复将在请求结束后合并为一条消息发送。设置正数延时（毫秒）则合并该时间窗口内的相邻消息。",

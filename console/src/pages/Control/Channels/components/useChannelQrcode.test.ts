@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../../../../api/request";
 
 // The api module is mocked once so both QR helpers are stable spies. The hook
 // only re-creates fetchQrcode from its config, and the mount effect depends on
@@ -122,6 +123,25 @@ describe("useChannelQrcode", () => {
       },
       { agentId: "agent-a", signal: expect.any(AbortSignal) },
     );
+  });
+
+  it("stops polling when WeChat rejects a duplicate credential", async () => {
+    vi.useFakeTimers();
+    mocks.getChannelQrcodeStatus.mockRejectedValueOnce(
+      new ApiError(409, "ACCOUNT_IN_USE"),
+    );
+    const { result } = renderHook(() => useChannelQrcode(baseConfig()));
+
+    await act(async () => {
+      await result.current.fetchQrcode();
+    });
+    await tick();
+    await tick();
+
+    expect(cbs.onError).toHaveBeenCalledExactlyOnceWith("account-in-use");
+    expect(cbs.onSuccess).not.toHaveBeenCalled();
+    expect(result.current.qrcodeImg).toBe("");
+    expect(mocks.getChannelQrcodeStatus).toHaveBeenCalledTimes(1);
   });
 
   it("reports a fetch error when the backend returns no image", async () => {

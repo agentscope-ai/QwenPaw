@@ -658,7 +658,7 @@ class WeChatConfig(BaseChannelConfig):
 
     bot_token:              Bearer token obtained after QR code login.
     bot_token_file:         Path to persist/load the bot_token
-                            (default ~/.qwenpaw/wechat_bot_token).
+                            (default <workspace>/wechat/wechat_bot_token).
     base_url:               iLink API base URL (leave empty to use default).
     media_dir:              Local directory for downloaded media files.
     message_merge_enabled:  When True, merge multiple outgoing text messages
@@ -3987,7 +3987,6 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
         load_config,
         _agent_config_cache,
         _agent_config_lock,
-        _record_agent_config_publication,
     )
 
     config = load_config()
@@ -4057,7 +4056,6 @@ def save_agent_config(  # pylint: disable=too-many-branches,too-many-statements
 
                 invalidate_agent_migration(workspace_dir)
             write_json_atomic(agent_config_path, payload)
-            _record_agent_config_publication()
             candidate.record_source_digest(saved_digest)
             agent_config.record_source_digest(saved_digest)
             try:
