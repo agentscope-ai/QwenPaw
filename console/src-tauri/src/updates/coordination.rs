@@ -56,14 +56,22 @@ pub(crate) fn register_desktop(identifier: &str) -> Result<Option<Registration>,
     // NSIS can launch the new executable just before its own process exits.
     // No runtime or Computer Use process is started during this handoff.
     let mut waiting_since = None;
+    #[cfg(windows)]
+    let mut attention = super::windows::InstallerAttention::default();
     while installer_running(&directory)? {
-        waiting_since.get_or_insert_with(|| {
+        let started = waiting_since.get_or_insert_with(|| {
             startup_diagnostics::record(
                 "Wait for installer",
                 format!("record={}", directory.join("installer").display()),
             );
             Instant::now()
         });
+        #[cfg(windows)]
+        if startup_diagnostics::interactive_desktop() {
+            attention.poll(started.elapsed(), &directory);
+        }
+        #[cfg(not(windows))]
+        let _ = started;
         std::thread::sleep(Duration::from_millis(200));
     }
     if let Some(started) = waiting_since {

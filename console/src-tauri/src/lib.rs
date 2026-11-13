@@ -56,6 +56,7 @@ pub fn run() {
         Ok(Some(registration)) => registration,
         Ok(None) => {
             startup_diagnostics::record("Update deferred", "Desktop start deferred while updating");
+            startup_diagnostics::show_update_in_progress();
             return;
         }
         Err(error) => {
@@ -174,6 +175,17 @@ pub fn run() {
 
 /// Initialize coordination, logging, backend attachment and the tray.
 fn setup_desktop(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Automatic windows are created before our setup callback. Build the main
+    // window here so WebView initialization errors reach report_fatal too.
+    startup_diagnostics::record("Create main window", "label=main");
+    let config = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == "main")
+        .ok_or("Main window configuration is missing")?;
+    tauri::WebviewWindowBuilder::from_config(app.handle(), config)?.build()?;
     startup_diagnostics::record("Initialize installation coordination", "started");
     updates::coordination::setup(app.handle())?;
     startup_diagnostics::record(
@@ -204,4 +216,24 @@ pub fn run_agent_host() -> Result<(), String> {
     backend::daemon::run().inspect_err(|error| {
         startup_diagnostics::report_fatal("Start background supervisor", error);
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn main_window_is_created_only_by_our_setup() {
+        let config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let main: Vec<_> = config
+            .app
+            .windows
+            .iter()
+            .filter(|w| w.label == "main")
+            .collect();
+        assert_eq!(main.len(), 1);
+        assert!(
+            !main[0].create,
+            "Automatic creation bypasses startup diagnostics"
+        );
+    }
 }

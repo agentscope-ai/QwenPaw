@@ -119,6 +119,19 @@ pub(crate) fn report_fatal(stage: &str, error: &str) {
     }
 }
 
+#[cfg(windows)]
+pub(crate) fn interactive_desktop() -> bool {
+    DIAGNOSTICS
+        .get()
+        .is_some_and(|d| d.mode == Mode::Desktop && d.interactive)
+}
+
+pub(crate) fn show_update_in_progress() {
+    if let Some(diagnostics) = DIAGNOSTICS.get() {
+        diagnostics.show_update_with(show_update_dialog);
+    }
+}
+
 pub(crate) fn error_chain(error: &dyn Error) -> String {
     let mut detail = error.to_string();
     let mut source = error.source();
@@ -187,6 +200,20 @@ impl Diagnostics {
         state.stage = stage.into();
         if let Err(error) = state.persist(&self.header, &entry, false, &mut sync_log) {
             stderr_message(&format!("Cannot save startup diagnostic: {error}"));
+        }
+    }
+
+    fn show_update_with(&self, mut display: impl FnMut(&str)) {
+        // Updating is normal, not a fatal error. Do not capture a failure stack
+        // or use the fatal-report deduplication flag for this information box.
+        let message = "QwenPaw is preparing an update. Please complete or cancel the update \
+                       in the existing QwenPaw window, then try opening it again.";
+        self.record("Update in progress", message);
+        if self.mode == Mode::Desktop
+            && self.interactive
+            && catch_unwind(AssertUnwindSafe(|| display(message))).is_err()
+        {
+            stderr_message("Native update information dialog failed");
         }
     }
 
@@ -507,35 +534,58 @@ fn desktop_session_available() -> bool {
 
 const DIALOG_TITLE: &str = "QwenPaw Desktop - Startup failed";
 
-#[cfg(windows)]
 fn show_dialog(message: &str) {
+    show_native_dialog(message, DIALOG_TITLE, true);
+}
+
+fn show_update_dialog(message: &str) {
+    show_native_dialog(message, "QwenPaw Desktop - Updating", false);
+}
+
+#[cfg(windows)]
+fn show_native_dialog(message: &str, caption: &str, error: bool) {
     use windows::{
         core::PCWSTR,
         Win32::UI::WindowsAndMessaging::{
-            MessageBoxW, MB_ICONERROR, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL,
+            MessageBoxW, MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MB_SETFOREGROUND, MB_TASKMODAL,
         },
     };
     // The classic message box wraps long paths instead of eliding their
     // middle like the task dialog does, and Ctrl+C copies the full text.
     let wide = |text: &str| text.encode_utf16().chain(Some(0)).collect::<Vec<u16>>();
     let text = wide(message);
-    let title = wide(DIALOG_TITLE);
-    unsafe {
+    let title = wide(caption);
+    let icon = if error {
+        MB_ICONERROR
+    } else {
+        MB_ICONINFORMATION
+    };
+    let result = unsafe {
         MessageBoxW(
             None,
             PCWSTR(text.as_ptr()),
             PCWSTR(title.as_ptr()),
-            MB_OK | MB_ICONERROR | MB_SETFOREGROUND | MB_TASKMODAL,
-        );
+            MB_OK | icon | MB_SETFOREGROUND | MB_TASKMODAL,
+        )
+    };
+    if result.0 == 0 {
+        stderr_message(&format!(
+            "Cannot show native dialog: {}",
+            io::Error::last_os_error()
+        ));
     }
 }
 
 #[cfg(not(windows))]
-fn show_dialog(message: &str) {
+fn show_native_dialog(message: &str, caption: &str, error: bool) {
     rfd::MessageDialog::new()
-        .set_title(DIALOG_TITLE)
+        .set_title(caption)
         .set_description(message)
-        .set_level(rfd::MessageLevel::Error)
+        .set_level(if error {
+            rfd::MessageLevel::Error
+        } else {
+            rfd::MessageLevel::Info
+        })
         .set_buttons(rfd::MessageButtons::Ok)
         .show();
 }
@@ -562,6 +612,32 @@ mod tests {
         fs::write(&path, "old diagnostic").unwrap();
         fs::write(path.with_extension("lock"), "").unwrap();
         path
+    }
+
+    #[test]
+    fn updating_is_information_not_a_fatal_error() {
+        let directory = TestDirectory::new();
+        let diagnostics = Diagnostics::new(Mode::Desktop, vec![directory.child("logs")], true);
+        let mut shown = String::new();
+        diagnostics.show_update_with(|message| shown = message.into());
+        assert!(shown.contains("preparing an update"));
+        assert!(!shown.contains("could not start"));
+        assert!(!diagnostics.reported.load(Ordering::SeqCst));
+        let text = fs::read_to_string(log_path(&diagnostics)).unwrap();
+        assert!(text.contains("stage=Update in progress"));
+        assert!(!text.contains("FATAL:"));
+    }
+
+    #[test]
+    fn updating_does_not_show_ui_in_background_or_headless_mode() {
+        let directory = TestDirectory::new();
+        for (mode, interactive) in [(Mode::AgentHost, true), (Mode::Desktop, false)] {
+            let diagnostics = Diagnostics::new(mode, vec![directory.child("logs")], interactive);
+            let mut shown = false;
+            diagnostics.show_update_with(|_| shown = true);
+            assert!(!shown);
+            assert!(!diagnostics.reported.load(Ordering::SeqCst));
+        }
     }
 
     #[test]
