@@ -564,7 +564,9 @@ class DatabaseSession:
         catalog: "TranscriptCatalog",
         legacy_save_dir: str,
         history_db_filename: str = "history.db",
+        backend_runtime=None,
     ) -> None:
+        self._backend_runtime = backend_runtime
         self._catalog = catalog
         self._legacy_save_dir = Path(legacy_save_dir)
         self._history_db_filename = history_db_filename
@@ -743,20 +745,22 @@ class DatabaseSession:
             self._catalog,
             dict(session_id=session_id, user_id=user_id, channel=channel),
         )
-        config_path = self._legacy_save_dir.parent / "agent.json"
-        config = (
-            await run_sync_io(_read_session_json, str(config_path))
-            if await run_sync_io(config_path.is_file)
-            else {}
-        )
-        try:
-            await recover_codex_boundaries(
-                self._catalog,
-                dict(session_id=session_id, user_id=user_id, channel=channel),
-                binary=(config.get("backend_settings") or {}).get("binary"),
-            )
-        except (OSError, ValueError, RuntimeError):
-            logger.warning("Cannot recover Codex boundaries", exc_info=True)
+        if self._backend_runtime is not None:
+            try:
+                await recover_codex_boundaries(
+                    self._catalog,
+                    dict(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    ),
+                    self._backend_runtime(),
+                )
+            except (OSError, ValueError, RuntimeError):
+                logger.warning(
+                    "Cannot recover Codex boundaries",
+                    exc_info=True,
+                )
         await run_sync_io(
             self._catalog.record_legacy_migration,
             session_id=session_id,
@@ -786,10 +790,20 @@ class DatabaseSession:
             ("codex", "codex_sessions.json"),
             ("qoder", "qoder_sessions.json"),
         ):
-            path = self._legacy_save_dir.parent / "harnesses" / filename
+            workspace = self._legacy_save_dir.parent
+            path = (
+                workspace
+                / "plugin-data"
+                / ("qwenpaw-harness-" + provider)
+                / filename
+            )
+            if not path.is_file():
+                path = workspace / "harnesses" / filename
             if not path.is_file():
                 continue
-            external_id = _read_session_json(str(path)).get(session_id)
+            saved = _read_session_json(str(path))
+            key = json.dumps([user_id or session_id, channel, session_id])
+            external_id = saved.get(key, saved.get(session_id))
             if external_id:
                 bindings.append(
                     {

@@ -19,7 +19,7 @@ from qwenpaw.app.chats.session import DatabaseSession
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
-from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.runtime.backends.session import HarnessSessionBridge
 from qwenpaw.schemas import (
     AgentRequest,
     AgentResponse,

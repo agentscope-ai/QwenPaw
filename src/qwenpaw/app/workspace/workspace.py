@@ -59,7 +59,7 @@ from ..chats.transcript_recorder import (
 from ..chats.utils import session_state_to_messages
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
-from ...config.config import load_agent_config
+from ...config.config import load_agent_config, load_agent_config_async
 from ...utils.logging import sanitize_log_value
 from ...plugins._events import observe_stream as _sdk_observe_stream
 
@@ -210,7 +210,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
         self._app_services: Any = None
-        self._harness_runtime = None
+        self._backend_runtime = None
 
         # Register all services
         self._register_services()
@@ -315,18 +315,18 @@ class Workspace:  # pylint: disable=too-many-public-methods
         return self._local_workspace
 
     @property
-    def harness_runtime(self):
-        """Return the lazily-created third-party agent runtime."""
-        if self._harness_runtime is None:
-            from ...harnesses import HarnessRuntime
+    def backend_runtime(self):
+        """Create plugin backend execution for an actual operation."""
+        if self._backend_runtime is None:
+            from ...runtime.backends.execution import BackendExecution
 
-            self._harness_runtime = HarnessRuntime(
+            self._backend_runtime = BackendExecution(
                 self.workspace_dir,
                 self.session,
                 self.agent_id,
                 self,
             )
-        return self._harness_runtime
+        return self._backend_runtime
 
     def bootstrap_plugins(  # pylint: disable=too-many-branches
         self,
@@ -492,7 +492,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
 
         Drop-in replacement for the old ``Runner.stream_query()``.
         """
-        config = load_agent_config(self.agent_id)
+        config = await load_agent_config_async(self.agent_id)
         backend = config.backend
         if backend != "qwenpaw":
             request_context = dict(
@@ -510,18 +510,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
             )
             if isinstance(backend_controls, dict):
                 settings.update(backend_controls)
-            settings["_request_context"] = {
-                **request_context,
-                "agent_id": self.agent_id,
-                "session_id": getattr(request, "session_id", None),
-                "user_id": getattr(request, "user_id", None),
-                "channel": getattr(request, "channel", None) or "",
-            }
-            stream = self.harness_runtime.stream(
-                backend=backend,
-                request=request,
-                cwd=self.workspace_dir.resolve(),
-                settings=settings,
+            stream = self.backend_runtime.stream(
+                backend,
+                request,
+                settings,
+                cwd=self.workspace_dir,
             )
         else:
             rt = Runtime(workspace=self, app_services=self._app_services)
@@ -822,6 +815,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                 service_class=DatabaseSession,
                 init_args=lambda ws: {
                     "catalog": ws.transcript_store,
+                    "backend_runtime": lambda: ws.backend_runtime,
                     "legacy_save_dir": str(ws.workspace_dir / "sessions"),
                     "history_db_filename": (
                         ws.config.running.light_context_config.scroll_config.db_filename
@@ -1209,13 +1203,13 @@ class Workspace:  # pylint: disable=too-many-public-methods
         except Exception as exc:
             errors.append(("services", exc))
 
-        if self._harness_runtime is not None:
+        if self._backend_runtime is not None:
             try:
-                await self._harness_runtime.stop()
+                await self._backend_runtime.close()
             except Exception as exc:
-                errors.append(("harness", exc))
+                errors.append(("plugin backends", exc))
             else:
-                self._harness_runtime = None
+                self._backend_runtime = None
 
         if len(errors) == 1:
             raise errors[0][1]

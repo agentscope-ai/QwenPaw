@@ -146,7 +146,7 @@ class ChatSpec(BaseModel):
     )
     last_finished_at: Optional[datetime] = Field(
         default=None,
-        description="When the most recent task for this chat finished",
+        description=f"When the most recent task for this chat succeeded",
     )
     meta: Dict[str, Any] = Field(
         default_factory=dict,

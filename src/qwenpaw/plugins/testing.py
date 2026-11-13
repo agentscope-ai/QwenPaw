@@ -36,6 +36,7 @@ from .hooks import HookPhase, HookResult
 from .markets import SearchPage
 from .providers import ModelInfo, ModelToolChoice, ModelChunk
 from .memory import MemoryTask
+from .harnesses import HarnessRunRequest, HarnessStatus
 from .channels import ChannelMessage, ChannelHealth
 from .results import (
     InstallResult,
@@ -520,6 +521,7 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             workspace._service_manager.services["session"] = DatabaseSession(
                 catalog=catalog,
                 legacy_save_dir=str(path / "sessions"),
+                backend_runtime=lambda: workspace.backend_runtime,
             )
             from ..hooks.session import SessionLoadHook, SessionSaveHook
 
@@ -1207,6 +1209,86 @@ class PluginTestHost:  # pylint: disable=too-many-public-methods
             if service
             else ()
         )
+
+    def list_harnesses(self) -> tuple[dict[str, Any], ...]:
+        """List external backend metadata without constructing any backend."""
+        from ._harness_http import backend_catalog
+
+        return tuple(backend_catalog(self._loader.registry)[1:])
+
+    async def harness_status(
+        self,
+        backend_id: str,
+        *,
+        workspace_id: str,
+    ) -> HarnessStatus:
+        workspace = await self._workspace(workspace_id)
+        return await workspace.backend_runtime.call(backend_id, "status")
+
+    async def run_harness(
+        self,
+        backend_id: str,
+        request: HarnessRunRequest,
+        *,
+        workspace_id: str,
+        session_id: str,
+        user_id: str = "test",
+        channel: str = "console",
+    ) -> AsyncGenerator[ChatEvent, None]:
+        """Run public values through the production backend stream bridge."""
+        from ..schemas import AgentRequest
+        from ._events import chat_event
+
+        workspace = await self._workspace(workspace_id)
+        contents = [{"type": "text", "text": request.prompt}]
+        for attachment in request.attachments:
+            if attachment.kind == "image":
+                contents.append(
+                    {"type": "image", "image_url": str(attachment.path)},
+                )
+            else:
+                contents.append(
+                    {
+                        "type": "file",
+                        "file_url": str(attachment.path),
+                        "filename": attachment.name,
+                    },
+                )
+        trusted = AgentRequest(
+            input=[{"role": "user", "content": contents}],
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=workspace_id,
+        )
+        from ..config.config import load_agent_config, save_agent_config
+        from ..utils.io_utils import run_sync_io
+        from ._events import _observing
+
+        def select_backend():
+            config = load_agent_config(workspace_id)
+            config.backend = backend_id
+            save_agent_config(workspace_id, config)
+            return config
+
+        workspace._config = await run_sync_io(select_backend)
+        stream = workspace.stream_query(trusted)
+        try:
+            while True:
+                token = _observing.set(True)
+                try:
+                    item = await anext(stream)
+                except StopAsyncIteration:
+                    return
+                finally:
+                    _observing.reset(token)
+                yield chat_event(item)
+        finally:
+            token = _observing.set(True)
+            try:
+                await stream.aclose()
+            finally:
+                _observing.reset(token)
 
     async def stream_chat(
         self,

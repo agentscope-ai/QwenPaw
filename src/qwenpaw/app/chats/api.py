@@ -20,6 +20,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field
 
+from ...plugins.registry import PluginRegistry
 from ..task_tracker import RunUnavailableError
 from .session import DatabaseSession, LegacyConversationSnapshot
 from .provider_migration import (
@@ -56,7 +57,6 @@ from .resolver import (
     is_app_owned_chat as _is_app_owned_chat,
 )
 from ...config.utils import load_config
-from ...harnesses.registry import get_provider
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ...utils.io_utils import run_sync_io
 from ...services.project_directory import (
@@ -742,7 +742,10 @@ async def get_fork_capability(
     backend = workspace.config.backend
     if backend == "qwenpaw":
         return {"can_fork": True, "reason": None}
-    mode = get_provider(backend).capabilities.fork_mode
+    descriptor = PluginRegistry().backend_registry.describe(backend)
+    if descriptor is None or descriptor.status != "available":
+        return {"can_fork": False, "reason": "Backend is unavailable"}
+    mode = descriptor.capabilities.fork_mode
     if mode == "none":
         return {"can_fork": False, "reason": "Backend cannot fork"}
     if backend == "qoder":
@@ -767,7 +770,7 @@ async def get_fork_capability(
                     user_id=chat.user_id,
                     channel=chat.channel,
                 ),
-                binary=workspace.config.backend_settings.get("binary"),
+                backend_runtime=workspace.backend_runtime,
             )
         except (OSError, ValueError, RuntimeError):
             logger.warning("Cannot recover Codex boundaries", exc_info=True)
@@ -872,14 +875,14 @@ async def fork_chat_at_turn(
     try:
         if boundary is not None:
             settings = dict(workspace.config.backend_settings)
-            adapter = await workspace.harness_runtime.adapter(
+            external_id = await workspace.backend_runtime.call(
                 backend,
+                "fork_session",
                 settings,
-            )
-            external_id = await adapter.fork_session(
+                session_id=parent.session_id,
+                user_id=parent.user_id,
+                channel=parent.channel,
                 boundary=boundary,
-                cwd=workspace.workspace_dir.resolve(),
-                settings=settings,
             )
             await run_sync_io(
                 store.record_provider_fact,
@@ -1566,8 +1569,11 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
+    from ...config.config import load_agent_config_async
+
     status = await workspace.task_tracker.get_status(chat_id)
-    backend = workspace.config.backend
+    config = await load_agent_config_async(workspace.agent_id)
+    backend = config.backend
 
     transcript_page = await _read_history_page(
         workspace,
@@ -1637,12 +1643,12 @@ async def get_chat(
     context = ((state.get("agent") or {}).get("state") or {}).get("context")
     if not context and backend != "qwenpaw":
         try:
-            await workspace.harness_runtime.hydrate_session(
-                backend=backend,
+            await workspace.backend_runtime.hydrate_session(
+                backend,
                 session_id=chat_spec.session_id,
                 user_id=chat_spec.user_id,
                 channel=chat_spec.channel,
-                settings=dict(workspace.config.backend_settings),
+                settings=dict(config.backend_settings),
             )
             state = await session.get_session_state_dict(
                 chat_spec.session_id,

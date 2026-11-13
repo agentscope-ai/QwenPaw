@@ -9,6 +9,7 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -21,7 +22,8 @@ from .bootstrap import (
     NETWORK_PROXY_ENVIRONMENT,
     validate_private_environment,
 )
-from .dependencies import DependencySnapshot
+from .dependencies import DependencyReadEvidence, DependencySnapshot
+from .diagnostics import ERROR_PREFIX, StartupDiagnostics
 from .errors import FrameError, RpcClosedError, RpcTimeoutError
 from .framing import FramedTransport
 from .payloads import PayloadLimits, PayloadStore
@@ -29,7 +31,7 @@ from .models import PluginIdentity
 from .process_tree import ProcessTree
 from .rpc import RpcCallNotSent, RpcPeer
 from .runtime import validate_hello, _requirements
-from .worker_logs import WorkerLogs
+from .worker_logs import WorkerLogs, _submit
 
 
 @dataclass(frozen=True)
@@ -77,7 +79,7 @@ class StopResult:
 class InspectionResult:
     """One-shot evidence is usable only after confirmed child-tree exit."""
 
-    snapshot: DependencySnapshot
+    snapshot: DependencySnapshot | DependencyReadEvidence
     hello: Mapping[str, Any] | None
     cleanup: StopResult
 
@@ -171,6 +173,7 @@ class PluginProcess:
         self._state = "idle"
         self._platform = self.initial_state
         self._last_error: str | None = None
+        self._diagnostics: StartupDiagnostics | None = None
         self._returncode: int | None = None
         self._restart_enabled = False
         self._restart_count = 0
@@ -179,7 +182,9 @@ class PluginProcess:
         self._log_bytes = 0
         self._forced = False
         self._mode = "run"
-        self.dependency_snapshot: DependencySnapshot | None = None
+        self.dependency_snapshot: (
+            DependencySnapshot | DependencyReadEvidence | None
+        ) = None
         self.dependency_observer = None
         self.observed_hello: Mapping[str, Any] | None = None
         self.last_cleanup: StopResult | None = None
@@ -259,7 +264,15 @@ class PluginProcess:
             raise self.error_type("DEPENDENCY_METADATA_INVALID")
         if params["identity"] != self._identity(self._spec).to_mapping():
             raise self.error_type("IDENTITY_MISMATCH")
-        snapshot = DependencySnapshot.from_mapping(params["snapshot"])
+        if self._mode == "audit":
+            snapshot = DependencySnapshot.from_mapping(params["snapshot"])
+        else:
+            if (
+                not isinstance(params["snapshot"], Mapping)
+                or params["snapshot"].get("evidence_kind") != "read"
+            ):
+                raise self.error_type("PROTOCOL_MISMATCH")
+            snapshot = DependencyReadEvidence.from_mapping(params["snapshot"])
         excluded = (self._spec.code_root,)
         if any(
             Path(site).is_relative_to(root)
@@ -268,6 +281,11 @@ class PluginProcess:
         ):
             raise self.error_type("DEPENDENCY_ORIGIN_INVALID")
         self.dependency_snapshot = snapshot
+        self.log_startup(
+            "dependencies_received",
+            executable=snapshot.executable,
+            sites=snapshot.sites,
+        )
         if self.dependency_observer is not None:
             self.dependency_observer(snapshot)
         return {"accepted": True}
@@ -316,6 +334,36 @@ class PluginProcess:
             "log_bytes": self._log_bytes,
             "unknown_outcomes": [dict(item) for item in self._unknown],
         }
+
+    def log_startup(self, event, *, error=None, **fields):
+        """Observe a launch without altering health, protocol or exceptions."""
+        if self._diagnostics is None:
+            return
+        try:
+            self._diagnostics.phase = event
+            fields = {
+                "pid": self._process.pid if self._process else None,
+                "returncode": (
+                    self._process.returncode
+                    if self._process
+                    else self._returncode
+                ),
+                **fields,
+            }
+            if error is not None:
+                self._diagnostics.failure(error, event=event, **fields)
+            else:
+                self._diagnostics.emit(
+                    event,
+                    critical=(
+                        event == "connection_failed"
+                        or event == "worker_exited"
+                        and bool(fields["returncode"])
+                    ),
+                    **fields,
+                )
+        except Exception:
+            pass
 
     async def start(self, spec: PluginLaunchSpec) -> dict[str, Any]:
         """Handshake and bind a component before awaiting its external work."""
@@ -544,20 +592,58 @@ class PluginProcess:
         self._cleanup_task = None
         self._ready = None
         self.observed_hello = None
+        self._diagnostics = StartupDiagnostics(
+            {
+                "plugin_id": spec.plugin_id,
+                "channel_key": getattr(spec, "channel_key", None),
+                "workspace_id": getattr(spec, "workspace_id", None),
+                "instance_id": spec.instance_id,
+                "generation": spec.generation,
+                "mode": self._mode,
+                "config": spec.config,
+                "private_env": getattr(spec, "private_env", {}),
+            },
+            write=lambda text: _submit(
+                text,
+                logger_name="qwenpaw.plugins.startup",
+                level=(
+                    logging.WARNING
+                    if text.startswith(ERROR_PREFIX)
+                    else logging.INFO
+                ),
+            ),
+        )
+        self.log_startup(
+            "launch",
+            executable=spec.python_executable,
+            support_root=str(spec.support_root),
+            code_root=str(spec.code_root),
+            dependency_paths=[str(path) for path in spec.dependency_paths],
+            source_revision=spec.source_revision,
+            budget=spec.startup_timeout,
+        )
         try:
 
             async def prepare_and_open():
+                self.log_startup("prepare_paths")
                 prepared = await run_sync_io(self._prepare_spec, spec)
                 self._spec = prepared
+                self.log_startup("open_transport")
                 await self._open(prepared)
 
             await asyncio.wait_for(prepare_and_open(), spec.startup_timeout)
             self._state = "ready"
+            self.log_startup("process_ready", platform_state=self._platform)
         except BaseException as exc:
             self._last_error = (
                 "STARTUP_TIMEOUT"
                 if isinstance(exc, asyncio.TimeoutError)
                 else getattr(exc, "reason_code", "STARTUP_FAILED")
+            )
+            self.log_startup(
+                "launch_failed",
+                error=exc,
+                reason=self._last_error,
             )
             await self._cleanup(spec.shutdown_timeout, graceful=False)
             if self._state != "residual":
@@ -662,6 +748,7 @@ class PluginProcess:
         process.stdin.write(packet)
         await process.stdin.drain()
         await self._peer.start()
+        self.log_startup("await_ready")
         closed = asyncio.create_task(self._peer.wait_closed())
         self._closed_task = closed
         try:
@@ -686,8 +773,10 @@ class PluginProcess:
                 self._drain_logs(self._process, logs),
             )
             self._tree = ProcessTree(self._process.pid)
-        except (asyncio.CancelledError, Exception):
+            self.log_startup("worker_spawned")
+        except (asyncio.CancelledError, Exception) as exc:
             self._spawn_error = "PROCESS_TREE_UNAVAILABLE"
+            self.log_startup("spawn_failed", error=exc)
         if (
             self._state == "residual"
             and self._spec is not None
@@ -708,6 +797,11 @@ class PluginProcess:
             expected_requirements=self._spec.requirements,
         )
         self.observed_hello = dict(hello)
+        self.log_startup(
+            "hello_received",
+            python_abi=hello.get("python_abi"),
+            platform_tag=hello.get("platform_tag"),
+        )
         return {"accepted": True}
 
     async def _control(self, params: Any, notification: Any) -> None:
@@ -718,9 +812,16 @@ class PluginProcess:
                 {name: params.get(name) for name in expected},
             )
             if received.to_mapping() != expected:
+                self.log_startup(
+                    "control_ignored",
+                    reason="identity_mismatch",
+                    received_generation=params.get("generation"),
+                )
                 return
         except (ValueError, AttributeError):
+            self.log_startup("control_ignored", reason="invalid_identity")
             return
+        previous = self._platform
         ready = "ready" if self._mode in {"run", "manage"} else "inspected"
         if notification.method == self.control_prefix + ready:
             if self._ready is not None and not self._ready.done():
@@ -751,6 +852,18 @@ class PluginProcess:
                         else "WORKER_START_FAILED"
                     ),
                 ),
+            )
+        if previous != self._platform or notification.method.endswith(
+            ("ready", "inspected", "error"),
+        ):
+            self.log_startup(
+                "control",
+                method=notification.method,
+                previous_platform_state=previous,
+                platform_state=self._platform,
+                reported_state=params.get(self.state_key),
+                state=self._state,
+                reason_code=params.get("reason_code"),
             )
 
     async def _drain_logs(
@@ -1089,11 +1202,25 @@ class PluginProcess:
         while self._peer is not None:
             assert self._closed_task is not None
             await asyncio.shield(self._closed_task)
+            pid = self._process.pid if self._process else None
+            self.log_startup(
+                "worker_transport_closed",
+                state=self._state,
+                platform_state=self._platform,
+            )
             if self._state == "ready":
                 self._state = "stopping"
             assert self._spec is not None
             spec = self._spec
             result = await self._cleanup(spec.shutdown_timeout, graceful=False)
+            self.log_startup(
+                "worker_exited",
+                pid=pid,
+                returncode=result.returncode,
+                exited=result.exited,
+                residual=result.residual,
+                forced=result.forced,
+            )
             if not result.exited:
                 return
             if (

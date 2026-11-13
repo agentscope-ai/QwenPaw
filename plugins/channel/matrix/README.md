@@ -39,62 +39,27 @@ Transient login failures retain the 5-second initial / 60-second capped retry
 schedule and stop interrupts backoff. Startup keeps `restore_token=False`:
 existing auth JSON does not silently enable cached-token login.
 
-The official factory supplies an authorized `workspace_dir`. New files live in
+The official factory supplies an authorized `workspace_dir`. Files live in
 `workspace_dir/channel_state/matrix/<sha256(homeserver, user, device)>/`.
-`auth.json`, `sync_token` and `owner.json` are owned by that workspace/account/
+`auth.json`, `sync_token` and `owner.json` belong to that workspace, account and
 device; crypto remains in `crypto_store`. Passwords are never persisted.
-Small response routing/receipt data uses host state; crypto databases do not.
-OS advisory locks protect the active workspace and account/device. A durable
-claim under the trusted legacy state root (when supplied) prevents silently
-selecting a second workspace for the same device; use a distinct Matrix device
-per workspace. Without that root, the OS temporary directory is the fallback
-claim registry. It provides concurrent exclusion but cannot promise durable
-device ownership after OS temporary-file cleanup; trusted host projection is
-therefore also required for the complete persistent ownership guarantee.
-Existing claims are not deleted or stolen on start failure.
+Existing workspace state is preferred, including when switching accounts and
+later switching back.
 
-A trusted execution-only `legacy_state_dir` may refer to the OLD host global
-working directory. It is not a configuration-model or descriptor field. The
-worker does not guess this directory from its HOME or import `WORKING_DIR`.
-Without the trusted host projection, only new workspace state is used and
-legacy compatibility is not complete.
+A trusted execution-only `legacy_state_dir` may refer to the old host global
+working directory. If its `matrix_auth_state.json` user and device match the
+live authenticated identity, the sync token and matching crypto store are copied
+into the workspace. Legacy files remain unchanged, and the new login token is
+saved instead of the old token. A mismatched legacy identity is skipped without
+blocking the current account from creating independent state.
 
-The compatibility reader understands `matrix_auth_state.json`,
-`matrix_sync_token` and `matrix_crypto_store`. The old auth JSON has no
-homeserver metadata. Before repairing/migrating persisted configuration, Core
-captures the historical homeserver and a unique workspace assignment in
-`<legacy_state_dir>/channel_state/matrix/legacy-capture.json`. This immutable
-capture stores the old auth file's SHA and configuration provenance, never the
-cached token or password. Without persisted profiles the workspace is
-`<legacy_state_dir>/workspaces/default`; otherwise only real persisted profiles
-are candidates. A missing agent.json inherits the old global channels, while an
-existing file without Matrix does not invent an account. Multiple compatible
-workspaces/homeservers remain unresolved; full configured MXIDs that differ
-from the old hint are excluded, and local login aliases are not guessed into MXIDs.
-
-The official owner-gated host projection provides a bounded execution-only
-`legacy_state_owner` authorization. Password login may return a fresh token:
-the actual authenticated user/device must still match the old hint and captured
-owner, the homeserver/workspace must match, and the old auth bytes must retain
-their captured SHA. The reader rechecks this proof under the existing legacy
-claim lock before writing the durable owner. A matching persisted
-`matrix_plugin_owner.json` then permits authenticated restarts. Configuration
-changes or plugin reinstalls never recapture or reassign old state. Missing
-capture is read-only and permits fresh installations, but cannot authorize old
-global state. Corrupt capture fails Matrix with `MATRIX_LEGACY_CAPTURE_INVALID`
-and does not stop other channels' policy initialization.
-
-Direct private drivers without trusted capture retain the earlier explicit-token
-proof: only an explicitly configured token matching the old token may be checked
-against this homeserver. Unproven password adoption still reports
-`MATRIX_LEGACY_OWNER_UNVERIFIED`. No path sends an unrelated cached token to a
-new homeserver. Conflicting owner/account/device/database files remain intact.
-
-A verified legacy crypto directory is used in place. Databases, device trust
-files and sessions are never copied to every Agent, overwritten or stuffed in
-host state. New sync/auth writes use the private workspace directory. A durable
-legacy owner claim and live file lock prevent a second workspace from claiming
-the same old database. Unsafe SDK crypto filenames are rejected explicitly.
+OS advisory locks protect the active workspace and account/device only while
+running. Stopping or exiting releases the device lock, so another workspace can
+then use it. Device metadata identifies the most recent workspace so a handoff
+copies its latest sync and crypto state rather than the stale legacy snapshot.
+Historical owner/capture JSON files do not create a persistent startup block.
+Use a distinct Matrix device per workspace when independent devices are
+intended. Unsafe SDK crypto filenames are rejected explicitly.
 
 ## Retained platform behavior and boundaries
 

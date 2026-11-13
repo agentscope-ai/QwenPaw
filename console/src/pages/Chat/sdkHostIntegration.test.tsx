@@ -19,6 +19,11 @@ import type { ChatSpec } from "@/api";
 import type { IAgentScopeRuntimeWebUIMessage } from "@agentscope-ai/chat";
 import sessionApi from "./sessionApi";
 import { historyMessageWindow } from "./historyMessageWindowStore";
+import {
+  getPendingProjectDirectory,
+  setPendingProjectDirectory,
+} from "../../features/project-directory/pendingProjectDirectory";
+import { listenForProjectDirectoryChanges } from "../../features/project-directory/projectDirectoryChangeEvent";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -462,6 +467,7 @@ vi.mock("@/stores/messageQueueStore", async (importOriginal) => ({
 vi.mock("@/utils/agentBackend", () => ({
   requiresQwenPawModel: mockRequiresQwenPawModel,
   supportsAgentAttachments: vi.fn(() => true),
+  useBackendCapabilities: vi.fn(() => undefined),
 }));
 
 vi.mock("@/plugins/registry/useChatExtensions", () => ({
@@ -517,11 +523,11 @@ vi.mock("./components/ApprovalLevelToggle", () => ({
   default: () => <div data-testid="approval-toggle" />,
 }));
 
-vi.mock("./components/HarnessApprovalToggle", () => ({
+vi.mock("./components/BackendApprovalToggle", () => ({
   default: () => <div data-testid="harness-approval" />,
 }));
 
-vi.mock("./components/HarnessModelSelector", () => ({
+vi.mock("./components/BackendModelSelector", () => ({
   default: () => <div data-testid="harness-model" />,
 }));
 
@@ -2272,6 +2278,56 @@ describe("ChatPage coverage", () => {
       user_id: "user-a",
     });
   });
+
+  it.each([true, false])(
+    "confirms pending directories only after a successful first request (ok=%s)",
+    async (ok) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/sdk-chat-uuid"],
+      });
+      await screen.findByTestId("chat-ui");
+      setPendingProjectDirectory("default", "sdk-chat-uuid", [
+        { path: "/projects/custom", label: null },
+      ]);
+      vi.mocked(fetch).mockResolvedValueOnce({
+        ok,
+        status: ok ? 200 : 500,
+        body: null,
+      } as Response);
+      const onDirectoryChanged = vi.fn();
+      const unsubscribe = listenForProjectDirectoryChanges(onDirectoryChanged);
+      const submission = {
+        session_id: "sdk-chat-uuid",
+        input: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      };
+      try {
+        await capturedOptions.api.fetch(submission);
+
+        expect(getPendingProjectDirectory("default", "sdk-chat-uuid")).toBe(
+          ok ? null : "/projects/custom",
+        );
+        if (ok) {
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        } else {
+          expect(onDirectoryChanged).not.toHaveBeenCalled();
+          await capturedOptions.api.fetch(submission);
+          expect(
+            getPendingProjectDirectory("default", "sdk-chat-uuid"),
+          ).toBeNull();
+          expect(onDirectoryChanged).toHaveBeenCalledWith(
+            "session:default:sdk-chat-uuid",
+            { preserveTabs: true },
+          );
+        }
+      } finally {
+        unsubscribe();
+        setPendingProjectDirectory("default", "sdk-chat-uuid", null);
+      }
+    },
+  );
 
   // ── customFetch: with biz_params ───────────────────────────────────────
   it("customFetch merges biz_params into request body", async () => {

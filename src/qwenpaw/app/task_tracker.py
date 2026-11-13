@@ -75,6 +75,24 @@ class RunUnavailableError(ValueError):
     """The conversation was removed or is being deleted."""
 
 
+def _response_success(sse: str) -> bool | None:
+    """Track the latest response terminal without retaining replay text."""
+    for line in reversed(sse.splitlines()):
+        if not line.startswith("data:"):
+            continue
+        try:
+            event = json.loads(line.removeprefix("data:"))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("error"):
+            return False
+        if event.get("object") == "response":
+            return event.get("status") == "completed"
+    return None
+
+
 @dataclass
 class _RunState:
     """Per-run state (task, queues, replay), guarded by tracker lock."""
@@ -565,6 +583,8 @@ class TaskTracker:
         """Attach to an existing run or start a new one.
 
         Returns ``(queue, is_new_run)``.
+        ``on_finished`` runs only after a successful response terminal and
+        normal producer exhaustion; cleanup runs for every outcome.
         """
         async with self._lock:
             if run_key in self._blocked_runs or (
@@ -598,6 +618,7 @@ class TaskTracker:
             async def _producer() -> None:
                 replay_receipt.set(None)
                 start_time = datetime.now(timezone.utc)
+                successful = False
 
                 try:
                     tracker = tracker_ref()
@@ -615,9 +636,14 @@ class TaskTracker:
                             run.replay.append(sse, replay_receipt.get())
                             # pylint: disable-next=protected-access
                             tracker._broadcast(run, sse)
+                        terminal = _response_success(sse)
+                        if terminal is not None:
+                            successful = terminal
                 except asyncio.CancelledError:
+                    successful = False
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:
+                    successful = False
                     logger.exception("run error run_key=%s", run_key)
                     err_sse = (
                         "data: "
@@ -631,7 +657,7 @@ class TaskTracker:
                             tracker._broadcast(run, err_sse)
                 finally:
                     finish_time = datetime.now(timezone.utc)
-                    if on_finished is not None:
+                    if successful and on_finished is not None:
                         try:
                             await on_finished(run_key, finish_time)
                         except Exception:  # pylint: disable=broad-except

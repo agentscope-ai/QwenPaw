@@ -9,7 +9,7 @@ from agentscope.state import AgentState
 from qwenpaw.app.chats.session import DatabaseSession
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.utils import agentscope_msg_to_message
-from qwenpaw.harnesses.session import HarnessSessionBridge
+from qwenpaw.runtime.backends.session import HarnessSessionBridge
 from qwenpaw.schemas import (
     AgentRequest,
     AgentResponse,

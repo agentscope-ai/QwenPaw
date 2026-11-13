@@ -17,6 +17,27 @@
   cursor: pointer;
 }
 
+.reasoningStep {
+  width: 100%;
+
+  > :global([class*="-operate-card"]) {
+    background-color: transparent;
+    border-radius: 0;
+
+    &:hover {
+      background-color: transparent;
+    }
+
+    > :global([class*="-operate-card-header"]) {
+      padding-left: 2px;
+    }
+  }
+
+  :global([class$="-operate-card-line-body"]) {
+    margin-left: 10px;
+  }
+}
+
 .collapsedSteps {
   // Stay inside the bubble's paint boundary: content-visibility on the SDK
   // bubble clips a negatively offset header, including its left border.
@@ -85,5 +106,19 @@
       ) {
       color: var(--app-success-text) !important;
     }
+  }
+}
+
+// Native selection keeps prose/code layout while omitting their UI controls.
+.quoteResponse {
+  button,
+  [role="button"],
+  input,
+  textarea,
+  [contenteditable],
+  header,
+  iframe {
+    -webkit-user-select: none;
+    user-select: none;
   }
 }

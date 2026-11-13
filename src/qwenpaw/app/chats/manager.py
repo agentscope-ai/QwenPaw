@@ -489,7 +489,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         chat_id: str,
         finished_at: datetime,
     ) -> Optional[ChatSpec]:
-        """Persist the newest task completion marker for one chat."""
+        """Persist the newest successful task completion for one chat."""
         async with self._lock:
             existing = await self._repo.get_chat(chat_id)
             if existing is None:

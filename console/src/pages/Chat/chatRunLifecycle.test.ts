@@ -180,6 +180,7 @@ function backgroundWorkerFixture() {
     applyChatPayloadTransforms: (payload: unknown) => payload,
     withPendingSessionSettings: (requestBody: unknown) => ({ requestBody }),
     setPendingProjectDirectory: vi.fn(),
+    notifyProjectDirectoryChanged: vi.fn(),
     setPendingThinking: vi.fn(),
     QWENPAW_CLIENT_MESSAGE_ID_KEY: "qwenpaw_client_message_id",
     DEFAULT_USER_ID: "default",

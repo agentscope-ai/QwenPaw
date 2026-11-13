@@ -208,28 +208,35 @@ const HostMessage = React.memo(function HostMessage({
                   key={index}
                   enabled={history && deferHistoryContent}
                 >
-                  {history ? (
-                    <AssistantMarkdown
-                      messageId={`${data.id}:${index}`}
-                      content={stripScrollHeadlines(item.text)}
-                      cursor={false}
-                      isStreaming={false}
-                    />
-                  ) : (
-                    <AssistantMarkdown
-                      messageId={`${data.id}:${index}`}
-                      content={item.text}
-                      cursor={
-                        item.status === AgentScopeRuntimeRunStatus.InProgress
-                      }
-                      // Native text deltas omit content.status; the message owns
-                      // their lifecycle. Keep the legacy cursor separate.
-                      isStreaming={
-                        (item.status ?? data.status) ===
-                        AgentScopeRuntimeRunStatus.InProgress
-                      }
-                    />
-                  )}
+                  <div
+                    className={styles.quoteResponse}
+                    data-quote-response={
+                      data.role === "assistant" ? "true" : undefined
+                    }
+                  >
+                    {history ? (
+                      <AssistantMarkdown
+                        messageId={`${data.id}:${index}`}
+                        content={stripScrollHeadlines(item.text)}
+                        cursor={false}
+                        isStreaming={false}
+                      />
+                    ) : (
+                      <AssistantMarkdown
+                        messageId={`${data.id}:${index}`}
+                        content={item.text}
+                        cursor={
+                          item.status === AgentScopeRuntimeRunStatus.InProgress
+                        }
+                        // Native text deltas omit content.status; the message owns
+                        // their lifecycle. Keep the legacy cursor separate.
+                        isStreaming={
+                          (item.status ?? data.status) ===
+                          AgentScopeRuntimeRunStatus.InProgress
+                        }
+                      />
+                    )}
+                  </div>
                 </DeferredHistoryContent>
               );
             case AgentScopeRuntimeContentType.REFUSAL:
@@ -326,29 +333,30 @@ function renderResponseMessageContent(item: IAgentScopeRuntimeMessage) {
       return <ResponseTool key={item.id} data={item} isApproval />;
     case AgentScopeRuntimeMessageType.REASONING:
       return (
-        <ResponseReasoning
-          key={item.id}
-          data={
-            item.content.length > 1
-              ? {
-                  ...item,
-                  content: [
-                    {
-                      type: AgentScopeRuntimeContentType.TEXT,
-                      status: item.status,
-                      text: item.content
-                        .filter(
-                          (part) =>
-                            part.type === AgentScopeRuntimeContentType.TEXT,
-                        )
-                        .map((part) => part.text)
-                        .join("\n\n"),
-                    },
-                  ],
-                }
-              : item
-          }
-        />
+        <div key={item.id} className={styles.reasoningStep}>
+          <ResponseReasoning
+            data={
+              item.content.length > 1
+                ? {
+                    ...item,
+                    content: [
+                      {
+                        type: AgentScopeRuntimeContentType.TEXT,
+                        status: item.status,
+                        text: item.content
+                          .filter(
+                            (part) =>
+                              part.type === AgentScopeRuntimeContentType.TEXT,
+                          )
+                          .map((part) => part.text)
+                          .join("\n\n"),
+                      },
+                    ],
+                  }
+                : item
+            }
+          />
+        </div>
       );
     case AgentScopeRuntimeMessageType.ERROR:
       return <ResponseError key={item.id} data={item} />;

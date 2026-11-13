@@ -14,6 +14,8 @@ import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatSource } from "../api/types/chat";
 import { useAgentStore } from "./agentStore";
 
+export const SESSION_LIST_REFRESH_EVENT = "qwenpaw:session-list-refresh";
+
 export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
   sessionId?: string;
@@ -39,6 +41,9 @@ export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
 
 interface SessionListStore {
   sessions: ExtendedSession[];
+  loading: boolean;
+  /** Resolved route metadata, including Chats absent from the sidebar. */
+  resolvedRouteSession: ExtendedSession | null;
   /** Timestamp of last update — used to detect staleness */
   lastUpdated: number;
   /**
@@ -57,8 +62,40 @@ interface SessionListStore {
   syncSessions: (sessions: ExtendedSession[]) => void;
 }
 
+/** Resolve canonical Chat IDs before confirmed, display, or runtime aliases. */
+export function findSessionByReference<
+  T extends { id: string; realId?: string; sessionId?: string },
+>(sessions: readonly T[], id: string, resolved?: T | null): T | undefined {
+  const canonical = sessions.find(
+    (session) => (session.realId ?? session.id) === id,
+  );
+  if (canonical) return canonical;
+
+  if (
+    resolved?.id === id ||
+    resolved?.realId === id ||
+    resolved?.sessionId === id
+  )
+    return resolved;
+
+  const display = sessions.find((session) => session.id === id);
+  if (display) return display;
+
+  // Multiple Chats may share a runtime identity; never guess between them.
+  const runtimeMatches = new Map<string, T>();
+  for (const session of sessions) {
+    if (session.sessionId === id)
+      runtimeMatches.set(session.realId ?? session.id, session);
+  }
+  return runtimeMatches.size === 1
+    ? runtimeMatches.values().next().value
+    : undefined;
+}
+
 export const useSessionListStore = create<SessionListStore>((set, get) => ({
   sessions: [],
+  loading: true,
+  resolvedRouteSession: null,
   lastUpdated: 0,
   _setLibrarySessions: null,
 
@@ -93,6 +130,11 @@ export function syncSessionsGlobal(sessions: ExtendedSession[]) {
 // it belongs to the mounted initializer, which re-syncs after the switch.
 useAgentStore.subscribe((state, prevState) => {
   if (state.selectedAgent !== prevState.selectedAgent) {
-    useSessionListStore.setState({ sessions: [], lastUpdated: Date.now() });
+    useSessionListStore.setState({
+      sessions: [],
+      loading: true,
+      resolvedRouteSession: null,
+      lastUpdated: Date.now(),
+    });
   }
 });

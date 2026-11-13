@@ -24,12 +24,16 @@ import {
 import { takeChatHistoryPrefetch } from "../chatRoutePrefetch";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
-import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 import {
   boundHistoryRows,
   splitHistoryMessagesIntoTurnRows,
   type HistoryUserMessage,
 } from "../historyMessageWindowStore";
+import {
+  findSessionByReference,
+  syncSessionsGlobal,
+  useSessionListStore,
+} from "../../../stores/sessionListStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1446,6 +1450,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         throw new DOMException("Aborted", "AbortError");
       }
 
+      // Running projections can advance before the SDK selects this session.
+      if (session.generating) {
+        return { session, realId };
+      }
+
       // Cache the result so subsequent getSession calls return immediately.
       const entry = { session, owner };
       this.sessionResultCache.set(sessionId, entry);
@@ -1505,6 +1514,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   private removedRouteIds = new Set<string>();
   private removedCurrentRouteIds = new Set<string>();
 
+  private setResolvedRouteSession(session: ExtendedSession | null): void {
+    this.resolvedRouteSession = session;
+    useSessionListStore.setState({ resolvedRouteSession: session });
+  }
+
   /** Prevent canonical deleted routes from resolving while navigation settles. */
   markRouteRemoved(...ids: Array<string | null | undefined>): void {
     for (const id of ids) {
@@ -1545,10 +1559,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         this.getEffectiveSessionId(id),
       ]),
     );
-    this.resolvedRouteSession = {
+    this.setResolvedRouteSession({
       ...chatSpecToSession(chat),
       realId: chat.id,
-    };
+    });
     const changedIds = new Set<string>();
     for (const [id, previousId] of previousIds) {
       if (previousId === this.getEffectiveSessionId(id)) continue;
@@ -1638,7 +1652,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // list, and merging against leftover entries would transfer the previous
     // agent's local id / backend UUID onto a different chat.
     this.sessionList = [];
-    this.resolvedRouteSession = null;
+    this.setResolvedRouteSession(null);
     this.removedRouteIds.clear();
     this.removedCurrentRouteIds.clear();
     this._prevReturnedList = null;
@@ -1738,7 +1752,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   resetForTests(): void {
     this.visibleSessionId = undefined;
     this.activeOwner = { agentId: "", generation: 0 };
-    this.resolvedRouteSession = null;
+    this.setResolvedRouteSession(null);
     this.routeResolutionVersion = 0;
     this.removedRouteIds.clear();
     this.removedCurrentRouteIds.clear();
@@ -1844,38 +1858,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   private findSession(id: string): ExtendedSession | undefined {
-    // Canonical IDs, including resolved archived Chats, precede SDK aliases.
-    const canonical = this.sessionList.find(
-      (x) => ((x as ExtendedSession).realId ?? x.id) === id,
-    ) as ExtendedSession | undefined;
-    if (canonical) return canonical;
-
-    const resolved = this.resolvedRouteSession;
-    if (
-      resolved?.id === id ||
-      resolved?.realId === id ||
-      resolved?.sessionId === id
-    )
-      return resolved;
-
-    const display = this.sessionList.find((x) => x.id === id) as
-      | ExtendedSession
-      | undefined;
-    if (display) return display;
-
-    // Runtime session_id values are opaque. Most locally-created values use
-    // the timestamp-random format, but imported/auto-registered Chats may use
-    // UUID-looking runtime IDs as well. Use an unconfirmed list alias only
-    // when the match is unique: the backend permits multiple Chats to share
-    // a runtime identity, and guessing would cross conversation data.
-    const runtimeMatches = new Map<string, ExtendedSession>();
-    for (const session of this.sessionList as ExtendedSession[]) {
-      if (session.sessionId === id)
-        runtimeMatches.set(session.realId ?? session.id, session);
-    }
-    return runtimeMatches.size === 1
-      ? runtimeMatches.values().next().value
-      : undefined;
+    return findSessionByReference(
+      this.sessionList as ExtendedSession[],
+      id,
+      this.resolvedRouteSession,
+    );
   }
 
   /** Returns the real backend UUID, or null when not yet resolved. */
@@ -1970,7 +1957,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     ) {
       // A listed Chat disappeared: let the route distinguish archive from
       // deletion. Never-listed archived Chats retain their resolved identity.
-      this.resolvedRouteSession = null;
+      this.setResolvedRouteSession(null);
       this.routeResolutionVersion++;
     }
     // Capture the leading unresolved local session (the one just created via
@@ -2153,6 +2140,29 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         if (!this.isActiveOwner(owner) || this.sessionListRequest !== entry) {
           return this._prevReturnedList ?? [...this.sessionList];
         }
+        const resolved = this.resolvedRouteSession;
+        if (
+          resolved?.archived &&
+          this.visibleSessionId &&
+          this.isVisibleSession(resolved.id)
+        ) {
+          try {
+            const result = await api.resolveChat(resolved.id, {
+              currentAgentId: owner.agentId,
+            });
+            if (
+              this.isActiveOwner(owner) &&
+              result.agent_id === owner.agentId &&
+              this.resolvedRouteSession === resolved &&
+              this.isVisibleSession(resolved.id)
+            )
+              this.registerResolvedChat(result.chat, owner);
+          } catch {
+            // A metadata refresh must not interrupt ordinary list polling.
+          }
+        }
+        if (!this.isActiveOwner(owner))
+          return this._prevReturnedList ?? [...this.sessionList];
         return this.applyChatsToSessionList(chats);
       } finally {
         if (this.sessionListRequest === entry) this.sessionListRequest = null;
@@ -2589,7 +2599,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       this.isActiveOwner(owner) &&
       this.resolvedRouteSession?.id === canonicalId
     ) {
-      this.resolvedRouteSession = null;
+      this.setResolvedRouteSession(null);
       this.routeResolutionVersion++;
     }
 

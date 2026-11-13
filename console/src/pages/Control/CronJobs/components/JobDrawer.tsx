@@ -990,19 +990,6 @@ export function JobDrawer({
                   </Form.Item>
 
                   <Form.Item
-                    name={["runtime", "max_concurrency"]}
-                    data-settings-target="cronJobs.runtimeMaxConcurrency"
-                    label={t("cronJobs.runtimeMaxConcurrency")}
-                    tooltip={t("cronJobs.maxConcurrencyTooltip")}
-                  >
-                    <NumberSlider
-                      min={1}
-                      max={10}
-                      label={t("cronJobs.runtimeMaxConcurrency")}
-                    />
-                  </Form.Item>
-
-                  <Form.Item
                     name={["runtime", "timeout_seconds"]}
                     data-settings-target="cronJobs.runtimeTimeoutSeconds"
                     label={t("cronJobs.runtimeTimeoutSeconds")}

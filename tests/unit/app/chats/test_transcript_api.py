@@ -39,6 +39,22 @@ from qwenpaw.schemas import Message, Role, RunStatus, TextContent
 from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
+@pytest.fixture(autouse=True)
+def chat_config_loader(monkeypatch):
+    loader = AsyncMock(
+        return_value=SimpleNamespace(backend="qwenpaw", backend_settings={}),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.workspace.workspace.load_agent_config_async",
+        loader,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.config.config.load_agent_config_async",
+        loader,
+    )
+    return loader
+
+
 def _chat() -> ChatSpec:
     return ChatSpec(
         id="chat-1",
@@ -50,6 +66,7 @@ def _chat() -> ChatSpec:
 
 def _workspace(store) -> SimpleNamespace:
     return SimpleNamespace(
+        agent_id="test-transcript-api",
         transcript_store=store,
         config=SimpleNamespace(backend="qwenpaw"),
         task_tracker=SimpleNamespace(
@@ -556,6 +573,7 @@ async def test_get_chat_falls_back_without_transcript() -> None:
 @pytest.mark.asyncio
 async def test_get_chat_reads_harness_runtime_instead_of_empty_transcript(
     tmp_path: Path,
+    chat_config_loader,
 ) -> None:
     fallback = Msg(
         name="assistant",
@@ -579,7 +597,8 @@ async def test_get_chat_reads_harness_runtime_instead_of_empty_transcript(
         backend="codex",
         backend_settings={},
     )
-    workspace.harness_runtime = SimpleNamespace(
+    chat_config_loader.return_value = workspace.config
+    workspace.backend_runtime = SimpleNamespace(
         hydrate_session=AsyncMock(),
     )
     tasks = BackgroundTasks()
@@ -599,7 +618,7 @@ async def test_get_chat_reads_harness_runtime_instead_of_empty_transcript(
     assert history.history is not None
     assert history.history.has_more is False
     assert not tasks.tasks
-    workspace.harness_runtime.hydrate_session.assert_not_awaited()
+    workspace.backend_runtime.hydrate_session.assert_not_awaited()
     store.close()
 
 

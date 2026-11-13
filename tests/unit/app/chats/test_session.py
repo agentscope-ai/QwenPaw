@@ -53,9 +53,11 @@ class _StateModule:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("repeat_user", ["", "session"])
+@pytest.mark.parametrize("plugin_mapping", [False, True])
 async def test_json_migration_imports_recall_once(
     tmp_path: Path,
     repeat_user: str,
+    plugin_mapping: bool,
 ) -> None:
     """Legacy recall follows the JSON import and stable message identity."""
     legacy_dir = tmp_path / "sessions"
@@ -78,10 +80,17 @@ async def test_json_migration_imports_recall_once(
         json.dumps(state),
         encoding="utf-8",
     )
-    harness_dir = tmp_path / "harnesses"
-    harness_dir.mkdir()
+    harness_dir = (
+        tmp_path / "plugin-data" / "qwenpaw-harness-codex"
+        if plugin_mapping
+        else tmp_path / "harnesses"
+    )
+    harness_dir.mkdir(parents=True)
+    binding_key = (
+        json.dumps(["session", "", "session"]) if plugin_mapping else "session"
+    )
     (harness_dir / "codex_sessions.json").write_text(
-        json.dumps({"session": "native-thread-id"}),
+        json.dumps({binding_key: "native-thread-id"}),
         encoding="utf-8",
     )
     source = HistoryStore(tmp_path / "history.db")

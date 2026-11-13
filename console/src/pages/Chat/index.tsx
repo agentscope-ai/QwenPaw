@@ -114,6 +114,7 @@ import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import { wrapChatResponseUsageStream } from "./turnUsage";
 import { batchLiveChatDeltas } from "./liveDeltaBatch";
+import { SESSION_LIST_REFRESH_EVENT } from "../../stores/sessionListStore";
 import { wrapReplayFastForward } from "./replayFastForward";
 import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
@@ -154,6 +155,7 @@ import {
   boundHistoryRows,
   type HistoryNavigationMode,
 } from "./historyMessageWindowStore";
+import { QuoteSelection } from "./QuoteSelection";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
   awaitInChatScope,
@@ -202,6 +204,7 @@ import {
   getPendingProjectDirectory,
   setPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
+import { notifyProjectDirectoryChanged } from "../../features/project-directory/projectDirectoryChangeEvent";
 import {
   useFilesSurfaceStore,
   useSessionFilesDrawer,
@@ -301,8 +304,8 @@ import {
   stopBackgroundWatchersNotInSession,
 } from "../../hooks/useBackgroundTaskWatcher";
 import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
-import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
-import HarnessModelSelector from "./components/HarnessModelSelector";
+import BackendApprovalToggle from "./components/BackendApprovalToggle";
+import BackendModelSelector from "./components/BackendModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
 import { normalizeLevel, type ToolExecutionLevel } from "../../utils/approval";
 import {
@@ -321,6 +324,7 @@ import {
 import {
   requiresQwenPawModel,
   supportsAgentAttachments,
+  useBackendCapabilities,
 } from "../../utils/agentBackend";
 
 // ---------------------------------------------------------------------------
@@ -577,6 +581,10 @@ async function startBackgroundQueue(
           setPendingThinking(queueAgentId, queueKey, null);
           if (pendingRequest.projectDir) {
             setPendingProjectDirectory(queueAgentId, queueKey, null);
+            notifyProjectDirectoryChanged(
+              { kind: "session", agentId: queueAgentId, sessionId: queueKey },
+              { preserveTabs: true },
+            );
           }
           fetchStarted = true;
 
@@ -1158,7 +1166,7 @@ export default function ChatPage() {
     enabled: terminalEnabled,
     reason: terminalDisabledReason,
     confirmed: terminalCapabilityConfirmed,
-  } = useTerminalEnabled(selectedAgent);
+  } = useTerminalEnabled();
   const backendChatId = resolveBackendChatId(chatId);
   const decisionScope = `${selectedAgent}:${queueSessionId}:${
     backendChatId ?? ""
@@ -1313,7 +1321,7 @@ export default function ChatPage() {
   >([]);
   const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
-  const backendCapabilities = selectedAgentInfo?.backend_capabilities;
+  const backendCapabilities = useBackendCapabilities(selectedAgentInfo);
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
   // An Advisor conversation runs two models, so its pill shows the pair.
   const advisorConversation = useIsAdvisorConversation();
@@ -3503,6 +3511,14 @@ export default function ChatPage() {
             projectSessionId,
             null,
           );
+          notifyProjectDirectoryChanged(
+            {
+              kind: "session",
+              agentId: requestSnapshot.agentId,
+              sessionId: projectSessionId,
+            },
+            { preserveTabs: true },
+          );
         }
         sessionApi.invalidateConvertedCache(
           sessionApi.getRealIdForSession(localIdToResolve) || localIdToResolve,
@@ -3526,6 +3542,9 @@ export default function ChatPage() {
         ),
         chatRef,
         usageTurn,
+        usesQwenPawBackend
+          ? () => document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT))
+          : undefined,
       );
     },
     [
@@ -4624,7 +4643,10 @@ export default function ChatPage() {
                 />
               )
             ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
+              <BackendModelSelector
+                backendId={selectedAgentBackend}
+                capabilities={backendCapabilities}
+              />
             ) : null}
             {pluginSenderPrefix}
           </>
@@ -4676,7 +4698,7 @@ export default function ChatPage() {
                 }}
               />
             ) : approvalPresets.length > 0 ? (
-              <HarnessApprovalToggle
+              <BackendApprovalToggle
                 backend={selectedAgentBackend}
                 sessionId={queueKey}
                 presets={approvalPresets}
@@ -4977,6 +4999,10 @@ export default function ChatPage() {
             ),
             chatRef,
             usageTurn,
+            usesQwenPawBackend
+              ? () =>
+                  document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT))
+              : undefined,
           );
         },
       },
@@ -5232,6 +5258,11 @@ export default function ChatPage() {
                 </ChatSessionTransition>
               </RichFileReferenceInputProvider>
             </LongTextPasteProvider>
+            <QuoteSelection
+              containerRef={chatMessagesAreaRef}
+              scopeKey={queueKey}
+              enabled={!isSessionTransition && !isAgentTransition}
+            />
           </div>
 
           {/* Rate-limit guidance banner */}

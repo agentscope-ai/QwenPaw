@@ -731,3 +731,32 @@ class TestStreamingChunkSplitting:
         )
         assert len(streaming_channel.end_calls) == ends_after_first_split + 1
         assert buffers["message"] == "c"
+
+
+# ---------------------------------------------------------------------------
+# CJK emphasis normalization (channel outbound Markdown)
+# ---------------------------------------------------------------------------
+
+
+class TestCjkEmphasisNormalization:
+    def test_markdown_channel_repairs_cjk_emphasis(self):
+        r = MessageRenderer(RenderStyle(supports_markdown=True))
+        msg = _mk_message(
+            [TextContent(text="**没有改动任何设置。**所有内容")],
+        )
+        parts = r.message_to_parts(msg)
+        assert parts[0].text == "**没有改动任何设置**。所有内容"
+
+    def test_plain_channel_leaves_text_untouched(self):
+        r = MessageRenderer(
+            RenderStyle(supports_markdown=False, supports_code_fence=False),
+        )
+        source = "**没有改动任何设置。**所有内容"
+        msg = _mk_message([TextContent(text=source)])
+        assert r.message_to_parts(msg)[0].text == source
+
+    def test_code_fence_is_preserved(self):
+        r = MessageRenderer()
+        source = "```\n**代码。**后\n```"
+        msg = _mk_message([TextContent(text=source)])
+        assert r.message_to_parts(msg)[0].text == source

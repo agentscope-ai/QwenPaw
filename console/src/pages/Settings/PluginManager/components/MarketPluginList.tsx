@@ -102,15 +102,17 @@ function pickLocalizedDescription(
 interface MarketPluginListProps {
   onInstalled: (result: InstallPluginResult) => void | Promise<void>;
   installedPlugins?: PluginInfo[];
+  initialSearch?: string;
 }
 
 export function MarketPluginList({
   onInstalled,
   installedPlugins = [],
+  initialSearch = "",
 }: MarketPluginListProps) {
   const { t, i18n } = useTranslation();
-  const [searchInput, setSearchInput] = useState("");
-  const [activeSearch, setActiveSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(initialSearch);
+  const [activeSearch, setActiveSearch] = useState(initialSearch);
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const isMobile = useIsMobile();
 
@@ -136,7 +138,7 @@ export function MarketPluginList({
     handleLoadMore,
     handleRetryLoadMore,
     handleInstall,
-  } = useMarketPlugins({ onInstalled });
+  } = useMarketPlugins({ onInstalled, initialSearch });
 
   const lang = i18n.language.split("-")[0].toLowerCase();
   const getInstalledVersion = (entry: MarketPluginEntry) => {
@@ -271,7 +273,9 @@ export function MarketPluginList({
           </button>
         ))}
       </div>
-      <div className={toolbarStyles.controlRow}>
+      <div
+        className={`${toolbarStyles.controlRow} ${toolbarStyles.controlRowMarket}`}
+      >
         <Input.Search
           className={toolbarStyles.search}
           placeholder={t("pluginManager.marketSearch")}
@@ -326,7 +330,12 @@ export function MarketPluginList({
         />
       )}
 
-      <Spin spinning={loading}>
+      <Spin spinning={loading && plugins.length > 0}>
+        {loading && plugins.length === 0 && (
+          <div className={marketStyles.loadingSpin}>
+            <Spin size="large" />
+          </div>
+        )}
         {!loading && plugins.length === 0 && !error && (
           <Text type="secondary">{t("pluginManager.marketEmpty")}</Text>
         )}

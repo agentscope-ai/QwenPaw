@@ -28,6 +28,7 @@ const EXPECTED_ROUTES = [
   ["core.security", "/security"],
   ["core.token-usage", "/token-usage"],
   ["core.agent-stats", "/agent-stats"],
+  ["core.community", "/community-settings"],
   ["core.voice-transcription", "/voice-transcription"],
   ["core.debug", "/debug"],
   ["core.backups", "/backups"],

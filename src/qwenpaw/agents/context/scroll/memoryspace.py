@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import runpy
 import sqlite3
 import time
 from collections import deque
@@ -21,6 +22,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+if __package__:
+    from ....utils.sqlite_uri import sqlite_uri
+else:
+    # The isolated REPL imports this file without importing qwenpaw.
+    sqlite_uri = runpy.run_path(
+        str(Path(__file__).resolve().parents[3] / "utils/sqlite_uri.py"),
+    )["sqlite_uri"]
 
 _DEFAULT_ROW_CAP = 1000
 _DEFAULT_SEARCH_TURN_MAX_BYTES = 4 * 1024 * 1024
@@ -398,7 +407,7 @@ class MemorySpace:
             self._history_root = abs_path.parent
             self._conn.execute(
                 "ATTACH DATABASE ? AS hist",
-                (f"file:{abs_path}?mode=ro",),
+                (sqlite_uri(abs_path, "ro"),),
             )
         # Lock the connection down AFTER our own ATTACH: the model runs
         # arbitrary SQL through sql_query/sql_exec, so guard at the engine

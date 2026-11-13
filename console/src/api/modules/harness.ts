@@ -1,24 +1,5 @@
 import { request } from "../request";
 
-export interface HarnessProvider {
-  id: string;
-  name: string;
-  available: boolean;
-  coming_soon: boolean;
-  installed: boolean;
-  authenticated: boolean;
-  account: {
-    type?: string;
-    username?: string | null;
-    email?: string | null;
-    planType?: string;
-  } | null;
-  runtime_path: string | null;
-  runtime_source: string | null;
-  error: string | null;
-  capabilities: HarnessCapabilities;
-}
-
 export interface HarnessCommand {
   name: string;
   description: string;
@@ -86,20 +67,7 @@ export interface HarnessDiscoveredSkill {
   scope: "provider";
 }
 
-export interface HarnessLogin {
-  type: string;
-  loginId: string;
-  authUrl?: string;
-  verificationUrl?: string;
-  userCode?: string;
-  command?: string;
-}
-
 export const harnessApi = {
-  list: () =>
-    request<{ providers: HarnessProvider[] }>("/harnesses", {
-      timeout: 60_000,
-    }),
   listModels: (providerId: string) =>
     request<{ models: HarnessModel[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/models`,
@@ -114,38 +82,5 @@ export const harnessApi = {
     request<{ skills: HarnessDiscoveredSkill[]; message?: string }>(
       `/harnesses/${encodeURIComponent(providerId)}/skills`,
       { timeout: 60_000 },
-    ),
-  status: (providerId: string, settings: Record<string, unknown> = {}) =>
-    request<HarnessProvider>(
-      `/harnesses/${encodeURIComponent(providerId)}/status`,
-      {
-        method: "POST",
-        body: JSON.stringify({ settings }),
-        timeout: 60_000,
-      },
-    ),
-  login: (
-    providerId: string,
-    deviceCode = false,
-    settings: Record<string, unknown> = {},
-  ) =>
-    request<HarnessLogin>(
-      `/harnesses/${encodeURIComponent(providerId)}/login`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          device_code: deviceCode,
-          settings,
-        }),
-        timeout: 60_000,
-      },
-    ),
-  logout: (providerId: string, settings: Record<string, unknown> = {}) =>
-    request<{ ok: boolean }>(
-      `/harnesses/${encodeURIComponent(providerId)}/logout`,
-      {
-        method: "POST",
-        body: JSON.stringify({ settings }),
-      },
     ),
 };

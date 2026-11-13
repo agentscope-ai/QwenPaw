@@ -149,7 +149,7 @@ def _record_matches(catalog, identity, state, turns, candidates, kind):
             )
 
 
-async def recover_codex_boundaries(catalog, identity, binary=None):
+async def recover_codex_boundaries(catalog, identity, backend_runtime):
     """Match full native turns without resuming or replaying a thread."""
     state = await run_sync_io(catalog.read_provider_state, **identity)
     binding = state["binding"]
@@ -158,42 +158,22 @@ async def recover_codex_boundaries(catalog, identity, binary=None):
     turns = await run_sync_io(catalog.read_legacy_turn_blocks, **identity)
     if not turns or all(t in state["boundaries"] for t in turns):
         return
-    codex = import_module("...harnesses.codex.adapter", __package__)
-    client = codex.CodexAppServerClient(binary=binary)
+    native_turns = await backend_runtime.call(
+        "codex",
+        "turn_history",
+        **identity,
+        external_session_id=binding["external_session_id"],
+    )
     candidates = []
-    try:
-        await client.start()
-        result = await client.request(
-            "thread/read",
-            {
-                "threadId": binding["external_session_id"],
-                "includeTurns": True,
-            },
-        )
-        for turn in result["thread"]["turns"]:
-            if turn.get("status") != "completed":
+    for turn_id, history in native_turns:
+        blocks = []
+        for entry in history:
+            kind = entry.kind.value
+            if kind in {"reasoning", "tool_call", "tool_output"}:
                 continue
-            blocks = []
-            for item in turn.get("items", []):
-                for entry in codex.CodexAdapter._history_item(item):
-                    kind = entry.kind.value
-                    if kind == "reasoning":
-                        continue
-                    role = "user" if kind == "user" else "assistant"
-                    if kind in {"tool_call", "tool_output"}:
-                        continue
-                    blocks.append(
-                        (
-                            role,
-                            {
-                                "type": "text",
-                                "text": entry.text,
-                            },
-                        ),
-                    )
-            candidates.append((_signature(blocks), turn["id"]))
-    finally:
-        await client.stop()
+            role = "user" if kind == "user" else "assistant"
+            blocks.append((role, {"type": "text", "text": entry.text}))
+        candidates.append((_signature(blocks), turn_id))
     # Native thread/read omits stored tools; match unique text boundaries.
     text_turns = {
         turn_id: [
