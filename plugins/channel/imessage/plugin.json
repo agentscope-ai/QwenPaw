@@ -6,6 +6,6 @@
   "description": "Worker-owned Messages SQLite watcher and imsg transport.",
   "author": "QwenPaw Team",
   "entry": {"descriptor": "channel.json"},
-  "qwenpaw_version": {"min": "2.2.2b4"},
+  "qwenpaw_version": {"min": "2.3.0"},
   "publish": true
 }
