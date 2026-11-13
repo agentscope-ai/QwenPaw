@@ -256,6 +256,20 @@ _SINGLE_SCHEMA_KEYWORDS = frozenset(
 _ARRAY_SCHEMA_KEYWORDS = frozenset(
     {"allOf", "anyOf", "oneOf", "prefixItems"},
 )
+# Keywords whose ``false`` value is the keyword's own native spelling rather
+# than a standalone boolean schema.  ``false`` is the form OpenAI strict-mode
+# tool definitions require and that compatible servers accept, while
+# ``{"not": {}}`` is rejected or silently ignored by several of them.  Only
+# ``false`` is preserved: ``true`` keeps its previous treatment, so the wire
+# format changes no further than the compatibility bug requires.
+_PRESERVED_FALSE_SCHEMA_KEYWORDS = frozenset(
+    {
+        "additionalProperties",
+        "additionalItems",
+        "unevaluatedProperties",
+        "unevaluatedItems",
+    },
+)
 # Keywords whose value is an object whose values are schemas.
 _MAP_SCHEMA_KEYWORDS = frozenset(
     {
@@ -273,11 +287,20 @@ def _walk_schema(
     transform: Callable[[Any], Any],
     *,
     dependency_schema_types: tuple[type, ...] = (dict,),
+    preserve_false_keywords: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
-    """Walk known JSON Schema child positions using *transform*."""
+    """Walk known JSON Schema child positions using *transform*.
+
+    *preserve_false_keywords* is opt-in so the traversal contract stays
+    unchanged for the other sanitizers that share this walker.
+    """
     result: dict[str, Any] = {}
     for key, value in schema.items():
-        if key in _SINGLE_SCHEMA_KEYWORDS:
+        if key in preserve_false_keywords and value is False:
+            # Keep the keyword's native boolean spelling instead of
+            # expanding it into a nested ``not`` schema.
+            result[key] = False
+        elif key in _SINGLE_SCHEMA_KEYWORDS:
             if key == "items" and isinstance(value, list):
                 result[key] = [transform(item) for item in value]
             else:
@@ -348,6 +371,14 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
     Special-cases retained:
     - ``additionalProperties: true``  → removed (JSON Schema default;
       explicit form rejected by some strict validators).
+    - ``additionalProperties`` / ``additionalItems`` /
+      ``unevaluatedProperties`` / ``unevaluatedItems`` with value
+      ``false`` → kept as-is.  ``false`` is the native keyword spelling
+      used by OpenAI strict-mode tool schemas; compatible servers that do
+      not implement ``not`` treat ``{"not": {}}`` as an opaque schema and
+      drop the surrounding ``properties`` map, so the model sees a
+      zero-parameter function.  ``true`` keeps its previous treatment (an
+      empty schema, or removal for ``additionalProperties``).
     - ``required: <bool>`` inside a property definition → removed
       (malformed; real JSON Schema uses ``required: ["field"]`` on the
       parent object).
@@ -362,6 +393,7 @@ def _sanitize_boolean_schemas(schema: Any) -> Any:
         _strip_boolean_schema_special_cases(schema),
         _sanitize_boolean_schemas,
         dependency_schema_types=(dict, bool),
+        preserve_false_keywords=_PRESERVED_FALSE_SCHEMA_KEYWORDS,
     )
 
 

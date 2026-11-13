@@ -309,3 +309,158 @@ def test_sanitize_tool_schemas_expands_pattern_shorthands() -> None:
     assert props["pmid"]["pattern"] == r"^[0-9]+$"
     assert props["ids"]["items"]["pattern"] == "[0-9]+"
     assert "pattern" not in props["name"]
+
+
+def test_sanitize_tool_schemas_keeps_additional_properties_false() -> None:
+    """``additionalProperties: false`` keeps its native spelling (#8603).
+
+    Rewriting it into ``{"not": {}}`` loses the parameter map on
+    OpenAI-compatible servers that do not implement ``not``, and the model
+    then emits an empty arguments object for a tool that has required
+    properties.
+    """
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "run_code",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"code": {"type": "string"}},
+                    "required": ["code"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ]
+
+    params = _sanitize_tool_schemas(tools)[0]["function"]["parameters"]
+
+    assert params["additionalProperties"] is False
+    assert params["properties"] == {"code": {"type": "string"}}
+    assert params["required"] == ["code"]
+
+
+def test_sanitize_tool_schemas_keeps_boolean_items_keywords() -> None:
+    """The native spelling applies to array-form ``additionalItems`` too."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "ids": {
+                            "type": "array",
+                            # ``additionalItems`` only applies to the tuple
+                            # form, where ``items`` is an array of schemas.
+                            "items": [{"type": "string"}],
+                            "additionalItems": False,
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+            },
+        },
+    ]
+
+    params = _sanitize_tool_schemas(tools)[0]["function"]["parameters"]
+    ids = params["properties"]["ids"]
+
+    assert params["additionalProperties"] is False
+    assert ids["additionalItems"] is False
+    assert ids["items"] == [{"type": "string"}]
+
+
+def test_sanitize_tool_schemas_keeps_false_unevaluated_keywords() -> None:
+    """``unevaluatedProperties`` / ``unevaluatedItems`` keep ``false``."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "payload": {
+                            "type": "object",
+                            "unevaluatedProperties": False,
+                        },
+                        "ids": {
+                            "type": "array",
+                            "unevaluatedItems": False,
+                        },
+                    },
+                },
+            },
+        },
+    ]
+
+    params = _sanitize_tool_schemas(tools)[0]["function"]["parameters"]
+    props = params["properties"]
+
+    assert props["payload"]["unevaluatedProperties"] is False
+    assert props["ids"]["unevaluatedItems"] is False
+
+
+def test_sanitize_tool_schemas_keeps_previous_treatment_of_true() -> None:
+    """``true`` is out of scope and keeps its pre-fix wire format."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "ids": {
+                            "type": "array",
+                            "items": [{"type": "string"}],
+                            "additionalItems": True,
+                        },
+                        "payload": {
+                            "type": "object",
+                            "unevaluatedProperties": True,
+                        },
+                    },
+                    "additionalProperties": True,
+                },
+            },
+        },
+    ]
+
+    params = _sanitize_tool_schemas(tools)[0]["function"]["parameters"]
+
+    # Unchanged from before the fix: the default form is dropped, and a
+    # boolean where a schema is expected still becomes an empty schema.
+    assert "additionalProperties" not in params
+    assert params["properties"]["ids"]["additionalItems"] == {}
+    assert params["properties"]["payload"]["unevaluatedProperties"] == {}
+
+
+def test_sanitize_tool_schemas_still_converts_standalone_boolean_schema() -> (
+    None
+):
+    """A boolean where a schema is expected still becomes an object schema."""
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "demo",
+                "description": "demo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"payload": False},
+                },
+            },
+        },
+    ]
+
+    params = _sanitize_tool_schemas(tools)[0]["function"]["parameters"]
+
+    assert params["properties"]["payload"] == {"not": {}}
