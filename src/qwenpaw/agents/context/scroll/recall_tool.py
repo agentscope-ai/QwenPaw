@@ -144,9 +144,14 @@ def _canonical_request_payload(
         normalized = dict(payload)
         normalized.setdefault("k", 10)
         normalized.setdefault("all_agents", False)
+        if normalized.get("include_turn", True) is not True:
+            normalized["include_turn"] = False
+        else:
+            normalized.pop("include_turn", None)
         return {
             key: normalized.get(key)
             for key in (
+                "include_turn",
                 "query",
                 "k",
                 "kind",
@@ -320,6 +325,8 @@ Args:
         decimal integer string is accepted for model compatibility.
     query (str): search only — keyword query (OR supported).
     k (int): search only — max hits to return (default 10).
+    include_turn (bool): search only — default true includes complete turns;
+        set false to return only matching rows when full context is not needed.
     kind (str): search only — optional row-kind filter
         ("model_turn" / "tool_result").
     all_agents (bool): search only — span every agent's history.
@@ -806,6 +813,7 @@ def _run_search(
     all_agents: bool,
     kind: Optional[str],
     k: int,
+    include_turn: bool,
     created_on: Optional[str],
     created_from: Optional[str],
     created_to: Optional[str],
@@ -824,6 +832,7 @@ def _run_search(
         all_agents=bool(all_agents),
         kind=kind,
         k=int(k),
+        include_turn=include_turn,
         created_on=created_on,
         created_from=created_from,
         created_to=created_to,
@@ -884,6 +893,7 @@ def make_recall_history(  # pylint: disable=too-many-statements
         inclusive: bool,
         cursor: Optional[str],
         request_fingerprint: str,
+        include_turn: bool,
     ) -> tuple[str, bool, dict[str, Any], list[DataBlock]]:
         """Execute one op. Returns text, status, page metadata and media."""
         if op not in _OPS:
@@ -916,6 +926,7 @@ def make_recall_history(  # pylint: disable=too-many-statements
                     all_agents=all_agents,
                     kind=kind,
                     k=k,
+                    include_turn=include_turn,
                     created_on=created_on,
                     created_from=created_from,
                     created_to=created_to,
@@ -996,6 +1007,7 @@ def make_recall_history(  # pylint: disable=too-many-statements
         end: Optional[str] = None,
         inclusive: bool = False,
         cursor: Optional[str] = None,
+        include_turn: bool = True,
     ) -> ToolChunk:
         normalized = _normalize_expand_args(op, lo, hi, page_max_bytes)
         if isinstance(normalized, ToolChunk):
@@ -1006,6 +1018,7 @@ def make_recall_history(  # pylint: disable=too-many-statements
             "hi": hi,
             "query": query,
             "k": k,
+            "include_turn": include_turn,
             "kind": kind,
             "all_agents": all_agents,
             "session_id": session_id,
@@ -1059,6 +1072,7 @@ def make_recall_history(  # pylint: disable=too-many-statements
                     inclusive,
                     cursor,
                     request_fingerprint,
+                    include_turn,
                 )
             except Exception as exc:  # noqa: BLE001 - surface, never crash
                 if on_database_error is not None and isinstance(
