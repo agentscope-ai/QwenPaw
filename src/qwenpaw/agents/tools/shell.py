@@ -89,7 +89,11 @@ def _with_shell_guard(function):
             if guard.warning:
                 _logger.warning("%s", guard.warning)
         if guard.failure:
-            result.state = ToolResultState.ERROR
+            # The command did run and was terminated by the guard, so report
+            # it like any other failed command, with the reason attached. An
+            # ERROR chunk makes the coordinator stop without producing a
+            # ToolResponse, and the model then never sees why the call ended
+            # and repeats the identical call.
             result.content.append(
                 TextBlock(
                     type="text",

@@ -96,7 +96,10 @@ async def test_guard_terminates_command_tree(
             sandbox_config=config,
         )
     text = "\n".join(block.text for block in result.content)
-    assert result.state == ToolResultState.ERROR
+    # A terminated command is still a completed call. Reporting ERROR stops
+    # the coordinator before it emits a ToolResponse, so the model never sees
+    # the reason and repeats the same call.
+    assert result.state == ToolResultState.SUCCESS
     assert f"Shell {resource} limit exceeded" in text
     assert "original stderr" in text
     assert "exit code" in text
