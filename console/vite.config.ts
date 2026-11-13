@@ -106,6 +106,15 @@ export default defineConfig(({ command, mode }) => {
         inline: [/@agentscope-ai\/(?!icons|chat|design)/],
       },
       alias: [
+        // Vite bundles mammoth's "browser" build (ArrayBuffer input); the Node
+        // entry vitest would pick only reads files and Buffers.
+        {
+          find: /^mammoth$/,
+          replacement: path.resolve(
+            __dirname,
+            "node_modules/mammoth/mammoth.browser.js",
+          ),
+        },
         // Shared optional-plugin sources resolve dependencies from this test
         // installation, even when neither plugin has its own node_modules.
         {

@@ -331,6 +331,19 @@ describe("getPreviewType (#5863)", () => {
     expect(getPreviewType("data.csv")).toBe("csv");
   });
 
+  it("detects docx / xlsx / pptx as office documents", () => {
+    expect(getPreviewType("report.docx")).toBe("office");
+    expect(getPreviewType("Budget.XLSX")).toBe("office");
+    expect(getPreviewType("deck.pptx")).toBe("office");
+    expect(isPreviewable("report.docx")).toBe(true);
+  });
+
+  it("does not claim legacy binary Office formats", () => {
+    expect(getPreviewType("report.doc")).toBe("none");
+    expect(getPreviewType("sheet.xls")).toBe("none");
+    expect(getPreviewType("deck.ppt")).toBe("none");
+  });
+
   it("returns none for unknown or extensionless paths", () => {
     expect(getPreviewType("script.py")).toBe("none");
     expect(getPreviewType("archive.zip")).toBe("none");
