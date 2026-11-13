@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""One instance-owned authenticated XiaoYi WebSocket and its two readers."""
+"""One authenticated XiaoYi WebSocket with receive and heartbeat tasks."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ import json
 import logging
 import platform
 import re
+import secrets
 import time
 from urllib.parse import urlparse
 
 import aiohttp
 
 from .auth import generate_auth_headers
-from .constants import CONNECTION_TIMEOUT, HEARTBEAT_INTERVAL
+from .constants import CONNECTION_TIMEOUT, HEARTBEAT_INTERVAL, PONG_TIMEOUT
 from .errors import XiaoYiDeliveryError
 
 logger = logging.getLogger(__name__)
@@ -41,22 +42,20 @@ class XiaoYiConnection:
         sk,
         agent_id,
         on_message,
-        on_disconnect,
     ):
         self.server_name, self.ws_url = server_name, ws_url
         self.ak, self.sk, self.agent_id = ak, sk, agent_id
-        self.on_message, self.on_disconnect = on_message, on_disconnect
+        self.on_message = on_message
         self._ssl = _get_ssl_for_url(ws_url)
         self._ws = self._session = None
         self._heartbeat_task = self._receive_task = None
-        self._generation = 0
-        self._stopping = False
+        self._pong = asyncio.Event()
+        self._ping_token = None
+        self._dispatching_text = False
         self.connected = False
 
     async def connect(self):
         await self.disconnect()
-        self._stopping = False
-        generation = self._generation
         self._session = aiohttp.ClientSession()
         # ClientWSTimeout was introduced after the declared aiohttp>=3.9 floor.
         timeout = (
@@ -67,42 +66,51 @@ class XiaoYiConnection:
         kwargs = {
             "headers": generate_auth_headers(self.ak, self.sk, self.agent_id),
             "timeout": timeout,
+            f"autoping": False,
         }
         if self._ssl is not None:
             kwargs["ssl"] = self._ssl
         try:
-            self._ws = await asyncio.wait_for(
-                self._session.ws_connect(self.ws_url, **kwargs),
-                CONNECTION_TIMEOUT,
-            )
+            async with asyncio.timeout(CONNECTION_TIMEOUT):
+                self._ws = await self._session.ws_connect(
+                    self.ws_url,
+                    **kwargs,
+                )
+                await self._send_init_message()
             self.connected = True
-            await self._send_init_message()
             self._heartbeat_task = asyncio.create_task(
-                self._heartbeat_loop(generation),
+                self._heartbeat_loop(),
             )
-            self._receive_task = asyncio.create_task(
-                self._receive_loop(generation),
-            )
+            self._receive_task = asyncio.create_task(self._receive_loop())
             return True
         except asyncio.CancelledError:
-            self.connected = False
             await self._cleanup()
             raise
-        except Exception:
-            logger.warning("xiaoyi [%s]: connection failed", self.server_name)
-            self.connected = False
+        except Exception as exc:
+            logger.warning(
+                f"xiaoyi [%s]: connection failed (%s)",
+                self.server_name,
+                type(exc).__name__,
+            )
             await self._cleanup()
             return False
 
+    async def wait_disconnected(self, timeout=None):
+        finished, _ = await asyncio.wait(
+            (self._heartbeat_task, self._receive_task),
+            timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if finished:
+            self.connected = False
+        return bool(finished)
+
     async def disconnect(self):
-        self._stopping = True
         self.connected = False
-        self._generation += 1
-        current = asyncio.current_task()
         tasks = [
             task
             for task in (self._heartbeat_task, self._receive_task)
-            if task is not None and task is not current
+            if task is not None
         ]
         for task in tasks:
             task.cancel()
@@ -127,13 +135,6 @@ class XiaoYiConnection:
             raise RuntimeError("XIAOYI_CONNECTION_CLOSE_FAILED") from failures[
                 0
             ]
-
-    def _current(self, generation):
-        return (
-            not self._stopping
-            and generation == self._generation
-            and self.connected
-        )
 
     async def send_json(self, data):
         if not self.connected or self._ws is None or self._ws.closed:
@@ -161,29 +162,45 @@ class XiaoYiConnection:
             },
         )
 
-    async def _heartbeat_loop(self, generation):
+    async def _heartbeat_loop(self):
         try:
-            while self._current(generation):
+            while self.connected:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
-                if not self._current(generation):
+                if not self.connected:
                     return
-                if not await self.send_json(
-                    {
-                        "msgType": "heartbeat",
-                        "agentId": self.agent_id,
-                        "msgDetail": json.dumps(
-                            {"timestamp": int(time.time() * 1000)},
-                        ),
-                    },
-                ):
-                    break
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.warning("xiaoyi [%s]: heartbeat failed", self.server_name)
-        if self._current(generation) and self._ws is not None:
-            # Closing wakes the receive loop and its single disconnect notice.
-            await self._ws.close()
+                async with asyncio.timeout(PONG_TIMEOUT):
+                    if not await self.send_json(
+                        {
+                            f"msgType": f"heartbeat",
+                            f"agentId": self.agent_id,
+                            f"msgDetail": json.dumps(
+                                {f"timestamp": int(time.time() * 1000)},
+                            ),
+                        },
+                    ):
+                        return
+                    self._pong.clear()
+                    self._ping_token = secrets.token_bytes(8)
+                    await self._ws.ping(self._ping_token)
+                try:
+                    await asyncio.wait_for(self._pong.wait(), PONG_TIMEOUT)
+                except TimeoutError:
+                    # The reader may be paused or receive Pong at the deadline.
+                    if self._dispatching_text or self._pong.is_set():
+                        continue
+                    logger.warning(
+                        f"xiaoyi [%s]: Pong timeout",
+                        self.server_name,
+                    )
+                    return
+        except Exception as exc:
+            logger.warning(
+                f"xiaoyi [%s]: heartbeat failed (%s)",
+                self.server_name,
+                type(exc).__name__,
+            )
+        finally:
+            self.connected = False
 
     async def _handle_text(self, data):
         try:
@@ -197,12 +214,13 @@ class XiaoYiConnection:
         if isinstance(value, dict):
             await self.on_message(value, self.server_name)
 
-    async def _receive_loop(self, generation):
+    async def _receive_loop(self):
+        close_code = reason = None
         try:
-            async for message in self._ws:
-                if not self._current(generation):
-                    return
+            while self.connected:
+                message = await self._ws.receive()
                 if message.type == aiohttp.WSMsgType.TEXT:
+                    self._dispatching_text = True
                     try:
                         await self._handle_text(message.data)
                     except Exception:
@@ -210,18 +228,34 @@ class XiaoYiConnection:
                             "xiaoyi [%s]: message rejected",
                             self.server_name,
                         )
+                    finally:
+                        self._dispatching_text = False
+                elif message.type == aiohttp.WSMsgType.PING:
+                    await self._ws.pong(message.data)
+                elif message.type == aiohttp.WSMsgType.PONG:
+                    if message.data == self._ping_token:
+                        self._pong.set()
+                elif message.type == aiohttp.WSMsgType.CLOSE:
+                    close_code = message.data
+                    reason = str(message.extra)[:160]
+                    break
+                elif message.type == aiohttp.WSMsgType.ERROR:
+                    reason = type(message.data).__name__
+                    break
                 elif message.type in {
-                    aiohttp.WSMsgType.ERROR,
+                    aiohttp.WSMsgType.CLOSING,
                     aiohttp.WSMsgType.CLOSED,
-                    aiohttp.WSMsgType.CLOSE,
                 }:
                     break
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.warning("xiaoyi [%s]: receive failed", self.server_name)
+        except Exception as exc:
+            reason = type(exc).__name__
         finally:
-            if generation == self._generation:
-                self.connected = False
-                if not self._stopping:
-                    await self.on_disconnect(self.server_name)
+            self.connected = False
+        logger.warning(
+            f"xiaoyi [%s]: disconnected (code=%s, reason=%r)",
+            self.server_name,
+            close_code or self._ws.close_code,
+            reason,
+        )

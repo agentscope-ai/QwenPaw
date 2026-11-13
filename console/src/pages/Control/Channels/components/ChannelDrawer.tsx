@@ -2334,7 +2334,8 @@ export function ChannelDrawer({
                       activeKey === "feishu" ||
                       activeKey === "discord" ||
                       activeKey === "slack" ||
-                      activeKey === "matrix") && (
+                      activeKey === "matrix" ||
+                      activeKey === "xiaoyi") && (
                       <>
                         <Form.Item
                           name="streaming_enabled"

@@ -162,6 +162,7 @@ export interface XiaoYiConfig extends BaseChannelConfig {
   sk: string;
   agent_id: string;
   task_timeout_ms?: number;
+  streaming_enabled?: boolean;
 }
 
 export interface WeChatConfig extends BaseChannelConfig {
