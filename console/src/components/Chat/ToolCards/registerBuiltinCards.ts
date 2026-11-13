@@ -7,7 +7,7 @@
  */
 
 import { pluginSystem } from "../../../plugins/hostExternals";
-import { BUILTIN_CARD_REGISTRY } from "./cards";
+import { BUILTIN_CARD_REGISTRY } from "./lazyRegistry";
 import { adaptRegistryForV1 } from "./adapters/v1Adapter";
 
 const PLUGIN_ID = "builtin-tool-cards";

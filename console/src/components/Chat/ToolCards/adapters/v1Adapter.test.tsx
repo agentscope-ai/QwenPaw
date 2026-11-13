@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
@@ -7,9 +7,67 @@ vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: vi.fn() },
 }));
 
-import { adaptCardForV1 } from "./v1Adapter";
+import { adaptCardForV1, withGenericFallback } from "./v1Adapter";
 import { ToolCallTurnEndedContext } from "../shared/ToolCallTurnContext";
 import type { ToolCallContent } from "../shared/types";
+
+const deferredCard = vi.hoisted(() => ({
+  loaded: vi.fn(),
+  resolve: undefined as undefined | (() => void),
+}));
+
+vi.mock("../cards/ShellCard", async () => {
+  deferredCard.loaded();
+  await new Promise<void>((resolve) => {
+    deferredCard.resolve = resolve;
+  });
+  return {
+    default: ({ content }: { content: ToolCallContent }) => (
+      <div data-testid="lazy-result">{String(content.result ?? "waiting")}</div>
+    ),
+  };
+});
+
+it("lazy builtin cards load on render and retain updates received while loading", async () => {
+  const { BUILTIN_CARD_REGISTRY } = await import("../lazyRegistry");
+  expect(deferredCard.loaded).not.toHaveBeenCalled();
+  expect(BUILTIN_CARD_REGISTRY.shell).toBe(BUILTIN_CARD_REGISTRY.bash);
+  const Card = adaptCardForV1(BUILTIN_CARD_REGISTRY.shell);
+  const { rerender } = render(<Card {...callOnlyProps} />);
+  await vi.waitFor(() => expect(deferredCard.loaded).toHaveBeenCalledOnce());
+  expect(screen.queryByTestId("lazy-result")).not.toBeInTheDocument();
+  rerender(<Card {...withOutputProps("latest output", "done")} />);
+  await act(async () => deferredCard.resolve?.());
+  expect(await screen.findByTestId("lazy-result")).toHaveTextContent(
+    "latest output",
+  );
+  rerender(<Card {...withOutputProps("next output", "done")} />);
+  expect(screen.getByTestId("lazy-result")).toHaveTextContent("next output");
+  expect(deferredCard.loaded).toHaveBeenCalledOnce();
+});
+
+vi.mock("../cards/GenericToolCard", () => ({
+  default: ({ content }: { content: ToolCallContent }) => (
+    <div data-testid="generic-result">{String(content.result ?? "")}</div>
+  ),
+}));
+
+it("preserves explicit plugin renderers and lazily renders unknown tools", async () => {
+  const pluginCard = () => <div>plugin override</div>;
+  const registry = withGenericFallback({ shell: pluginCard });
+  expect(registry.shell).toBe(pluginCard);
+  expect(registry.unknown_tool).toBe(registry.other_unknown_tool);
+  const UnknownCard = registry.unknown_tool;
+  const { rerender } = render(
+    <UnknownCard {...withOutputProps("unknown result", "done")} />,
+  );
+  expect(await screen.findByTestId("generic-result")).toHaveTextContent(
+    "unknown result",
+  );
+  const PluginCard = registry.shell;
+  rerender(<PluginCard />);
+  expect(screen.getByText("plugin override")).toBeInTheDocument();
+});
 
 const Probe = ({
   content,

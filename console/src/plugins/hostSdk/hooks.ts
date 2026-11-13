@@ -7,7 +7,7 @@
  * to be mounted.
  */
 import { useTranslation } from "react-i18next";
-import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
+import { useChatAnywhereSessionsState } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereSessionsContext";
 import { useTheme as useThemeCtx } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import sessionApi from "../../pages/Chat/sessionApi";

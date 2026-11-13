@@ -10,7 +10,7 @@ vi.mock("../../../plugins/hostExternals", () => ({
   pluginSystem: { addToolRenderers: h.addToolRenderers },
 }));
 
-vi.mock("./cards", () => ({ BUILTIN_CARD_REGISTRY: h.registry }));
+vi.mock("./lazyRegistry", () => ({ BUILTIN_CARD_REGISTRY: h.registry }));
 
 vi.mock("./adapters/v1Adapter", () => ({
   adaptRegistryForV1: h.adaptRegistryForV1,

@@ -5,6 +5,20 @@ import path from "path";
 import { startupMonitorPlugin } from "./scripts/startup-monitor-plugin";
 import { normalizeConsoleBasename } from "./src/utils/consoleBasename";
 
+// Keep the SDK's shared session context singleton independent of rendering.
+const chatContextModules = new Set([
+  "Context/ChatAnywhereMessagesContext.js",
+  "Context/ChatAnywhereOptionsContext.js",
+  "Context/ChatAnywhereSessionsContext.js",
+  "Context/defaultSessionApi.js",
+  "Context/sessionApi.js",
+  "Context/sessionCreation.js",
+  "Context/sessionIdentity.js",
+  "Context/sessionMessageActivation.js",
+  "Context/useChatAnywhereEventEmitter.js",
+  "Execution/events.js",
+]);
+
 // Vitest-only plugin: transforms .css imports inside node_modules to empty
 // stubs. This prevents errors from packages like @agentscope-ai/icons that
 // import CSS.
@@ -197,6 +211,17 @@ export default defineConfig(({ command, mode }) => {
             // Automatic splitting keeps the small desktop shell independent
             // of the console's UI vendor bundle.
             if (desktop) return;
+            // Global math styles must not pull in the lazy chat renderer.
+            if (id.includes("node_modules/katex/dist/katex.min.css")) {
+              return "math-styles";
+            }
+            // Mermaid and plots share lodash; neither should load the other.
+            if (id.includes("node_modules/lodash/")) {
+              return "shared-lodash";
+            }
+            if (id.includes("node_modules/use-context-selector/")) {
+              return "chat-context";
+            }
             // Charts and the UI's Markdown renderer share D3 and preload helpers.
             // Keep those in the UI chunk so lazy trends cannot create a cycle.
             if (
@@ -235,6 +260,13 @@ export default defineConfig(({ command, mode }) => {
               const chatRelativePath = id.slice(
                 chatPackageIndex + chatPackageRoot.length,
               );
+              const coreRoot = "lib/AgentScopeRuntimeWebUI/core/";
+              if (
+                chatRelativePath.startsWith(coreRoot) &&
+                chatContextModules.has(chatRelativePath.slice(coreRoot.length))
+              ) {
+                return "chat-context";
+              }
               if (!chatRelativePath.includes("node_modules/")) {
                 return "chat-vendor";
               }
