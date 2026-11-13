@@ -8,6 +8,7 @@ from qwenpaw.app.crons.models import (
     CronJobSpec,
     DispatchSpec,
     DispatchTarget,
+    JobRuntimeSpec,
     ScheduleSpec,
     _crontab_dow_to_name,
 )
@@ -143,3 +144,77 @@ def test_cron_job_spec_text_rejects_silent_delivery():
                 silent=True,
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# JobRuntimeSpec — per-job thinking
+# ---------------------------------------------------------------------------
+
+
+def test_job_runtime_thinking_defaults_are_backward_compatible():
+    runtime = JobRuntimeSpec()
+
+    assert runtime.thinking_level == "inherit"
+    assert runtime.thinking_budget is None
+
+    payload = make_cron_job_spec().model_dump(mode="json")
+    payload["runtime"].pop("thinking_level")
+    payload["runtime"].pop("thinking_budget")
+
+    spec = CronJobSpec.model_validate(payload)
+
+    assert spec.runtime.thinking_level == "inherit"
+    assert spec.runtime.thinking_budget is None
+
+
+@pytest.mark.parametrize(
+    "level",
+    [
+        "inherit",
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+    ],
+)
+def test_job_runtime_accepts_effort_thinking_levels(level):
+    assert JobRuntimeSpec(thinking_level=level).thinking_level == level
+
+
+def test_job_runtime_accepts_budget_thinking_level():
+    runtime = JobRuntimeSpec(
+        thinking_level="budget",
+        thinking_budget=2048,
+    )
+
+    assert runtime.thinking_level == "budget"
+    assert runtime.thinking_budget == 2048
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"thinking_level": "budget"},
+        {"thinking_budget": 2048},
+        {"thinking_level": "off", "thinking_budget": 2048},
+        {"thinking_level": "enabled"},
+        {"thinking_level": "high", "thinking_budget": 0},
+    ],
+)
+def test_job_runtime_rejects_invalid_thinking_settings(payload):
+    with pytest.raises(ValidationError):
+        JobRuntimeSpec.model_validate(payload)
+
+
+def test_cron_job_spec_roundtrip_preserves_thinking_settings():
+    payload = make_cron_job_spec().model_dump(mode="json")
+    payload["runtime"]["thinking_level"] = "off"
+
+    spec = CronJobSpec.model_validate(payload)
+    reloaded = CronJobSpec.model_validate(spec.model_dump(mode="json"))
+
+    assert reloaded.runtime.thinking_level == "off"
+    assert reloaded.runtime.thinking_budget is None
