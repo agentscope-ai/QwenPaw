@@ -875,6 +875,41 @@ def test_search_execution_timeout_is_enforced(history_db: Path):
         space.close()
 
 
+def test_search_preserves_database_error_after_deadline(
+    ms: MemorySpace,
+    monkeypatch,
+):
+    error = sqlite3.OperationalError("database is locked")
+
+    def fail(*args, _budget, **kwargs):
+        _budget.deadline = 0
+        raise error
+
+    monkeypatch.setattr(ms, "_search_impl", fail)
+    with pytest.raises(
+        sqlite3.OperationalError,
+        match="database is locked",
+    ) as exc:
+        ms.search("tanks")
+    assert exc.value is error
+
+
+def test_search_wraps_sqlite_interrupt_as_timeout(
+    ms: MemorySpace,
+    monkeypatch,
+):
+    error = sqlite3.OperationalError("interrupted")
+    error.sqlite_errorcode = sqlite3.SQLITE_INTERRUPT
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(ms, "_search_impl", fail)
+    with pytest.raises(TimeoutError, match="execution timeout") as exc:
+        ms.search("tanks")
+    assert exc.value.__cause__ is error
+
+
 def test_search_groups_imported_kind_by_user_role(tmp_path: Path):
     history = HistoryStore(tmp_path / "history.db")
     user_seq = history.append(
