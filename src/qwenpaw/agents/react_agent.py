@@ -953,6 +953,11 @@ class QwenPawAgent(Agent):
             "prompt is too long",
             "prompt too long",
             "too many input tokens",
+            # Gateways such as Strata phrase it as "prompt (N tokens) + max
+            # tokens (M) exceeds the context (C); requests are never
+            # truncated".
+            "exceeds the context",
+            "requests are never truncated",
         )
         if any(marker in error_str for marker in overflow_markers):
             return True
