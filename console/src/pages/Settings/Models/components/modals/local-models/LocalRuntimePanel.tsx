@@ -1,10 +1,17 @@
 import { memo } from "react";
 import { Button, Modal, Tooltip } from "@agentscope-ai/design";
-import { X as CloseOutlined, Download as DownloadOutlined } from "lucide-react";
-import { Progress } from "antd";
+import {
+  X as CloseOutlined,
+  Download as DownloadOutlined,
+  Cpu as CpuOutlined,
+  Zap as ZapOutlined,
+} from "lucide-react";
+import { Progress, Segmented } from "antd";
 import { useTranslation } from "react-i18next";
 import type {
   LocalDownloadProgress,
+  LocalEngineId,
+  LocalEngineInfo,
   LocalServerStatus,
 } from "../../../../../../api/types";
 import styles from "../../../index.module.less";
@@ -15,19 +22,23 @@ import {
 } from "./shared";
 
 interface LocalRuntimePanelProps {
+  engine: LocalEngineId;
+  engines: LocalEngineInfo[];
   serverStatus: LocalServerStatus | null;
   hasUpdate: boolean;
   progress: LocalDownloadProgress | null;
+  onEngineChange: (engine: LocalEngineId) => void;
   onStart: () => void;
   onCancel: () => void;
-  onStop: () => void;
-  stopping: boolean;
 }
 
 export const LocalRuntimePanel = memo(function LocalRuntimePanel({
+  engine,
+  engines,
   serverStatus,
   hasUpdate,
   progress,
+  onEngineChange,
   onStart,
   onCancel,
 }: LocalRuntimePanelProps) {
@@ -38,6 +49,10 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
   const isCanceling = progress?.status === "canceling";
   const isRunning = Boolean(serverStatus?.model_name);
   const showFooterHint = installed || isDownloading;
+  const isMlx = engine === "mlx";
+  const engineName = isMlx
+    ? t("models.localEngineMlx")
+    : t("models.localEngineLlamacpp");
   const installBadge = hasUpdate
     ? {
         className: styles.localStatusBadgeInstalled,
@@ -73,18 +88,42 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
           label: t("models.localServerIdle"),
         };
   const progressPercent = getProgressPercent(progress);
-  const progressText = isDownloading ? formatProgressText(progress) : null;
+  const progressText = isDownloading
+    ? isMlx && progressPercent === null
+      ? t("models.localMlxInstalling")
+      : formatProgressText(progress)
+    : null;
   const canTriggerUpdate = hasUpdate && !isDownloading;
+  const mlxInfo = engines.find((item) => item.id === "mlx");
+  const mlxDisabled = mlxInfo ? !mlxInfo.installable : false;
+  const accelerator = serverStatus?.accelerator;
+  const acceleratorLabel =
+    accelerator === "metal"
+      ? t("models.localRuntimeAcceleratorMetal", {
+          device:
+            serverStatus?.device_name ?? t("models.localRuntimeAcceleratorGpu"),
+        })
+      : accelerator === "cuda"
+      ? t("models.localRuntimeAcceleratorCuda", {
+          device:
+            serverStatus?.device_name ?? t("models.localRuntimeAcceleratorGpu"),
+        })
+      : t("models.localRuntimeAcceleratorCpu");
 
   const handleConfirmUpdate = () => {
     Modal.confirm({
       className: styles.modelConfirmModal,
-      title: t("models.localRuntimeUpdateConfirmTitle"),
+      title: t("models.localRuntimeUpdateConfirmTitle", {
+        engine: engineName,
+      }),
       content: isRunning
         ? t("models.localRuntimeUpdateConfirmContentWithServer", {
-            model: serverStatus?.model_name ?? t("models.localLlamacppName"),
+            engine: engineName,
+            model: serverStatus?.model_name ?? engineName,
           })
-        : t("models.localRuntimeUpdateConfirmContent"),
+        : t("models.localRuntimeUpdateConfirmContent", {
+            engine: engineName,
+          }),
       okText: t("common.confirm"),
       cancelText: t("common.cancel"),
       onOk: onStart,
@@ -96,16 +135,60 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
       <div className={styles.localRuntimePanelHeader}>
         <div className={styles.modelListItemInfo}>
           <span className={styles.modelListItemName}>
-            {t("models.localLlamacppName")}
+            {t("models.localEngineSelectorLabel")}
           </span>
           <span className={styles.modelListItemId}>
-            {t("models.localRuntimeSectionDescription")}
+            {isMlx
+              ? t("models.localEngineMlxDescription")
+              : t("models.localEngineLlamacppDescription")}
           </span>
         </div>
+        <Segmented
+          aria-label={t("models.localEngineSelectorLabel")}
+          className={styles.localEngineSelector}
+          value={engine}
+          options={[
+            {
+              label: t("models.localEngineLlamacpp"),
+              value: "llamacpp",
+            },
+            {
+              label: (
+                <span
+                  title={mlxDisabled ? t("models.localMlxUnsupported") : ""}
+                >
+                  {t("models.localEngineMlx")}
+                </span>
+              ),
+              value: "mlx",
+              disabled: mlxDisabled,
+            },
+          ]}
+          onChange={(value) => onEngineChange(value as LocalEngineId)}
+        />
       </div>
 
-      <div className={styles.localSectionNotice}>
-        {t("models.localRuntimeComputeHint")}
+      <div
+        aria-label={t("models.localRuntimeAcceleratorLabel")}
+        className={
+          accelerator && accelerator !== "cpu"
+            ? styles.localSectionNotice
+            : `${styles.localSectionNotice} ${styles.localSectionNoticeMuted}`
+        }
+      >
+        <span className={styles.localRuntimeAccelerator}>
+          {accelerator && accelerator !== "cpu" ? (
+            <ZapOutlined size="1em" aria-hidden="true" />
+          ) : (
+            <CpuOutlined size="1em" aria-hidden="true" />
+          )}
+          {acceleratorLabel}
+        </span>{" "}
+        <span>
+          {accelerator === "cpu"
+            ? t("models.localRuntimeAcceleratorCpuHint")
+            : t("models.localRuntimeComputeHint")}
+        </span>
       </div>
 
       <div className={styles.localEngineStatusRow}>
@@ -185,7 +268,9 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
               onClick={onStart}
               disabled={!installable}
             >
-              {t("models.localInstallLlamacpp")}
+              {isMlx
+                ? t("models.localInstallMlx")
+                : t("models.localInstallLlamacpp")}
             </Button>
           ) : null}
         </div>
@@ -197,7 +282,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             <div className={styles.localRuntimeProgressBarRow}>
               <Progress
                 className={styles.localRuntimeProgress}
-                percent={progressPercent ?? 0}
+                percent={progressPercent ?? undefined}
                 showInfo={false}
                 status="active"
                 strokeColor="var(--app-accent)"

@@ -224,15 +224,38 @@ export interface ModelConfigRequest {
   reasoning_effort?: string | null;
 }
 
+export type LocalEngineId = "llamacpp" | "mlx";
+export type LocalEngineAccelerator = "metal" | "cuda" | "cpu";
+
+export interface LocalEngineInfo {
+  id: LocalEngineId;
+  name: string;
+  installable: boolean;
+  installed: boolean;
+  running: boolean;
+  available: boolean;
+  port: number | null;
+  model_name: string | null;
+  message: string | null;
+  accelerator: LocalEngineAccelerator | null;
+  device_name: string | null;
+  version: string | null;
+}
+
 export interface LocalModelConfig {
   max_context_length: number;
   port: number | null;
+  gpu_acceleration?: boolean;
+  auto_update?: boolean;
+  engine?: LocalEngineId;
 }
 
 export interface LocalModelConfigRequest {
   max_context_length?: number;
   port?: number | null;
   generate_kwargs?: Record<string, unknown>;
+  gpu_acceleration?: boolean;
+  auto_update?: boolean;
 }
 
 /* ---- Local models ---- */
@@ -244,6 +267,8 @@ export interface LocalModelInfo {
   size_bytes: number;
   downloaded: boolean;
   source: LocalDownloadSource;
+  format?: "gguf" | "mlx";
+  local_path?: string | null;
 }
 
 export type LocalDownloadSource = "huggingface" | "modelscope" | "auto";
@@ -252,9 +277,13 @@ export interface LocalServerStatus {
   available: boolean;
   installable: boolean;
   installed: boolean;
+  engine?: LocalEngineId;
   port: number | null;
   model_name: string | null;
   message: string | null;
+  accelerator?: LocalEngineAccelerator | null;
+  device_name?: string | null;
+  version?: string | null;
 }
 
 export interface LocalServerUpdateStatus {
@@ -286,6 +315,7 @@ export interface LocalActionResponse {
 
 export interface StartLocalServerRequest {
   model_id: string;
+  engine?: LocalEngineId;
 }
 
 /* ---- Test Connection ---- */

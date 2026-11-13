@@ -6,6 +6,7 @@ import {
   InputNumber,
   Modal,
   Select,
+  Switch,
   Tooltip,
 } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage.ts";
@@ -21,6 +22,8 @@ import type {
   ProviderInfo,
   LocalDownloadProgress,
   LocalDownloadSource,
+  LocalEngineId,
+  LocalEngineInfo,
   LocalModelInfo,
   LocalServerStatus,
   LocalServerUpdateStatus,
@@ -50,6 +53,8 @@ type LocalDownloadStatus = LocalDownloadProgress["status"];
 function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
   maxContextLength: number;
   port: number | null;
+  gpuAcceleration: boolean;
+  autoUpdate: boolean;
 } {
   return {
     maxContextLength:
@@ -65,6 +70,8 @@ function getInitialLocalModelConfig(config?: LocalModelConfig | null): {
       config.port <= MAX_LOCAL_SERVER_PORT
         ? config.port
         : null,
+    gpuAcceleration: config?.gpu_acceleration !== false,
+    autoUpdate: config?.auto_update !== false,
   };
 }
 
@@ -76,9 +83,13 @@ function isSameServerStatus(
     left?.available === right?.available &&
     left?.installable === right?.installable &&
     left?.installed === right?.installed &&
+    left?.engine === right?.engine &&
     left?.port === right?.port &&
     left?.model_name === right?.model_name &&
-    left?.message === right?.message
+    left?.message === right?.message &&
+    left?.accelerator === right?.accelerator &&
+    left?.device_name === right?.device_name &&
+    left?.version === right?.version
   );
 }
 
@@ -106,7 +117,7 @@ function isSameDownloadProgress(
 
 interface LocalStatusSnapshot {
   server: LocalServerStatus;
-  llamacpp: LocalDownloadProgress;
+  runtime: LocalDownloadProgress;
   model: LocalDownloadProgress;
 }
 
@@ -130,6 +141,8 @@ export function LocalModelManageModal({
   onSaved,
 }: LocalModelManageModalProps) {
   const { t } = useTranslation();
+  const [engine, setEngine] = useState<LocalEngineId>("llamacpp");
+  const [engines, setEngines] = useState<LocalEngineInfo[]>([]);
   const [localModels, setLocalModels] = useState<LocalModelInfo[]>([]);
   const [catalogSource, setCatalogSource] =
     useState<LocalDownloadSource>("huggingface");
@@ -143,7 +156,7 @@ export function LocalModelManageModal({
   );
   const [serverUpdateStatus, setServerUpdateStatus] =
     useState<LocalServerUpdateStatus | null>(null);
-  const [llamacppDownload, setLlamacppDownload] =
+  const [runtimeDownload, setRuntimeDownload] =
     useState<LocalDownloadProgress | null>(null);
   const [modelDownload, setModelDownload] =
     useState<LocalDownloadProgress | null>(null);
@@ -165,11 +178,17 @@ export function LocalModelManageModal({
   );
   const [serverPort, setServerPort] = useState<number | null>(null);
   const [savedServerPort, setSavedServerPort] = useState<number | null>(null);
+  const [gpuAcceleration, setGpuAcceleration] = useState(true);
+  const [savedGpuAcceleration, setSavedGpuAcceleration] = useState(true);
+  const [autoUpdate, setAutoUpdate] = useState(true);
+  const [savedAutoUpdate, setSavedAutoUpdate] = useState(true);
   const [generateKwargsText, setGenerateKwargsText] = useState("");
   const [savedGenerateKwargsText, setSavedGenerateKwargsText] = useState("");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const engineRef = useRef<LocalEngineId>("llamacpp");
+  const serverStatusRef = useRef<LocalServerStatus | null>(null);
   const modelDownloadRef = useRef<LocalDownloadProgress | null>(null);
-  const previousLlamacppStatusRef = useRef<string | null>(null);
+  const previousRuntimeStatusRef = useRef<string | null>(null);
   const previousModelStatusRef = useRef<string | null>(null);
   const onSavedRef = useRef(onSaved);
   const initializedOpenRef = useRef(false);
@@ -189,6 +208,8 @@ export function LocalModelManageModal({
     }),
     [provider.generate_kwargs],
   );
+  const initialLocalConfigRef = useRef(initialLocalConfig);
+  initialLocalConfigRef.current = initialLocalConfig;
 
   const parseGenerateConfig = useCallback(
     (value?: string) => {
@@ -229,7 +250,11 @@ export function LocalModelManageModal({
       if (!modelId) {
         return null;
       }
-      return localModels.find((model) => model.id === modelId)?.name ?? modelId;
+      return (
+        localModels.find(
+          (model) => model.id === modelId || model.local_path === modelId,
+        )?.name ?? modelId
+      );
     },
     [localModels],
   );
@@ -241,17 +266,20 @@ export function LocalModelManageModal({
     }
   }, []);
 
-  const fetchLocalModels = useCallback(async () => {
-    setLoadingLocal(true);
-    try {
-      const data = await api.listRecommendedLocalModels();
-      setLocalModels(Array.isArray(data) ? data : []);
-    } catch {
-      setLocalModels([]);
-    } finally {
-      setLoadingLocal(false);
-    }
-  }, []);
+  const fetchLocalModels = useCallback(
+    async (targetEngine: LocalEngineId = engineRef.current) => {
+      setLoadingLocal(true);
+      try {
+        const data = await api.listRecommendedLocalModels(targetEngine);
+        setLocalModels(Array.isArray(data) ? data : []);
+      } catch {
+        setLocalModels([]);
+      } finally {
+        setLoadingLocal(false);
+      }
+    },
+    [],
+  );
 
   const fetchLocalConfig = useCallback(async () => {
     setLoadingLocalConfig(true);
@@ -262,14 +290,25 @@ export function LocalModelManageModal({
       setSavedMaxContextLength(normalizedConfig.maxContextLength);
       setServerPort(normalizedConfig.port);
       setSavedServerPort(normalizedConfig.port);
-      return normalizedConfig;
+      setGpuAcceleration(normalizedConfig.gpuAcceleration);
+      setSavedGpuAcceleration(normalizedConfig.gpuAcceleration);
+      setAutoUpdate(normalizedConfig.autoUpdate);
+      setSavedAutoUpdate(normalizedConfig.autoUpdate);
+      return { ...normalizedConfig, engine: config?.engine };
     } catch {
       const fallbackConfig = getInitialLocalModelConfig();
       setMaxContextLength(fallbackConfig.maxContextLength);
       setSavedMaxContextLength(fallbackConfig.maxContextLength);
       setServerPort(fallbackConfig.port);
       setSavedServerPort(fallbackConfig.port);
-      return fallbackConfig;
+      setGpuAcceleration(fallbackConfig.gpuAcceleration);
+      setSavedGpuAcceleration(fallbackConfig.gpuAcceleration);
+      setAutoUpdate(fallbackConfig.autoUpdate);
+      setSavedAutoUpdate(fallbackConfig.autoUpdate);
+      return {
+        ...fallbackConfig,
+        engine: undefined as LocalEngineId | undefined,
+      };
     } finally {
       setLoadingLocalConfig(false);
     }
@@ -294,8 +333,11 @@ export function LocalModelManageModal({
   );
 
   const refreshUpdateStatus = useCallback(
-    async (nextServerStatus?: LocalServerStatus | null) => {
-      const effectiveServerStatus = nextServerStatus ?? serverStatus;
+    async (
+      nextServerStatus?: LocalServerStatus | null,
+      targetEngine: LocalEngineId = engineRef.current,
+    ) => {
+      const effectiveServerStatus = nextServerStatus ?? serverStatusRef.current;
 
       if (
         !effectiveServerStatus?.installable ||
@@ -311,7 +353,9 @@ export function LocalModelManageModal({
       }
 
       try {
-        const nextUpdateStatus = await api.getLocalServerUpdateStatus();
+        const nextUpdateStatus = await api.getLocalServerUpdateStatus(
+          targetEngine,
+        );
         setServerUpdateStatus((prev) =>
           isSameServerUpdateStatus(prev, nextUpdateStatus)
             ? prev
@@ -322,22 +366,26 @@ export function LocalModelManageModal({
         return null;
       }
     },
-    [serverStatus],
+    [],
   );
 
   const refreshStatus = useCallback(
-    async (showLoading = false) => {
+    async (
+      showLoading = false,
+      targetEngine: LocalEngineId = engineRef.current,
+    ) => {
       if (showLoading) {
         setLoadingStatus(true);
       }
       try {
-        const [nextServerStatus, nextLlamacppDownload, nextModelDownload] =
+        const [nextServerStatus, nextRuntimeDownload, nextModelDownload] =
           await Promise.all([
-            api.getLocalServerStatus(),
-            api.getLlamacppDownloadProgress(),
+            api.getLocalServerStatus(targetEngine),
+            api.getLocalEngineDownloadProgress(targetEngine),
             api.getLocalModelDownloadProgress(),
           ]);
 
+        serverStatusRef.current = nextServerStatus;
         setServerStatus((prev) =>
           isSameServerStatus(prev, nextServerStatus) ? prev : nextServerStatus,
         );
@@ -348,10 +396,10 @@ export function LocalModelManageModal({
               : { has_update: false },
           );
         }
-        setLlamacppDownload((prev) =>
-          isSameDownloadProgress(prev, nextLlamacppDownload)
+        setRuntimeDownload((prev) =>
+          isSameDownloadProgress(prev, nextRuntimeDownload)
             ? prev
-            : nextLlamacppDownload,
+            : nextRuntimeDownload,
         );
         setModelDownloadState((prev) =>
           isSameDownloadProgress(prev, nextModelDownload)
@@ -359,18 +407,23 @@ export function LocalModelManageModal({
             : nextModelDownload,
         );
 
-        if (
-          (previousLlamacppStatusRef.current === "pending" ||
-            previousLlamacppStatusRef.current === "downloading") &&
-          nextLlamacppDownload.status === "completed"
-        ) {
-          message.success(t("models.localLlamacppInstallSuccess"));
+        const runtimeJustCompleted =
+          (previousRuntimeStatusRef.current === "pending" ||
+            previousRuntimeStatusRef.current === "downloading") &&
+          nextRuntimeDownload.status === "completed";
+
+        if (runtimeJustCompleted) {
+          message.success(
+            targetEngine === "mlx"
+              ? t("models.localMlxInstallSuccess")
+              : t("models.localLlamacppInstallSuccess"),
+          );
           setServerUpdateStatus((prev) =>
             isSameServerUpdateStatus(prev, { has_update: false })
               ? prev
               : { has_update: false },
           );
-          void refreshUpdateStatus(nextServerStatus);
+          void refreshUpdateStatus(nextServerStatus, targetEngine);
         }
 
         if (
@@ -380,15 +433,19 @@ export function LocalModelManageModal({
         ) {
           message.success(t("models.localDownloadSuccess"));
           onSavedRef.current();
-          void fetchLocalModels();
+          void fetchLocalModels(targetEngine);
         }
 
         if (
-          previousLlamacppStatusRef.current !== "failed" &&
-          nextLlamacppDownload.status === "failed" &&
-          nextLlamacppDownload.error
+          previousRuntimeStatusRef.current !== "failed" &&
+          nextRuntimeDownload.status === "failed"
         ) {
-          message.error(nextLlamacppDownload.error);
+          message.error(
+            nextRuntimeDownload.error ||
+              (targetEngine === "mlx"
+                ? t("models.localMlxInstallFailed")
+                : t("models.localLlamacppInstallFailed")),
+          );
         }
         if (
           previousModelStatusRef.current !== "failed" &&
@@ -398,19 +455,20 @@ export function LocalModelManageModal({
           message.error(nextModelDownload.error);
         }
 
-        previousLlamacppStatusRef.current = nextLlamacppDownload.status;
+        previousRuntimeStatusRef.current = nextRuntimeDownload.status;
         previousModelStatusRef.current = nextModelDownload.status;
 
         if (
-          !isBusyDownloadStatus(nextLlamacppDownload.status) &&
-          !isBusyDownloadStatus(nextModelDownload.status)
+          !isBusyDownloadStatus(nextRuntimeDownload.status) &&
+          !isBusyDownloadStatus(nextModelDownload.status) &&
+          !runtimeJustCompleted
         ) {
           stopPolling();
         }
 
         return {
           server: nextServerStatus,
-          llamacpp: nextLlamacppDownload,
+          runtime: nextRuntimeDownload,
           model: nextModelDownload,
         } satisfies LocalStatusSnapshot;
       } catch {
@@ -438,6 +496,48 @@ export function LocalModelManageModal({
     }, POLL_INTERVAL_MS);
   }, [refreshStatus]);
 
+  const handleEngineChange = useCallback(
+    (nextEngine: LocalEngineId) => {
+      if (nextEngine === engine) {
+        return;
+      }
+      stopPolling();
+      engineRef.current = nextEngine;
+      setEngine(nextEngine);
+      if (nextEngine === "mlx") {
+        setCatalogSource("huggingface");
+        setCustomModelSource("huggingface");
+      }
+      serverStatusRef.current = null;
+      setServerStatus(null);
+      setLocalModels([]);
+      setRuntimeDownload(null);
+      setServerUpdateStatus({ has_update: false });
+      previousRuntimeStatusRef.current = null;
+
+      void (async () => {
+        const statuses = await refreshStatus(true, nextEngine);
+        await fetchLocalModels(nextEngine);
+        void refreshUpdateStatus(statuses?.server ?? null, nextEngine);
+        if (
+          statuses &&
+          (isBusyDownloadStatus(statuses.runtime.status) ||
+            isBusyDownloadStatus(statuses.model.status))
+        ) {
+          startPolling();
+        }
+      })();
+    },
+    [
+      engine,
+      fetchLocalModels,
+      refreshStatus,
+      refreshUpdateStatus,
+      startPolling,
+      stopPolling,
+    ],
+  );
+
   useEffect(() => {
     if (!open) {
       initializedOpenRef.current = false;
@@ -454,23 +554,45 @@ export function LocalModelManageModal({
     setSavedMaxContextLength(DEFAULT_LOCAL_MAX_CONTEXT_LENGTH);
     setServerPort(null);
     setSavedServerPort(null);
-    setGenerateKwargsText(initialLocalConfig.generateKwargsText);
-    setSavedGenerateKwargsText(initialLocalConfig.generateKwargsText);
+    setGpuAcceleration(true);
+    setSavedGpuAcceleration(true);
+    setAutoUpdate(true);
+    setSavedAutoUpdate(true);
+    setGenerateKwargsText(initialLocalConfigRef.current.generateKwargsText);
+    setSavedGenerateKwargsText(
+      initialLocalConfigRef.current.generateKwargsText,
+    );
+    serverStatusRef.current = null;
+    setServerStatus(null);
+    setRuntimeDownload(null);
+    setLocalModels([]);
+    previousRuntimeStatusRef.current = null;
 
-    void Promise.all([
-      fetchLocalConfig(),
-      fetchLocalModels(),
-      refreshStatus(true),
-    ]).then(([, , statuses]) => {
-      void refreshUpdateStatus(statuses?.server ?? null);
+    void (async () => {
+      const [config, engineList] = await Promise.all([
+        fetchLocalConfig(),
+        api.getLocalEngines().catch(() => [] as LocalEngineInfo[]),
+      ]);
+      setEngines(engineList);
+      const mlxInstallable = engineList.some(
+        (item) => item.id === "mlx" && item.installable,
+      );
+      const initialEngine: LocalEngineId =
+        config.engine === "mlx" && mlxInstallable ? "mlx" : "llamacpp";
+      engineRef.current = initialEngine;
+      setEngine(initialEngine);
+
+      const statuses = await refreshStatus(true, initialEngine);
+      await fetchLocalModels(initialEngine);
+      void refreshUpdateStatus(statuses?.server ?? null, initialEngine);
       if (
         statuses &&
-        (isBusyDownloadStatus(statuses.llamacpp.status) ||
+        (isBusyDownloadStatus(statuses.runtime.status) ||
           isBusyDownloadStatus(statuses.model.status))
       ) {
         startPolling();
       }
-    });
+    })();
 
     return () => stopPolling();
   }, [
@@ -481,7 +603,6 @@ export function LocalModelManageModal({
     refreshUpdateStatus,
     startPolling,
     stopPolling,
-    initialLocalConfig,
   ]);
 
   const handleSaveMaxContextLength = useCallback(async () => {
@@ -553,6 +674,47 @@ export function LocalModelManageModal({
     }
   }, [message, serverPort, t]);
 
+  const handleSaveGpuAcceleration = useCallback(async () => {
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        gpu_acceleration: gpuAcceleration,
+      });
+      setSavedGpuAcceleration(gpuAcceleration);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+      await refreshStatus();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [gpuAcceleration, message, refreshStatus, t]);
+
+  const handleSaveAutoUpdate = useCallback(async () => {
+    setAdvancedSaving(true);
+    try {
+      await api.configureLocalModelSettings({
+        auto_update: autoUpdate,
+      });
+      setSavedAutoUpdate(autoUpdate);
+      message.success(t("models.localAdvancedConfigSaved"));
+      await onSavedRef.current();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : t("models.localAdvancedConfigSaveFailed");
+      message.error(errMsg);
+    } finally {
+      setAdvancedSaving(false);
+    }
+  }, [autoUpdate, message, t]);
+
   const handleSaveGenerateKwargs = useCallback(async () => {
     let parsed: Record<string, unknown> = {};
 
@@ -590,13 +752,17 @@ export function LocalModelManageModal({
     }
   }, [generateKwargsText, message, parseGenerateConfig, t]);
 
-  const handleStartLlamacppDownload = useCallback(async () => {
-    const previousLlamacppDownload = llamacppDownload;
-    const previousLlamacppStatus = previousLlamacppStatusRef.current;
+  const handleStartRuntimeDownload = useCallback(async () => {
+    const previousLlamacppDownload = runtimeDownload;
+    const previousLlamacppStatus = previousRuntimeStatusRef.current;
+    const engineName =
+      engine === "mlx"
+        ? t("models.localEngineMlx")
+        : t("models.localEngineLlamacpp");
 
-    setLlamacppDownload({
+    setRuntimeDownload({
       status: "pending",
-      model_name: t("models.localLlamacppName"),
+      model_name: engineName,
       downloaded_bytes: 0,
       total_bytes: null,
       speed_bytes_per_sec: 0,
@@ -604,18 +770,22 @@ export function LocalModelManageModal({
       error: null,
       local_path: null,
     });
-    previousLlamacppStatusRef.current = "pending";
+    previousRuntimeStatusRef.current = "pending";
 
     try {
-      await api.startLlamacppDownload();
-      message.success(t("models.localLlamacppInstallStarted"));
+      await api.startLocalEngineDownload(engine);
+      message.success(
+        engine === "mlx"
+          ? t("models.localMlxInstallStarted")
+          : t("models.localLlamacppInstallStarted"),
+      );
       setServerUpdateStatus({ has_update: false });
-      await refreshStatus();
+      await refreshStatus(false, engine);
       startPolling();
     } catch (error) {
-      setLlamacppDownload(previousLlamacppDownload);
-      previousLlamacppStatusRef.current = previousLlamacppStatus;
-      await refreshStatus();
+      setRuntimeDownload(previousLlamacppDownload);
+      previousRuntimeStatusRef.current = previousLlamacppStatus;
+      await refreshStatus(false, engine);
       startPolling();
       const errMsg =
         error instanceof Error
@@ -623,21 +793,24 @@ export function LocalModelManageModal({
           : t("models.localLlamacppInstallFailed");
       message.error(errMsg);
     }
-  }, [llamacppDownload, message, refreshStatus, startPolling, t]);
+  }, [engine, runtimeDownload, message, refreshStatus, startPolling, t]);
 
-  const handleCancelLlamacppDownload = useCallback(() => {
+  const handleCancelRuntimeDownload = useCallback(() => {
     Modal.confirm({
       className: styles.modelConfirmModal,
       title: t("models.localCancelDownloadTitle"),
       content: t("models.localCancelDownloadConfirm", {
-        repo: t("models.localLlamacppName"),
+        repo:
+          engine === "mlx"
+            ? t("models.localEngineMlx")
+            : t("models.localEngineLlamacpp"),
       }),
       okText: t("models.localCancelDownloadAction"),
       okButtonProps: { danger: true },
       cancelText: t("common.close"),
       onOk: async () => {
         try {
-          setLlamacppDownload((prev) =>
+          setRuntimeDownload((prev) =>
             prev
               ? {
                   ...prev,
@@ -645,9 +818,9 @@ export function LocalModelManageModal({
                 }
               : prev,
           );
-          await api.cancelLlamacppDownload();
+          await api.cancelLocalEngineDownload(engine);
           message.success(t("models.localDownloadCancelled"));
-          await refreshStatus();
+          await refreshStatus(false, engine);
           startPolling();
         } catch (error) {
           const errMsg =
@@ -658,7 +831,7 @@ export function LocalModelManageModal({
         }
       },
     });
-  }, [message, refreshStatus, startPolling, t]);
+  }, [engine, message, refreshStatus, startPolling, t]);
 
   const handleStartModelDownload = useCallback(
     async (model: LocalModelInfo) => {
@@ -678,8 +851,8 @@ export function LocalModelManageModal({
       previousModelStatusRef.current = "pending";
 
       try {
-        await api.startLocalModelDownload(model.id, model.source);
-        await refreshStatus();
+        await api.startLocalModelDownload(model.id, model.source, engine);
+        await refreshStatus(false, engine);
         startPolling();
       } catch (error) {
         setModelDownloadState(previousModelDownload);
@@ -691,7 +864,7 @@ export function LocalModelManageModal({
         message.error(errMsg);
       }
     },
-    [message, refreshStatus, setModelDownloadState, startPolling, t],
+    [engine, message, refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartCustomModelDownload = useCallback(async () => {
@@ -738,7 +911,7 @@ export function LocalModelManageModal({
             );
             await api.cancelLocalModelDownload();
             message.success(t("models.localDownloadCancelled"));
-            await refreshStatus();
+            await refreshStatus(false, engine);
             startPolling();
           } catch (error) {
             const errMsg =
@@ -750,7 +923,7 @@ export function LocalModelManageModal({
         },
       });
     },
-    [message, refreshStatus, setModelDownloadState, startPolling, t],
+    [engine, message, refreshStatus, setModelDownloadState, startPolling, t],
   );
 
   const handleStartServer = useCallback(
@@ -760,8 +933,9 @@ export function LocalModelManageModal({
         try {
           await api.startLocalServer({
             model_id: model.id,
+            engine,
           });
-          await refreshStatus();
+          await refreshStatus(false, engine);
           onSaved();
         } catch (error) {
           const errMsg =
@@ -796,6 +970,7 @@ export function LocalModelManageModal({
       await run();
     },
     [
+      engine,
       getLocalModelDisplayName,
       message,
       onSaved,
@@ -809,8 +984,8 @@ export function LocalModelManageModal({
   const handleStopServer = useCallback(async () => {
     setStoppingServer(true);
     try {
-      await api.stopLocalServer();
-      await refreshStatus();
+      await api.stopLocalServer(engine);
+      await refreshStatus(false, engine);
       onSaved();
     } catch (error) {
       const errMsg =
@@ -821,7 +996,7 @@ export function LocalModelManageModal({
     } finally {
       setStoppingServer(false);
     }
-  }, [message, onSaved, refreshStatus, t]);
+  }, [engine, message, onSaved, refreshStatus, t]);
 
   const handleDeleteModel = useCallback(
     (model: LocalModelInfo) => {
@@ -835,11 +1010,11 @@ export function LocalModelManageModal({
         onOk: async () => {
           setDeletingModelName(model.id);
           try {
-            await api.deleteLocalModel(model.id);
+            await api.deleteLocalModel(model.id, engine);
             message.success(
               t("models.localModelDeleted", { name: model.name }),
             );
-            await fetchLocalModels();
+            await fetchLocalModels(engine);
             onSaved();
           } catch (error) {
             const errMsg =
@@ -853,7 +1028,7 @@ export function LocalModelManageModal({
         },
       });
     },
-    [fetchLocalModels, message, onSaved, t],
+    [engine, fetchLocalModels, message, onSaved, t],
   );
 
   const handleClose = () => {
@@ -865,7 +1040,7 @@ export function LocalModelManageModal({
     stoppingServer ||
     startingModelName !== null ||
     deletingModelName !== null ||
-    isDownloadActive(llamacppDownload);
+    isDownloadActive(runtimeDownload);
   const isRuntimeInstallable = serverStatus?.installable ?? true;
   const isRuntimeInstalled = Boolean(serverStatus?.installed);
   const runtimeLockedMessage =
@@ -906,13 +1081,14 @@ export function LocalModelManageModal({
 
       <section className={styles.localSection}>
         <LocalRuntimePanel
+          engine={engine}
+          engines={engines}
           serverStatus={serverStatus}
           hasUpdate={Boolean(serverUpdateStatus?.has_update)}
-          progress={llamacppDownload}
-          onStart={handleStartLlamacppDownload}
-          onCancel={handleCancelLlamacppDownload}
-          onStop={handleStopServer}
-          stopping={stoppingServer}
+          progress={runtimeDownload}
+          onEngineChange={handleEngineChange}
+          onStart={handleStartRuntimeDownload}
+          onCancel={handleCancelRuntimeDownload}
         />
         {!isRuntimeInstalled ? (
           <div className={styles.localLockedPanel}>
@@ -947,7 +1123,7 @@ export function LocalModelManageModal({
                     <div className={styles.localRuntimeProgressBarRow}>
                       <Progress
                         className={styles.localRuntimeProgress}
-                        percent={currentModelDownloadPercent ?? 0}
+                        percent={currentModelDownloadPercent ?? undefined}
                         showInfo={false}
                         status="active"
                         strokeColor="var(--app-accent)"
@@ -990,36 +1166,46 @@ export function LocalModelManageModal({
             </div>
           ) : null}
 
-          <div className={styles.localSectionHeader}>
-            <span>{t("models.localSource")}</span>
-            <Segmented
-              aria-label={t("models.localSource")}
-              value={catalogSource}
-              options={[
-                {
-                  label: "Hugging Face",
-                  value: "huggingface",
-                  icon: (
-                    <img src={huggingFaceLogo} width={18} height={18} alt="" />
-                  ),
-                },
-                {
-                  label: "ModelScope",
-                  value: "modelscope",
-                  icon: (
-                    <img src={modelScopeLogo} width={18} height={18} alt="" />
-                  ),
-                },
-              ]}
-              onChange={(value) => {
-                const source = value as LocalDownloadSource;
-                setCatalogSource(source);
-                setCustomModelSource(source);
-              }}
-            />
-          </div>
+          {engine === "llamacpp" ? (
+            <div className={styles.localSectionHeader}>
+              <span>{t("models.localSource")}</span>
+              <Segmented
+                aria-label={t("models.localSource")}
+                value={catalogSource}
+                options={[
+                  {
+                    label: "Hugging Face",
+                    value: "huggingface",
+                    icon: (
+                      <img
+                        src={huggingFaceLogo}
+                        width={18}
+                        height={18}
+                        alt=""
+                      />
+                    ),
+                  },
+                  {
+                    label: "ModelScope",
+                    value: "modelscope",
+                    icon: (
+                      <img src={modelScopeLogo} width={18} height={18} alt="" />
+                    ),
+                  },
+                ]}
+                onChange={(value) => {
+                  const source = value as LocalDownloadSource;
+                  setCatalogSource(source);
+                  setCustomModelSource(source);
+                }}
+              />
+            </div>
+          ) : null}
           <div className={styles.localModelGroups}>
-            {(["chat", "decision"] as const).map((group) => {
+            {(engine === "mlx"
+              ? (["chat"] as const)
+              : (["chat", "decision"] as const)
+            ).map((group) => {
               const title = t(
                 group === "decision"
                   ? "models.localDecisionModelsTitle"
@@ -1079,7 +1265,9 @@ export function LocalModelManageModal({
                       {t("models.localCustomModelTitle")}
                     </span>
                     <span className={styles.customModelHint}>
-                      {t("models.localCustomModelHint")}
+                      {engine === "mlx"
+                        ? t("models.localMlxCustomModelHint")
+                        : t("models.localCustomModelHint")}
                     </span>
                   </div>
                   <Button
@@ -1101,26 +1289,32 @@ export function LocalModelManageModal({
                     onPressEnter={() => {
                       void handleStartCustomModelDownload();
                     }}
-                    placeholder={t("models.localRepoIdPlaceholder")}
+                    placeholder={
+                      engine === "mlx"
+                        ? t("models.localMlxRepoIdPlaceholder")
+                        : t("models.localRepoIdPlaceholder")
+                    }
                     className={styles.customModelRepoInput}
                   />
-                  <Select
-                    value={customModelSource}
-                    onChange={(value) =>
-                      setCustomModelSource(value as LocalDownloadSource)
-                    }
-                    className={styles.customModelSourceSelect}
-                    options={[
-                      {
-                        value: "huggingface",
-                        label: t("models.localSourceHuggingFace"),
-                      },
-                      {
-                        value: "modelscope",
-                        label: t("models.localSourceModelScope"),
-                      },
-                    ]}
-                  />
+                  {engine === "llamacpp" ? (
+                    <Select
+                      value={customModelSource}
+                      onChange={(value) =>
+                        setCustomModelSource(value as LocalDownloadSource)
+                      }
+                      className={styles.customModelSourceSelect}
+                      options={[
+                        {
+                          value: "huggingface",
+                          label: t("models.localSourceHuggingFace"),
+                        },
+                        {
+                          value: "modelscope",
+                          label: t("models.localSourceModelScope"),
+                        },
+                      ]}
+                    />
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -1151,6 +1345,39 @@ export function LocalModelManageModal({
 
         {advancedOpen ? (
           <div className={styles.localAdvancedConfigFields}>
+            {engine === "llamacpp" ? (
+              <div
+                className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+              >
+                <div
+                  className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+                >
+                  <span>{t("models.localGpuAccelerationLabel")}</span>
+                  <Button
+                    type="primary"
+                    size="small"
+                    icon={<SaveOutlined size="1em" />}
+                    loading={advancedSaving}
+                    disabled={gpuAcceleration === savedGpuAcceleration}
+                    onClick={() => {
+                      if (gpuAcceleration !== savedGpuAcceleration) {
+                        void handleSaveGpuAcceleration();
+                      }
+                    }}
+                  >
+                    {t("models.save")}
+                  </Button>
+                </div>
+                <Switch
+                  checked={gpuAcceleration}
+                  onChange={setGpuAcceleration}
+                  aria-label={t("models.localGpuAccelerationLabel")}
+                />
+                <div className={styles.localAdvancedConfigHint}>
+                  {t("models.localGpuAccelerationHint")}
+                </div>
+              </div>
+            ) : null}
             <div
               className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
             >
@@ -1231,6 +1458,37 @@ export function LocalModelManageModal({
               />
               <div className={styles.localAdvancedConfigHint}>
                 {t("models.localServerPortHint")}
+              </div>
+            </div>
+            <div
+              className={`${styles.localAdvancedConfigField} ${styles.localAdvancedConfigFieldRow}`}
+            >
+              <div
+                className={`${styles.localAdvancedConfigLabel} ${styles.localAdvancedConfigLabelRow}`}
+              >
+                <span>{t("models.localAutoUpdateLabel")}</span>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined size="1em" />}
+                  loading={advancedSaving}
+                  disabled={autoUpdate === savedAutoUpdate}
+                  onClick={() => {
+                    if (autoUpdate !== savedAutoUpdate) {
+                      void handleSaveAutoUpdate();
+                    }
+                  }}
+                >
+                  {t("models.save")}
+                </Button>
+              </div>
+              <Switch
+                checked={autoUpdate}
+                onChange={setAutoUpdate}
+                aria-label={t("models.localAutoUpdateLabel")}
+              />
+              <div className={styles.localAdvancedConfigHint}>
+                {t("models.localAutoUpdateHint")}
               </div>
             </div>
 
