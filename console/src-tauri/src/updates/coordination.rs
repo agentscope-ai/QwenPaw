@@ -74,6 +74,10 @@ pub(crate) fn register_desktop(identifier: &str) -> Result<Option<Registration>,
         let _ = started;
         std::thread::sleep(Duration::from_millis(200));
     }
+    // Dispose the waiting notice before creating a WebView or returning an
+    // error. Its UI timer also handles cancellation during dialog creation.
+    #[cfg(windows)]
+    drop(attention);
     if let Some(started) = waiting_since {
         startup_diagnostics::record(
             "Installer handoff finished",
