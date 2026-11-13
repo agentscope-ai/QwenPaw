@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.app.crons.executor import CronExecutor
+from qwenpaw.constant import QWENPAW_STOP_REASON_KEY
 from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import Event, RunStatus
@@ -428,3 +429,53 @@ async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
             channel_manager=AsyncMock(),
         ).execute(job)
     assert not workspace.requests
+
+
+@pytest.mark.asyncio
+async def test_gate_stop_reason_is_reported_in_the_result(monkeypatch):
+    final = Event(
+        object="message",
+        status=RunStatus.Completed,
+        data={"text": "still polling"},
+        metadata={
+            QWENPAW_STOP_REASON_KEY: "Doom loop: agent stuck",
+        },
+    )
+    workspace = _Workspace([final])
+    job = make_cron_job_spec(job_id="gate-job")
+
+    finalize_trace = _patch_trace_storage(monkeypatch)
+
+    result = await CronExecutor(
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    ).execute(job)
+
+    assert result["delivery_status"] == "success"
+    assert result["stop_reason"] == "Doom loop: agent stuck"
+    finalize_trace.assert_awaited_once_with(
+        result["run_id"],
+        status="error",
+    )
+
+
+@pytest.mark.asyncio
+async def test_result_reports_no_stop_reason_for_a_normal_turn(
+    monkeypatch,
+):
+    final = Event(
+        object="message",
+        status=RunStatus.Completed,
+        data={"text": "done"},
+    )
+    workspace = _Workspace([final])
+    job = make_cron_job_spec(job_id="normal-turn-job")
+
+    _patch_trace_storage(monkeypatch)
+
+    result = await CronExecutor(
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    ).execute(job)
+
+    assert result["stop_reason"] is None

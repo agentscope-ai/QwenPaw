@@ -293,6 +293,10 @@ class QwenPawAgent(Agent):
 
         self._governor = governor
         self._gate_pending_stop = None
+        # Reason the loop gate stopped this turn, if any. Read by the
+        # runtime after the reply stream ends so the stop can travel with
+        # the finalized message (cron must not record it as a success).
+        self._stop_reason: str | None = None
 
         # Tool name -> parameter schema index for tool-call input
         # coercion (issue #6839); rebuilt by ``_call_model`` from exactly
@@ -366,6 +370,11 @@ class QwenPawAgent(Agent):
             context_config,
             instructions=instructions,
         )
+
+    @property
+    def stop_reason(self) -> str | None:
+        """Why a loop gate stopped this turn, or None on a normal end."""
+        return self._stop_reason
 
     @property
     def decision_compaction_enabled(self) -> bool:
@@ -1195,6 +1204,7 @@ class QwenPawAgent(Agent):
         pending_stop = check_pending_gates(self)
         if pending_stop is not None:
             stop_text = pending_stop.reason or "Stopped by loop gate."
+            self._stop_reason = stop_text
             block_id = uuid.uuid4().hex
             yield TextBlockStartEvent(
                 reply_id=self.state.reply_id,
@@ -1459,6 +1469,13 @@ class QwenPawAgent(Agent):
             )
             return  # outer loop continues
 
+        if stop_result.action == StopAction.TERMINATE and stop_result.reason:
+            # A gate ended the turn. run_stop_handlers also returns a
+            # bare TERMINATE when no handler fires, and that case carries
+            # no reason -- an ungated completion must stay
+            # indistinguishable from a normal one.
+            self._stop_reason = stop_result.reason
+
         outgoing_msg = stop_result.final_message or final_msg
         self._attach_fallback_notices(outgoing_msg, fallback_sink)
         yield outgoing_msg
@@ -1645,6 +1662,9 @@ class QwenPawAgent(Agent):
 
     async def _reply(self, **kwargs: Any) -> Any:
         """Drain history writes off the event loop at stream boundaries."""
+        # Per-turn: a stale reason from an earlier turn would mark this
+        # turn as gate-stopped for consumers outside the loop (cron).
+        self._stop_reason = None
         stream = super()._reply(**kwargs)
         self._defer_context_save = True
         try:
