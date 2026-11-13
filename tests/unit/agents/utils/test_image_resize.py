@@ -18,7 +18,7 @@ from qwenpaw.agents.utils.image_resize import (
     downscale_oversized_images,
 )
 from qwenpaw.agents.utils.message_request_normalizer import (
-    normalize_messages_for_model_request,
+    normalize_messages_for_model_request_async,
 )
 
 
@@ -128,7 +128,7 @@ def test_exif_orientation_is_applied_before_resizing():
         assert resized.size[0] > resized.size[1]
 
 
-def test_downscale_mutates_the_request_copy():
+async def test_downscale_mutates_the_request_copy():
     """The helper edits the list it is given; callers pass a clone."""
     raw = _png(9000, 60)
     msg = Msg(
@@ -168,7 +168,7 @@ def test_downscale_mutates_the_request_copy():
             ),
         ],
     )
-    normalized = normalize_messages_for_model_request(
+    normalized = await normalize_messages_for_model_request_async(
         [fresh],
         supports_multimodal=True,
     )
@@ -176,4 +176,107 @@ def test_downscale_mutates_the_request_copy():
     request_bytes = base64.b64decode(normalized[0].content[0].source.data)
     assert request_bytes != raw
     with Image.open(BytesIO(request_bytes)) as request_image:
+        assert max(request_image.size) <= MAX_IMAGE_SIDE
+
+
+def _static_gif(width: int, height: int) -> bytes:
+    image = Image.new("RGB", (width, height), (30, 60, 90))
+    buffer = BytesIO()
+    image.save(buffer, format="GIF")
+    return buffer.getvalue()
+
+
+def test_format_change_updates_the_media_type():
+    """A static GIF is written out as PNG, so the label has to follow it."""
+    raw = _static_gif(9000, 60)
+
+    scaled, media_type = downscale_image_bytes(raw, "image/gif")
+
+    assert media_type == "image/png"
+    with Image.open(BytesIO(scaled)) as image:
+        assert image.format == "PNG"
+        assert max(image.size) <= MAX_IMAGE_SIDE
+
+
+def test_format_change_updates_the_media_type_in_both_block_paths():
+    """dict blocks and DataBlock blocks must both carry the new MIME type."""
+    raw = _static_gif(9000, 60)
+    payload = base64.b64encode(raw).decode("ascii")
+
+    dict_msg = {
+        "role": "user",
+        "content": [
+            {
+                "type": "data",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/gif",
+                    "data": payload,
+                },
+            },
+        ],
+    }
+    block_msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                source=Base64Source(data=payload, media_type="image/gif"),
+            ),
+        ],
+    )
+
+    assert downscale_oversized_images([dict_msg, block_msg]) == 2
+
+    dict_source = dict_msg["content"][0]["source"]
+    assert dict_source["media_type"] == "image/png"
+    with Image.open(
+        BytesIO(base64.b64decode(dict_source["data"])),
+    ) as dict_image:
+        assert dict_image.format == "PNG"
+
+    assert block_msg.content[0].source.media_type == "image/png"
+    with Image.open(
+        BytesIO(base64.b64decode(block_msg.content[0].source.data)),
+    ) as block_image:
+        assert block_image.format == "PNG"
+
+
+async def test_normalizer_offloads_image_work_to_a_worker_thread():
+    """Decoding and re-encoding must not run on the event loop."""
+    import threading
+    from unittest import mock
+
+    raw = _png(9000, 60)
+    msg = Msg(
+        name="user",
+        role="user",
+        content=[
+            DataBlock(
+                source=Base64Source(
+                    data=base64.b64encode(raw).decode("ascii"),
+                    media_type="image/png",
+                ),
+            ),
+        ],
+    )
+    seen: dict = {}
+    original = downscale_oversized_images
+
+    def spy(msgs):
+        seen["thread"] = threading.current_thread()
+        return original(msgs)
+
+    with mock.patch(
+        "qwenpaw.agents.utils.image_resize.downscale_oversized_images",
+        new=spy,
+    ):
+        normalized = await normalize_messages_for_model_request_async(
+            [msg],
+            supports_multimodal=True,
+        )
+
+    assert seen["thread"] is not threading.main_thread()
+    scaled_bytes = base64.b64decode(normalized[0].content[0].source.data)
+    with Image.open(BytesIO(scaled_bytes)) as request_image:
         assert max(request_image.size) <= MAX_IMAGE_SIDE

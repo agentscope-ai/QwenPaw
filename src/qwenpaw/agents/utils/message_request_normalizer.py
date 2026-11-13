@@ -21,7 +21,7 @@ from ...constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     SYNTHETIC_USER_MESSAGE_TAGS,
 )
-from .image_resize import downscale_oversized_images
+from .image_resize import downscale_oversized_images_async
 from .tool_message_utils import _sanitize_tool_messages
 
 # Block types stripped from copied messages during request-time
@@ -578,11 +578,15 @@ def normalize_messages_for_model_request(
             Used to strip fields that belong to other providers.
         strip_audio: Whether to remove only audio blocks from the request copy.
         strip_video: Whether to remove video blocks before media preparation.
+
+    Returns:
+        A filtered copy. Image downscaling is **not** done here: it decodes,
+    resizes and re-encodes pixels, which must not happen on the event loop and
+    must not happen before the media this request will not send has been
+    dropped. Call :func:`normalize_messages_for_model_request_async` for the
+    complete request preparation.
     """
     normalized = _clone_messages(msgs)
-    # Rescale only the request copy: the stored message keeps its original
-    # bytes, so the user can still retrieve the full-resolution image later.
-    downscale_oversized_images(normalized)
     _omit_rejected_media(normalized)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
     # empty input fields.  _clean_provider_specific_fields runs after so
@@ -623,7 +627,35 @@ def normalize_messages_for_model_request(
     return normalized
 
 
+async def normalize_messages_for_model_request_async(
+    msgs: list[Msg],
+    *,
+    supports_multimodal: bool,
+    target_family: str = "openai",
+    strip_audio: bool = False,
+    strip_video: bool = False,
+) -> list[Msg]:
+    """Prepare a provider request copy, downscaling images off the loop.
+
+    Filtering happens first, so media the target cannot receive is dropped
+    instead of being resized and then discarded — otherwise each later turn
+    carrying that history pays the decode-and-encode cost again.
+    """
+    normalized = normalize_messages_for_model_request(
+        msgs,
+        supports_multimodal=supports_multimodal,
+        target_family=target_family,
+        strip_audio=strip_audio,
+        strip_video=strip_video,
+    )
+    # Rescale only the request copy: the stored message keeps its original
+    # bytes, so the user can still retrieve the full-resolution image later.
+    await downscale_oversized_images_async(normalized)
+    return normalized
+
+
 __all__ = [
     "normalize_messages_for_model_request",
+    "normalize_messages_for_model_request_async",
     "omitted_media_marker",
 ]

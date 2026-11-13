@@ -20,6 +20,7 @@ from agentscope.message import Base64Source, DataBlock
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from ...providers.capping_formatter import MAX_INLINE_MEDIA_BYTES
+from ...utils.io_utils import run_sync_io
 
 # Longest side accepted by downstream vision endpoints.
 MAX_IMAGE_SIDE = 8192
@@ -116,18 +117,30 @@ def downscale_image_bytes(
     return image_bytes, media_type
 
 
-def _rescale_source(source_data: str, media_type: str) -> str | None:
-    """Rescale one base64 payload; ``None`` means "leave it alone"."""
+def _rescale_source(
+    source_data: str,
+    media_type: str,
+) -> tuple[str, str] | None:
+    """Rescale one base64 payload.
+
+    Returns ``(data, media_type)``, or ``None`` meaning "leave it alone".
+    The media type belongs to the result because re-encoding can change the
+    format: a static GIF is outside :data:`_RESCALABLE_MEDIA_TYPES`, so it is
+    written out as PNG. Returning only the bytes would leave the block
+    declaring ``image/gif`` for a PNG payload, and the provider would reject
+    the request for a second time — for a MIME mismatch instead of a size
+    overrun.
+    """
     if not source_data or not media_type.startswith("image/"):
         return None
     try:
         raw = base64.b64decode(source_data, validate=True)
     except (ValueError, TypeError):
         return None
-    scaled, _ = downscale_image_bytes(raw, media_type)
-    if scaled == raw:
+    scaled, scaled_type = downscale_image_bytes(raw, media_type)
+    if scaled == raw and scaled_type == media_type:
         return None
-    return base64.b64encode(scaled).decode("ascii")
+    return base64.b64encode(scaled).decode("ascii"), scaled_type
 
 
 def _rescale_block(block: Any) -> int:
@@ -144,7 +157,7 @@ def _rescale_block(block: Any) -> int:
         )
         if replaced is None:
             return 0
-        source["data"] = replaced
+        source["data"], source["media_type"] = replaced
         return 1
 
     if isinstance(block, DataBlock):
@@ -157,10 +170,8 @@ def _rescale_block(block: Any) -> int:
         )
         if replaced is None:
             return 0
-        block.source = Base64Source(
-            data=replaced,
-            media_type=source.media_type,
-        )
+        data, new_media_type = replaced
+        block.source = Base64Source(data=data, media_type=new_media_type)
         return 1
     return 0
 
@@ -192,8 +203,20 @@ def downscale_oversized_images(msgs: Any) -> int:
     return _rescale_value(msgs)
 
 
+async def downscale_oversized_images_async(msgs: Any) -> int:
+    """Rescale a request copy without blocking the event loop.
+
+    Decoding, resizing and re-encoding a single 13 MB PNG takes about a
+    second, which is long enough to stall every other request served by the
+    same loop. The work therefore runs in a worker thread, after the caller
+    has already dropped the media this request will not send.
+    """
+    return await run_sync_io(downscale_oversized_images, msgs)
+
+
 __all__ = [
     "MAX_IMAGE_SIDE",
     "downscale_image_bytes",
     "downscale_oversized_images",
+    "downscale_oversized_images_async",
 ]

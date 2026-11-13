@@ -195,14 +195,14 @@ def _media_messages() -> list[Msg]:
     ]
 
 
-def _assert_request_time_stripped(formatter_class) -> None:
+async def _assert_request_time_stripped(formatter_class):
     original = _media_messages()
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         original,
         formatter_class,
         SimpleNamespace(),
@@ -215,32 +215,32 @@ def _assert_request_time_stripped(formatter_class) -> None:
     assert original[0].content[0].type == "data"
 
 
-def test_openai_formatter_normalizes_on_copy() -> None:
-    _assert_request_time_stripped(OpenAIChatFormatter)
+async def test_openai_formatter_normalizes_on_copy():
+    await _assert_request_time_stripped(OpenAIChatFormatter)
 
 
-def test_anthropic_formatter_normalizes_on_copy() -> None:
+async def test_anthropic_formatter_normalizes_on_copy():
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
-    _assert_request_time_stripped(AnthropicChatFormatter)
+    await _assert_request_time_stripped(AnthropicChatFormatter)
 
 
-def test_gemini_formatter_normalizes_on_copy() -> None:
+async def test_gemini_formatter_normalizes_on_copy():
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
-    _assert_request_time_stripped(GeminiChatFormatter)
+    await _assert_request_time_stripped(GeminiChatFormatter)
 
 
-def test_multimodal_support_preserves_media() -> None:
+async def test_multimodal_support_preserves_media():
     original = _media_messages()
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -250,7 +250,7 @@ def test_multimodal_support_preserves_media() -> None:
     assert original[0].content[0].type == "data"
 
 
-def test_force_strip_media_flag_overrides_multimodal_support() -> None:
+async def test_force_strip_media_flag_overrides_multimodal_support():
     original = _media_messages()
     formatter_instance = SimpleNamespace(_qwenpaw_force_strip_media=True)
 
@@ -259,7 +259,7 @@ def test_force_strip_media_flag_overrides_multimodal_support() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
         formatter_instance,
@@ -589,7 +589,7 @@ async def test_dashscope_audio_strip_flag_preserves_other_media() -> None:
     assert msg.model_dump(mode="json") == original
 
 
-def test_formatter_flags_returned_correctly() -> None:
+async def test_formatter_flags_returned_correctly():
     msgs = [
         Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
     ]
@@ -599,7 +599,7 @@ def test_formatter_flags_returned_correctly() -> None:
         is_anthropic,
         is_gemini,
         is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
         None,
@@ -610,7 +610,7 @@ def test_formatter_flags_returned_correctly() -> None:
     assert is_response is False
 
 
-def test_anthropic_flag_detected() -> None:
+async def test_anthropic_flag_detected():
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -623,7 +623,7 @@ def test_anthropic_flag_detected() -> None:
         is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         AnthropicChatFormatter,
         None,
@@ -632,7 +632,7 @@ def test_anthropic_flag_detected() -> None:
     assert is_anthropic is True
 
 
-def test_gemini_flag_detected() -> None:
+async def test_gemini_flag_detected():
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -645,7 +645,7 @@ def test_gemini_flag_detected() -> None:
         _is_anthropic,
         is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         GeminiChatFormatter,
         None,
@@ -654,7 +654,7 @@ def test_gemini_flag_detected() -> None:
     assert is_gemini is True
 
 
-def test_original_messages_not_modified_by_formatter_prep() -> None:
+async def test_original_messages_not_modified_by_formatter_prep():
     original = Msg(
         name="user",
         role="user",
@@ -670,7 +670,7 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         [original],
         OpenAIChatFormatter,
         SimpleNamespace(_qwenpaw_force_strip_media=False),
@@ -1161,13 +1161,13 @@ async def test_openai_formatter_isolates_reused_ids_between_requests() -> None:
     assert relayed == ["signature-1", "signature-2"]
 
 
-def test_openai_formatter_strips_extra_content() -> None:
+async def test_openai_formatter_strips_extra_content():
     (
         normalized,
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         OpenAIChatFormatter,
         SimpleNamespace(),
@@ -1181,7 +1181,7 @@ def test_openai_formatter_strips_extra_content() -> None:
     )
 
 
-def test_anthropic_formatter_strips_extra_content() -> None:
+async def test_anthropic_formatter_strips_extra_content():
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -1190,7 +1190,7 @@ def test_anthropic_formatter_strips_extra_content() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         AnthropicChatFormatter,
         SimpleNamespace(),
@@ -1204,7 +1204,7 @@ def test_anthropic_formatter_strips_extra_content() -> None:
     )
 
 
-def test_gemini_formatter_preserves_extra_content() -> None:
+async def test_gemini_formatter_preserves_extra_content():
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -1214,7 +1214,7 @@ def test_gemini_formatter_preserves_extra_content() -> None:
         _is_anthropic,
         _is_gemini,
         _is_response,
-    ) = model_factory._normalize_messages_for_formatter(
+    ) = await model_factory._normalize_messages_for_formatter(
         msgs,
         GeminiChatFormatter,
         SimpleNamespace(),
@@ -1225,11 +1225,11 @@ def test_gemini_formatter_preserves_extra_content() -> None:
     assert block.type == "tool_call"
 
 
-def test_extra_content_original_preserved() -> None:
+async def test_extra_content_original_preserved():
     msgs = _messages_with_extra_content()
     original_dict = msgs[0].to_dict()
 
-    model_factory._normalize_messages_for_formatter(
+    await model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
         SimpleNamespace(),
