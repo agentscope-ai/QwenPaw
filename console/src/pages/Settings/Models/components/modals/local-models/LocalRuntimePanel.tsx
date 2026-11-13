@@ -183,7 +183,7 @@ export const LocalRuntimePanel = memo(function LocalRuntimePanel({
             <CpuOutlined size="1em" aria-hidden="true" />
           )}
           {acceleratorLabel}
-        </span>
+        </span>{" "}
         <span>
           {accelerator === "cpu"
             ? t("models.localRuntimeAcceleratorCpuHint")
