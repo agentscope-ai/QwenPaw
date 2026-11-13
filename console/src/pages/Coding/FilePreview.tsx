@@ -7,6 +7,7 @@
  *   • markdown – react-markdown with GFM
  *   • html   – read-only sandboxed document
  *   • csv    – parsed table
+ *   • office – docx / xlsx / pptx, read client-side (read-only)
  */
 
 import {
@@ -16,6 +17,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import { useMemoizedFn } from "ahooks";
+import DOMPurify from "dompurify";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown, { type Components } from "react-markdown";
@@ -34,6 +36,14 @@ import {
   parseMemoryTags,
 } from "../../utils/markdown";
 import { resolveMarkdownFilePath } from "./markdownFileReferences";
+import {
+  MAX_OFFICE_FILE_BYTES,
+  MAX_SHEET_COLS,
+  MAX_SHEET_ROWS,
+  getOfficeKind,
+  type SheetPreview,
+  type SlidePreview,
+} from "./officeTypes";
 import styles from "./FilePreview.module.less";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +67,7 @@ export type PreviewType =
   | "markdown"
   | "html"
   | "csv"
+  | "office"
   | "none";
 
 export function getPreviewType(filePath: string): PreviewType {
@@ -66,6 +77,7 @@ export function getPreviewType(filePath: string): PreviewType {
   if (ext === "md" || ext === "mdx") return "markdown";
   if (ext === "html" || ext === "htm") return "html";
   if (ext === "csv") return "csv";
+  if (getOfficeKind(filePath)) return "office";
   return "none";
 }
 
@@ -118,10 +130,12 @@ function useAuthBlobUrl(
   projectDirOverride?: string,
 ): {
   blobUrl: string | null;
+  blob: Blob | null;
   loading: boolean;
   failed: boolean;
 } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [blob, setBlob] = useState<Blob | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
@@ -130,6 +144,7 @@ function useAuthBlobUrl(
     const controller = new AbortController();
     let objectUrl: string | null = null;
     setBlobUrl(null);
+    setBlob(null);
     setLoading(true);
     setFailed(false);
 
@@ -150,15 +165,17 @@ function useAuthBlobUrl(
     };
 
     loadBlob()
-      .then((blob) => {
-        if (controller.signal.aborted || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
+      .then((loaded) => {
+        if (controller.signal.aborted || !loaded) return;
+        objectUrl = URL.createObjectURL(loaded);
         setBlobUrl(objectUrl);
+        setBlob(loaded);
         setLoading(false);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setBlobUrl(null);
+          setBlob(null);
           setLoading(false);
           setFailed(true);
         }
@@ -170,7 +187,7 @@ function useAuthBlobUrl(
     };
   }, [binaryUrl, chatId, filePath, root, projectDirOverride, selectedAgent]);
 
-  return { blobUrl, loading, failed };
+  return { blobUrl, blob, loading, failed };
 }
 
 // ---------------------------------------------------------------------------
@@ -680,6 +697,198 @@ function CsvPreview({ content }: { content: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Office documents (docx / xlsx / pptx)
+// ---------------------------------------------------------------------------
+
+type OfficeContent =
+  | { kind: "docx"; html: string }
+  | { kind: "xlsx"; sheets: SheetPreview[] }
+  | { kind: "pptx"; slides: SlidePreview[] };
+
+async function loadOfficeContent(
+  filePath: string,
+  blob: Blob,
+): Promise<OfficeContent> {
+  if (blob.size > MAX_OFFICE_FILE_BYTES) {
+    throw new Error("Office file is too large to preview");
+  }
+  const kind = getOfficeKind(filePath);
+  const data = await blob.arrayBuffer();
+  // Loaded on demand so the zip / docx libraries stay out of the main chunk.
+  const office = await import("./officeDocument");
+  if (kind === "docx") {
+    const html = DOMPurify.sanitize(await office.docxToHtml(data), {
+      FORBID_TAGS: ["style"],
+      // Links stay inert, like the read-only HTML preview.
+      FORBID_ATTR: ["href", "target", "style"],
+    });
+    return { kind, html };
+  }
+  if (kind === "xlsx") return { kind, sheets: await office.readXlsx(data) };
+  if (kind === "pptx") return { kind, slides: await office.readPptx(data) };
+  throw new Error("Unsupported Office file");
+}
+
+function SheetTable({ sheet }: { sheet: SheetPreview }) {
+  const { t } = useTranslation();
+  const truncatedRows = sheet.totalRows > MAX_SHEET_ROWS;
+  const truncatedCols = sheet.totalCols > MAX_SHEET_COLS;
+  const colCount = Math.min(sheet.totalCols, MAX_SHEET_COLS);
+
+  if (sheet.rows.length === 0) {
+    return (
+      <div className={styles.officeEmpty}>{t("files.officeSheetEmpty")}</div>
+    );
+  }
+  return (
+    <>
+      {(truncatedRows || truncatedCols) && (
+        <div className={styles.csvNote}>
+          {t("files.officeSheetTruncated", {
+            rows: Math.min(sheet.totalRows, MAX_SHEET_ROWS),
+            totalRows: sheet.totalRows,
+            cols: colCount,
+            totalCols: sheet.totalCols,
+          })}
+        </div>
+      )}
+      <div className={styles.csvScroll}>
+        <table className={styles.csvTable}>
+          <tbody>
+            {sheet.rows.map((row, ri) => (
+              <tr key={ri}>
+                {Array.from({ length: colCount }, (_, ci) => (
+                  <td key={ci}>{row[ci] ?? ""}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+}
+
+function OfficeWorkbook({ sheets }: { sheets: SheetPreview[] }) {
+  const { t } = useTranslation();
+  const [active, setActive] = useState(0);
+  const sheet = sheets[Math.min(active, sheets.length - 1)];
+  if (!sheet) {
+    return (
+      <div className={styles.officeEmpty}>{t("files.officeSheetEmpty")}</div>
+    );
+  }
+  return (
+    <div className={styles.csvWrap}>
+      {sheets.length > 1 && (
+        <div className={styles.officeTabs} role="tablist">
+          {sheets.map((item, index) => (
+            <button
+              key={`${index}:${item.name}`}
+              type="button"
+              role="tab"
+              aria-selected={index === active}
+              className={
+                index === active
+                  ? `${styles.officeTab} ${styles.officeTabActive}`
+                  : styles.officeTab
+              }
+              onClick={() => setActive(index)}
+            >
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <SheetTable sheet={sheet} />
+    </div>
+  );
+}
+
+function OfficeSlides({ slides }: { slides: SlidePreview[] }) {
+  const { t } = useTranslation();
+  return (
+    <div className={styles.markdownWrap}>
+      <div className={styles.csvNote}>{t("files.officeSlidesTextOnly")}</div>
+      {slides.map((slide) => (
+        <section key={slide.index} className={styles.officeSlide}>
+          <h3>{t("files.officeSlide", { index: slide.index })}</h3>
+          {slide.paragraphs.map((text, index) => (
+            <p key={index}>{text}</p>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function OfficePreview({
+  filePath,
+  chatId,
+  binaryUrl,
+  root,
+  projectDirOverride,
+}: {
+  filePath: string;
+  chatId?: string;
+  binaryUrl?: string;
+  root?: WorkspaceRoot;
+  projectDirOverride?: string;
+}) {
+  const { t } = useTranslation();
+  const { blob, loading, failed } = useAuthBlobUrl(
+    filePath,
+    chatId,
+    binaryUrl,
+    root,
+    projectDirOverride,
+  );
+  const [parsed, setParsed] = useState<OfficeContent | null>(null);
+  const [parseFailed, setParseFailed] = useState(false);
+
+  useEffect(() => {
+    setParsed(null);
+    setParseFailed(false);
+    if (!blob) return;
+    let cancelled = false;
+    loadOfficeContent(filePath, blob)
+      .then((content) => {
+        if (!cancelled) setParsed(content);
+      })
+      .catch(() => {
+        if (!cancelled) setParseFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [blob, filePath]);
+
+  if (loading || (blob && !parsed && !parseFailed)) {
+    return (
+      <PreviewStatus icon={<LoaderCircle size={18} />} spinning>
+        {t("common.loading")}
+      </PreviewStatus>
+    );
+  }
+  if (failed || parseFailed || !parsed) {
+    return (
+      <PreviewStatus icon={<FileWarning size={18} />}>
+        {t("files.previewUnavailable")}
+      </PreviewStatus>
+    );
+  }
+  if (parsed.kind === "xlsx") return <OfficeWorkbook sheets={parsed.sheets} />;
+  if (parsed.kind === "pptx") return <OfficeSlides slides={parsed.slides} />;
+  return (
+    <div
+      className={styles.markdownWrap}
+      // Sanitised with DOMPurify in loadOfficeContent.
+      dangerouslySetInnerHTML={{ __html: parsed.html }}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -757,5 +966,16 @@ export default function FilePreview({
     );
   }
   if (type === "csv") return <CsvPreview content={content} />;
+  if (type === "office") {
+    return (
+      <OfficePreview
+        filePath={filePath}
+        chatId={chatId}
+        binaryUrl={binaryUrl}
+        root={root}
+        projectDirOverride={projectDirOverride}
+      />
+    );
+  }
   return null;
 }
