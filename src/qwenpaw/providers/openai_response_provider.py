@@ -88,10 +88,12 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         self,
         *,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        thinking_off_kwargs: dict[str, Any] | None = None,
         request_policy: Any = None,
         **kwargs: Any,
     ) -> None:
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._thinking_off_kwargs = dict(thinking_off_kwargs or {})
         self._request_policy = request_policy
         super().__init__(**kwargs)
 
@@ -137,7 +139,9 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
             merged["max_output_tokens"] = inherited_max_tokens
         if disable_thinking:
             merged.pop("reasoning", None)
-            if _supports_none_reasoning_effort(model_name):
+            if self._thinking_off_kwargs:
+                merged.update(self._thinking_off_kwargs)
+            elif _supports_none_reasoning_effort(model_name):
                 merged["reasoning"] = {"effort": "none"}
         return await super()._call_api(
             model_name,
@@ -441,6 +445,10 @@ class OpenAIResponseProvider(OpenAIProvider):
             context_size=self._get_context_size(model_id),
             client_kwargs=client_kwargs,
             extra_generate_kwargs=gen_kwargs or None,
+            thinking_off_kwargs=self.get_agent_thinking_kwargs(
+                model_id,
+                "off",
+            ),
             request_policy=self.prepare_request,
             formatter=_CappingOpenAIResponseFormatter(
                 max_bytes=self.max_inline_media_bytes,
