@@ -548,3 +548,41 @@ async def test_uninstall_reservation_blocks_cached_workspace_requests(
     assert await manager.get_agent("other") is other
     manager.release_agent_uninstall(["cloud-orchestrator"])
     assert await manager.get_agent("cloud-orchestrator") is workspace
+
+
+def test_legacy_cloudpaw_json_io_pins_utf8_encoding():
+    """JSON payloads stay UTF-8 even when the Windows locale prefers GBK.
+
+    ``Path.read_text()`` without an explicit encoding uses the process
+    locale encoding, which is ``cp936`` on Chinese Windows. Every file
+    read here is JSON (install marker, ``agent.json``, ``skill.json``),
+    and UTF-8 JSON containing non-ASCII names raised
+    ``UnicodeDecodeError: 'gbk' codec can't decode byte 0x80`` while the
+    loader imported this module. Pinning UTF-8 keeps behaviour identical
+    on POSIX, where the locale default is already UTF-8, so a locale
+    assertion cannot catch a regression on CI; this contract check can.
+    """
+    import ast
+    import inspect
+    from pathlib import Path
+
+    from qwenpaw.plugins import legacy_cloudpaw
+
+    source = Path(inspect.getfile(legacy_cloudpaw))
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    unpinned = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        if func.attr not in {"read_text", "write_text"}:
+            continue
+        if "encoding" in {kw.arg for kw in node.keywords}:
+            continue
+        unpinned.append(f"line {node.lineno}: {func.attr}()")
+    assert not unpinned, (
+        "JSON file I/O must pin encoding='utf-8' for Windows locales: "
+        + "; ".join(unpinned)
+    )
