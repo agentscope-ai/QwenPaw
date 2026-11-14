@@ -21,6 +21,7 @@ const mockSessionListData = vi.hoisted(() => vi.fn());
 const mockChatGroups = vi.hoisted(() => vi.fn());
 const mockCollapsedGroups = vi.hoisted(() => vi.fn());
 const mockSelectedAgent = vi.hoisted(() => ({ current: "agent-1" }));
+const mockScrollTo = vi.hoisted(() => vi.fn());
 /** Captures the latest virtual-list props so tests can assert row heights. */
 const mockListProps = vi.hoisted(() => ({
   current: null as null | {
@@ -53,7 +54,7 @@ vi.mock("react-window", () => ({
       ref: React.Ref<object>,
     ) => {
       React.useImperativeHandle(ref, () => ({
-        scrollTo: vi.fn(),
+        scrollTo: mockScrollTo,
         scrollToItem: vi.fn(),
         resetAfterIndex: vi.fn(),
       }));
@@ -75,8 +76,22 @@ vi.mock("react-window", () => ({
 
 // DnD wrappers as pass-throughs
 vi.mock("../components/SessionGroupDnd", () => ({
-  SessionGroupDndProvider: ({ children }: { children?: React.ReactNode }) => (
-    <>{children}</>
+  SessionGroupDndProvider: ({
+    children,
+    onDragStateChange,
+  }: {
+    children?: React.ReactNode;
+    onDragStateChange: (active: boolean) => void;
+  }) => (
+    <>
+      {children}
+      <button onClick={() => onDragStateChange(true)}>
+        start session drag
+      </button>
+      <button onClick={() => onDragStateChange(false)}>
+        finish session drag
+      </button>
+    </>
   ),
   DraggableSession: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
@@ -322,6 +337,57 @@ describe("SidebarSessionList", () => {
     });
     expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
     expect(screen.getByTestId("session-item-sess-b")).toBeTruthy();
+  });
+
+  it("preserves expanded and collapsed source groups and scroll position during dragging", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
+    mockData([sessionA, { ...sessionB, groupId: "work" }]);
+    mockChatGroups.mockReturnValue({
+      ...mockChatGroups(),
+      groups: [
+        { id: "default", name: "Uncategorized", kind: "default", order: 0 },
+        { id: "work", name: "Work", kind: "custom", order: 1 },
+      ],
+    });
+    mockCollapsedGroups.mockReturnValue({
+      ...mockCollapsedGroups(),
+      collapsedGroups: new Set(["work"]),
+    });
+    renderWithProviders(<SidebarSessionList />);
+    await screen.findByTestId("session-item-sess-a");
+    const rowCount = mockListProps.current!.itemCount;
+    for (const action of ["start session drag", "finish session drag"]) {
+      fireEvent.click(screen.getByText(action));
+      expect(screen.getByTestId("group-header-default")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(screen.getByTestId("group-header-work")).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      );
+      expect(screen.getByTestId("session-item-sess-a")).toBeInTheDocument();
+      expect(screen.queryByTestId("session-item-sess-b")).toBeNull();
+      expect(mockListProps.current!.itemCount).toBe(rowCount);
+      expect(mockScrollTo).not.toHaveBeenCalled();
+    }
+  });
+
+  it("preserves date sections and session rows during dragging", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "date");
+    mockData([sessionA, sessionB]);
+    renderWithProviders(<SidebarSessionList />);
+    await screen.findByTestId("session-item-sess-a");
+    for (const action of ["start session drag", "finish session drag"]) {
+      fireEvent.click(screen.getByText(action));
+      expect(screen.getByTestId("date-header")).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      expect(screen.getByTestId("session-item-sess-a")).toBeInTheDocument();
+      expect(screen.getByTestId("session-item-sess-b")).toBeInTheDocument();
+      expect(mockScrollTo).not.toHaveBeenCalled();
+    }
   });
 
   it("initializes older unpinned groups as collapsed", async () => {
