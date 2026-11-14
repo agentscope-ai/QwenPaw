@@ -60,17 +60,24 @@ function tokenize(src: string): Token[] {
 
 /**
  * Streaming input has no delimiter to close a construct yet. CommonMark does
- * not treat an unterminated run as a code span or a link, so nothing above
- * masks it. Inventing a mask would be worse than doing nothing: the reviewer's
- * requirement is that an undetermined boundary is left untouched, so the tail
- * starting at the dangling opener is skipped wholesale.
+ * not treat an unterminated run as a code span or a link, and none of those
+ * constructs may cross a blank line, so a dangling opener only reaches the end
+ * of the paragraph that contains it. Skipping to the end of the document
+ * instead would let one stray `$` or backtick freeze every later paragraph.
  */
-function maskDanglingTail(src: string, text: Uint8Array): void {
+function maskDanglingTail(
+  src: string,
+  block: Uint8Array,
+  text: Uint8Array,
+): void {
+  // Already tokenized code and literal spans cannot open a construct.
+  const taken = (index: number) => block[index] === 1 || text[index] === 1;
+
   // Unterminated inline code: an odd number of backticks means the last run
   // has no partner.
   let open = -1;
   for (let i = 0; i < src.length; i++) {
-    if (src[i] !== "`" || isEscaped(src, i)) continue;
+    if (src[i] !== "`" || taken(i) || isEscaped(src, i)) continue;
     if (open < 0) {
       open = i;
     } else {
@@ -78,26 +85,80 @@ function maskDanglingTail(src: string, text: Uint8Array): void {
       i += countRun(src, i) - 1;
     }
   }
-  if (open >= 0) text.fill(1, open);
+  if (open >= 0) text.fill(1, open, paragraphEnd(src, open));
 
-  // Unterminated inline math (`$...$` without the closing dollar).
+  // Unterminated inline math (`$...$` without the closing dollar). A `$` inside
+  // code is already taken, so `echo $HOME` cannot open math.
   let mathOpen = -1;
   for (let i = 0; i < src.length; i++) {
-    if (src[i] !== "$" || isEscaped(src, i)) continue;
+    if (src[i] !== "$" || taken(i) || isEscaped(src, i)) continue;
     if (src[i + 1] === "$") {
       i++;
     }
     mathOpen = mathOpen < 0 ? i : -1;
   }
-  if (mathOpen >= 0) text.fill(1, mathOpen);
+  if (mathOpen >= 0) text.fill(1, mathOpen, paragraphEnd(src, mathOpen));
 
   // Unterminated link destination: `[label](` with no closing paren. The
   // opening bracket has to exist, otherwise a literal `](` in running text
-  // would mask the rest of the block.
+  // would mask the rest of the paragraph.
   const lastOpen = src.lastIndexOf("](");
-  if (lastOpen >= 0 && src.indexOf(")", lastOpen) < 0) {
-    const bracket = src.lastIndexOf("[", lastOpen);
-    if (bracket >= 0) text.fill(1, lastOpen);
+  if (lastOpen >= 0) {
+    const end = paragraphEnd(src, lastOpen);
+    if (src.slice(lastOpen, end).indexOf(")") < 0) {
+      const bracket = src.lastIndexOf("[", lastOpen);
+      if (bracket >= 0) text.fill(1, lastOpen, end);
+    }
+  }
+}
+
+/** Offset of the line break that closes the paragraph starting at `from`. */
+function paragraphEnd(src: string, from: number): number {
+  let lineStart = from;
+  while (lineStart < src.length) {
+    const newline = src.indexOf("\n", lineStart);
+    if (newline < 0) return src.length;
+    let next = newline + 1;
+    while (next < src.length && (src[next] === " " || src[next] === "\t")) {
+      next++;
+    }
+    if (next >= src.length || src[next] === "\n" || src[next] === "\r") {
+      return newline;
+    }
+    lineStart = next;
+  }
+  return src.length;
+}
+
+/**
+ * An unterminated fence never becomes a token, so the tokenizer reports its
+ * body as ordinary paragraphs. A fence body may contain blank lines, so this
+ * skip has to reach the end of the document.
+ */
+function maskUnclosedFence(
+  src: string,
+  block: Uint8Array,
+  text: Uint8Array,
+): void {
+  const fence = /^[ \t]{0,3}(`{3,}|~{3,})/gm;
+  let openStart = -1;
+  let openCharacter = "";
+  let openLength = 0;
+  let match: RegExpExecArray | null;
+  while ((match = fence.exec(src)) !== null) {
+    const marker = match[1];
+    if (openStart < 0) {
+      openStart = match.index;
+      openCharacter = marker[0];
+      openLength = marker.length;
+    } else if (marker[0] === openCharacter && marker.length >= openLength) {
+      openStart = -1;
+    }
+  }
+  // A delivered fence already owns its range and must not be extended.
+  if (openStart >= 0 && block[openStart] === 0 && text[openStart] === 0) {
+    block.fill(1, openStart);
+    text.fill(1, openStart);
   }
 }
 
@@ -134,7 +195,8 @@ export function buildSyntaxMasks(src: string): {
     }
   }
 
-  maskDanglingTail(src, text);
+  maskUnclosedFence(src, block, text);
+  maskDanglingTail(src, block, text);
 
   // A reference definition whose `<...>` destination wraps onto the next line
   // is not a valid CommonMark definition, so the tokenizer reads it as ordinary

@@ -1,3 +1,7 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { describe, expect, it } from "vitest";
 
 import { normalizeCjkEmphasis } from "./markdownCjk";
@@ -349,5 +353,84 @@ describe("normalizeCjkEmphasis nested-container guardrails", () => {
   it("does not read a literal bracket-paren as a link", () => {
     const source = "a]( **正文。**后\n";
     expect(normalizeCjkEmphasis(source)).toBe("a]( **正文**。后\n");
+  });
+});
+
+describe("normalizeCjkEmphasis dangling-opener scope", () => {
+  it("repairs a later paragraph after a lone dollar sign", () => {
+    expect(normalizeCjkEmphasis("价格 $5\n\n**粗体。**后面")).toBe(
+      "价格 $5\n\n**粗体**。后面",
+    );
+  });
+
+  it("repairs a later paragraph after a dollar inside fenced code", () => {
+    const source = "```sh\necho $HOME\n```\n\n**粗体。**后面";
+    expect(normalizeCjkEmphasis(source)).toBe(
+      "```sh\necho $HOME\n```\n\n**粗体**。后面",
+    );
+  });
+
+  it("does not let dollars inside inline code open math", () => {
+    expect(normalizeCjkEmphasis("`$PATH` 然后 **粗体。**后面")).toBe(
+      "`$PATH` 然后 **粗体**。后面",
+    );
+  });
+
+  it("repairs a later paragraph after a lone backtick", () => {
+    expect(normalizeCjkEmphasis("a ` b\n\n**粗体。**后面")).toBe(
+      "a ` b\n\n**粗体**。后面",
+    );
+  });
+
+  it("repairs a later paragraph after an unterminated link", () => {
+    expect(normalizeCjkEmphasis("[x](\n\n**粗体。**后面")).toBe(
+      "[x](\n\n**粗体**。后面",
+    );
+  });
+
+  it("protects the document after an unclosed fence with a blank line", () => {
+    const source = "```md\na\n\n**代码。**后\n";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("protects the document after an unclosed tilde fence", () => {
+    const source = "~~~\na\n\n**代码。**后\n";
+    expect(normalizeCjkEmphasis(source)).toBe(source);
+  });
+
+  it("still skips the rest of the same paragraph", () => {
+    for (const source of [
+      "价格 $5 然后 **粗体。**后面",
+      "a ` b 然后 **粗体。**后面",
+    ]) {
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+});
+
+describe("normalizeCjkEmphasis rendered output", () => {
+  const render = (source: string) =>
+    renderToStaticMarkup(
+      createElement(Markdown, { remarkPlugins: [remarkGfm] }, source),
+    );
+
+  it("turns repaired markers into real emphasis", () => {
+    expect(render(normalizeCjkEmphasis("**粗体。**后面"))).toContain(
+      "<strong>粗体</strong>",
+    );
+    expect(render(normalizeCjkEmphasis("价格 $5\n\n**粗体。**后面"))).toContain(
+      "<strong>粗体</strong>",
+    );
+  });
+
+  it("leaves a paired bracket literal instead of splitting the pair", () => {
+    // CommonMark does not close emphasis between `)` and CJK text, exactly as
+    // it refuses `**foo(bar)**baz` for ASCII parens. Moving the closing bracket
+    // out of the delimiter would render `<strong>说明</strong>）` and break the
+    // pair, so the source is intentionally left untouched.
+    const source = "**粗体（说明）**后面";
+    const fixed = normalizeCjkEmphasis(source);
+    expect(fixed).toBe(source);
+    expect(render(fixed)).toContain("**粗体（说明）**");
   });
 });
