@@ -21,6 +21,8 @@ from qwenpaw.providers.openai_response_provider import (
     _extract_reasoning_text,
     _extract_response_text,
 )
+from qwenpaw.providers.provider import ModelInfo
+from qwenpaw.providers.thinking import ThinkingControl
 
 
 def _make_provider() -> OpenAIResponseProvider:
@@ -722,6 +724,52 @@ async def test_summary_call_explicitly_disables_known_reasoning(
 
     result = await model._call_api(
         model_name,
+        [],
+        disable_thinking=True,
+    )
+
+    assert result == "ok"
+    assert captured["reasoning"] == {"effort": "none"}
+
+
+async def test_summary_call_uses_declared_thinking_control(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def fake_call_api(self, *args, **kwargs):
+        del self, args
+        captured.update(kwargs)
+        return "ok"
+
+    monkeypatch.setattr(
+        OpenAIResponseModel,
+        "_call_api",
+        fake_call_api,
+    )
+    provider = OpenAIResponseProvider(
+        id="openai-response",
+        name="OpenAI Responses",
+        base_url="https://api.openai.com/v1",
+        api_key="sk-test",
+        chat_model="OpenAIResponseModel",
+        models=[
+            ModelInfo(
+                id="custom-reasoner",
+                name="Custom Reasoner",
+                thinking_control=ThinkingControl(
+                    kind="effort",
+                    efforts=["low", "high"],
+                    supports_off=True,
+                ),
+            ),
+        ],
+        generate_kwargs={"reasoning": {"effort": "high"}},
+    )
+    model = provider.get_chat_model_instance("custom-reasoner")
+
+    result = await model._call_api(
+        "custom-reasoner",
         [],
         disable_thinking=True,
     )
