@@ -2166,7 +2166,9 @@
     "requiredField": "请填写{{field}}",
     "portRange": "端口须在 1 至 65535 之间",
     "developmentMode": "开发（pyVoIP）",
-    "productionMode": "生产（LiveKit）"
+    "productionMode": "生产（LiveKit）",
+    "customFieldJsonArray": "请输入有效的 JSON 数组。",
+    "customFieldJsonObject": "请输入有效的 JSON 对象。"
   },
   "sessions": {
     "title": "会话",

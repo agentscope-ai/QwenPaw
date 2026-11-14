@@ -3561,7 +3561,9 @@
     "requiredField": "Nhập {{field}}",
     "portRange": "Cổng phải từ 1 đến 65535",
     "developmentMode": "Phát triển (pyVoIP)",
-    "productionMode": "Triển khai (LiveKit)"
+    "productionMode": "Triển khai (LiveKit)",
+    "customFieldJsonArray": "Vui lòng nhập mảng JSON hợp lệ.",
+    "customFieldJsonObject": "Vui lòng nhập đối tượng JSON hợp lệ."
   },
   "cronJobs": {
     "title": "Tác vụ định kỳ",

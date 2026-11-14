@@ -2311,7 +2311,9 @@
     "requiredField": "Enter {{field}}",
     "portRange": "Port must be between 1 and 65535",
     "developmentMode": "Development (pyVoIP)",
-    "productionMode": "Production (LiveKit)"
+    "productionMode": "Production (LiveKit)",
+    "customFieldJsonArray": "Please enter a valid JSON array.",
+    "customFieldJsonObject": "Please enter a valid JSON object."
   },
   "sessions": {
     "title": "Sessions",

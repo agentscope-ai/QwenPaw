@@ -1874,7 +1874,9 @@
     "requiredField": "Informe {{field}}",
     "portRange": "A porta deve estar entre 1 e 65535",
     "developmentMode": "Desenvolvimento (pyVoIP)",
-    "productionMode": "Produção (LiveKit)"
+    "productionMode": "Produção (LiveKit)",
+    "customFieldJsonArray": "Insira um array JSON válido.",
+    "customFieldJsonObject": "Insira um objeto JSON válido."
   },
   "sessions": {
     "title": "Sessoes",

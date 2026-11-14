@@ -2046,7 +2046,9 @@
     "requiredField": "Masukkan {{field}}",
     "portRange": "Port harus antara 1 dan 65535",
     "developmentMode": "Pengembangan (pyVoIP)",
-    "productionMode": "Produksi (LiveKit)"
+    "productionMode": "Produksi (LiveKit)",
+    "customFieldJsonArray": "Masukkan array JSON yang valid.",
+    "customFieldJsonObject": "Masukkan objek JSON yang valid."
   },
   "tools": {
     "title": "Alat",

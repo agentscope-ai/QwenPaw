@@ -1722,6 +1722,7 @@ export function ChannelDrawer({
     kind?: "array" | "object",
     required = false,
     defaultValue?: unknown,
+    preserveType = false,
   ) => (
     <Form.Item
       key={name}
@@ -1736,7 +1737,17 @@ export function ChannelDrawer({
       normalize={(value: string) => {
         if (!value.trim()) return undefined;
         try {
-          return JSON.parse(value);
+          const parsed: unknown = JSON.parse(value);
+          if (
+            preserveType &&
+            (parsed === null ||
+              typeof parsed !== "object" ||
+              (kind === "array"
+                ? !Array.isArray(parsed)
+                : Array.isArray(parsed)))
+          )
+            return value;
+          return parsed;
         } catch {
           return value;
         }
@@ -1744,7 +1755,15 @@ export function ChannelDrawer({
       rules={[
         {
           validator: (_, value) => {
+            const error = preserveType
+              ? t(
+                  kind === "array"
+                    ? "channels.customFieldJsonArray"
+                    : "channels.customFieldJsonObject",
+                )
+              : "Enter a valid JSON object or array";
             if (value === undefined || value === null) {
+              if (preserveType) return Promise.reject(new Error(error));
               return required
                 ? Promise.reject(new Error(`Please enter ${label}`))
                 : Promise.resolve();
@@ -1755,7 +1774,7 @@ export function ChannelDrawer({
                   ? Array.isArray(value)
                   : !Array.isArray(value)))
               ? Promise.resolve()
-              : Promise.reject(new Error("Enter a valid JSON object or array"));
+              : Promise.reject(new Error(error));
           },
         },
       ]}
@@ -1892,7 +1911,18 @@ export function ChannelDrawer({
         {extraKeys.map((fieldKey) => {
           const value = values[fieldKey];
           if (value === null || typeof value === "object")
-            return renderStructuredField(fieldKey, fieldKey);
+            return renderStructuredField(
+              fieldKey,
+              fieldKey,
+              value === null
+                ? undefined
+                : Array.isArray(value)
+                ? "array"
+                : "object",
+              false,
+              undefined,
+              value !== null,
+            );
           return (
             <Form.Item
               key={fieldKey}
