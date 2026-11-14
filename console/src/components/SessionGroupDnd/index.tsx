@@ -1,8 +1,10 @@
 import {
   DndContext,
   DragOverlay,
+  getScrollableAncestors,
   MeasuringStrategy,
   MouseSensor,
+  pointerWithin,
   TouchSensor,
   useDndContext,
   useDraggable,
@@ -12,6 +14,7 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type CollisionDetection,
 } from "@dnd-kit/core";
 import { GripVertical } from "lucide-react";
 import {
@@ -25,7 +28,6 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { CSS } from "@dnd-kit/utilities";
 import styles from "./SessionGroupDnd.module.less";
 
 interface DragData {
@@ -38,6 +40,26 @@ const DragStateContext = createContext<{
   active: boolean;
   overGroupId: string | null;
 }>({ active: false, overGroupId: null });
+
+export const sessionGroupCollisionDetection: CollisionDetection = (args) => {
+  const pointer = args.pointerCoordinates;
+  if (!pointer) return [];
+  return pointerWithin(args).filter(({ id }) => {
+    const node = args.droppableContainers.find((item) => item.id === id)?.node
+      .current;
+    if (!node) return false;
+    // Virtualized rows may remain mounted beyond the visible scroll viewport.
+    return getScrollableAncestors(node).every((ancestor) => {
+      const rect = ancestor.getBoundingClientRect();
+      return (
+        pointer.x >= rect.left &&
+        pointer.x <= rect.right &&
+        pointer.y >= rect.top &&
+        pointer.y <= rect.bottom
+      );
+    });
+  });
+};
 
 interface SessionGroupDndProviderProps {
   children: ReactNode;
@@ -121,6 +143,7 @@ export function SessionGroupDndProvider({
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={sessionGroupCollisionDetection}
       measuring={{
         droppable: {
           strategy: MeasuringStrategy.Always,
@@ -193,7 +216,7 @@ export function DraggableSession({
   label,
   children,
 }: DraggableSessionProps) {
-  const { isDragging, listeners, setNodeRef, transform } = useDraggable({
+  const { isDragging, listeners, setNodeRef } = useDraggable({
     id: `session:${sessionId}`,
     data: { sessionId, groupId, label } satisfies DragData,
   });
@@ -201,7 +224,6 @@ export function DraggableSession({
     <div
       ref={setNodeRef}
       className={`${styles.draggable} ${isDragging ? styles.dragging : ""}`}
-      style={{ transform: CSS.Translate.toString(transform) }}
       onPointerDownCapture={(event) => {
         if (
           (event.target as HTMLElement).closest(
