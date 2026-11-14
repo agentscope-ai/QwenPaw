@@ -16,7 +16,7 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
-from agentscope.model._model_response import ChatResponse
+from agentscope.model._model_response import ChatResponse, FinishedReason
 from agentscope.tool import Toolkit
 
 from qwenpaw.agents import model_factory
@@ -25,9 +25,9 @@ from qwenpaw.providers.model_capability_cache import get_capability_cache
 from qwenpaw.providers.model_error_policy import RETRYABLE_STATUS_CODES
 from qwenpaw.providers.rate_limiter import LLMRateLimiter, _limiters
 from qwenpaw.providers.retry_chat_model import (
+    RateLimitConfig,
     RetryChatModel,
     RetryConfig,
-    RateLimitConfig,
     StreamCleanupPendingError,
     StreamIdleTimeoutError,
     _compute_backoff,
@@ -54,6 +54,21 @@ async def _failing_reasoning_stream() -> AsyncGenerator[Any, None]:
 
 async def _successful_stream() -> AsyncGenerator[Any, None]:
     yield SimpleNamespace(content="ok")
+
+
+async def _completed_stream(
+    chunks: list[list[Any]],
+    *,
+    finished_reason: FinishedReason = FinishedReason.COMPLETED,
+    metadata: dict[str, Any] | None = None,
+) -> AsyncGenerator[ChatResponse, None]:
+    for content in chunks:
+        yield ChatResponse(
+            content=content,
+            is_last=True,
+            finished_reason=finished_reason,
+            metadata=metadata or {},
+        )
 
 
 async def _empty_then_failing_stream() -> AsyncGenerator[Any, None]:
@@ -635,6 +650,197 @@ async def test_stream_retries_after_empty_control_chunk() -> None:
 
         assert [chunk.content for chunk in chunks] == [[], "ok"]
         assert inner.calls == 2
+    finally:
+        _limiters.clear()
+
+
+class _CompletedEmptyRetryModel:
+    model = "completed-empty-stream-test"
+    stream = True
+    context_size = 32768
+    parameters = None
+    _provider_id = "unit"
+
+    def __init__(
+        self,
+        first_chunks: list[list[Any]],
+        *,
+        finished_reason: FinishedReason = FinishedReason.COMPLETED,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.calls = 0
+        self.first_chunks = first_chunks
+        self.finished_reason = finished_reason
+        self.metadata = metadata
+
+    async def __call__(
+        self,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        self.calls += 1
+        if self.calls == 1:
+            return _completed_stream(
+                self.first_chunks,
+                finished_reason=self.finished_reason,
+                metadata=self.metadata,
+            )
+        return _successful_stream()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_chunks",
+    [
+        [],
+        [[ThinkingBlock(thinking="private reasoning")]],
+        [[TextBlock(text=" \t\n ")]],
+    ],
+)
+async def test_stream_retries_once_after_completed_empty_answer(
+    first_chunks: list[list[Any]],
+) -> None:
+    _limiters.clear()
+    try:
+        inner = _CompletedEmptyRetryModel(first_chunks)
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == ["ok"]
+        assert inner.calls == 2
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_empty_answer_retry_does_not_replay_a_tool_call() -> None:
+    _limiters.clear()
+    try:
+        tool_call = ToolCallBlock(id="call-1", name="lookup", input="{}")
+        inner = _CompletedEmptyRetryModel([[tool_call]])
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert len(chunks) == 1
+        assert chunks[0].content == [tool_call]
+        assert inner.calls == 1
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+async def test_empty_answer_retry_flushes_thinking_when_buffer_limit_is_reached() -> None:
+    _limiters.clear()
+    try:
+        content = [ThinkingBlock(thinking="x" * (65 * 1024))]
+        inner = _CompletedEmptyRetryModel([content])
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert [chunk.content for chunk in chunks] == [content]
+        assert inner.calls == 1
+    finally:
+        _limiters.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("finished_reason", "metadata"),
+    [
+        (FinishedReason.INTERRUPTED, None),
+        (FinishedReason.COMPLETED, {"finish_reason": "length"}),
+        (FinishedReason.COMPLETED, {"stop_reason": "max_tokens"}),
+    ],
+)
+async def test_stream_does_not_retry_interrupted_or_token_limited_empty_output(
+    finished_reason: FinishedReason,
+    metadata: dict[str, Any] | None,
+) -> None:
+    _limiters.clear()
+    try:
+        inner = _CompletedEmptyRetryModel(
+            [[ThinkingBlock(thinking="partial")]],
+            finished_reason=finished_reason,
+            metadata=metadata,
+        )
+        model = RetryChatModel(
+            inner,  # type: ignore[arg-type]
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=2,
+                backoff_base=0.01,
+                backoff_cap=0.01,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+
+        result = await model(messages=[])
+        stream = cast(AsyncGenerator[Any, None], result)
+        chunks = [chunk async for chunk in stream]
+
+        assert len(chunks) == 1
+        assert chunks[0].content[0].thinking == "partial"
+        assert inner.calls == 1
     finally:
         _limiters.clear()
 
