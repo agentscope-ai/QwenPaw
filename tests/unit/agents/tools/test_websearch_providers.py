@@ -14,6 +14,7 @@ import pytest
 from qwenpaw.agents.tools.websearch import (
     AnySearchProvider,
     FirecrawlProvider,
+    OlostepProvider,
     SearchProvider,
     TavilyProvider,
     format_search_results,
@@ -79,6 +80,20 @@ def test_get_search_provider_selects_firecrawl(
     assert isinstance(get_search_provider(), FirecrawlProvider)
 
 
+def test_get_search_provider_selects_olostep(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.get_current_agent_id",
+        lambda: "default",
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.factory.load_agent_config",
+        lambda agent_id: _agent_config_with_provider("olostep"),
+    )
+    assert isinstance(get_search_provider(), OlostepProvider)
+
+
 def test_get_search_provider_selects_tavily_explicit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,6 +130,8 @@ def test_providers_are_search_provider_subclasses() -> None:
     assert TavilyProvider.name == "tavily"
     assert issubclass(FirecrawlProvider, SearchProvider)
     assert FirecrawlProvider.name == "firecrawl"
+    assert issubclass(OlostepProvider, SearchProvider)
+    assert OlostepProvider.name == "olostep"
 
 
 @pytest.mark.asyncio
@@ -445,6 +462,203 @@ async def test_firecrawl_provider_surfaces_http_errors(
     with pytest.raises(ValueError, match="429.*try again") as exc_info:
         await FirecrawlProvider().search("qwen")
     assert "add a Firecrawl API key" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_olostep_provider_parses_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_post(url, headers, payload):
+        assert url == "https://api.olostep.com/v1/searches"
+        assert headers["Authorization"] == "Bearer olostep-test"
+        assert payload == {"query": "qwen", "limit": 3}
+        return {
+            "id": "search_123",
+            "result": {
+                "links": [
+                    {
+                        "url": "https://example.com",
+                        "title": "T",
+                        "description": "D",
+                    },
+                ],
+            },
+        }
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        fake_post,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._current_agent_olostep_key",
+        AsyncMock(return_value="olostep-test"),
+    )
+    results = await OlostepProvider().search("qwen", max_results=3)
+    assert results == [
+        {
+            "title": "T",
+            "url": "https://example.com",
+            "snippet": "D",
+            "content": "D",
+        },
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("max_results", "limit"),
+    [(0, 1), (5, 5), (25, 25), (50, 25)],
+)
+async def test_olostep_provider_keeps_limit_in_api_range(
+    monkeypatch: pytest.MonkeyPatch,
+    max_results: int,
+    limit: int,
+) -> None:
+    post = AsyncMock(return_value={"result": {"links": []}})
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        post,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._current_agent_olostep_key",
+        AsyncMock(return_value="olostep-test"),
+    )
+    assert await OlostepProvider().search("qwen", max_results) == []
+    assert post.await_args.kwargs["payload"]["limit"] == limit
+
+
+@pytest.mark.asyncio
+async def test_olostep_provider_requires_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    post = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        post,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._current_agent_olostep_key",
+        AsyncMock(return_value=""),
+    )
+    with pytest.raises(ValueError, match="needs an API key"):
+        await OlostepProvider().search("qwen")
+    post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_olostep_provider_handles_missing_links(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._current_agent_olostep_key",
+        AsyncMock(return_value="olostep-test"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        AsyncMock(return_value={"id": "search_123", "result": {}}),
+    )
+    assert await OlostepProvider().search("qwen") == []
+
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        AsyncMock(return_value={"id": "search_123"}),
+    )
+    assert await OlostepProvider().search("qwen") == []
+
+
+@pytest.mark.asyncio
+async def test_olostep_key_is_read_from_credential_store(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # pylint: disable=protected-access
+    from qwenpaw.agents.tools.websearch import olostep as ol_module
+    from qwenpaw.security import secret_store
+    from qwenpaw.drivers.credentials.store import AsyncCredentialStore
+    from qwenpaw.drivers.credentials.types import CredentialRecord
+
+    # Keep the master key off the OS keychain and inside tmp_path.
+    monkeypatch.setenv("QWENPAW_DISABLE_KEYRING", "1")
+    monkeypatch.setattr(secret_store, "_get_secret_dir", lambda: tmp_path)
+    monkeypatch.setattr(secret_store, "_cached_master_key", None)
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.credentials."
+        "get_current_workspace_dir",
+        lambda: tmp_path,
+    )
+    assert await ol_module._current_agent_olostep_key() == ""
+
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    await store.put(
+        CredentialRecord(
+            ref="tool/web_search/olostep",
+            kind="static",
+            secrets={"api_key": "olostep-first"},
+        ),
+    )
+    assert await ol_module._current_agent_olostep_key() == "olostep-first"
+
+    await store.put(
+        CredentialRecord(
+            ref="tool/web_search/olostep",
+            kind="static",
+            secrets={"api_key": "olostep-second"},
+        ),
+    )
+    assert await ol_module._current_agent_olostep_key() == "olostep-second"
+
+
+def _olostep_status_error(status: int, body: dict) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://api.olostep.com/v1/searches")
+    response = httpx.Response(status, json=body, request=request)
+    return httpx.HTTPStatusError(
+        str(status),
+        request=request,
+        response=response,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "body", "pattern"),
+    [
+        (
+            401,
+            {
+                "code": "invalid_api_key",
+                "title": "Invalid or missing API key",
+                "detail": "The provided API key is invalid.",
+            },
+            "401.*API key is invalid.*Check the Olostep API key",
+        ),
+        (
+            400,
+            {"message": "limit must be an integer between 1 and 25"},
+            "400.*limit must be an integer between 1 and 25",
+        ),
+        (429, {}, "429.*try again"),
+        (500, {}, "500"),
+    ],
+)
+async def test_olostep_provider_surfaces_http_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    status: int,
+    body: dict,
+    pattern: str,
+) -> None:
+    post = AsyncMock(side_effect=_olostep_status_error(status, body))
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._post",
+        post,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.agents.tools.websearch.olostep._current_agent_olostep_key",
+        AsyncMock(return_value="olostep-secret-key"),
+    )
+    with pytest.raises(ValueError, match=pattern) as exc_info:
+        await OlostepProvider().search("qwen")
+    assert "olostep-secret-key" not in str(exc_info.value)
+    assert post.await_count == 1
 
 
 @pytest.mark.asyncio

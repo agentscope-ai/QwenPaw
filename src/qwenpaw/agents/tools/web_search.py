@@ -4,8 +4,8 @@
 """Web search and fetch tools.
 
 web_search delegates to a pluggable search provider (AnySearch by
-default, Tavily or Firecrawl when the per-agent Console config
-selects them).
+default, Tavily, Firecrawl or Olostep when the per-agent Console
+config selects them).
 web_fetch uses direct HTTP GET + a stdlib HTML-to-Markdown converter.
 """
 
