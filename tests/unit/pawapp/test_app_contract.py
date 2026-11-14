@@ -835,3 +835,31 @@ def test_chat_reply_returns_only_the_last_assistant_message() -> None:
     )
 
     assert reply.text == "The final answer is 42."
+
+
+def test_chat_stream_disables_proxy_buffering() -> None:
+    class StreamContext:
+        app_id = "fixture"
+
+        def is_app_session_id(self, session_id: str) -> bool:
+            return session_id.startswith("pawapp:fixture")
+
+        async def ensure_chat_session(self, _session_id):
+            return None
+
+        async def chat_stream(self, *_args, **_kwargs):
+            yield {"type": "done"}
+
+    fixture = FastAPI()
+    fixture.include_router(_build_capability_router())
+    fixture.dependency_overrides[get_scoped_ctx] = StreamContext
+    client = TestClient(fixture)
+
+    response = client.post(
+        "/chat/stream",
+        json={"message": "hi", "session_id": "pawapp:fixture"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["x-accel-buffering"] == "no"

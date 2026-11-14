@@ -206,7 +206,14 @@ def _build_capability_router(  # pylint: disable=too-many-statements
                 if managed_stream:
                     await source.aclose()
 
-        return StreamingResponse(events(), media_type="text/event-stream")
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @router.get("/chat/history")
     async def chat_history(
