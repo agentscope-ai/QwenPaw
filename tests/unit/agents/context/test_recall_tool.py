@@ -822,6 +822,89 @@ async def test_large_recall_is_cursor_paginated(
     assert "[recall page complete]" in _text(chunk)
 
 
+async def test_expand_cursor_survives_active_assistant_row_growth(
+    tmp_path: Path,
+):
+    """A continuation must not fingerprint the self-mutating live turn."""
+    db_path = tmp_path / "active-growth-history.db"
+    history = HistoryStore(db_path)
+    history.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="old-large-row",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            content="stable historical payload\n" * 500,
+        ),
+    )
+    history.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="current-user",
+        entry=LogEntry(
+            kind="context_msg",
+            role="user",
+            content="current request",
+        ),
+    )
+    active_seq = history.append(
+        session_id="s1",
+        agent_id="ag1",
+        dedup_key="current-assistant",
+        entry=LogEntry(
+            kind="model_turn",
+            role="assistant",
+            name="recall_history",
+            content="first recall call",
+            blocks=[{"type": "tool_call", "id": "call-1"}],
+        ),
+    )
+    bounded_tool = make_recall_history(
+        history_db_path=str(db_path),
+        session_id="s1",
+        agent_id="ag1",
+        page_max_bytes=1024,
+    )
+
+    first = await bounded_tool(op="expand", lo=1, hi=active_seq)
+    page = first.metadata[RECALL_PAGE_METADATA_KEY]
+    assert first.state == ToolResultState.SUCCESS
+    assert page["next_cursor"]
+    assert page["total_rows"] == 1
+
+    # AgentScope grows the same assistant Msg before the continuation executes.
+    history.update_entry(
+        active_seq,
+        content="first recall call\ncontinue recall",
+        headline=None,
+        blocks=[
+            {"type": "tool_call", "id": "call-1"},
+            {"type": "tool_call", "id": "call-2"},
+        ],
+        tool_call_id="call-2",
+        name="recall_history",
+        tool_state=None,
+        tool_input={"op": "expand", "lo": 1, "hi": active_seq},
+    )
+
+    pages = 1
+    while page["next_cursor"]:
+        chunk = await bounded_tool(
+            op="expand",
+            lo=1,
+            hi=active_seq,
+            cursor=page["next_cursor"],
+        )
+        pages += 1
+        assert chunk.state == ToolResultState.SUCCESS
+        page = chunk.metadata[RECALL_PAGE_METADATA_KEY]
+        assert pages < 100
+
+    history.close()
+    assert page["complete"] is True
+
+
 def test_render_page_with_long_utf8_label_always_advances():
     rows = [
         {
