@@ -67,7 +67,17 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 vi.mock("react-resizable-panels", () => ({
-  Group: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Group: ({
+    children,
+    disabled,
+  }: {
+    children: ReactNode;
+    disabled?: boolean;
+  }) => (
+    <div data-testid="terminal-layout" data-resize-disabled={disabled}>
+      {children}
+    </div>
+  ),
   Panel: (props: { children: ReactNode; id: string }) => {
     if (props.id === "terminal") mocks.panel(props);
     return <div>{props.children}</div>;
@@ -102,6 +112,30 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("conversation terminal dock", () => {
+  it("only enables resizing while the terminal is open", async () => {
+    mocks.list.mockResolvedValue([tab("first")]);
+    render(
+      <TerminalDock scope={scope} isDark={false}>
+        <Chat />
+      </TerminalDock>,
+    );
+    const layout = screen.getByTestId("terminal-layout");
+    expect(layout).toHaveAttribute("data-resize-disabled", "true");
+    expect(mocks.list).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    await screen.findByRole("tab", { name: "zsh 1" });
+    expect(layout).toHaveAttribute("data-resize-disabled", "false");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Hide terminal panel" }),
+    );
+    expect(layout).toHaveAttribute("data-resize-disabled", "true");
+    expect(mocks.collapse).toHaveBeenCalled();
+    expect(mocks.close).not.toHaveBeenCalled();
+    expect(mocks.mount).toHaveBeenCalledTimes(1);
+    expect(mocks.unmount).not.toHaveBeenCalled();
+  });
   it("collapses after dragging without changing the panel constraints", async () => {
     mocks.list.mockResolvedValue([tab("first")]);
     render(
