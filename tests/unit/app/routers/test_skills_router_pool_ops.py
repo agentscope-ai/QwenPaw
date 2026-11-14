@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import tempfile
 import threading
 import time
@@ -2030,7 +2031,12 @@ class TestDownloadPoolSkillRoute:
             # captured inside the loop: after the plan snapshot was taken
             # and before the finally leg cleaned it up
             seen_during_download.append(
-                sorted(path.name for path in temp_root.iterdir()),
+                sorted(
+                    path.name
+                    for path in workspace_dir.glob(
+                        ".qwenpaw_skill_rollback_*",
+                    )
+                ),
             )
             return {
                 "success": True,
@@ -2058,15 +2064,167 @@ class TestDownloadPoolSkillRoute:
 
         assert response.status_code == 200
         assert response.json()["downloaded"][0]["name"] == "demo"
-        # a rollback dir really existed mid-download (so the empty temp
-        # root below is a real cleanup, not a vacuous assertion), and the
+        # a rollback dir really existed mid-download (so the empty checks
+        # below are a real cleanup, not a vacuous assertion), and the
         # finally leg removed it again
         assert len(seen_during_download) == 1
         assert len(seen_during_download[0]) == 1
         assert seen_during_download[0][0].startswith(
-            "qwenpaw_skill_rollback_demo_",
+            ".qwenpaw_skill_rollback_demo_",
         )
+        assert list(workspace_dir.glob(".qwenpaw_skill_rollback_*")) == []
+        # the backup stayed on the workspace volume: system temp is untouched
         assert list(temp_root.iterdir()) == []
+
+    def test_rollback_backup_falls_back_to_temp_when_workspace_is_unwritable(
+        self,
+        workspace_agent,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """An unwritable workspace keeps the old temp-dir backup."""
+        temp_root = tmp_path / "tempdirs"
+        temp_root.mkdir()
+        monkeypatch.setattr(tempfile, "tempdir", str(temp_root))
+        workspace_dir = workspace_agent
+        _write_skill(workspace_dir / "skills" / "demo", "demo")
+        _write_workspace_manifest(
+            workspace_dir,
+            {"demo": {"enabled": True}},
+        )
+        real_mkdtemp = tempfile.mkdtemp
+
+        def _deny_workspace_mkdtemp(suffix=None, prefix=None, **kwargs):
+            if kwargs.get("dir") is not None:
+                raise OSError("read-only workspace")
+            return real_mkdtemp(suffix=suffix, prefix=prefix, **kwargs)
+
+        monkeypatch.setattr(tempfile, "mkdtemp", _deny_workspace_mkdtemp)
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        backup_dir = Path(snapshot["backup_dir"])
+        assert backup_dir.parent.parent == temp_root
+
+        skills_module._restore_workspace_skill(snapshot)
+        assert (workspace_dir / "skills" / "demo" / "SKILL.md").is_file()
+        assert list(temp_root.iterdir()) == []
+
+    def test_second_rollback_keeps_the_restored_files(self, workspace_agent):
+        """A retried rollback must not delete what the first pass restored.
+
+        Both rollback paths share one snapshot: the per-target restore in
+        ``_download_one_or_raise`` can finish for one workspace, and a later
+        failure makes ``_download_pool_skill_locked`` restore every target
+        again. With the rename backup the first pass consumes it, so a second
+        pass that starts from "remove the target" finds nothing to put back
+        and loses the user's files.
+        """
+        workspace_dir = workspace_agent
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+        _write_workspace_manifest(workspace_dir, {"demo": {"enabled": True}})
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        # the half-installed state: the staged copy is already in place and
+        # the pre-install copy sits in the backup dir
+        (skill_dir / "SKILL.md").write_text("staged", encoding="utf-8")
+
+        # first pass finishes completely, backup included
+        skills_module._restore_workspace_skill(snapshot)
+        assert (skill_dir / "SKILL.md").is_file()
+
+        # a later failure re-runs the same snapshot for every target
+        skills_module._restore_workspace_skill(snapshot)
+
+        restored = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        assert "name: demo" in restored
+        manifest = json.loads(
+            (workspace_dir / "skill.json").read_text(encoding="utf-8"),
+        )
+        assert manifest["skills"]["demo"]["enabled"] is True
+
+    def test_snapshot_copy_failure_falls_back_to_system_temp(
+        self,
+        workspace_agent,
+        monkeypatch,
+    ):
+        """A copy the workspace refuses must retry in the system temp dir.
+
+        Creating the directory and filling it are one attempt: the workspace
+        can accept the directory and then refuse the copy (no space, a write
+        rejected by policy).
+        """
+        workspace_dir = workspace_agent
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+
+        real_copytree = skills_module.shutil.copytree
+        attempts: list[str] = []
+
+        def _copytree(src, dst, **kwargs):
+            attempts.append(str(dst))
+            if str(dst).startswith(str(workspace_dir)):
+                raise OSError("No space left on device")
+            return real_copytree(src, dst, **kwargs)
+
+        monkeypatch.setattr(skills_module.shutil, "copytree", _copytree)
+
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        backup_dir = Path(snapshot["backup_dir"])
+        try:
+            assert len(attempts) == 2
+            assert not str(backup_dir).startswith(str(workspace_dir))
+            assert (backup_dir / "SKILL.md").is_file()
+            # the partial workspace backup was cleaned before the retry
+            assert (
+                list(workspace_dir.glob(".qwenpaw_skill_rollback_demo_*"))
+                == []
+            )
+        finally:
+            shutil.rmtree(backup_dir.parent, ignore_errors=True)
+
+    def test_plan_drops_earlier_backups_when_a_later_snapshot_fails(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A failed plan preparation must not leave earlier backups behind.
+
+        The download loop's ``finally`` has not started yet when the plan is
+        still being built, so the plan owns the cleanup until it is complete.
+        """
+        first = tmp_path / "ws1"
+        second = tmp_path / "ws2"
+        for workspace_dir in (first, second):
+            _write_skill(workspace_dir / "skills" / "demo", "demo")
+        targets = [
+            SimpleNamespace(workspace_id="ws1", workspace_dir=first),
+            SimpleNamespace(workspace_id="ws2", workspace_dir=second),
+        ]
+
+        real_copytree = skills_module.shutil.copytree
+
+        def _copytree(src, dst, **kwargs):
+            # both attempts fail for the second workspace, so the plan itself
+            # cannot be completed and has to clean up after itself
+            if str(src).startswith(str(second)):
+                raise OSError("No space left on device")
+            return real_copytree(src, dst, **kwargs)
+
+        monkeypatch.setattr(skills_module.shutil, "copytree", _copytree)
+
+        with pytest.raises(OSError):
+            skills_module._build_download_plan(targets, "demo")
+
+        assert list(first.glob(".qwenpaw_skill_rollback_demo_*")) == []
+        assert list(second.glob(".qwenpaw_skill_rollback_demo_*")) == []
 
 
 # ---------------------------------------------------------------------------
