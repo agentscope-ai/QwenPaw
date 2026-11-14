@@ -8,6 +8,7 @@ import pytest
 from qwenpaw.hub.model_service.api_models import ConnectionBody
 from qwenpaw.hub.model_service.provider_setup import (
     connection_provider,
+    provider_headers,
     provider_presets,
     supported_presets,
 )
@@ -71,6 +72,13 @@ def test_presets_publish_their_implementation_protocol():
     assert presets[f"minimax"][f"protocol"] == f"anthropic"
     assert presets[f"openai-response"][f"protocol"] == f"responses"
     assert presets[f"deepseek"][f"protocol"] == f"chat"
+
+
+@pytest.mark.parametrize(f"provider_id", list(supported_presets()))
+def test_every_builtin_preset_provides_transport_headers(provider_id):
+    """The gateway merges these headers for every presets-based connection."""
+    headers = provider_headers({f"provider_id": provider_id})
+    assert isinstance(headers, dict)
 
 
 def test_unknown_builtin_does_not_fall_back_to_custom_provider():

@@ -88,6 +88,10 @@ class AnthropicProvider(Provider):
         if client is not None:
             await client.aclose()
 
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
+
     def _build_default_headers(self) -> Dict[str, str]:
         return with_session_header(
             dict(self.custom_headers) if self.custom_headers else {},
