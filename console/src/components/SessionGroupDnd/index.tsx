@@ -12,7 +12,6 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
-  type DragOverEvent,
   type DragStartEvent,
   type CollisionDetection,
 } from "@dnd-kit/core";
@@ -22,7 +21,6 @@ import {
   useCallback,
   useContext,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -36,10 +34,7 @@ interface DragData {
   label: string;
 }
 
-const DragStateContext = createContext<{
-  active: boolean;
-  overGroupId: string | null;
-}>({ active: false, overGroupId: null });
+const DragSourceGroupContext = createContext<string | null>(null);
 
 export const sessionGroupCollisionDetection: CollisionDetection = (args) => {
   const pointer = args.pointerCoordinates;
@@ -92,32 +87,20 @@ export function SessionGroupDndProvider({
   );
   const [active, setActive] = useState<DragData | null>(null);
   const activeRef = useRef<DragData | null>(null);
-  const [overGroupId, setOverGroupId] = useState<string | null>(null);
 
   const handleDragStart = useCallback(
     (event: DragStartEvent) => {
       const source = event.active.data.current as DragData;
       activeRef.current = source;
       setActive(source);
-      setOverGroupId(null);
       onDragStateChange(true);
     },
     [onDragStateChange],
   );
 
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    const groupId = event.over?.data.current?.groupId;
-    if (typeof groupId === "string") {
-      setOverGroupId(groupId);
-    } else {
-      setOverGroupId(null);
-    }
-  }, []);
-
   const handleDragCancel = useCallback(() => {
     activeRef.current = null;
     setActive(null);
-    setOverGroupId(null);
     onDragStateChange(false);
   }, [onDragStateChange]);
 
@@ -127,17 +110,12 @@ export function SessionGroupDndProvider({
       const groupId = event.over?.data.current?.groupId;
       activeRef.current = null;
       setActive(null);
-      setOverGroupId(null);
       onDragStateChange(false);
       if (source && typeof groupId === "string" && groupId !== source.groupId) {
         onMove(source.sessionId, groupId);
       }
     },
     [onDragStateChange, onMove],
-  );
-  const dragState = useMemo(
-    () => ({ active: active !== null, overGroupId }),
-    [active, overGroupId],
   );
 
   return (
@@ -150,14 +128,13 @@ export function SessionGroupDndProvider({
         },
       }}
       onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
       onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <DroppableRemeasurer active={active !== null} />
-      <DragStateContext.Provider value={dragState}>
+      <DragSourceGroupContext.Provider value={active?.groupId ?? null}>
         {children}
-      </DragStateContext.Provider>
+      </DragSourceGroupContext.Provider>
       <DragOverlay>
         {active ? (
           <div className={styles.overlay}>
@@ -185,8 +162,8 @@ export function SessionDropZone({
   style,
   className = "",
 }: SessionDropZoneProps) {
-  const { active, overGroupId } = useContext(DragStateContext);
-  const { setNodeRef } = useDroppable({
+  const sourceGroupId = useContext(DragSourceGroupContext);
+  const { isOver, setNodeRef } = useDroppable({
     id,
     data: { groupId },
   });
@@ -195,7 +172,9 @@ export function SessionDropZone({
       ref={setNodeRef}
       style={style}
       className={`${className} ${
-        active && overGroupId === groupId ? styles.dropActive : ""
+        isOver && sourceGroupId !== null && sourceGroupId !== groupId
+          ? styles.dropActive
+          : ""
       }`}
     >
       {children}
