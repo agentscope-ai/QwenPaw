@@ -23,6 +23,7 @@
   height: var(--app-hit-desktop);
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   z-index: 20;
   pointer-events: none;
 }
@@ -46,8 +47,8 @@
 }
 .handle {
   pointer-events: auto;
-  width: var(--app-hit-desktop);
-  height: var(--app-hit-desktop);
+  width: var(--app-hit-target);
+  height: var(--app-hit-target);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -55,9 +56,9 @@
 .dockButton {
   position: absolute;
   pointer-events: auto;
-  right: var(--app-hit-desktop);
-  width: var(--app-hit-desktop);
-  height: var(--app-hit-desktop);
+  right: var(--app-hit-target);
+  width: var(--app-hit-target);
+  height: var(--app-hit-target);
   cursor: pointer;
 }
 .floating {
@@ -103,8 +104,8 @@
     justify-content: center;
   }
   .dockButton {
-    top: 26px;
-    right: calc(50% - 12px);
+    top: 100%;
+    right: calc(50% - var(--app-hit-target) / 2);
   }
 }
 .mobileExpanded {
@@ -124,12 +125,4 @@
   inset: 0;
   z-index: 89;
   background: rgb(0 0 0 / 12%);
-}
-
-@media (any-pointer: coarse) {
-  .handle,
-  .dockButton {
-    width: var(--app-hit-touch);
-    height: var(--app-hit-touch);
-  }
 }
