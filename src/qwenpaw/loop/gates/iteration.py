@@ -77,6 +77,7 @@ class IterationGate(LoopGate):
                 reason=(
                     f"Max iterations " f"({state.max_iterations}) reached"
                 ),
+                outcome_code="max_iterations",
             )
         return StopHandlerResult(
             action=StopAction.BYPASS,
