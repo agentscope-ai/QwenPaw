@@ -845,6 +845,33 @@ describe("FilesWorkspace directory changes", () => {
     expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the navigator and editor mounted when directories are confirmed", () => {
+    const scope = {
+      kind: "session" as const,
+      agentId: "agent-a",
+      sessionId: "session-a",
+      chatId: "chat-a",
+    };
+    render(<FilesWorkspace scope={scope} />);
+
+    act(() => notifyProjectDirectoryChanged(scope, { preserveTabs: true }));
+
+    expect(lifecycle.clearProjectTabs).not.toHaveBeenCalled();
+    expect(lifecycle.navigatorUnmounted).not.toHaveBeenCalled();
+    expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(1);
+    expect(lifecycle.editorUnmounted).not.toHaveBeenCalled();
+    expect(lifecycle.editorMounted).toHaveBeenCalledTimes(1);
+
+    act(() => notifyProjectDirectoryChanged(scope));
+
+    expect(lifecycle.clearProjectTabs).toHaveBeenCalledWith(
+      "session:agent-a:session-a",
+    );
+    expect(lifecycle.navigatorMounted).toHaveBeenCalledTimes(2);
+    expect(lifecycle.editorUnmounted).toHaveBeenCalledTimes(1);
+    expect(lifecycle.editorMounted).toHaveBeenCalledTimes(2);
+  });
+
   it("saves with the loaded ETag and stores the returned version", async () => {
     lifecycle.tabs = [
       {

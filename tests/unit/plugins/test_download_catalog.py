@@ -58,7 +58,17 @@ def test_plugins_catalog_transport_failure_returns_fallback(
     assert result["error"] == "Failed to fetch plugins metadata"
 
 
-def test_build_plugin_catalog_returns_normalized_plugins() -> None:
+@pytest.mark.parametrize(
+    ("kind", "url"),
+    [
+        ("python", "/plugins/demo-1.0.0.zip"),
+        ("harness", "/plugins/harness/demo/demo-1.0.0.zip"),
+    ],
+)
+def test_build_plugin_catalog_returns_normalized_plugins(
+    kind: str,
+    url: str,
+) -> None:
     main_index = {"products": {"plugins": {"index_url": "/plugins.json"}}}
     plugins_index = {
         "updated_at": "2026-09-14T00:00:00Z",
@@ -69,8 +79,8 @@ def test_build_plugin_catalog_returns_normalized_plugins() -> None:
                 "name": {"en-US": "Demo"},
                 "description": {"en-US": "A demo plugin"},
                 "version": "1.0.0",
-                "platform": "python",
-                "url": "/plugins/demo-1.0.0.zip",
+                "platform": kind,
+                "url": url,
             },
         },
     }
@@ -97,13 +107,10 @@ def test_build_plugin_catalog_returns_normalized_plugins() -> None:
             "description_i18n": {"en-US": "A demo plugin"},
             "version": "1.0.0",
             "author": "",
-            "kind": "python",
+            "kind": kind,
             "size": "",
             "sha256": "",
-            "install_url": (
-                "https://download.qwenpaw.agentscope.io"
-                "/plugins/demo-1.0.0.zip"
-            ),
+            "install_url": "https://download.qwenpaw.agentscope.io" + url,
             "installed": False,
             "installed_version": None,
             "upgrade_available": False,

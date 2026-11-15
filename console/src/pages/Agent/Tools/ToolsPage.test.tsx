@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({
   plugin: false,
+  browser: null as null | Record<string, unknown>,
   toggleEnabled: vi.fn(),
   enableAll: vi.fn(),
   disableAll: vi.fn(),
@@ -24,7 +25,16 @@ vi.mock("react-i18next", async (importOriginal) => {
 });
 vi.mock("./useTools", () => ({
   useTools: () => ({
-    tools: state.plugin
+    tools: state.browser
+      ? [
+          {
+            name: "browser",
+            description: "Browser automation",
+            enabled: true,
+            config_values: state.browser,
+          },
+        ]
+      : state.plugin
       ? [
           {
             name: "read_file",
@@ -64,6 +74,7 @@ import { useTranslation } from "react-i18next";
 beforeEach(async () => {
   vi.clearAllMocks();
   state.plugin = false;
+  state.browser = null;
   await useTranslation().i18n.changeLanguage("en");
 });
 describe("ToolsPage", () => {
@@ -134,6 +145,32 @@ describe("ToolsPage", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
     );
   });
+
+  it.each([
+    [
+      { experimental: false },
+      "Use the original browser implementation for legacy behavior.",
+    ],
+    [{ experimental: true }, "Use the new unified browser capabilities."],
+    [
+      { experimental: false, experimental_effective: true },
+      "Use the new unified browser capabilities.",
+    ],
+    [
+      { experimental: true, experimental_effective: false },
+      "Use the original browser implementation for legacy behavior.",
+    ],
+  ])(
+    "preserves the effective Browser track description in the documentation drawer",
+    async (config, description) => {
+      state.browser = config;
+      render(<ToolsPage />);
+      fireEvent.click(
+        screen.getByRole("button", { name: "Use the browser · Help" }),
+      );
+      expect(await screen.findByRole("dialog")).toHaveTextContent(description);
+    },
+  );
 
   it("exposes an accessible switch for a disabled tool", () => {
     render(<ToolsPage />);

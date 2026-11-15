@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -140,17 +141,115 @@ async def test_attach_or_start_reports_completion_before_becoming_idle():
         completions.append((run_key, finished_at))
         assert await tracker.get_status(run_key) == "running"
 
+    event = {f"object": f"response", f"status": f"completed"}
+    terminal = f"data: {json.dumps(event)}\n\n"
     queue, _ = await tracker.attach_or_start(
         "run-with-callback",
         payload=None,
-        stream_fn=_make_stream([]),
+        stream_fn=_make_stream([terminal]),
         on_finished=on_finished,
     )
+    assert await asyncio.wait_for(queue.get(), timeout=1) == terminal
     assert await asyncio.wait_for(queue.get(), timeout=1) is None
 
     assert len(completions) == 1
     assert completions[0][0] == "run-with-callback"
     assert await tracker.get_status("run-with-callback") == "idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    (f"event", f"expected"),
+    [
+        ({f"object": f"response", f"status": f"completed"}, 1),
+        ({f"object": f"message", f"status": f"completed"}, 0),
+        ({f"object": f"response", f"status": f"failed"}, 0),
+        ({f"object": f"response", f"status": f"canceled"}, 0),
+        ({f"object": f"response", f"status": f"in_progress"}, 0),
+        (
+            {
+                f"object": f"response",
+                f"status": f"completed",
+                f"error": {f"message": f"model failed"},
+            },
+            0,
+        ),
+    ],
+)
+async def test_completion_callback_requires_successful_response(
+    event,
+    expected,
+):
+    tracker = TaskTracker()
+    callback = AsyncMock()
+    queue, _ = await tracker.attach_or_start(
+        f"completion-test",
+        payload=None,
+        stream_fn=_make_stream([f"data: {json.dumps(event)}\n\n"]),
+        on_finished=callback,
+    )
+    async for _ in tracker.stream_from_queue(queue, f"completion-test"):
+        pass
+
+    assert callback.await_count == expected
+    assert await tracker.get_status(f"completion-test") == f"idle"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(f"cancel", [False, True])
+async def test_failed_or_canceled_producer_does_not_mark_completion(cancel):
+    tracker = TaskTracker()
+    callback = AsyncMock()
+
+    async def stream(_payload):
+        event = {f"object": f"response", f"status": f"completed"}
+        yield f"data: {json.dumps(event)}\n\n"
+        if cancel:
+            raise asyncio.CancelledError()
+        raise RuntimeError(f"stream failed")
+
+    queue, _ = await tracker.attach_or_start(
+        f"interrupted-test",
+        payload=None,
+        stream_fn=stream,
+        on_finished=callback,
+    )
+    async for _ in tracker.stream_from_queue(queue, f"interrupted-test"):
+        pass
+
+    callback.assert_not_awaited()
+    assert await tracker.get_status(f"interrupted-test") == f"idle"
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_waits_for_actual_background_completion():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    finished = asyncio.Event()
+    callback = AsyncMock(side_effect=lambda *_: finished.set())
+
+    async def stream(_payload):
+        started.set()
+        await release.wait()
+        event = {f"object": f"response", f"status": f"completed"}
+        yield f"data: {json.dumps(event)}\n\n"
+
+    queue, _ = await tracker.attach_or_start(
+        f"detached-completion",
+        payload=None,
+        stream_fn=stream,
+        on_finished=callback,
+    )
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await tracker.detach_subscriber(f"detached-completion", queue)
+    callback.assert_not_awaited()
+    assert await tracker.get_status(f"detached-completion") == f"running"
+
+    release.set()
+    await asyncio.wait_for(finished.wait(), timeout=1)
+    callback.assert_awaited_once()
+    assert await tracker.get_status(f"detached-completion") == f"idle"
 
 
 @pytest.mark.asyncio

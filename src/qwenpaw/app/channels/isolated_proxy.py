@@ -469,22 +469,56 @@ class IsolatedChannelProxy(BaseChannel):
             if self._connection_timeout is None
             else self._connection_timeout
         )
-        async with asyncio.timeout(timeout):
-            while True:
-                snapshot = self.channel_process.health_snapshot()
-                if (
-                    snapshot["state"] == "ready"
-                    and snapshot["platform_state"] == "connected"
-                ):
-                    return
-                if snapshot["state"] != "ready" or snapshot[
-                    "platform_state"
-                ] in {
-                    "failed",
-                    "disconnected",
-                }:
-                    raise RuntimeError("CHANNEL_NOT_CONNECTED")
-                await asyncio.sleep(0.01)
+        started = time.monotonic()
+        diagnostic = getattr(self.channel_process, "log_startup", None)
+
+        def failed(reason):
+            if not callable(diagnostic):
+                return
+            try:
+                health = self.channel_process.health_snapshot()
+                diagnostic(
+                    "connection_failed",
+                    reason=reason,
+                    budget=timeout,
+                    elapsed_ms=round((time.monotonic() - started) * 1000),
+                    health={
+                        key: health.get(key)
+                        for key in (
+                            "state",
+                            "platform_state",
+                            "last_error",
+                            "pid",
+                            "generation",
+                            "returncode",
+                            "log_bytes",
+                        )
+                    },
+                )
+            except Exception:
+                pass
+
+        try:
+            async with asyncio.timeout(timeout):
+                while True:
+                    snapshot = self.channel_process.health_snapshot()
+                    if (
+                        snapshot["state"] == "ready"
+                        and snapshot["platform_state"] == "connected"
+                    ):
+                        return
+                    if snapshot["state"] != "ready" or snapshot[
+                        "platform_state"
+                    ] in {
+                        "failed",
+                        "disconnected",
+                    }:
+                        failed("state")
+                        raise RuntimeError("CHANNEL_NOT_CONNECTED")
+                    await asyncio.sleep(0.01)
+        except TimeoutError:
+            failed("timeout")
+            raise
 
     async def stop(self):
         self.last_stop_result = None
@@ -1842,7 +1876,14 @@ class IsolatedChannelProxy(BaseChannel):
     async def _response_policy(self, to_handle, meta):
         route = await self._route(to_handle, meta)
         cached = meta.get("_response_policy")
-        if cached is not None and cached[0] == route:
+        # A serialized copy (e.g. round-tripped through JSON for a runtime
+        # tool) is not a policy; only reuse a live route/DTO pair.
+        if (
+            isinstance(cached, tuple)
+            and len(cached) == 2
+            and cached[0] == route
+            and isinstance(cached[1], ResponsePolicy)
+        ):
             return cached[1]
         value = await self.channel_process.call(
             "channel.response.describe",

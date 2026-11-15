@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from ...exceptions import SkillConflictError
 
-
 ALL_SKILL_ROUTING_CHANNELS = [
     "console",
     "discord",
@@ -56,6 +55,7 @@ class SkillInfo(BaseModel):
     name: str
     description: str = ""
     version_text: str = ""
+    installation_origin: dict[str, Any] | None = None
     content: str
     source: str
     references: dict[str, Any] = Field(default_factory=dict)

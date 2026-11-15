@@ -619,73 +619,52 @@ def test_get_api_harnesses_provider_id_skills_29(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_status_30(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/status with empty body is
-    rejected or
-    safely handled."""
+    """Unknown Harness status returns an actionable missing-backend error."""
     resp = _req(
         app_server,
         "POST",
         "/api/harnesses/integ-unknown-xyz/status",
         json={},
     )
-    assert resp.status_code in (
-        200,
-        400,
-        403,
-        404,
-        409,
-        422,
-        500,
-        503,
-    ), app_server.logs_tail()
+    assert resp.status_code == 404, app_server.logs_tail()
+    assert resp.json()["detail"] == {
+        "code": "backend_unavailable",
+        "backend_id": "integ-unknown-xyz",
+    }
 
 
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_login_31(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/login with empty body is
-    rejected or safely
-    handled."""
+    """Unknown Harness login returns an actionable missing-backend error."""
     resp = _req(
         app_server,
         "POST",
         "/api/harnesses/integ-unknown-xyz/login",
         json={},
     )
-    assert resp.status_code in (
-        200,
-        400,
-        403,
-        404,
-        409,
-        422,
-        500,
-        503,
-    ), app_server.logs_tail()
+    assert resp.status_code == 404, app_server.logs_tail()
+    assert resp.json()["detail"] == {
+        "code": "backend_unavailable",
+        "backend_id": "integ-unknown-xyz",
+    }
 
 
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_harnesses_provider_id_logout_32(app_server) -> None:
-    """Contract: POST /api/harnesses/{provider_id}/logout with empty body is
-    rejected or
-    safely handled."""
+    """Unknown Harness logout returns an actionable missing-backend error."""
     resp = _req(
         app_server,
         "POST",
         "/api/harnesses/integ-unknown-xyz/logout",
         json={},
     )
-    assert resp.status_code in (
-        200,
-        400,
-        403,
-        404,
-        409,
-        422,
-        500,
-        503,
-    ), app_server.logs_tail()
+    assert resp.status_code == 404, app_server.logs_tail()
+    assert resp.json()["detail"] == {
+        "code": "backend_unavailable",
+        "backend_id": "integ-unknown-xyz",
+    }
 
 
 @pytest.mark.integration

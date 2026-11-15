@@ -66,6 +66,7 @@ import {
 import type { AuthStatusResponse } from "./api/modules/auth";
 import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
+import { useDesktopTrayLabels } from "./tauri/useDesktopTrayLabels";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
 import { isSafeCssColor } from "./utils/chatThemeColor";
@@ -82,6 +83,7 @@ import "./styles/layout.css";
 import "./styles/form-override.css";
 import "./styles/workspace.css";
 import { PressFeedback } from "./components/interaction/PressFeedback";
+import { AuthStatusProvider } from "./contexts/AuthStatusContext";
 import "katex/dist/katex.min.css";
 
 const antdLocaleMap: Record<string, Locale> = {
@@ -388,6 +390,7 @@ function AppInner({
   backendInfo: BackendInfo;
   loadingFallback?: React.ReactNode;
 }) {
+  useDesktopTrayLabels();
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
@@ -579,7 +582,9 @@ function AppInner({
               <UpdateTakeoverGate>
                 <ApprovalProvider>
                   <FontSizeProvider value={effectiveFontSize}>
-                    {routedContent}
+                    <AuthStatusProvider value={backendInfo.authStatus}>
+                      {routedContent}
+                    </AuthStatusProvider>
                   </FontSizeProvider>
                 </ApprovalProvider>
               </UpdateTakeoverGate>

@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
-"""One-shot overflow recovery across model calls and stream consumption.
+"""One recovery boundary across model calls and stream consumption.
 
 The agent supplies recovery that classifies the error, compacts context,
 rebuilds input, and calls the model again. This module owns the retry boundary
-and stream lifecycle; the recovery response is never wrapped for retry again.
+and stream lifecycle; it does not rewrap the recovery response. A caller may
+return an already wrapped retry with a shared budget for multiple attempts.
 """
 
 from __future__ import annotations

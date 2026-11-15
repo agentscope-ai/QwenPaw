@@ -42,11 +42,6 @@ export const LocalModelRow = memo(function LocalModelRow({
   const isRunning = currentRunningModelName === model.id;
   const isStarting = startingModelName === model.id;
   const isDeleting = deletingModelName === model.id;
-  // Keep stored IDs for lifecycle actions on legacy downloads.
-  const displayRepoId = model.id.replace(
-    /^AgentScope\/((?:CoPaw|QwenPaw)-Flash-)/,
-    "agentscope-ai/$1",
-  );
 
   const displayName =
     model.name === model.id
@@ -58,7 +53,7 @@ export const LocalModelRow = memo(function LocalModelRow({
       <div className={styles.modelListItemInfo}>
         <span className={styles.modelListItemName}>{displayName}</span>
         <span className={styles.modelListItemId}>
-          {displayRepoId} · {prettyBytes(model.size_bytes)}
+          {model.id} · {prettyBytes(model.size_bytes)}
         </span>
       </div>
       <div className={styles.modelListItemActions}>

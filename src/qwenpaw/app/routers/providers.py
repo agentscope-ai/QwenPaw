@@ -294,6 +294,7 @@ class ModelConfigRequest(BaseModel):
     )
     thinking_budget: Optional[int] = Field(
         default=None,
+        ge=1,
         description="Token budget for thinking.",
     )
     reasoning_effort: Optional[str] = Field(

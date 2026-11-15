@@ -79,144 +79,170 @@ afterEach(() => {
 });
 
 describe("useInboxData", () => {
-  it("fetches older unread events outside the latest 200 messages", async () => {
-    const recentReadEvents = Array.from({ length: 200 }, (_, index) =>
-      event({ id: `recent-${index}`, read: true, created_at: 2000 + index }),
+  it("keeps local messages and reports an isolated community source failure until recovery", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "local-cron" })],
+      total: 1,
+      unread_count: 1,
+      source_errors: { community: "community_history_unavailable" },
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() =>
+      expect(result.current.error).toBe("community_history_unavailable"),
     );
-    mocks.getInboxEvents.mockImplementation(
-      ({ unread_only }: { unread_only: boolean }) =>
-        Promise.resolve({
-          events: unread_only
-            ? [event({ id: "older-unread", created_at: 1000 })]
-            : recentReadEvents,
-          total: unread_only ? 1 : 201,
-          unread_count: 1,
+    expect(result.current.pushMessages.map((message) => message.id)).toEqual([
+      "local-cron",
+    ]);
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 1,
+      unread: 1,
+    });
+
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "local-cron" })],
+      total: 1,
+      unread_count: 1,
+    });
+    await act(async () => {
+      await result.current.refreshPushMessages();
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.pushMessages[0].id).toBe("local-cron");
+  });
+
+  it("requests the selected server page and preserves totals beyond the old 200-message window", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({
+          id: "old-community",
+          source_type: "community",
+          agent_id: "",
+          event_type: "mention",
+          body: "Keep duration=1234ms.",
+          payload: { sender: { id: "member-7", name: "Maintainer" } },
+        }),
+      ],
+      total: 405,
+      unread_count: 18,
+    });
+    const { result } = renderHook(() =>
+      useInboxData({
+        sourceType: "community",
+        agentId: "wrong-agent",
+        page: 42,
+        pageSize: 5,
+      }),
+    );
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    expect(mocks.getInboxEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source_types: ["community"],
+        agent_id: undefined,
+        offset: 205,
+        limit: 5,
+        exclude_acl_pending: true,
+      }),
+    );
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 405,
+      unread: 18,
+    });
+    const item = result.current.pushMessages[0];
+    expect(item.sender.username).toBe("Maintainer");
+    expect(item.sender.userId).toBe("member-7");
+    expect(item.metadata?.agentId).toBeUndefined();
+    expect(item.channelType).toBe("community");
+    expect(item.content).toBe("Keep duration=1234ms.");
+  });
+
+  it("passes unread_only to the API when unreadOnly is enabled", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "unread-1", read: false })],
+      total: 1,
+      unread_count: 1,
+    });
+    const { result } = renderHook(() => useInboxData({ unreadOnly: true }));
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    expect(mocks.getInboxEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ unread_only: true }),
+    );
+  });
+
+  it("marks all community messages read within the selected source and returns the server's full count", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ source_type: "community", agent_id: "" })],
+      total: 450,
+      unread_count: 250,
+    });
+    mocks.markInboxRead.mockResolvedValue({ updated: 250 });
+    const { result } = renderHook(() =>
+      useInboxData({
+        sourceType: "community",
+        agentId: "old-agent",
+        pageSize: 5,
+      }),
+    );
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ source_type: "community", agent_id: "", read: true })],
+      total: 450,
+      unread_count: 0,
+    });
+    let count = 0;
+    await act(async () => {
+      count = await result.current.markAllMessagesAsRead();
+    });
+    expect(mocks.markInboxRead).toHaveBeenCalledWith({
+      all: true,
+      source_types: ["community"],
+    });
+    expect(count).toBe(250);
+  });
+
+  it("ignores an old request after the user changes the source filter", async () => {
+    let resolveOld!: (result: unknown) => void;
+    mocks.getInboxEvents.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveOld = resolve;
         }),
     );
     const { result, rerender } = renderHook(
-      ({ unreadOnly }) => useInboxData(unreadOnly),
-      { initialProps: { unreadOnly: false } },
+      ({ sourceType }) => useInboxData({ sourceType }),
+      { initialProps: { sourceType: "cron" } },
     );
-    await waitFor(() => {
-      expect(result.current.pushMessages).toHaveLength(200);
+    const oldSignal = mocks.getInboxEvents.mock.calls[0][0]
+      .signal as AbortSignal;
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "community", source_type: "community" })],
+      total: 1,
     });
-    expect(result.current.pushMessages.some((item) => !item.read)).toBe(false);
-
-    rerender({ unreadOnly: true });
-    await waitFor(() => {
-      expect(result.current.pushMessages.map((item) => item.id)).toEqual([
-        "older-unread",
-      ]);
-    });
-    expect(mocks.getInboxEvents).toHaveBeenLastCalledWith(
-      expect.objectContaining({ unread_only: true }),
-    );
-    expect(result.current.summary.pushMessages.unread).toBe(1);
-
-    rerender({ unreadOnly: false });
-    await waitFor(() => {
-      expect(result.current.pushMessages).toHaveLength(200);
-    });
-    expect(mocks.getInboxEvents).toHaveBeenLastCalledWith(
-      expect.objectContaining({ unread_only: false }),
-    );
-  });
-
-  it("starts an unread query while the previous filter is still loading", async () => {
-    const older = deferred<{ events: ReturnType<typeof event>[] }>();
-    const newer = deferred<{ events: ReturnType<typeof event>[] }>();
-    mocks.getInboxEvents
-      .mockReturnValueOnce(older.promise)
-      .mockReturnValueOnce(newer.promise);
-    const { result, rerender } = renderHook(
-      ({ unreadOnly }) => useInboxData(unreadOnly),
-      { initialProps: { unreadOnly: false } },
-    );
-
-    rerender({ unreadOnly: true });
-    expect(mocks.getInboxEvents).toHaveBeenCalledTimes(2);
-    await act(async () => {
-      newer.resolve({ events: [event({ id: "unread" })] });
-      await newer.promise;
-    });
-    await act(async () => {
-      older.resolve({ events: [event({ id: "read", read: true })] });
-      await older.promise;
-    });
-    expect(result.current.pushMessages.map((item) => item.id)).toEqual([
-      "unread",
-    ]);
-    expect(result.current.pushMessagesLoading).toBe(false);
-  });
-
-  it("ignores unread results after quickly switching back to all messages", async () => {
-    const unreadRequest = deferred<{ events: ReturnType<typeof event>[] }>();
-    mocks.getInboxEvents
-      .mockResolvedValueOnce({ events: [event({ id: "initial" })] })
-      .mockReturnValueOnce(unreadRequest.promise)
-      .mockResolvedValueOnce({ events: [event({ id: "all", read: true })] });
-    const { result, rerender } = renderHook(
-      ({ unreadOnly }) => useInboxData(unreadOnly),
-      { initialProps: { unreadOnly: false } },
-    );
-    await waitFor(() => expect(result.current.pushMessagesLoading).toBe(false));
-    rerender({ unreadOnly: true });
-    expect(result.current.pushMessagesLoading).toBe(true);
-    expect(result.current.pushMessages).toEqual([]);
-
-    rerender({ unreadOnly: false });
-    await waitFor(() => expect(result.current.pushMessagesLoading).toBe(false));
-    await act(async () => {
-      unreadRequest.resolve({ events: [event({ id: "late-unread" })] });
-      await unreadRequest.promise;
-    });
-    expect(result.current.pushMessages.map((item) => item.id)).toEqual(["all"]);
-  });
-
-  it("clears the previous filter's error while loading the unread view", async () => {
-    const unreadRequest = deferred<{ events: ReturnType<typeof event>[] }>();
-    mocks.getInboxEvents
-      .mockRejectedValueOnce(new Error("offline"))
-      .mockReturnValueOnce(unreadRequest.promise);
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { result, rerender } = renderHook(
-      ({ unreadOnly }) => useInboxData(unreadOnly),
-      { initialProps: { unreadOnly: false } },
-    );
+    rerender({ sourceType: "community" });
     await waitFor(() =>
-      expect(result.current.pushMessagesError).not.toBeNull(),
+      expect(result.current.pushMessages[0]?.id).toBe("community"),
     );
-    rerender({ unreadOnly: true });
-    expect(result.current.pushMessagesError).toBeNull();
-    expect(result.current.pushMessagesLoading).toBe(true);
     await act(async () => {
-      unreadRequest.resolve({ events: [] });
-      await unreadRequest.promise;
+      resolveOld({ events: [event({ id: "stale" })], total: 1 });
     });
-    expect(result.current.pushMessagesLoading).toBe(false);
-    errSpy.mockRestore();
+    expect(oldSignal.aborted).toBe(true);
+    expect(result.current.pushMessages[0].id).toBe("community");
   });
 
-  it("keeps the unread filter when polling and retrying", async () => {
-    vi.useFakeTimers();
-    try {
-      const { result } = renderHook(() => useInboxData(true));
-      await act(async () => {
-        await Promise.resolve();
-      });
-      await act(async () => {
-        vi.advanceTimersByTime(6000);
-      });
-      await act(async () => {
-        await result.current.refreshPushMessages();
-      });
-      expect(mocks.getInboxEvents).toHaveBeenCalledTimes(3);
-      expect(
-        mocks.getInboxEvents.mock.calls.every(([params]) => params.unread_only),
-      ).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("does not mark a message locally when the server rejects the read", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event()],
+      total: 1,
+      unread_count: 1,
+    });
+    mocks.markInboxRead.mockRejectedValue(new Error("offline"));
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
+    await act(async () => {
+      result.current.markMessageAsRead("e-1");
+    });
+    expect(result.current.pushMessages[0].read).toBe(false);
+    expect(result.current.summary.pushMessages.unread).toBe(1);
+    expect(result.current.error).toBe("offline");
   });
 
   it("loads push messages on mount and sorts newest first", async () => {
@@ -458,8 +484,14 @@ describe("useInboxData", () => {
     await waitFor(() => {
       expect(result.current.summary.pushMessages.unread).toBe(1);
     });
-    act(() => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "m1", read: true })],
+      total: 1,
+      unread_count: 0,
+    });
+    await act(async () => {
       result.current.markMessageAsRead("m1");
+      await Promise.resolve();
     });
     expect(mocks.markInboxRead).toHaveBeenCalledWith({ event_ids: ["m1"] });
     expect(result.current.pushMessages[0].read).toBe(true);
@@ -475,6 +507,14 @@ describe("useInboxData", () => {
     const { result } = renderHook(() => useInboxData());
     await waitFor(() => {
       expect(result.current.pushMessages.length).toBe(2);
+    });
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({ id: "m1", read: true }),
+        event({ id: "m2", read: true }),
+      ],
+      total: 2,
+      unread_count: 0,
     });
     let count = -1;
     await act(async () => {
@@ -495,6 +535,11 @@ describe("useInboxData", () => {
     const { result } = renderHook(() => useInboxData());
     await waitFor(() => {
       expect(result.current.pushMessages.length).toBe(2);
+    });
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "b", read: true })],
+      total: 1,
+      unread_count: 0,
     });
     await act(async () => {
       await result.current.deleteMessages(["a", " a ", ""]);

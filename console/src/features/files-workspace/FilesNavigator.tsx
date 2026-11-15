@@ -50,6 +50,7 @@ import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import SessionProjectDirectory from "../project-directory/SessionProjectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { loadSessionProjectDirs } from "../project-directory/loadSessionProjectDirs";
+import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import {
   isProjectRoot,
   projectRootPath,
@@ -555,6 +556,7 @@ export default function FilesNavigator({
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
   const [directoryRevision, setDirectoryRevision] = useState(0);
+  const directoryIdentitySeq = useRef(0);
   const [expansion, setExpansion] = useState<
     Record<string, ReadonlySet<string>>
   >({});
@@ -804,12 +806,14 @@ export default function FilesNavigator({
   }, [allProfileFiles, managedProfileNames, profileSearch]);
 
   const loadDirectoryIdentity = useCallback(async () => {
+    const seq = ++directoryIdentitySeq.current;
     const agentInfo = await projectDirectoryApi.get();
     const effectiveProject = projectDirOverride
       ? projectDirOverride
       : chatId
       ? (await chatProjectDirectoryApi.get(chatId)).project_dir
       : agentInfo.path;
+    if (seq !== directoryIdentitySeq.current) return;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
     if (scopeKind !== "session") {
@@ -819,11 +823,12 @@ export default function FilesNavigator({
     }
     try {
       const snapshot = await loadSessionProjectDirs(agentId, sessionId, chatId);
+      if (seq !== directoryIdentitySeq.current) return;
       setBoundDirs(snapshot.dirs);
     } catch {
       // Fall back to the single directory above rather than blanking the
       // switcher: the tree itself is still perfectly usable.
-      setBoundDirs([]);
+      if (seq === directoryIdentitySeq.current) setBoundDirs([]);
     }
   }, [agentId, chatId, projectDirOverride, scopeKind, sessionId]);
 
@@ -876,6 +881,22 @@ export default function FilesNavigator({
   useEffect(() => {
     void Promise.all([loadDirectoryIdentity(), loadProfile()]);
   }, [loadDirectoryIdentity, loadProfile]);
+
+  useEffect(() => {
+    const sequence = directoryIdentitySeq;
+    const unsubscribe = listenForProjectDirectoryChanges(
+      (changedScopeKey, options) => {
+        if (changedScopeKey !== scopeKey || !options.preserveTabs) return;
+        // Refresh data without unmounting the open directory editor.
+        setDirectoryRevision((current) => current + 1);
+        void loadDirectoryIdentity();
+      },
+    );
+    return () => {
+      unsubscribe();
+      sequence.current++;
+    };
+  }, [loadDirectoryIdentity, scopeKey]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a

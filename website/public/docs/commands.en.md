@@ -85,6 +85,8 @@ Optionally, add a one-shot instruction to guide which supported information the 
 
 > ⚠️ **Warning**: `/clear` is **irreversible**! Unlike `/new`, cleared content will not be saved.
 
+After `/clear` or a successful `/new`, reopening the cleared chat or reloading the Console shows the empty-state greeting instead of restoring the command as a user message.
+
 ---
 
 ## Checkpoint Commands

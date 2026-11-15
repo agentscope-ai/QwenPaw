@@ -98,6 +98,17 @@ export function ToolDetailDrawer({
             <div className={styles.detailSectionTitle}>
               {t("tools.detailAbout")}
             </div>
+            {tool.name === "browser" && !tool.source_plugin_id && (
+              <p>
+                {(
+                  tool.config_values?.experimental_effective === undefined
+                    ? tool.config_values?.experimental !== false
+                    : tool.config_values.experimental_effective !== false
+                )
+                  ? t("tools.browserUnifiedDescription")
+                  : t("tools.browserLegacyDescription")}
+              </p>
+            )}
             <MarkdownCopy
               content={tool.detail || tool.summary || tool.description || "-"}
               editable={false}

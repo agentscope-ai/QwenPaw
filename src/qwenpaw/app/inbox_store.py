@@ -9,6 +9,7 @@ from typing import Any
 
 from ..constant import WORKING_DIR
 from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
+from .notification_store import publish_inbox
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ async def append_event(
         events.insert(0, event)
         del events[_MAX_EVENTS:]
         await run_sync_io(_save_events, events)
+    publish_inbox(event)
     return event
 
 
@@ -116,10 +118,13 @@ async def query_events(
     status: str | None = None,
     agent_id: str | None = None,
     unread_only: bool = False,
+    event_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Return a filtered page with exact total and unread counts."""
     async with _LOCK:
         events = await run_sync_io(_load_events)
+    if event_id:
+        events = [event for event in events if event.get(f"id") == event_id]
     if source_types:
         events = [
             event
