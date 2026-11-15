@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -159,5 +159,24 @@ describe("ApprovalQueueOverlay", () => {
     expect(
       screen.getByRole("button", { name: "Resolve Second approval" }),
     ).toBeTruthy();
+  });
+
+  it("selects and focuses the approval targeted by a notification", async () => {
+    render(
+      <ApprovalQueueOverlay
+        items={requests}
+        focusedRequestId="second"
+        focusKey="notification-1"
+        renderItem={(item) => <span>{item.label}</span>}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Second approval")).toBeInTheDocument();
+      expect(screen.queryByText("First approval")).toBeNull();
+      expect(
+        document.querySelector('[data-approval-id="second"]'),
+      ).toHaveFocus();
+    });
   });
 });

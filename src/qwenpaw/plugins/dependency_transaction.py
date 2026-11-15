@@ -41,6 +41,7 @@ _PLAN_FIELDS = (
     "continuation_command",
     "host_bundle_identity",
     "dependency_state_dir",
+    "policy_version",
 )
 
 
@@ -75,6 +76,7 @@ def authenticate_plan(directory, operation, *, seal=False):
                 "continuation_command",
                 "host_bundle_identity",
                 "dependency_state_dir",
+                "policy_version",
             }
         },
         sort_keys=True,
@@ -126,20 +128,6 @@ def environment_fingerprint(snapshot):
     return hashlib.sha256(
         json.dumps(evidence, sort_keys=True).encode(),
     ).hexdigest()
-
-
-def visible_distributions(distributions, sites):
-    """Select provider rows by physical site identity without changing them."""
-    visible = {str(canonical(site)) for site in sites}
-    visibility, result = {}, {}
-    for name, row in distributions.items():
-        site = Path(row["metadata_path"]).parent
-        key = str(site)
-        if key not in visibility:
-            visibility[key] = str(canonical(site)) in visible
-        if visibility[key]:
-            result[name] = row
-    return result
 
 
 def verify_providers(observed, proposed, changes, *, full_metadata=True):
@@ -342,15 +330,68 @@ def prepare_payload(
                     )
                 old_files[str(path)] = evidence
                 ownership.setdefault(str(path), set()).add(name)
-        else:
-            record = Path(row["metadata_path"]) / "RECORD"
-            if record.is_file():
-                for entry in csv.reader(
-                    record.read_text(encoding="utf-8").splitlines(),
-                ):
-                    if entry:
-                        path = canonical(record.parent.parent / entry[0])
-                        ownership.setdefault(str(path), set()).add(name)
+    # Only these paths are queried below. All providers still participate;
+    # canonicalize each containing directory once, then verify exact matches
+    # and file symlinks with the original canonical operation.
+    queried = {path.casefold() for path in old_files}
+    parents, record_witnesses = {}, []
+
+    def signature(path):
+        value = path.stat()
+        link = path.lstat()
+        return (
+            value.st_dev,
+            value.st_ino,
+            value.st_mtime_ns,
+            value.st_ctime_ns,
+            link.st_dev,
+            link.st_ino,
+            link.st_mtime_ns,
+            link.st_ctime_ns,
+        )
+
+    def owner_path(path):
+        parent = path.parent
+        if parent not in parents:
+            before = signature(parent)
+            resolved = canonical(parent)
+            if signature(parent) != before:
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+            parents[parent] = (resolved, before)
+        resolved = parents[parent][0] / path.name
+        if str(resolved).casefold() in queried or path.is_symlink():
+            return str(canonical(path))
+        return None
+
+    for name, row in snapshot["distributions"].items():
+        if name in changed:
+            continue
+        record = Path(row["metadata_path"]) / "RECORD"
+        if record.is_file():
+            before = signature(record)
+            content = record.read_text(encoding="utf-8")
+            if signature(record) != before:
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+            record_witnesses.append((record, before))
+            for entry in csv.reader(content.splitlines()):
+                if entry and queried:
+                    path = record.parent.parent / entry[0]
+                    try:
+                        owned_path = owner_path(path)
+                    except FileNotFoundError:
+                        owned_path = str(canonical(path))
+                    if owned_path is not None and owned_path in old_files:
+                        ownership.setdefault(owned_path, set()).add(name)
+
+    def validate_ownership_inputs():
+        for parent, (resolved, witness) in parents.items():
+            if signature(parent) != witness or canonical(parent) != resolved:
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+        for record, witness in record_witnesses:
+            if signature(record) != witness:
+                raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
+
+    validate_ownership_inputs()
     for path in old_files:
         if len(ownership[path]) != 1 or not ownership[path].issubset(changed):
             raise RuntimeError(
@@ -530,6 +571,7 @@ def prepare_payload(
                     else 0o644
                 ),
             }
+    validate_ownership_inputs()
     return {
         "old": old_files,
         "new": new_files,
@@ -560,20 +602,6 @@ def _imported_observation(old, modules):
         value for _name, _module, value in modules if isinstance(value, str)
     }
     return owned, _imported_origins(owned, origins)
-
-
-def _imported_changes(payload, modules):
-    _owned, origins = _imported_observation(tuple(payload["old"]), modules)
-    return [
-        name
-        for name, _module, value in modules
-        if isinstance(value, str) and origins[value]
-    ]
-
-
-def imported_changes(payload):
-    """Synchronous callers inspect a detached module snapshot."""
-    return _imported_changes(payload, _module_snapshot())
 
 
 async def imported_changes_async(payload):
@@ -792,7 +820,21 @@ def _source_files(root):
     return files
 
 
+def _copy_source_file(source, target):
+    if os.name != "nt":
+        return shutil.copy2(source, target)
+    shutil.copyfile(source, target)
+    # Acquire write access before preserving a source's read-only attributes.
+    with open(target, "r+b") as stream:
+        shutil.copystat(source, target)
+        os.fsync(stream.fileno())
+    return target
+
+
 def _sync_source(root):
+    if os.name == "nt":
+        # Each copy was already synced through its writable file handle.
+        return
     for path in root.rglob("*"):
         if path.is_file():
             with path.open("rb") as stream:
@@ -818,7 +860,7 @@ def backup_source(directory, target):
         backup = directory / "previous_source"
         if backup.exists():
             shutil.rmtree(backup)
-        shutil.copytree(target, backup)
+        shutil.copytree(target, backup, copy_function=_copy_source_file)
         if _source_files(backup) != before["files"]:
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: plugin source changed during backup.",
@@ -842,7 +884,7 @@ def restore_source(directory, operation):
         staging = directory / "restored_source"
         if staging.exists():
             shutil.rmtree(staging)
-        shutil.copytree(backup, staging)
+        shutil.copytree(backup, staging, copy_function=_copy_source_file)
         _sync_source(staging)
     if target.is_symlink():
         raise RuntimeError(
@@ -1092,7 +1134,7 @@ async def apply_operation(manager, operation_id):
 
     async with async_lock(operation_lock(directory)):
         operation = await run_sync_io(manager._read, operation_id)
-        if operation["status"] in {"succeeded", "cancelled"}:
+        if operation["status"] in {"succeeded", "cancelled", "failed"}:
             return manager._public(operation)
         if operation.get("worker_pid") or operation["status"] == "applying":
             return manager._public(operation)
@@ -1121,23 +1163,25 @@ async def apply_operation(manager, operation_id):
                 operation,
                 fresh.to_mapping(),
             )
-            consumers = await manager._consumers(binding, fresh)
+            consumers = await manager._consumers(
+                binding,
+                fresh,
+                operation=operation,
+            )
             manager._check_reviewed_usage(operation, consumers)
-            for consumer in consumers:
-                evidence = consumer["environment"]
-                inventory = dict(evidence["distributions"])
-                inventory.update(
-                    await run_sync_io(
-                        visible_distributions,
-                        operation["proposed"],
-                        evidence["dependency_sites"],
-                    ),
-                )
-                manager._compatible(
-                    consumer["requirements"],
-                    inventory,
-                    evidence["marker_environment"],
-                )
+            consumers = manager._affected(
+                consumers,
+                {
+                    row["name"]: operation["proposed"][row["name"]]
+                    for row in operation["changes"]
+                },
+            )
+            manager._check_core(
+                operation["proposed"],
+                fresh.marker_environment,
+                fresh.distributions,
+                operation["changes"],
+            )
             if not operation[
                 "requires_restart"
             ] and await imported_changes_async(
@@ -1253,7 +1297,16 @@ async def apply_operation(manager, operation_id):
 
             # Lock the complete observed environment before entering the
             # maintenance barrier; verification must not expand nested locks.
-            prepared_consumers = await manager._prepare_consumer_targets()
+            prepared_consumers = await manager._prepare_consumer_targets(
+                operation,
+                fresh,
+            )
+            prepared_binding = (
+                await binding.backend.prepare_dependency_targets(
+                    binding.description,
+                )
+            )
+            prepared_consumers.append(prepared_binding)
             async with environment_observation(
                 (
                     *(fresh.dependency_sites or ()),
@@ -1289,7 +1342,11 @@ async def apply_operation(manager, operation_id):
                         raise RuntimeError(
                             "DEPENDENCY_PLAN_STALE: environment changed while consumers stopped.",
                         )
-                    current = await manager._consumers(binding, verified)
+                    current = await manager._consumers(
+                        binding,
+                        verified,
+                        operation=operation,
+                    )
                     manager._check_reviewed_usage(
                         operation,
                         current,

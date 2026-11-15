@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../pages/Chat/sessionApi", () => ({ default: mocks.sessionApi }));
 vi.mock("../hostSdk/fetch", () => ({ hostFetch: mocks.hostFetch }));
+// Routing tests do not use the SDK's React session hook or its UI dependencies.
+vi.mock("@agentscope-ai/chat", () => ({
+  useChatAnywhereSessionsState: vi.fn(),
+}));
 
 const deployments = [
   { name: "root", basename: "/", prefix: "" },

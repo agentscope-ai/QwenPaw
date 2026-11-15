@@ -108,7 +108,7 @@ async def test_sibling_sessions_run_without_serializing() -> None:
 
 @pytest.mark.p1
 async def test_timeout_reclaims_only_the_affected_worker() -> None:
-    plane = SubprocessPlane(exec_timeout_seconds=5.0)
+    plane = SubprocessPlane()
     runtime = KernelRuntime(plane=plane)
     sibling_key = "workspace/sibling"
     try:
@@ -116,6 +116,11 @@ async def test_timeout_reclaims_only_the_affected_worker() -> None:
             await runtime.run(_request("first", "sibling", "return 1"))
         ).error is None
         sibling_pid = plane._workers[sibling_key].proc.pid
+        # Finish both workers' startup before testing the execution deadline.
+        assert (
+            await runtime.run(_request("warm-timeout", "timeout", "return 1"))
+        ).error is None
+        plane._exec_timeout_seconds = 5.0
         timed_out = await runtime.run(
             _request(
                 "timeout",

@@ -20,6 +20,7 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
+from qwenpaw.utils.markdown_cjk import normalize_cjk_emphasis
 
 logger = logging.getLogger(__name__)
 
@@ -441,6 +442,11 @@ class MessageRenderer:
                 # context and the durable index. No-op when absent.
                 text = strip_headline(c.text)
                 if text:
+                    if s.supports_markdown:
+                        # Repair CJK emphasis boundaries (e.g. ``**中文。**后``)
+                        # so channels that render Markdown do not leak the raw
+                        # ``**`` markers.
+                        text = normalize_cjk_emphasis(text)
                     append(TextContent(text=text))
             elif ctype == ContentType.REFUSAL and getattr(c, "refusal", None):
                 append(RefusalContent(refusal=c.refusal), "refusal")

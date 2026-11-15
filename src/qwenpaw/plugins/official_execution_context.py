@@ -29,7 +29,6 @@ def project_official_execution(
     environment: Mapping[str, str],
     workspace_dir: Path | None = None,
     legacy_references: Mapping | None = None,
-    matrix_binding: Mapping | None = None,
 ) -> tuple[dict, dict[str, str]]:
     """Detach known old paths/credentials without reading ambient host state."""
     values = dict(config)
@@ -74,14 +73,6 @@ def project_official_execution(
                 "tenant_id": values.get("tenant_id") or "botframework.com",
             },
         )
-    if channel_key == "matrix":
-        from .matrix_legacy import project_matrix_legacy
-
-        values["legacy_state_owner"] = project_matrix_legacy(
-            matrix_binding,
-            homeserver=str(values.get("homeserver") or ""),
-            workspace_dir=workspace_dir,
-        )
     values = absolute_execution_paths(
         values,
         path_fields=("media_dir", *_PATH_FIELDS.get(channel_key, ())),
@@ -108,17 +99,12 @@ def prepare_official_execution(
         raise ValueError("AZURE_LEGACY_CONTEXT_CHANNEL_INVALID")
     if official is None:
         return dict(config), {}
-    matrix_binding = None
     if channel_key == "azure_bot" and legacy_references is None:
         from .azure_legacy import load_azure_legacy
 
         legacy_references = load_azure_legacy(
             legacy_state_dir=legacy_state_dir,
         )
-    elif channel_key == "matrix":
-        from .matrix_legacy import load_matrix_legacy
-
-        matrix_binding = load_matrix_legacy(legacy_state_dir=legacy_state_dir)
     return project_official_execution(
         channel_key,
         config,
@@ -127,26 +113,19 @@ def prepare_official_execution(
         environment=environment,
         workspace_dir=workspace_dir,
         legacy_references=legacy_references,
-        matrix_binding=matrix_binding,
     )
 
 
 def capture_official_legacy(*, config_path, legacy_state_dir, working_dir):
-    """Isolate per-channel capture failures before config/default migration."""
+    """Isolate legacy capture failures before config/default migration."""
     from .azure_legacy import AzureLegacyError, capture_azure_legacy
-    from .matrix_legacy import MatrixLegacyError, capture_matrix_legacy
 
-    failed = {}
-    for key, capture in (
-        ("azure_bot", capture_azure_legacy),
-        ("matrix", capture_matrix_legacy),
-    ):
-        try:
-            capture(
-                config_path=config_path,
-                legacy_state_dir=legacy_state_dir,
-                working_dir=working_dir,
-            )
-        except (AzureLegacyError, MatrixLegacyError) as exc:
-            failed[key] = str(exc)
-    return failed
+    try:
+        capture_azure_legacy(
+            config_path=config_path,
+            legacy_state_dir=legacy_state_dir,
+            working_dir=working_dir,
+        )
+    except AzureLegacyError as exc:
+        return {"azure_bot": str(exc)}
+    return {}

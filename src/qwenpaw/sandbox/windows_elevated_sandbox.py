@@ -25,7 +25,9 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .config import ExecutionResult, SandboxConfig
+from ..utils.shell_resources import watch_shell_process_async
+
+from .config import ExecutionResult, SandboxConfig, is_volume_root
 from .windows_unelevated_sandbox import (
     _PROCESS_INFORMATION,
     _SID_AND_ATTRIBUTES,
@@ -970,6 +972,16 @@ def _add_traverse_ace(  # pylint: disable=too-many-return-statements
             return False
 
         try:
+            # A NULL DACL means "no protection at all". Merging our ACE
+            # into it would write a DACL holding only the sandbox SID,
+            # silently locking every other trustee out of the directory.
+            if not p_dacl.value:
+                logger.warning(
+                    "_add_traverse_ace: refusing %s: its DACL is NULL",
+                    path,
+                )
+                return False
+
             # Build and merge the new ACE
             ea = _build_explicit_access(
                 psid,
@@ -2420,6 +2432,7 @@ class WindowsElevatedSandbox(WindowsSandboxBase):
             )
             self._process_handle = proc_handle
             self._process_id = pid
+            await watch_shell_process_async(pid)
             self._job_handle = job_handle
 
             assert stdout_handle is not None and stderr_handle is not None
@@ -2698,6 +2711,14 @@ def _remove_acl_with_verify_sync_local(  # pylint: disable=unused-argument
         return True
 
     # Last-resort fallback: reset DACL inheritance and retry removal.
+    # Never on a volume root: ``icacls /reset`` rewrites the DACL of the
+    # entire volume, which can make the drive inaccessible.
+    if is_volume_root(path):
+        logger.warning(
+            "Refusing to reset the DACL of volume root %s",
+            path,
+        )
+        return False
     _run_icacls_sync_local([path, "/reset"])
     if _remove_acl_with_verify_sync(path, sid, deadline=deadline):
         return True

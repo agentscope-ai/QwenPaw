@@ -18,6 +18,46 @@ from typing import Dict
 
 import pytest
 
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_probe_restores_only_candidate_path_additions(
+    tmp_path,
+    monkeypatch,
+    fails,
+):
+    from qwenpaw.plugins.module_isolation import probe_plugin_source
+
+    source, other = tmp_path / "candidate", tmp_path / "other"
+    source.mkdir()
+    other.mkdir()
+    kept = source / "already-present"
+    kept.mkdir()
+    original = str(kept)
+    monkeypatch.setattr(sys, "path", [str(other), original, *sys.path])
+    entry = source / "plugin.py"
+    entry.write_text(
+        "import sys\n"
+        f"sys.path.insert(0, {str(source)!r})\n"
+        f"sys.path.insert(0, {str(kept)!r}.encode().decode())\n"
+        f"sys.path.append({str(other)!r})\n"
+        + (
+            "raise RuntimeError('probe failed')\n"
+            if fails
+            else "plugin = object()\n"
+        ),
+    )
+    if fails:
+        with pytest.raises(RuntimeError, match="probe failed"):
+            probe_plugin_source("path-probe", source, entry)
+    else:
+        probe_plugin_source("path-probe", source, entry)
+    assert str(source) not in sys.path
+    assert str(kept) in sys.path
+    assert str(other) in sys.path
+    assert any(entry is original for entry in sys.path)
+    assert sys.path.index(str(other)) < sys.path.index(original)
+
+
 # ---------------------------------------------------------------------------
 # Stub missing agentscope 2.0 modules (same pattern as sibling test file)
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ import {
   Sparkles as SparkSkillPoolLine,
   Wrench as SparkToolLine,
   MessagesSquare as SparkSessionsLine,
+  Users as CommunityIcon,
   AudioLines as SparkVoiceChat01Line,
   Wifi as SparkWifiLine,
 } from "lucide-react";
@@ -261,6 +262,15 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkDateLine,
     route: "core.offload-policy",
     order: 55,
+  },
+  {
+    id: "core.community",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("community.title", "Community"),
+    icon: CommunityIcon,
+    route: "core.community",
+    order: 45,
   },
   {
     id: "core.security",

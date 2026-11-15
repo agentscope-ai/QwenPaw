@@ -75,6 +75,7 @@ def _link_cached_sources(root, linked_source, entry, helper):
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("bounded_dependency_environment")
 @pytest.mark.parametrize(
     ("linked_source", "external_cache"),
     [

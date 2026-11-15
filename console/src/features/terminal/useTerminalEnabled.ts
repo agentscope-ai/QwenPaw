@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { request } from "../../api/request";
+import { useAuthStatus } from "../../contexts/AuthStatusContext";
 
 interface TerminalCapability {
   enabled: boolean;
@@ -13,31 +14,41 @@ const UNKNOWN_CAPABILITY: TerminalCapability = {
   confirmed: false,
 };
 
-export function useTerminalEnabled(agentId: string) {
-  const [states, setStates] = useState<Record<string, TerminalCapability>>({});
+const AUTH_DISABLED_CAPABILITY: TerminalCapability = {
+  enabled: false,
+  reason: "",
+  confirmed: true,
+};
+
+export function useTerminalEnabled() {
+  const { enabled: authEnabled } = useAuthStatus();
+  const [capability, setCapability] = useState(UNKNOWN_CAPABILITY);
   useEffect(() => {
+    if (!authEnabled) return;
+
     const controller = new AbortController();
+    let confirmed = false;
+    let requesting = false;
     const refresh = async () => {
+      if (confirmed || requesting) return;
+      requesting = true;
       try {
         const status = await request<{ enabled: boolean; reason?: string }>(
           "/terminals/status",
-          {
-            headers: { "X-Agent-Id": agentId },
-            signal: controller.signal,
-          },
+          { signal: controller.signal },
         );
         if (!controller.signal.aborted) {
-          setStates((current) => ({
-            ...current,
-            [agentId]: {
-              enabled: status.enabled === true,
-              reason: status.reason ?? "",
-              confirmed: true,
-            },
-          }));
+          confirmed = true;
+          setCapability({
+            enabled: status.enabled === true,
+            reason: status.reason ?? "",
+            confirmed: true,
+          });
         }
       } catch {
-        // Keep the last confirmed state during transient request failures.
+        // Retry an unconfirmed transient failure when the window regains focus.
+      } finally {
+        requesting = false;
       }
     };
     void refresh();
@@ -46,6 +57,6 @@ export function useTerminalEnabled(agentId: string) {
       controller.abort();
       window.removeEventListener("focus", refresh);
     };
-  }, [agentId]);
-  return states[agentId] ?? UNKNOWN_CAPABILITY;
+  }, [authEnabled]);
+  return authEnabled ? capability : AUTH_DISABLED_CAPABILITY;
 }

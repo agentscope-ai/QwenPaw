@@ -61,6 +61,11 @@ CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
+def _effective_max_concurrency(_job: CronJobSpec) -> int:
+    """Return the enforced concurrency for a cron job."""
+    return 1
+
+
 @dataclass
 class _Runtime:
     sem: asyncio.Semaphore
@@ -902,7 +907,7 @@ class CronManager(ManagerBase):
         error_msg = (
             f"skipped scheduled run at {scheduled_text}: "
             f"maximum running instances reached "
-            f"({job.runtime.max_concurrency})"
+            f"({_effective_max_concurrency(job)})"
         )
         await self._record_skipped(job, error_msg)
 
@@ -964,6 +969,7 @@ class CronManager(ManagerBase):
             id=spec.id,
             args=[spec.id],
             misfire_grace_time=spec.runtime.misfire_grace_seconds,
+            max_instances=_effective_max_concurrency(spec),
             replace_existing=True,
             **add_job_kwargs,
         )
@@ -978,7 +984,7 @@ class CronManager(ManagerBase):
         # registration.  add_job(replace_existing=True) preserves the old job
         # if construction/validation fails.
         self._rt[spec.id] = _Runtime(
-            sem=asyncio.Semaphore(spec.runtime.max_concurrency),
+            sem=asyncio.Semaphore(_effective_max_concurrency(spec)),
         )
 
         # update next_run
@@ -1160,7 +1166,9 @@ class CronManager(ManagerBase):
         self._assert_review_complete(job)
         rt = self._rt.get(job.id)
         if not rt:
-            rt = _Runtime(sem=asyncio.Semaphore(job.runtime.max_concurrency))
+            rt = _Runtime(
+                sem=asyncio.Semaphore(_effective_max_concurrency(job)),
+            )
             self._rt[job.id] = rt
 
         async with rt.sem:

@@ -19,7 +19,15 @@ import logging
 from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Callable, Iterator, Set
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterator,
+    Mapping,
+    Set,
+)
 
 from agentscope.middleware import MiddlewareBase
 from agentscope.message import Msg, TextBlock, ToolResultState
@@ -31,6 +39,7 @@ from .tools.utils import (
     ToolResultPruner,
 )
 from ..constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
@@ -41,6 +50,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+
+
+def _is_auto_memory_recall_msg(msg: Any) -> bool:
+    """Return True if ``msg`` is the synthetic auto-memory-recall payload."""
+    meta = getattr(msg, "metadata", None)
+    if not isinstance(meta, Mapping):
+        return False
+    return bool(meta.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY))
+
+
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
 _MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
@@ -601,6 +620,7 @@ class MemoryMiddleware(MiddlewareBase):
             and (
                 msg.has_content_blocks("tool_call")
                 or msg.has_content_blocks("tool_result")
+                or _is_auto_memory_recall_msg(msg)
             )
         ]
 

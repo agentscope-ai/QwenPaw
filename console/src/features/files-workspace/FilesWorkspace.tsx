@@ -125,6 +125,7 @@ export default function FilesWorkspace({
     "navigator" | "source" | "document"
   >(tabs.length > 0 ? "document" : "navigator");
   const [directoryRevision, setDirectoryRevision] = useState(0);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [editorNavigation, setEditorNavigation] = useState<{
     path: string;
     line: number;
@@ -142,10 +143,13 @@ export default function FilesWorkspace({
 
   useEffect(
     () =>
-      listenForProjectDirectoryChanges((changedScopeKey) => {
+      listenForProjectDirectoryChanges((changedScopeKey, options) => {
         if (changedScopeKey === scopeKey) {
-          clearProjectTabs(scopeKey);
-          setDirectoryRevision((current) => current + 1);
+          if (!options.preserveTabs) {
+            clearProjectTabs(scopeKey);
+            setEditorRevision((current) => current + 1);
+            setDirectoryRevision((current) => current + 1);
+          }
         }
       }),
     [clearProjectTabs, scopeKey],
@@ -721,7 +725,7 @@ export default function FilesWorkspace({
           />
         ) : (
           <TabbedEditor
-            key={`${scopeKey}:${directoryRevision}`}
+            key={`${scopeKey}:${editorRevision}`}
             tabs={tabs}
             activeTabPath={activeTabPath}
             scopeKey={scopeKey}

@@ -1,6 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { parseErrorDetail } from "../../utils/error";
 import { portabilityImportApi } from "../../api/modules/import";
 import type {
+  HarnessPluginRequirement,
   ImportJobEvent,
   ImportJobSnapshot,
   ImportSelection,
@@ -69,6 +72,7 @@ const message = (reason: unknown) =>
   reason instanceof Error ? reason.message : String(reason);
 
 export function useImportJob() {
+  const { t } = useTranslation();
   const { selectedAgent } = useAgentStore();
   const [detection, setDetection] = useState<{
     agentId: string;
@@ -80,8 +84,27 @@ export function useImportJob() {
   const [errorState, setErrorState] = useState<{
     agentId: string;
     message: string;
+    requirement?: HarnessPluginRequirement;
   } | null>(null);
   const [streamError, setStreamError] = useState("");
+  const failure = useCallback(
+    (agentId: string, reason: unknown) => {
+      const parsed = parseErrorDetail(reason);
+      const requirement =
+        parsed?.code === "harness_plugin_required"
+          ? (parsed as HarnessPluginRequirement)
+          : undefined;
+      const errorMessage = requirement
+        ? t("portabilityImport.harnessRequired", {
+            plugin: requirement.plugin_id,
+            state: t(`portabilityImport.pluginStates.${requirement.state}`),
+          })
+        : message(reason);
+      setErrorState({ agentId, message: errorMessage, requirement });
+      return errorMessage;
+    },
+    [t],
+  );
   const selectedRef = useRef(selectedAgent);
   const mounted = useRef(true);
   const latest = useRef<ImportJobSnapshot | null>(null);
@@ -186,9 +209,8 @@ export function useImportJob() {
       return result;
     } catch (reason) {
       if (isLatestDetection() && idle && !view.current.jobId) {
-        const errorMessage = message(reason);
+        const errorMessage = failure(agentId, reason);
         setDetection({ agentId, sources: [], error: errorMessage });
-        setErrorState({ agentId, message: errorMessage });
       }
       throw reason;
     } finally {
@@ -196,7 +218,7 @@ export function useImportJob() {
         setLoading(false);
       }
     }
-  }, [selectedAgent]);
+  }, [failure, selectedAgent]);
 
   const scan = useCallback(
     async (selected: ImportSource[]) => {
@@ -212,7 +234,7 @@ export function useImportJob() {
         return created;
       } catch (reason) {
         if (mounted.current && selectedRef.current === agentId) {
-          setErrorState({ agentId, message: message(reason) });
+          failure(agentId, reason);
         }
         throw reason;
       } finally {
@@ -221,7 +243,7 @@ export function useImportJob() {
         }
       }
     },
-    [isCurrent, selectedAgent, show],
+    [failure, isCurrent, selectedAgent, show],
   );
 
   const start = useCallback(
@@ -249,14 +271,14 @@ export function useImportJob() {
         return started;
       } catch (reason) {
         if (isCurrent(selectedAgent, snapshot.job_id)) {
-          setErrorState({ agentId: selectedAgent, message: message(reason) });
+          failure(selectedAgent, reason);
         }
         throw reason;
       } finally {
         if (isCurrent(selectedAgent, snapshot.job_id)) setLoading(false);
       }
     },
-    [accept, isCurrent, selectedAgent],
+    [failure, accept, isCurrent, selectedAgent],
   );
 
   const retry = useCallback(
@@ -282,7 +304,7 @@ export function useImportJob() {
         return retried;
       } catch (reason) {
         if (isCurrent(selectedAgent, snapshot.job_id)) {
-          setErrorState({ agentId: selectedAgent, message: message(reason) });
+          failure(selectedAgent, reason);
         }
         throw reason;
       } finally {
@@ -291,7 +313,7 @@ export function useImportJob() {
         }
       }
     },
-    [isCurrent, selectedAgent, show],
+    [failure, isCurrent, selectedAgent, show],
   );
 
   const cancel = useCallback(async () => {
@@ -313,13 +335,13 @@ export function useImportJob() {
       return interrupted;
     } catch (reason) {
       if (isCurrent(selectedAgent, snapshot.job_id)) {
-        setErrorState({ agentId: selectedAgent, message: message(reason) });
+        failure(selectedAgent, reason);
       }
       throw reason;
     } finally {
       if (isCurrent(selectedAgent, snapshot.job_id)) setLoading(false);
     }
-  }, [accept, isCurrent, selectedAgent]);
+  }, [failure, accept, isCurrent, selectedAgent]);
 
   const reset = useCallback(() => {
     const agentId = selectedAgent;
@@ -377,10 +399,7 @@ export function useImportJob() {
         view.current = { agentId: selectedAgent, jobId: "" };
         latest.current = null;
         saveActiveJob(selectedAgent);
-        setErrorState({
-          agentId: selectedAgent,
-          message: message(reason),
-        });
+        failure(selectedAgent, reason);
         setLoading(false);
       })
       .finally(() => {
@@ -392,7 +411,7 @@ export function useImportJob() {
       controller.current?.abort();
       controller.current = null;
     };
-  }, [isCurrent, selectedAgent, watch]);
+  }, [failure, isCurrent, selectedAgent, watch]);
 
   useEffect(() => {
     mounted.current = true;
@@ -408,7 +427,7 @@ export function useImportJob() {
   const detectError = currentDetection?.error ?? "";
   const detectingCurrentAgent = !job && currentDetection === null;
   const currentError =
-    errorState?.agentId === selectedAgent ? errorState.message : "";
+    errorState?.agentId === selectedAgent ? errorState : null;
   const currentStreamError = job?.agent_id === selectedAgent ? streamError : "";
 
   return {
@@ -416,7 +435,8 @@ export function useImportJob() {
     job,
     selectedAgent,
     loading: loading || detectingCurrentAgent,
-    error: currentError || currentStreamError,
+    error: currentError?.message || currentStreamError,
+    requirement: currentError?.requirement ?? null,
     detectError,
     detect,
     scan,
