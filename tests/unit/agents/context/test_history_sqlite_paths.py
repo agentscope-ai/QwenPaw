@@ -152,7 +152,7 @@ def test_history_connections_support_special_paths(
             dedup_key="one",
             entry=LogEntry(kind="model_turn", role="user", content="hello"),
         )
-        assert validate_history_database(source) == 1
+        assert validate_history_database(source) == 2
         recall = MemorySpace(history_db_path=source, session_id="test")
         try:
             rows = recall.sql_query(
@@ -174,7 +174,7 @@ def test_history_connections_support_special_paths(
             snapshot.close()
         worker_destination = root / "worker snapshot #%.db"
         _snapshot(source, worker_destination)
-        assert validate_history_database(worker_destination) == 1
+        assert validate_history_database(worker_destination) == 2
     finally:
         store.close()
 
@@ -230,4 +230,4 @@ def test_standalone_recall_and_backup_need_only_stdlib(tmp_path):
         timeout=15,
     )
     assert result.returncode == 0, result.stderr
-    assert validate_history_database(tmp_path / "snapshot.db") == 1
+    assert validate_history_database(tmp_path / "snapshot.db") == 2
