@@ -2,6 +2,7 @@
 // Types
 // ---------------------------------------------------------------------------
 import { chatApi } from "../../api/modules/chat";
+import i18n from "../../i18n";
 export type CopyableContent = {
   type?: string;
   text?: string;
@@ -127,13 +128,19 @@ export function buildModelError(): Response {
 }
 
 export function buildModelLoadError(error: unknown): Response {
-  const detail =
-    error instanceof Error
-      ? error.message
-      : "Unable to load the conversation model";
+  const timedOut =
+    error instanceof Error &&
+    error.message.startsWith("Request timeout after ");
+  const detail = timedOut
+    ? i18n.t("modelSelector.loadTimeout")
+    : error instanceof Error
+    ? error.message
+    : "Unable to load the conversation model";
   const status =
     typeof (error as { status?: unknown })?.status === "number"
       ? (error as { status: number }).status
+      : timedOut
+      ? 504
       : 503;
   return new Response(JSON.stringify({ detail }), {
     status,

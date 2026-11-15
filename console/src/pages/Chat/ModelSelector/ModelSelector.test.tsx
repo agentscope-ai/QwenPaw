@@ -9,6 +9,7 @@ import {
 import { MemoryRouter } from "react-router-dom";
 import ModelSelector from "./index";
 import { request } from "@/api/request";
+import { invalidateModelReads } from "@/api/modelReads";
 import { useCreateNewSession } from "../hooks/useCreateNewSession";
 import { draftModel } from "../conversationModel";
 import sessionApi from "../sessionApi";
@@ -83,6 +84,7 @@ const catalog = {
   ],
 };
 beforeEach(() => {
+  invalidateModelReads();
   state.user = { id: "alice" };
   state.createSession.mockReset();
   sessionApi.preferredChatId = "old-chat";
@@ -261,5 +263,6 @@ it("uses the new agent default while the URL still points to the previous agent 
   expect(await screen.findByText("Provider / One")).toBeInTheDocument();
   expect(request).toHaveBeenCalledWith(
     "/model-catalog/default?agent_id=agent-a",
+    { headers: { "X-Agent-Id": "agent-a" } },
   );
 });

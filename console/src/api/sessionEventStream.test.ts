@@ -152,3 +152,94 @@ it("drops buffered events and cancels reconnects after authentication changes", 
     stop();
   }
 });
+
+it("shares a transport and releases it only when its last subscriber leaves", async () => {
+  let source!: ReadableStreamDefaultController<Uint8Array>;
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      new ReadableStream({
+        start(c) {
+          source = c;
+        },
+      }),
+    ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const one = vi.fn(),
+    two = vi.fn();
+  const stopOne = subscribeSessionEvents("/shared", one, undefined, {
+    agentId: "a",
+  });
+  const stopTwo = subscribeSessionEvents("/shared", two, undefined, {
+    agentId: "a",
+  });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  stopOne();
+  source.enqueue(new TextEncoder().encode('data: {"type":"test"}\n\n'));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(one).not.toHaveBeenCalled();
+  expect(two).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0][1].signal.aborted).toBe(false);
+  stopTwo();
+  expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+});
+
+it("closes hidden-tab streams and reopens once when visible", async () => {
+  const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  const fetch = vi.fn().mockImplementation((_url, { signal }) =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            signal.addEventListener("abort", () =>
+              controller.error(new DOMException("Aborted", "AbortError")),
+            );
+          },
+        }),
+      ),
+    ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const stop = subscribeSessionEvents("/visibility", vi.fn());
+  try {
+    await vi.advanceTimersByTimeAsync(0);
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    stop();
+  }
+});
+
+it("replaces a stream whose heartbeat silently stopped", async () => {
+  const fetch = vi.fn().mockImplementation((_url, { signal }) =>
+    Promise.resolve(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            signal.addEventListener("abort", () =>
+              controller.error(new DOMException("Aborted", "AbortError")),
+            );
+          },
+        }),
+      ),
+    ),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const stop = subscribeSessionEvents("/stalled", vi.fn());
+  try {
+    await vi.advanceTimersByTimeAsync(65_000);
+    expect(fetch.mock.calls[0][1].signal.aborted).toBe(true);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    stop();
+  }
+});

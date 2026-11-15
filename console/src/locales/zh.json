@@ -2001,6 +2001,7 @@
     "personalAgentScope": "我在当前智能体的统计"
   },
   "modelSelector": {
+    "loadTimeout": "模型信息读取超时，本条消息尚未提交。请稍后重试；若仍失败，请刷新页面后再试。",
     "conversationHint": "仅影响当前会话，运行中的回复保持原模型，下一轮生效",
     "resetConversation": "恢复默认",
     "conversationModel": "会话模型",

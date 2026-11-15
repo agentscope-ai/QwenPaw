@@ -11,7 +11,7 @@ export interface SessionStreamOptions {
 }
 
 /** Shared lifecycle for session status streams; EOF is a disconnect too. */
-export function subscribeSessionEvents<T extends { type: string }>(
+function connectSessionEvents<T extends { type: string }>(
   path: string,
   onEvent: (event: T) => void,
   onError?: (error: unknown) => void,
@@ -24,8 +24,10 @@ export function subscribeSessionEvents<T extends { type: string }>(
   let failures = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let attempt: AbortController | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   const available = () =>
     !stopped &&
+    !document.hidden &&
     navigator.onLine !== false &&
     generation === getAccessSessionGeneration();
 
@@ -84,7 +86,10 @@ export function subscribeSessionEvents<T extends { type: string }>(
           data.push(text.slice(5).replace(/^ /, ""));
       };
       while (!controller.signal.aborted && available()) {
+        // Server heartbeats arrive every 30s; replace a silently stalled stream.
+        idleTimer = setTimeout(() => controller.abort(), 65_000);
         const { done, value } = await reader.read();
+        clearTimeout(idleTimer);
         if (done) {
           buffer += decoder.decode();
           if (buffer) line(buffer);
@@ -102,6 +107,7 @@ export function subscribeSessionEvents<T extends { type: string }>(
       if (available()) onError?.(error);
     } finally {
       clearTimeout(openingTimer);
+      clearTimeout(idleTimer);
       controller.abort();
       if (reader) {
         await reader.cancel().catch(() => {});
@@ -120,7 +126,7 @@ export function subscribeSessionEvents<T extends { type: string }>(
 
   const onAvailability = () => {
     clearTimeout(timer);
-    if (navigator.onLine === false) attempt?.abort();
+    if (navigator.onLine === false || document.hidden) attempt?.abort();
     else void connect();
   };
   const stop = () => {
@@ -130,11 +136,88 @@ export function subscribeSessionEvents<T extends { type: string }>(
     attempt?.abort();
     window.removeEventListener("online", onAvailability);
     window.removeEventListener("offline", onAvailability);
+    document.removeEventListener("visibilitychange", onAvailability);
     unsubscribeAuth();
   };
   const unsubscribeAuth = subscribeAccessSessionGeneration(stop);
   window.addEventListener("online", onAvailability);
   window.addEventListener("offline", onAvailability);
+  document.addEventListener("visibilitychange", onAvailability);
   void connect();
   return stop;
+}
+
+type StreamEvent = { type: string };
+interface Listener {
+  event: (value: StreamEvent) => void;
+  error?: (error: unknown) => void;
+  connection?: (connected: boolean) => void;
+}
+interface SharedStream {
+  listeners: Set<Listener>;
+  connected: boolean;
+  stop: () => void;
+}
+const streams = new Map<string, SharedStream>();
+
+/** One transport per authenticated Agent and topic, regardless of panel count. */
+export function subscribeSessionEvents<T extends StreamEvent>(
+  path: string,
+  onEvent: (event: T) => void,
+  onError?: (error: unknown) => void,
+  options: SessionStreamOptions = {},
+): () => void {
+  const agentId = options.agentId ?? buildAuthHeaders()["X-Agent-Id"];
+  const key = JSON.stringify([
+    getApiUrl(path),
+    getAccessSessionGeneration(),
+    agentId,
+  ]);
+  let shared = streams.get(key);
+  const listener: Listener = {
+    event: (value) => onEvent(value as T),
+    error: onError,
+    connection: options.onConnectionChange,
+  };
+  if (!shared) {
+    shared = {
+      listeners: new Set([listener]),
+      connected: false,
+      stop: () => {},
+    };
+    streams.set(key, shared);
+    const entry = shared;
+    const notify = (call: (listener: Listener) => void) => {
+      for (const listener of entry.listeners) {
+        try {
+          call(listener);
+        } catch {
+          console.error("Session stream subscriber failed");
+        }
+      }
+    };
+    entry.stop = connectSessionEvents<StreamEvent>(
+      path,
+      (event) => notify((listener) => listener.event(event)),
+      (error) => notify((listener) => listener.error?.(error)),
+      {
+        agentId,
+        onConnectionChange: (connected) => {
+          entry.connected = connected;
+          notify((listener) => listener.connection?.(connected));
+        },
+      },
+    );
+  } else {
+    shared.listeners.add(listener);
+    listener.connection?.(shared.connected);
+  }
+  const entry = shared;
+  return () => {
+    entry.listeners.delete(listener);
+    if (!entry.listeners.size) {
+      entry.stop();
+      if (streams.get(key) === entry) streams.delete(key);
+    }
+  };
 }

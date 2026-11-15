@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { readModelMetadata, invalidateModelReads } from "../modelReads";
 import type { ActiveModelsInfo, ModelSlotConfig } from "../types/provider";
 
 export interface CatalogModel {
@@ -19,24 +20,37 @@ export interface ConversationModel extends ActiveModelsInfo {
 }
 export const modelCatalogApi = {
   list: (agentId?: string) =>
-    request<{ enforced: boolean; models: CatalogModel[] }>(
+    readModelMetadata<{ enforced: boolean; models: CatalogModel[] }>(
       `/model-catalog${
         agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ""
       }`,
+      agentId,
     ),
   default: (agentId?: string) =>
-    request<ConversationModel>(
+    readModelMetadata<ConversationModel>(
       `/model-catalog/default${
         agentId ? `?agent_id=${encodeURIComponent(agentId)}` : ""
       }`,
+      agentId,
     ),
   current: (chatId: string) =>
-    request<ConversationModel>(`/chats/${encodeURIComponent(chatId)}/model`),
-  select: (chatId: string, model: ModelSlotConfig | null) =>
-    request<ConversationModel>(`/chats/${encodeURIComponent(chatId)}/model`, {
-      method: "PUT",
-      body: JSON.stringify(model),
-    }),
+    readModelMetadata<ConversationModel>(
+      `/chats/${encodeURIComponent(chatId)}/model`,
+    ),
+  select: async (chatId: string, model: ModelSlotConfig | null) => {
+    invalidateModelReads();
+    try {
+      return await request<ConversationModel>(
+        `/chats/${encodeURIComponent(chatId)}/model`,
+        {
+          method: "PUT",
+          body: JSON.stringify(model),
+        },
+      );
+    } finally {
+      invalidateModelReads();
+    }
+  },
 };
 
 export function createSelectionScope() {

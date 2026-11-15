@@ -223,6 +223,14 @@ describe("buildModelError", () => {
     expect(response.status).toBe(400);
   });
 
+  it("makes a model-read timeout retryable without claiming a model configuration failure", async () => {
+    const response = buildModelLoadError(
+      new Error("Request timeout after 30000ms: GET /chats/test/model"),
+    );
+    expect(response.status).toBe(504);
+    expect((await response.json()).detail).not.toContain("30000ms");
+  });
+
   it("response body contains error and message fields", async () => {
     const response = buildModelError();
     const body = await response.json();

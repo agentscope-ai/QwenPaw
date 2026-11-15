@@ -1,0 +1,112 @@
+{
+  "implementation_date": "2026-11-14",
+  "git_archive_date": "2026-11-15",
+  "base_commit": "a653dd566c570ef2c4b6f2376cb11c7f3169a5b5",
+  "code_snapshot": "tested_performance_overlay_only",
+  "local_tests": {
+    "files": 8,
+    "passed": 93,
+    "worktree_started_at": "2026-11-14T21:08:33+08:00",
+    "release_snapshot_started_at": "2026-11-14T21:08:55+08:00",
+    "sets_overlap": true
+  },
+  "build": {
+    "typescript": true,
+    "production_vite": true,
+    "monaco_css_files": 85
+  },
+  "release_safety_tests": {
+    "passed": 13
+  },
+  "local_browser": {
+    "checks": [
+      "30_subscribers_across_3_pages_use_3_streams",
+      "30_model_reads_use_3_requests_without_timeout",
+      "removing_one_panel_keeps_other_subscribers",
+      "different_agents_have_separate_transports",
+      "hidden_pages_release_all_streams",
+      "visible_page_restores_its_two_agent_streams",
+      "authentication_change_closes_old_transports"
+    ],
+    "model_reads": 3,
+    "model_batch_ms": 15.0,
+    "peak_streams": 4,
+    "page_errors": [],
+    "identity": "synthetic",
+    "visibility": "controlled visibility events",
+    "transport": "real HTTP/1.1 and Chrome"
+  },
+  "historical_online_verification": {
+    "date": "2026-11-14",
+    "protocol": "h2",
+    "status_streams": 3,
+    "concurrent_model_reads": 12,
+    "status_counts": {
+      "200": 12
+    },
+    "min_ms": 1228,
+    "max_ms": 1272,
+    "temporary_session_revoked": true
+  },
+  "state_comparison": {
+    "business_counts_equal": true,
+    "counts": {
+      "users": 18,
+      "agents": 17,
+      "conversations": 254,
+      "messages": 14045,
+      "user_library_documents": 14
+    },
+    "schema_unchanged": true,
+    "active_runs_unchanged": true,
+    "other_services_unchanged": true,
+    "health": "healthy",
+    "auth_sessions_before": {
+      "total": 124,
+      "revoked": 87,
+      "refresh_valid": 25
+    },
+    "auth_sessions_after": {
+      "total": 125,
+      "revoked": 88,
+      "refresh_valid": 25
+    },
+    "free_gib": 16.08
+  },
+  "original_log_sha256": {
+    "frontend-tests.log": "f5514f22594ccf62c5ccaef384d463f7237d823b83946feaa32530fb5208e1c8",
+    "staged-tests.log": "c2949a2f4f9589cfa360dd3283de94ee6bcf917e4ee85925ecd07388f414063e",
+    "frontend-build.log": "db06808fffb0e1a485ed16df723a3c8a14f9aa2380907dd59187d7bc350bf780",
+    "release-tests.log": "ed64f8abdd86ccf1d4cad25bae621b50dc43989677e276a9e8009f5c84bec0d1",
+    "authenticated-verification.json": "dc5d7441100c29c006190d4a4a3528744e44fdd80e518dddae8e813e87730135",
+    "browser-transport.json": "8907265f6b4501837dfc065ff4d92fa769046c17b00627440b0812089dfd72fc",
+    "promotion.log": "0d73b8b6452f537797ae41506eba1a98c43af48cc81221f356ecb8a18698261a"
+  },
+  "release_archive_sha256": "54f26b2a5d352cd41f8fd5ceb2ec5a21249a36c01d47045bf5038b09aec5e6c1",
+  "release_source_sha256": {
+    "console/src/api/modelReads.ts": "044d09949af6be22aec750f00c18b5f2bca33a102c320367a0713a9ac694cf18",
+    "console/src/api/modelReads.test.ts": "d0e21f2c65d7b043ce44039f40f69ff81799384bf43f16b18bd2c739a92e4a0c",
+    "console/src/api/sessionEventStream.ts": "ae06aee93aa6132dcd20593dfe613c08cb3d52c035f82c19fb63da0579b794ab",
+    "console/src/api/sessionEventStream.test.ts": "33195cc8efaa5a00d575889abcb61c26f069b88aab6e55a535190ea3cc863edd",
+    "console/src/pages/Chat/utils.ts": "b07d4469b6c4b70016f76673b73597215f5a97fcb40757036cd7887b9be90fce",
+    "console/src/pages/Chat/utils.test.ts": "2ed3b4335ea8b81e3f0221e80fbf0e41e381716d2c3a08c3c0805479b114e2ed",
+    "console/src/pages/Chat/ModelSelector/ModelSelector.test.tsx": "8bc1a8780cc13cc327d62ff2aca3201b59a90bb897c86eab32f91bf3194b9444",
+    "console/src/locales/zh.json": "4d0d47d94b14b62ff086649b74dfb97e2e6f799813ae20180f2beb51f5a8b29a",
+    "console/src/locales/en.json": "d33cc2cc3dbf3ace5ce38f21f2230625ba44975d7869d5e82842680e0ac4823f",
+    "console/src/api/modules/modelCatalog.ts": "19e61d0e6472d5b546bfc99d6c9e2787849f93696e5e2cb5fa5dc2c09034d1f4"
+  },
+  "normalized_git_blobs_sha256": {
+    "console/src/api/modelReads.ts": "044d09949af6be22aec750f00c18b5f2bca33a102c320367a0713a9ac694cf18",
+    "console/src/api/modelReads.test.ts": "d0e21f2c65d7b043ce44039f40f69ff81799384bf43f16b18bd2c739a92e4a0c",
+    "console/src/api/sessionEventStream.ts": "ae06aee93aa6132dcd20593dfe613c08cb3d52c035f82c19fb63da0579b794ab",
+    "console/src/api/sessionEventStream.test.ts": "33195cc8efaa5a00d575889abcb61c26f069b88aab6e55a535190ea3cc863edd",
+    "console/src/pages/Chat/utils.ts": "b07d4469b6c4b70016f76673b73597215f5a97fcb40757036cd7887b9be90fce",
+    "console/src/pages/Chat/utils.test.ts": "2ed3b4335ea8b81e3f0221e80fbf0e41e381716d2c3a08c3c0805479b114e2ed",
+    "console/src/pages/Chat/ModelSelector/ModelSelector.test.tsx": "8bc1a8780cc13cc327d62ff2aca3201b59a90bb897c86eab32f91bf3194b9444",
+    "console/src/locales/zh.json": "8412384ba29ffbe7743c1ee4a89d401802ab944b14185c8b4b464400c3192aef",
+    "console/src/locales/en.json": "060b24bc063a90ab8b93c3b21cadb25127e2bc0495662638af681bb0fa74e541",
+    "console/src/api/modules/modelCatalog.ts": "18d0540d4c5bf6ba626c5ca60a36feb7712e1ad46753cdbfaa5f614a84329856"
+  },
+  "current_authorization": "commit_and_push_only; no_rollback_or_production_changes",
+  "future_release_gate": "local_tests_then_chinese_summary_and_git_commit_then_explicit_user_deployment_confirmation"
+}

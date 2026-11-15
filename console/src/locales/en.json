@@ -2087,6 +2087,7 @@
     "hideValue": "Hide value"
   },
   "modelSelector": {
+    "loadTimeout": "Model information timed out. This message has not been submitted. Try again shortly, or refresh the page if the problem continues.",
     "conversationHint": "Changes apply to this conversation on the next turn; the current reply keeps its model",
     "resetConversation": "Use default",
     "conversationModel": "Conversation model",
