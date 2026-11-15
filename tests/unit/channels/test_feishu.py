@@ -57,6 +57,10 @@ class Api:
         }
         if self.kind == "image":
             row["bytes"] = body.image.read()
+        elif self.kind == "file":
+            row["file_name"] = body.file_name
+            row["file_type"] = body.file_type
+            row["bytes"] = body.file.read()
         self.rows.append(row)
         return ok(
             message_id="sent",
@@ -299,6 +303,80 @@ async def test_image_download_and_upload_preserve_bytes(native, tmp_path):
         for r in rt.rows
         if "msg_type" in r
     )
+
+
+async def test_file_upload_decodes_percent_encoded_locator_name(
+    native,
+    tmp_path,
+):
+    rt = native
+    event = await ingress(rt, message("file"))
+    path = tmp_path / "附件-主要工作工时对标测算情况.docx"
+    path.write_bytes(b"outbound-file")
+    locator = path.as_uri()
+    assert "%E9%99%84" in locator
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [{"type": "file", "file_url": locator}],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "附件-主要工作工时对标测算情况.docx"
+    assert row["file_type"] == "doc"
+    assert row["bytes"] == b"outbound-file"
+
+
+async def test_file_upload_decodes_https_locator_name(native):
+    rt = native
+    event = await ingress(rt, message("https"))
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [
+                {
+                    "type": "file",
+                    "file_url": "https://example.com/a/%E9%99%84%E4%BB%B6"
+                    ".docx?token=1",
+                },
+            ],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "附件.docx"
+
+
+async def test_upload_file_name_keeps_windows_basename(native):
+    platform = module("feishu", "platform")
+    name = platform.LarkOapiPlatform._upload_file_name(
+        {"file_url": "D:\\dir\\附件.docx"},
+        "D:\\dir\\附件.docx",
+    )
+    assert name == "附件.docx"
+
+
+async def test_file_upload_prefers_explicit_filename(native, tmp_path):
+    rt = native
+    event = await ingress(rt, message("rename"))
+    path = tmp_path / "原文.docx"
+    path.write_bytes(b"outbound-file")
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [
+                {
+                    "type": "file",
+                    "file_url": path.as_uri(),
+                    "filename": "改名后.docx",
+                },
+            ],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "改名后.docx"
 
 
 async def test_stream_finalizes_same_card(native):
