@@ -150,7 +150,8 @@ export function SessionGroupDndProvider({
 interface SessionDropZoneProps {
   id: string;
   groupId: string;
-  children: ReactNode;
+  /** Render a highlight on the visible surface rather than its layout row. */
+  children: ReactNode | ((highlightClassName: string) => ReactNode);
   style?: CSSProperties;
   className?: string;
 }
@@ -167,17 +168,19 @@ export function SessionDropZone({
     id,
     data: { groupId },
   });
+  const highlightClassName =
+    isOver && sourceGroupId !== null && sourceGroupId !== groupId
+      ? styles.dropActive
+      : "";
   return (
     <div
       ref={setNodeRef}
       style={style}
       className={`${className} ${
-        isOver && sourceGroupId !== null && sourceGroupId !== groupId
-          ? styles.dropActive
-          : ""
+        typeof children === "function" ? "" : highlightClassName
       }`}
     >
-      {children}
+      {typeof children === "function" ? children(highlightClassName) : children}
     </div>
   );
 }

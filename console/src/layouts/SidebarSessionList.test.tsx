@@ -96,9 +96,11 @@ vi.mock("../components/SessionGroupDnd", () => ({
   DraggableSession: ({ children }: { children?: React.ReactNode }) => (
     <>{children}</>
   ),
-  SessionDropZone: ({ children }: { children?: React.ReactNode }) => (
-    <>{children}</>
-  ),
+  SessionDropZone: ({
+    children,
+  }: {
+    children?: React.ReactNode | ((className: string) => React.ReactNode);
+  }) => <>{typeof children === "function" ? children("") : children}</>,
 }));
 
 vi.mock("./useSidebarSessionListData", () => ({

@@ -140,9 +140,11 @@ type GroupHeaderRow = Extract<FlatRow, { kind: "groupHeader" }>;
 function GroupHeaderContent({
   row,
   data,
+  className,
 }: {
   row: GroupHeaderRow;
   data: VirtualRowData;
+  className?: string;
 }) {
   const movableGroups = data.groups.filter(
     (group) =>
@@ -155,6 +157,7 @@ function GroupHeaderContent({
   );
   return (
     <SessionGroupHeader
+      className={className}
       group={row.group}
       count={row.count}
       collapsed={row.collapsed}
@@ -186,7 +189,13 @@ const VirtualRow = React.memo(function VirtualRow({
         groupId={row.group.id}
         style={style}
       >
-        <GroupHeaderContent row={row} data={data} />
+        {(highlightClassName) => (
+          <GroupHeaderContent
+            row={row}
+            data={data}
+            className={highlightClassName}
+          />
+        )}
       </SessionDropZone>
     );
   }
@@ -1006,6 +1015,7 @@ export default function SidebarSessionList({
                 </div>
               )}
               <VariableSizeList
+                className={styles.virtualList}
                 ref={listRef}
                 height={listHeight}
                 width="100%"

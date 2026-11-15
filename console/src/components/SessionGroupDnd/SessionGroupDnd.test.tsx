@@ -114,8 +114,14 @@ describe("SessionGroupDndProvider", () => {
           <SessionDropZone id="source-row" groupId="work">
             source row
           </SessionDropZone>
-          <SessionDropZone id="target-header" groupId="new-group">
-            target header
+          <SessionDropZone
+            id="target-header"
+            groupId="new-group"
+            style={{ position: "absolute", height: 42 }}
+          >
+            {(highlightClassName) => (
+              <div className={highlightClassName}>target header</div>
+            )}
           </SessionDropZone>
           <SessionDropZone id="target-row" groupId="new-group">
             target row
@@ -144,6 +150,11 @@ describe("SessionGroupDndProvider", () => {
     hover("target-header");
     expect(highlights()).toHaveLength(1);
     expect(highlights()[0]).toHaveTextContent("target header");
+    expect(highlights()[0]).not.toHaveStyle({ position: "absolute" });
+    expect(highlights()[0].parentElement).toHaveStyle({
+      position: "absolute",
+      height: "42px",
+    });
     hover("");
     expect(highlights()).toHaveLength(0);
     hover("target-row");
