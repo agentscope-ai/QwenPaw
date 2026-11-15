@@ -86,11 +86,18 @@ def _read_wechat_auth_evidence(config, workspace_id, working_dir):
             other.get(key)
             for key in ("enabled", "bot_token", "bot_token_file")
         )
+        # Each agent resolves its credential file against its *own*
+        # workspace. Using the process-wide WORKING_DIR here made every
+        # agent without an explicit ``bot_token_file`` fall back to the
+        # same path, so two agents could never hold separate WeChat
+        # accounts (both looked like the same credential scope and the
+        # second one failed with ACCOUNT_IN_USE).
+        other_dir = Path(profile.workspace_dir).expanduser()
         others.append(
             (
                 runtime_key,
                 configured,
-                frozenset(wechat_auth_scopes(other, working_dir=WORKING_DIR)),
+                frozenset(wechat_auth_scopes(other, working_dir=other_dir)),
             ),
         )
     return scopes, tuple(others)
