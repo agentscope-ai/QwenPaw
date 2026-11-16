@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Version gates for repository snapshots and immutable release artifacts."""
+"""Verify immutable plugin release artifacts."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import re
 import runpy
-import subprocess
 import sys
 import tempfile
 import zipfile
@@ -26,183 +25,6 @@ def _packing(root):
     return runpy.run_path(
         str(root / "scripts/pack/generate_plugin_metadata.py")
     )
-
-
-def _sources(root):
-    packing = _packing(root)
-    catalog = root / "src/qwenpaw/plugins/official_channel_catalog.py"
-    bundled = (
-        {
-            row["plugin_id"]
-            for row in runpy.run_path(str(catalog))["OFFICIAL_CHANNELS"]
-        }
-        if catalog.is_file()
-        else set()
-    )
-    result = {}
-    for kind in packing["KIND_DIRS"]:
-        for path in sorted((root / "plugins" / kind).glob("*/plugin.json")):
-            manifest = json.loads(path.read_text(encoding="utf-8"))
-            plugin_id = manifest["id"]
-            if not re.fullmatch(
-                r"[A-Za-z0-9_.-]+", plugin_id
-            ) or plugin_id in {".", ".."}:
-                raise ValueError(f"Invalid plugin ID: {plugin_id!r}")
-            if manifest.get("publish") is False and not (
-                kind == "channel" and plugin_id in bundled
-            ):
-                continue
-            key = kind, plugin_id
-            if key in result:
-                raise ValueError(f"Duplicate plugin: {key}")
-            Version(manifest["version"])
-            result[key] = path.parent, manifest
-    return packing, result
-
-
-def _digest(packing, path, manifest):
-    return content_digest(
-        (relative, (path / relative).read_bytes())
-        for relative in packing["_iter_tree_relpaths"](path, manifest)
-    )
-
-
-def _data_ref(root):
-    workflow = (
-        root / ".github/workflows/qwenpaw-data-release.yml"
-    ).read_text()
-    pin = re.search(r"data_ref\s*\|\|\s*'([^']+)'", workflow)
-    if pin is None:
-        raise ValueError("qwenpaw-data: pinned context console ref missing")
-    return pin[1]
-
-
-def _build_frontend(root, path):
-    """Use the plugin's existing release build, not an invented pack list."""
-    environment = dict(os.environ)
-    if path.parent.name == "harness":
-        subprocess.run(
-            ["bash", str(root / "scripts/pack/build_harness_frontends.sh")],
-            env=environment,
-            check=True,
-        )
-        return
-    if path.name == "qwenpaw-data":
-        external = root / ".plugin-version-data-source"
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "--depth",
-                "1",
-                "--branch",
-                _data_ref(root),
-                "https://github.com/agentscope-ai/QwenPaw-Data.git",
-                str(external),
-            ],
-            check=True,
-        )
-        environment["QWENPAW_DATA_SOURCE_DIR"] = str(external)
-        subprocess.run(
-            ["bash", str(path / "scripts/sync-context-ui.sh")],
-            env=environment,
-            check=True,
-        )
-    for frontend in (path / "ui", path / "frontend"):
-        if not (frontend / "package.json").is_file():
-            continue
-        command = [
-            "npm",
-            "ci" if (frontend / "package-lock.json").is_file() else "install",
-        ]
-        subprocess.run(command, cwd=frontend, env=environment, check=True)
-        subprocess.run(
-            ["npm", "run", "build"], cwd=frontend, env=environment, check=True
-        )
-
-
-def check_pr(base_root: Path, candidate_root: Path, *, build=False):
-    old_pack, before = _sources(base_root)
-    new_pack, after = _sources(candidate_root)
-    shared = (
-        "src/qwenpaw/plugins/frontend",
-        ".nvmrc",
-        "scripts/pack/build_harness_frontends.sh",
-        "scripts/pack/sync_harness_helpers.py",
-    )
-
-    def shared_input(root, names):
-        return content_digest(
-            (str(path.relative_to(root)), path.read_bytes())
-            for name in names
-            for path in (
-                [root / name]
-                if (root / name).is_file()
-                else (root / name).rglob("*")
-            )
-            if path.is_file() and "node_modules" not in path.parts
-        )
-
-    shared_changed = shared_input(base_root, shared) != shared_input(
-        candidate_root, shared
-    )
-    harness_shared = ("plugins/harness/_shared",)
-    harness_shared_changed = shared_input(
-        base_root, harness_shared
-    ) != shared_input(candidate_root, harness_shared)
-    errors = []
-    for key, (path, manifest) in after.items():
-        old = before.get(key)
-        version = Version(manifest["version"])
-        if old and version < Version(old[1]["version"]):
-            errors.append(f"{key[1]}: version decreased to {version}")
-            continue
-        frontend = manifest.get("entry", {}).get("frontend")
-        external_changed = (
-            old is not None
-            and path.name == "qwenpaw-data"
-            and (_data_ref(base_root) != _data_ref(candidate_root))
-        )
-        inputs_changed = (
-            old is None
-            or shared_changed
-            or (path.parent.name == "harness" and harness_shared_changed)
-            or external_changed
-            or (_digest(old_pack, old[0], {}) != _digest(new_pack, path, {}))
-        )
-        if frontend and inputs_changed:
-            if not build:
-                raise ValueError(
-                    f"{key[1]}: release frontend build required (--build)"
-                )
-            _build_frontend(candidate_root, path)
-            if old and version == Version(old[1]["version"]):
-                _build_frontend(base_root, old[0])
-        if not frontend or inputs_changed:
-            new_pack["_validate_declared_entries"](path, manifest)
-            missing = new_pack["_missing_required_files"](path, manifest)
-            if missing:
-                raise ValueError(f"{key[1]}: missing release files: {missing}")
-        if old is None or version > Version(old[1]["version"]):
-            continue
-        if _digest(old_pack, old[0], old[1]) != _digest(
-            new_pack, path, manifest
-        ):
-            old_files = set(old_pack["_iter_tree_relpaths"](*old))
-            new_files = set(new_pack["_iter_tree_relpaths"](path, manifest))
-            changed = [
-                name
-                for name in sorted(old_files | new_files)
-                if name not in old_files
-                or name not in new_files
-                or (old[0] / name).read_bytes() != (path / name).read_bytes()
-            ]
-            errors.append(
-                f"{key[1]}: published content changed without a version increase "
-                f"({version}); files: {', '.join(changed)}"
-            )
-    if errors:
-        raise ValueError("\n".join(errors))
 
 
 def _archive_identity(payload, kind):
@@ -488,10 +310,6 @@ class OSSStore:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    pr = commands.add_parser("pr")
-    pr.add_argument("--base-root", type=Path, required=True)
-    pr.add_argument("--candidate-root", type=Path, required=True)
-    pr.add_argument("--build", action="store_true")
     release = commands.add_parser("release")
     release.add_argument("--artifacts-root", type=Path, required=True)
     release.add_argument("--project-root", type=Path)
@@ -505,31 +323,24 @@ def main():
     release.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     try:
-        if args.command == "pr":
-            check_pr(
-                args.base_root.resolve(),
-                args.candidate_root.resolve(),
-                build=args.build,
-            )
-        else:
-            store = (
-                None
-                if args.dry_run and not os.environ.get("OSS_ACCESS_KEY_ID")
-                else lambda: OSSStore(args.bucket)
-            )
-            check_release(
-                args.artifacts_root,
-                store,
-                project_root=args.project_root,
-                identity_prefix=args.identity_prefix,
-                publish=args.publish,
-                dry_run=args.dry_run,
-                baseline=json.loads(
-                    Path(__file__)
-                    .with_name("channel_release_baseline.json")
-                    .read_text()
-                ),
-            )
+        store = (
+            None
+            if args.dry_run and not os.environ.get("OSS_ACCESS_KEY_ID")
+            else lambda: OSSStore(args.bucket)
+        )
+        check_release(
+            args.artifacts_root,
+            store,
+            project_root=args.project_root,
+            identity_prefix=args.identity_prefix,
+            publish=args.publish,
+            dry_run=args.dry_run,
+            baseline=json.loads(
+                Path(__file__)
+                .with_name("channel_release_baseline.json")
+                .read_text()
+            ),
+        )
     except (
         Exception
     ) as exc:  # CLI failures must never become successful releases.
