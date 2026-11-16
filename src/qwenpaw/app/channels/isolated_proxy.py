@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+from functools import partial
 import hashlib
 import json
 import logging
@@ -2357,24 +2358,33 @@ class IsolatedChannelProxy(BaseChannel):
             ),
         )
 
-    async def _send_model_fallback_notice(self, to_handle, event, send_meta):
+    async def _send_model_fallback_notice(
+        self,
+        to_handle,
+        event,
+        send_meta,
+        *,
+        dispatched=None,
+    ):
         scope = self._response_context.get()
         ordinary = scope.get("ordinary_event") if scope is not None else None
+        parent = super()._send_model_fallback_notice
         if ordinary is None or not (
             ordinary[0] is asyncio.current_task()
             and ordinary[1] is event
             and ordinary[2] is send_meta
         ):
-            return await super()._send_model_fallback_notice(
+            return await parent(
                 to_handle,
                 event,
                 send_meta,
+                dispatched=dispatched,
             )
         try:
             await self._ordinary_event_delivery(
                 to_handle,
                 send_meta,
-                super()._send_model_fallback_notice,
+                partial(parent, dispatched=dispatched),
                 to_handle,
                 event,
                 send_meta,
