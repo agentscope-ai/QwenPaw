@@ -244,6 +244,26 @@ def test_strip_media_blocks_handles_tool_result_with_media(
     assert tool_result.output == MEDIA_UNSUPPORTED_PLACEHOLDER
 
 
+def test_strip_media_blocks_replaces_view_image_success_text():
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ToolResultBlock(
+                id="call-image",
+                name="view_image",
+                output=[
+                    _data_block("image/png", "file:///tmp/wide.png"),
+                    TextBlock(text="Image loaded: wide.png"),
+                ],
+            ),
+        ],
+    )
+
+    assert _strip_media_blocks_in_place([msg]) == 1
+    assert msg.content[0].output == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
 def test_strip_media_blocks_handles_mixed_content(mixed_content_message):
     msgs = [mixed_content_message]
     count = _strip_media_blocks_in_place(msgs)

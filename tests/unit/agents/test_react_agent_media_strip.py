@@ -148,22 +148,6 @@ def _tool_media_context() -> list[Msg]:
     ]
 
 
-def _historical_media_context() -> list[Msg]:
-    return [
-        *_current_media_context(),
-        Msg(
-            name="agent",
-            role="assistant",
-            content=[TextBlock(type="text", text="accepted")],
-        ),
-        Msg(
-            name="user",
-            role="user",
-            content=[TextBlock(type="text", text="plain follow-up")],
-        ),
-    ]
-
-
 def _dump_context(context: list[Msg]) -> list[dict]:
     """Return the complete stored context for mutation checks."""
     return [msg.model_dump(mode="json") for msg in context]
@@ -381,12 +365,8 @@ def test_media_payload_rejection_classifier(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "context_factory",
-    [
-        _current_media_context,
-        _tool_media_context,
-        _historical_media_context,
-    ],
-    ids=["current-media", "tool-media", "historical-media"],
+    [_current_media_context, _tool_media_context],
+    ids=["current-media", "tool-media"],
 )
 async def test_payload_rejection_uses_request_only_retry(
     monkeypatch,
@@ -574,6 +554,7 @@ async def video_session(monkeypatch, tmp_path):
         agent=agent,
         cache=cache,
         errors=[],
+        payload_error=None,
         requests=[],
         other_media=[
             {
@@ -588,7 +569,13 @@ async def video_session(monkeypatch, tmp_path):
     )
 
     def respond(request):
-        session.requests.append(json.loads(request.content)["messages"])
+        messages = json.loads(request.content)["messages"]
+        session.requests.append(messages)
+        if session.payload_error and any(
+            part.get("type") in ("image_url", "input_audio", "video_url")
+            for part in _parts(messages)
+        ):
+            return session.payload_error
         if session.errors:
             return session.errors.pop(0)
         return httpx.Response(
@@ -666,6 +653,32 @@ def _assert_recovery(session, video_counts, learned):
         )
         for kind in ("video", "audio", "media")
     } == {"video": False, "audio": False, "media": False}
+
+
+async def test_media_payload_rejection_omits_historical_media_once(
+    video_session,
+):
+    session = video_session
+    error = _error(
+        400,
+        "Image width exceeds maximum allowed size (5120px), actual: 6735px",
+    )
+    session.payload_error = error
+    first = [event async for event in session.agent._reasoning()]
+    second = [event async for event in session.agent._reasoning()]
+
+    assert [events[-1].content[0].text for events in (first, second)] == [
+        "done",
+        "done",
+    ]
+    assert len(session.requests) == 3
+    assert [
+        any(
+            part.get("type") in ("image_url", "input_audio", "video_url")
+            for part in _parts(request)
+        )
+        for request in session.requests
+    ] == [True, False, False]
 
 
 @pytest.mark.parametrize(

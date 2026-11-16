@@ -1354,12 +1354,16 @@ class QwenPawAgent(Agent):
                 )
                 self._set_formatter_audio_strip(True)
             elif media_payload_retry:
+                omitted = mark_media_omitted_after_overflow(
+                    self.state.context,
+                )
                 logger.warning(
                     "_reasoning failed because the provider rejected the "
                     "media payload itself (%s); stripping media from the "
-                    "retry request. Stored history remains unchanged, and "
-                    "no capability loss is cached.",
+                    "retry request and marking %d historical media block(s) "
+                    "omitted for later requests. No capability loss is cached.",
                     e,
+                    omitted,
                 )
                 self._set_formatter_media_strip(True)
             else:
