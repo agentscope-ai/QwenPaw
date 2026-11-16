@@ -1174,6 +1174,33 @@ describe("ChatPage coverage", () => {
     }
   });
 
+  it("renders the media-omission notice into the completed output", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    if (capturedOptions?.api?.responseParser) {
+      const parsed = capturedOptions.api.responseParser(
+        JSON.stringify({
+          object: "response",
+          status: "completed",
+          metadata: {
+            qwenpaw_media_omitted: {
+              count: 2,
+              reason: "provider media limit",
+            },
+          },
+          output: [],
+        }),
+      );
+      // The assertion is on what the UI receives, not on the helper:
+      // a silent drop and a rendered notice look identical otherwise.
+      expect(JSON.stringify(parsed)).toContain("did not reach the model");
+      expect(JSON.stringify(parsed)).toContain("provider media limit");
+    }
+  });
+
   it("handles responseParser with delta", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],

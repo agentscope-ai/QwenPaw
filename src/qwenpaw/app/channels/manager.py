@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import hashlib
 import os
@@ -37,6 +38,37 @@ if TYPE_CHECKING:
     from ...config.config import Config
 
 logger = logging.getLogger(__name__)
+
+# A channel that overrides ``send_event`` with the older four-argument form
+# rejects the ``dispatched`` keyword. Probing is memoised per class so the
+# dispatch path does not pay for it on every event.
+_DISPATCHED_SUPPORT: Dict[type, bool] = {}
+
+
+def _accepts_dispatched(channel: Any) -> bool:
+    """Return whether *channel*'s ``send_event`` declares ``dispatched``."""
+    cls = type(channel)
+    cached = _DISPATCHED_SUPPORT.get(cls)
+    if cached is not None:
+        return cached
+    handler = getattr(cls, "send_event", None)
+    if handler is None:
+        _DISPATCHED_SUPPORT[cls] = False
+        return False
+    try:
+        parameters = inspect.signature(handler).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    # A channel that forwards ``**kwargs`` to ``BaseChannel.send_event``
+    # accepts the mapping just as one that names it, and it still dedupes
+    # per turn. Only a signature that can accept neither is left out.
+    accepts = "dispatched" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+    _DISPATCHED_SUPPORT[cls] = accepts
+    return accepts
+
 
 # Callback when user reply was sent: (channel, user_id, session_id)
 OnLastDispatch = Optional[Callable[[str, str, str], Awaitable[None]]]
@@ -2037,6 +2069,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         session_id: str,
         event: Any,
         meta: Optional[Dict[str, Any]] = None,
+        dispatched: Optional[Dict[str, Any]] = None,
     ) -> None:
         ch = await self.get_channel(channel)
         if not ch:
@@ -2051,12 +2084,21 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         )
         if bot_prefix and "bot_prefix" not in merged_meta:
             merged_meta["bot_prefix"] = bot_prefix
-        await ch.send_event(
-            user_id=user_id,
-            session_id=session_id,
-            event=event,
-            meta=merged_meta,
-        )
+        dispatch_kwargs: Dict[str, Any] = {
+            "user_id": user_id,
+            "session_id": session_id,
+            "event": event,
+            "meta": merged_meta,
+        }
+        # ``dispatched`` belongs to BaseChannel's signature, but a channel
+        # overriding ``send_event`` with the older form rejects it — passing
+        # it unconditionally turned every ordinary call into a ``TypeError``
+        # for those channels. Hand it over only where it is declared; such a
+        # channel then simply sends its notices without the per-turn
+        # deduplication it never had.
+        if dispatched is not None and _accepts_dispatched(ch):
+            dispatch_kwargs["dispatched"] = dispatched
+        await ch.send_event(**dispatch_kwargs)
 
     async def send_text(
         self,

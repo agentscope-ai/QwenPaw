@@ -8,18 +8,23 @@ second provider, while the original in-memory messages must remain untouched.
 """
 
 # pylint: disable=protected-access,redefined-outer-name
+import base64
 import json
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import (
+    Base64Source,
+    DataBlock,
     Msg,
     TextBlock,
     ThinkingBlock,
     ToolCallBlock,
     ToolResultBlock,
 )
+from PIL import Image
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
@@ -433,3 +438,44 @@ async def test_raw_input_repair_works_before_cross_provider_clean() -> None:
         "raw_input",
         None,
     )
+
+
+def _side_test_image(width: int, height: int) -> bytes:
+    buffer = BytesIO()
+    Image.new("RGB", (width, height), (12, 34, 56)).save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+async def test_formatter_side_limit_reaches_the_normalize_pass() -> None:
+    """The formatter's own side limit decides how far the image shrinks."""
+    raw = _side_test_image(3000, 60)
+    history = [
+        Msg(
+            name="user",
+            role="user",
+            content=[
+                DataBlock(
+                    source=Base64Source(
+                        data=base64.b64encode(raw).decode("ascii"),
+                        media_type="image/png",
+                    ),
+                ),
+            ],
+        ),
+    ]
+
+    (
+        normalized,
+        _is_anthropic,
+        _is_gemini,
+        _is_response,
+    ) = await model_factory._normalize_messages_for_formatter(
+        history,
+        OpenAIChatFormatter,
+        SimpleNamespace(max_bytes=0, max_image_side=1000),
+    )
+
+    source = normalized[0].content[0].source
+    decoded = base64.b64decode(source.data)
+    with Image.open(BytesIO(decoded)) as image:
+        assert max(image.size) <= 1000

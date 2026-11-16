@@ -110,8 +110,12 @@ import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import {
   buildFallbackSystemMessage,
+  buildMediaOmittedSystemMessage,
+  mediaOmittedNoticeKey,
   modelFallbackEventKey,
+  parseMediaOmittedNotice,
   parseModelFallbackEvents,
+  type MediaOmittedNotice,
   type ModelFallbackEvent,
 } from "./fallbackNotice";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
@@ -1482,6 +1486,7 @@ export default function ChatPage() {
   );
   const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
   const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
+  const pendingMediaOmittedRef = useRef<MediaOmittedNotice | null>(null);
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
   const queueSessionIdRef = useRef(queueSessionId);
   queueSessionIdRef.current = queueSessionId;
@@ -3262,6 +3267,7 @@ export default function ChatPage() {
       }
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
+      pendingMediaOmittedRef.current = null;
       // Snapshot legacy state before the first await. SDK 1.2 supplies the
       // immutable submission route in data for direct and queued sends.
       const fallbackLocalChatId =
@@ -4307,6 +4313,18 @@ export default function ChatPage() {
             pendingFallbackEventsRef.current.push(event);
           }
 
+          const mediaOmitted = parseMediaOmittedNotice(payload);
+          if (mediaOmitted) {
+            const current = pendingMediaOmittedRef.current;
+            if (
+              !current ||
+              mediaOmittedNoticeKey(current) !==
+                mediaOmittedNoticeKey(mediaOmitted)
+            ) {
+              pendingMediaOmittedRef.current = mediaOmitted;
+            }
+          }
+
           if (payloadCompletesResponse(payload)) {
             const trailing = flushHeadlineFilter(
               headlineStreamFilterRef.current,
@@ -4349,6 +4367,22 @@ export default function ChatPage() {
               payload.output = [fallbackMessage, ...output];
               pendingFallbackEventsRef.current = [];
               pendingFallbackEventKeysRef.current.clear();
+            }
+            if (pendingMediaOmittedRef.current) {
+              const notice = pendingMediaOmittedRef.current;
+              const reason = notice.reason ? ` (${notice.reason})` : "";
+              const mediaMessage = buildMediaOmittedSystemMessage(
+                notice,
+                t("chat.mediaOmittedNotice", {
+                  count: notice.count,
+                  reason,
+                }),
+              );
+              const output = Array.isArray(payload.output)
+                ? payload.output
+                : [];
+              payload.output = [...output, mediaMessage];
+              pendingMediaOmittedRef.current = null;
             }
           }
 

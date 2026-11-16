@@ -248,6 +248,12 @@ async def run_heartbeat_once(
         if ld.channel and (ld.user_id or ld.session_id):
 
             async def _run_and_dispatch() -> None:
+                # One stream_query call is one turn: the thinking block and
+                # the final text are two completed messages, and the
+                # media-omission notice describes the turn, so it must be
+                # sent once. A later heartbeat builds a new mapping and can
+                # still send its own notice.
+                notice_dispatch: dict = {}
                 async for event in workspace.stream_query(req):
                     await channel_manager.send_event(
                         channel=ld.channel,
@@ -255,6 +261,7 @@ async def run_heartbeat_once(
                         session_id=ld.session_id,
                         event=event,
                         meta={},
+                        dispatched=notice_dispatch,
                     )
 
             try:
