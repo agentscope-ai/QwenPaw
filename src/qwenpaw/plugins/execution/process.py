@@ -652,14 +652,8 @@ class PluginProcess:
                 raise
             raise self.error_type(self._last_error) from None
 
-    async def _open(self, spec: PluginLaunchSpec) -> None:
-        async def create_payloads():
-            self._payloads = await PayloadStore.acreate(self._payload_limits)
-
-        await run_async_to_completion(create_payloads())
-        packet = self._packet(spec)
-        worker = self._worker_path(spec)
-        self._ready = asyncio.get_running_loop().create_future()
+    def _launch_environment(self) -> dict[str, str]:
+        """Build the trusted environment shared by ordinary plugin workers."""
         environment = {
             name: value
             for name, value in os.environ.items()
@@ -697,6 +691,17 @@ class PluginProcess:
         capability = current_capability()
         if capability:
             environment["QWENPAW_DEPENDENCY_MAINTENANCE"] = capability
+        return environment
+
+    async def _open(self, spec: PluginLaunchSpec) -> None:
+        async def create_payloads():
+            self._payloads = await PayloadStore.acreate(self._payload_limits)
+
+        await run_async_to_completion(create_payloads())
+        packet = self._packet(spec)
+        worker = self._worker_path(spec)
+        self._ready = asyncio.get_running_loop().create_future()
+        environment = self._launch_environment()
         options: dict[str, Any] = (
             {"start_new_session": True} if os.name != "nt" else {}
         )
