@@ -18,6 +18,74 @@ def scope():
     return ResourceScope(ResourceOwner("extensions", 1), lambda: None)
 
 
+async def test_run_sync_releases_finished_work_before_scope_closes():
+    resources = scope()
+    async with resources:
+        for value in range(300):
+            assert await resources.run_sync(int, str(value)) == value
+        with pytest.raises(ValueError):
+            await resources.run_sync(int, "invalid")
+        assert resources.snapshot() == {
+            "owner": resources.owner,
+            "closed": False,
+            "resources": (),
+            "errors": (),
+        }
+        assert resources._handles == []
+
+
+async def test_cancelled_run_sync_releases_after_worker_exits():
+    resources = scope()
+    entered, release = threading.Event(), threading.Event()
+
+    def work():
+        entered.set()
+        release.wait(10)
+        raise ValueError("late failure")
+
+    async with resources:
+        waiting = asyncio.create_task(resources.run_sync(work))
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            waiting.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+            assert resources.snapshot()["resources"] == ("run_sync",)
+        finally:
+            release.set()
+        async with asyncio.timeout(3):
+            while resources.snapshot()["resources"]:
+                await asyncio.sleep(0.01)
+        assert resources._handles == []
+
+
+async def test_run_sync_waits_for_thread_local_cleanup():
+    resources = scope()
+    finishing, release = threading.Event(), threading.Event()
+    local = threading.local()
+
+    class Cleanup:
+        def __del__(self):
+            finishing.set()
+            release.wait(10)
+
+    def work():
+        local.cleanup = Cleanup()
+        return "finished"
+
+    async with resources:
+        waiting = asyncio.create_task(resources.run_sync(work))
+        try:
+            assert await asyncio.to_thread(finishing.wait, 3)
+            await asyncio.sleep(0.02)
+            assert not waiting.done()
+            assert resources.snapshot()["resources"] == ("run_sync",)
+        finally:
+            release.set()
+        assert await asyncio.wait_for(waiting, 3) == "finished"
+        assert resources.snapshot()["resources"] == ()
+
+
 async def test_run_sync_cancellation_retains_actual_thread(monkeypatch):
     from qwenpaw.plugins import custody
 

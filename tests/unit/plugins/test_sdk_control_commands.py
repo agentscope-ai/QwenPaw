@@ -42,7 +42,7 @@ async def test_control_uses_live_declaration_and_runs_while_model_busy(
             ["channels", "providers", "storage", "commands"],
         )
         manifest = json.loads((source / "plugin.json").read_text())
-        manifest["sdk"]["version"] = "1.1.0"
+        manifest["sdk"]["version"] = "1.2.0"
         (source / "plugin.json").write_text(json.dumps(manifest))
         assert (await host.install(source)).ok
         ctx = host.context("extension-contract")

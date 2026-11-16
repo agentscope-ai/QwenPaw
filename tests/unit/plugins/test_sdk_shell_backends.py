@@ -8,8 +8,53 @@ import pytest
 
 from qwenpaw.agents.tools.shell import execute_shell_command
 from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult
+from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.runtime.tool_guard import GuardedFunctionTool
 from qwenpaw.governance.tool_adapter import PolicyGuardedTool
+
+from .sdk_author_fixture import make_plugin
+
+
+@pytest.mark.parametrize("policy", [False, True])
+async def test_reload_does_not_deselect_remote_backend(tmp_path, policy):
+    source = (
+        "from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult\n"
+        "class Plugin:\n"
+        "    def register(self, ctx):\n"
+        "        self.selected = False\n"
+        "        async def execute(call, request):\n"
+        "            return ShellResult(0, 'REMOTE')\n"
+        "        ctx.register_shell_backend(ShellBackendSpec(\n"
+        "            'remote', lambda identity: self.selected, execute))\n"
+        "plugin = Plugin()\n"
+    )
+    package = make_plugin(
+        tmp_path,
+        source,
+        ["shell"],
+        sdk_version="1.2.0",
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(package)
+        await host._workspace("test")
+        record = host._loader.get_loaded_plugin("extension-contract")
+        record.instance.selected = True
+        native = tool(policy=policy)
+        assert (await native(command="echo LOCAL")).content[0].text == "REMOTE"
+
+        report = await host.reload("extension-contract")
+        assert (report.ok, report.errors) == (True, ())
+        for _ in range(2):
+            result = await native(command="echo LOCAL")
+            assert "local execution refused" in result.content[0].text
+            assert "LOCAL" not in result.content[0].text
+
+        record = host._loader.get_loaded_plugin("extension-contract")
+        record.instance.selected = True
+        assert (await native(command="echo LOCAL")).content[0].text == "REMOTE"
+        record.instance.selected = False
+        result = await native(command="echo LOCAL")
+        assert result.content[0].text.strip() == "LOCAL"
 
 
 def tool(user="alice", session="selected", workspace="test", policy=False):

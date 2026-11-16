@@ -33,5 +33,5 @@ def make_checkpoint_plugin(tmp_path):
         SOURCE,
         ["apps", "commands"],
         plugin_id="checkpoint-contract",
-        sdk_version="1.1",
+        sdk_version="1.2",
     )

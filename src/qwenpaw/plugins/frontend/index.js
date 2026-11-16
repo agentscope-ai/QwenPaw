@@ -1,4 +1,4 @@
-export const SDK_VERSION = "1.1.0";
+export const SDK_VERSION = "1.2.0";
 // Library features only. Query capabilities(appId) for the running backend.
 export const SDK_CAPABILITIES = Object.freeze(["host", "chat", "routes", "paw", "tasks", "harnesses", "checkpoints"]);
 export function getHost() {
@@ -45,7 +45,7 @@ export async function capabilities(appId, options) {
   }
 }
 
-/** SDK 1.1: selected-conversation checkpoints; applying uses host approval. */
+/** SDK 1.2: selected-conversation checkpoints; applying uses host approval. */
 export function checkpoints(appId) {
   const api = forApp(appId).api;
   async function request(action, body, options) {

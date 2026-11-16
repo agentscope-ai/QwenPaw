@@ -225,7 +225,7 @@ async def test_real_workers_keep_concurrent_workspace_and_user_events_separate(
         tmp_path,
         MODEL,
         ["providers", "storage", "tools"],
-        sdk_version="1.1.0",
+        sdk_version="1.2.0",
     )
     root = tmp_path / "host"
     async with PluginTestHost(root, process_channels=(key,)) as host:

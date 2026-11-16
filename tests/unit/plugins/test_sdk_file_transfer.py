@@ -37,7 +37,7 @@ async def test_uploaded_content_download_identity_limits_and_lifecycle(
         SOURCE,
         ["apps"],
         plugin_id="transfer-contract",
-        sdk_version="1.1",
+        sdk_version="1.2",
     )
     assert check_plugin(source).ok
     async with PluginTestHost(tmp_path / "host") as host:

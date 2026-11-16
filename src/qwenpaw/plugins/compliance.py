@@ -260,81 +260,81 @@ class APIExport:
     since: str = "1.0.0"
     stability: str = "stable"
     # Relative member names, optionally followed by a parameter name.
-    # Example: ("process.tree", "1.1.0") extends a 1.0.0 method.
+    # Example: ("process.tree", "1.2.0") extends a 1.0.0 method.
     # A "parameter.default" entry versions a newly optional parameter.
     members: tuple[tuple[str, str], ...] = ()
 
 
 _MEMBER_VERSIONS = {
     "qwenpaw.plugins.channels.ChannelMessage": (
-        ("sender_name", "1.1.0"),
-        ("thread_id", "1.1.0"),
-        ("actor_unknown", "1.1.0"),
+        ("sender_name", "1.2.0"),
+        ("thread_id", "1.2.0"),
+        ("actor_unknown", "1.2.0"),
     ),
-    "qwenpaw.plugins.commands.CommandSpec": (("control", "1.1.0"),),
-    "qwenpaw.plugins.apps.HttpRequest": (("form", "1.1.0"),),
+    "qwenpaw.plugins.commands.CommandSpec": (("control", "1.2.0"),),
+    "qwenpaw.plugins.apps.HttpRequest": (("form", "1.2.0"),),
     "qwenpaw.plugins.apps.PawApp": (
-        ("route.body", "1.1.0"),
-        ("route.max_body_bytes", "1.1.0"),
+        ("route.body", "1.2.0"),
+        ("route.max_body_bytes", "1.2.0"),
     ),
-    "qwenpaw.plugins.apps.AppContext": (("conversations", "1.1.0"),),
-    "qwenpaw.plugins.apps.ChatRequest": (("model", "1.1.0"),),
-    "qwenpaw.plugins.events.ChatEvent": (("to_dict", "1.1.0"),),
-    "qwenpaw.plugins.events.RunEvent": (("snapshot", "1.1.0"),),
-    "qwenpaw.plugins.events.ApprovalSnapshot": (("run_id", "1.1.0"),),
+    "qwenpaw.plugins.apps.AppContext": (("conversations", "1.2.0"),),
+    "qwenpaw.plugins.apps.ChatRequest": (("model", "1.2.0"),),
+    "qwenpaw.plugins.events.ChatEvent": (("to_dict", "1.2.0"),),
+    "qwenpaw.plugins.events.RunEvent": (("snapshot", "1.2.0"),),
+    "qwenpaw.plugins.events.ApprovalSnapshot": (("run_id", "1.2.0"),),
     "qwenpaw.plugins.storage.PluginStorage": (
-        ("path", "1.1.0"),
-        ("import_legacy", "1.1.0"),
-        ("import_legacy_tree", "1.1.0"),
+        ("path", "1.2.0"),
+        ("import_legacy", "1.2.0"),
+        ("import_legacy_tree", "1.2.0"),
     ),
-    "qwenpaw.plugins.modes.ModeContext": (("identity", "1.1.0"),),
+    "qwenpaw.plugins.modes.ModeContext": (("identity", "1.2.0"),),
     "qwenpaw.plugins.PluginContext": (
         ("register_harness", "1.1.0"),
-        ("register_stop", "1.1.0"),
-        ("register_shell_backend", "1.1.0"),
-        ("register_workflow", "1.1.0"),
+        ("register_stop", "1.2.0"),
+        ("register_shell_backend", "1.2.0"),
+        ("register_workflow", "1.2.0"),
     ),
     "qwenpaw.plugins.tools.ToolContext": (
-        ("identity", "1.1.0"),
-        ("runs", "1.1.0"),
-        ("workspace_ops", "1.1.0"),
-        ("checkpoints", "1.1.0"),
+        ("identity", "1.2.0"),
+        ("runs", "1.2.0"),
+        ("workspace_ops", "1.2.0"),
+        ("checkpoints", "1.2.0"),
     ),
     "qwenpaw.plugins.prompts.PromptSpec": (
-        ("render", "1.1.0"),
-        ("text.default", "1.1.0"),
+        ("render", "1.2.0"),
+        ("text.default", "1.2.0"),
     ),
-    "qwenpaw.plugins.hooks.HookContext": (("session_saved", "1.1.0"),),
+    "qwenpaw.plugins.hooks.HookContext": (("session_saved", "1.2.0"),),
     "qwenpaw.plugins.models.ModelService": (
-        ("configured", "1.1.0"),
-        ("catalog", "1.1.0"),
+        ("configured", "1.2.0"),
+        ("catalog", "1.2.0"),
     ),
     "qwenpaw.plugins.resources.ResourceScope": (
-        ("run_sync", "1.1.0"),
-        ("async_process", "1.1.0"),
-        ("process.tree", "1.1.0"),
-        ("__aenter__", "1.1.0"),
-        ("__aexit__", "1.1.0"),
+        ("run_sync", "1.2.0"),
+        ("async_process", "1.2.0"),
+        ("process.tree", "1.2.0"),
+        ("__aenter__", "1.2.0"),
+        ("__aexit__", "1.2.0"),
     ),
     "qwenpaw.plugins.markets.MarketContext": (
-        ("lang", "1.1.0"),
-        ("category", "1.1.0"),
+        ("lang", "1.2.0"),
+        ("category", "1.2.0"),
     ),
     "qwenpaw.plugins.testing.PluginTestHost": (
         ("list_harnesses", "1.1.0"),
         ("harness_status", "1.1.0"),
         ("run_harness", "1.1.0"),
-        ("process_channels", "1.1.0"),
+        ("process_channels", "1.2.0"),
         # Existing 1.0 keyword forwarding is now explicit in the signature.
         ("call_tool.workspace_id", "1.0.0"),
         ("call_tool.session_id", "1.0.0"),
-        ("run_workflow", "1.1.0"),
-        ("call_control_command", "1.1.0"),
-        ("evaluate_stop", "1.1.0"),
-        ("search_market.lang", "1.1.0"),
-        ("search_market.category", "1.1.0"),
+        ("run_workflow", "1.2.0"),
+        ("call_control_command", "1.2.0"),
+        ("evaluate_stop", "1.2.0"),
+        ("search_market.lang", "1.2.0"),
+        ("search_market.category", "1.2.0"),
         *(
-            (f"{method}.{parameter}", "1.1.0")
+            (f"{method}.{parameter}", "1.2.0")
             for method in (
                 "call_tool",
                 "stream_tool",
@@ -346,9 +346,9 @@ _MEMBER_VERSIONS = {
             )
             for parameter in ("user_id", "channel")
         ),
-        ("run_hooks.session_saved", "1.1.0"),
+        ("run_hooks.session_saved", "1.2.0"),
     ),
-    "qwenpaw.plugins.compliance.APIExport": (("members", "1.1.0"),),
+    "qwenpaw.plugins.compliance.APIExport": (("members", "1.2.0"),),
 }
 
 _EXPORT_VERSIONS = {
@@ -357,23 +357,23 @@ _EXPORT_VERSIONS = {
         for name in PUBLIC_API["qwenpaw.plugins.harnesses"]
     },
     **{
-        f"qwenpaw.plugins.channel_ingress.{name}": "1.1.0"
+        f"qwenpaw.plugins.channel_ingress.{name}": "1.2.0"
         for name in PUBLIC_API["qwenpaw.plugins.channel_ingress"]
     },
     **{
-        f"qwenpaw.plugins.channel_management.{name}": "1.1.0"
+        f"qwenpaw.plugins.channel_management.{name}": "1.2.0"
         for name in PUBLIC_API["qwenpaw.plugins.channel_management"]
     },
     **{
-        f"qwenpaw.plugins.channel_workers.{name}": "1.1.0"
+        f"qwenpaw.plugins.channel_workers.{name}": "1.2.0"
         for name in PUBLIC_API["qwenpaw.plugins.channel_workers"]
     },
     **{
-        f"qwenpaw.plugins.workflows.{name}": "1.1.0"
+        f"qwenpaw.plugins.workflows.{name}": "1.2.0"
         for name in PUBLIC_API["qwenpaw.plugins.workflows"]
     },
     **{
-        f"qwenpaw.plugins.checkpoints.{name}": "1.1.0"
+        f"qwenpaw.plugins.checkpoints.{name}": "1.2.0"
         for name in (
             "CheckpointService",
             "CheckpointEntry",
@@ -382,25 +382,25 @@ _EXPORT_VERSIONS = {
             "CheckpointError",
         )
     },
-    "qwenpaw.plugins.apps.UploadedFile": "1.1.0",
-    "qwenpaw.plugins.apps.FileResponse": "1.1.0",
-    "qwenpaw.plugins.conversations.ConversationService": "1.1.0",
-    "qwenpaw.plugins.conversations.ConversationMessage": "1.1.0",
-    "qwenpaw.plugins.workspace.WorkspaceService": "1.1.0",
-    "qwenpaw.plugins.events.JSONData": "1.1.0",
-    "qwenpaw.plugins.runs.RunService": "1.1.0",
-    "qwenpaw.plugins.runs.RunSnapshot": "1.1.0",
+    "qwenpaw.plugins.apps.UploadedFile": "1.2.0",
+    "qwenpaw.plugins.apps.FileResponse": "1.2.0",
+    "qwenpaw.plugins.conversations.ConversationService": "1.2.0",
+    "qwenpaw.plugins.conversations.ConversationMessage": "1.2.0",
+    "qwenpaw.plugins.workspace.WorkspaceService": "1.2.0",
+    "qwenpaw.plugins.events.JSONData": "1.2.0",
+    "qwenpaw.plugins.runs.RunService": "1.2.0",
+    "qwenpaw.plugins.runs.RunSnapshot": "1.2.0",
     **{
-        f"qwenpaw.plugins.stops.{name}": "1.1.0"
+        f"qwenpaw.plugins.stops.{name}": "1.2.0"
         for name in ("StopContext", "StopSpec", "StopResult")
     },
-    "qwenpaw.plugins.context.RequestContext": "1.1.0",
+    "qwenpaw.plugins.context.RequestContext": "1.2.0",
     **{
-        f"qwenpaw.plugins.shell.{name}": "1.1.0"
+        f"qwenpaw.plugins.shell.{name}": "1.2.0"
         for name in ("ShellBackendSpec", "ShellRequest", "ShellResult")
     },
-    "qwenpaw.plugins.models.ModelSelection": "1.1.0",
-    "qwenpaw.plugins.models.ModelDescription": "1.1.0",
+    "qwenpaw.plugins.models.ModelSelection": "1.2.0",
+    "qwenpaw.plugins.models.ModelDescription": "1.2.0",
 }
 
 
@@ -433,8 +433,8 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.1.0"
-    rules_version: str = "1.1.0"
+    sdk_version: str = "1.2.0"
+    rules_version: str = "1.2.0"
     checked_at: str = ""
     plugin_id: str = ""
     declared_sdk_version: str = ""

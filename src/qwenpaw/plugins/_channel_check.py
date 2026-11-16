@@ -17,13 +17,13 @@ def check_channel_package(
     from .compliance import CheckFinding
 
     findings = []
-    if declaration and Version(declaration["version"]) < Version("1.1.0"):
+    if declaration and Version(declaration["version"]) < Version("1.2.0"):
         findings.append(
             CheckFinding(
                 "plugin.json",
                 1,
                 "sdk-version",
-                "Process channel SDK requires SDK >= 1.1.0",
+                "Process channel SDK requires SDK >= 1.2.0",
             ),
         )
     requirements = str(

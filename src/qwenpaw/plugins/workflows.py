@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Workspace service jobs scheduled and cancelled by the host (SDK 1.1)."""
+"""Workspace service jobs scheduled and cancelled by the host (SDK 1.2)."""
 
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Mapping

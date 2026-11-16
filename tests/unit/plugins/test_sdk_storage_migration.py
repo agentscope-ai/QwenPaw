@@ -23,7 +23,7 @@ def package(tmp_path):
     )
     manifest = json.loads((root / "plugin.json").read_text())
     manifest["sdk"].update(
-        version="1.1.0",
+        version="1.2.0",
         legacy_storage={
             "profile": "extension-contract/profiles.json",
             "history": "extension-contract/history",
@@ -128,7 +128,7 @@ async def test_declared_migration_preserves_sources_and_existing_data(
 def test_legacy_manifest_rejects_foreign_namespace(plugin_id, path):
     with pytest.raises(SDKError):
         validate_sdk(
-            {"version": "1.1.0", "legacy_storage": {"data": path}},
+            {"version": "1.2.0", "legacy_storage": {"data": path}},
             plugin_id,
         )
 

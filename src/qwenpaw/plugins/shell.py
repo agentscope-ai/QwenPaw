@@ -29,6 +29,8 @@ class ShellBackendSpec:
     matches is a quick synchronous predicate over plugin-owned state. Return
     False only when this identity has deliberately deselected the backend.
     A selected but failed connection must still match and raise from execute.
+    After reload, an unmatched previous selection stays blocked until the
+    new instance explicitly matches again; reload is not a local fallback.
     cwd is the original argument, never a translated local workspace path.
     """
 

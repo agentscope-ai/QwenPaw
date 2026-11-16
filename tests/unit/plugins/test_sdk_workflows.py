@@ -62,7 +62,7 @@ def workflow_plugin(tmp_path):
         SOURCE,
         ["apps", "workflows", "storage", "config"],
         plugin_id="workflow-contract",
-        sdk_version="1.1",
+        sdk_version="1.2",
     )
 
 

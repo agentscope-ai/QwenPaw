@@ -157,7 +157,7 @@ void tasks("author-app").start({message: "Hello", ...options});
 void checkpoints("author-app").timeline({chatId: "selected"});
 """,
 )
-for minimum, expected in (("1.0.0", 1), ("1.1.0", 0)):
+for minimum, expected in (("1.0.0", 1), ("1.1.0", 1), ("1.2.0", 0)):
     (root / "plugin.json").write_text(
         json.dumps(
             {"id": "author", "version": "0.1.0", "sdk": {"version": minimum}},

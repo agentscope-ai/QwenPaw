@@ -92,7 +92,7 @@ async def test_standard_routes_validate_and_forward_model(tmp_path):
             ["providers", "apps", "storage", "models"],
         )
         manifest = json.loads((source / "plugin.json").read_text())
-        manifest["sdk"]["version"] = "1.1.0"
+        manifest["sdk"]["version"] = "1.2.0"
         (source / "plugin.json").write_text(json.dumps(manifest))
         await host.load(source)
         await host.configure_chat_model("selection", "first")
@@ -164,7 +164,7 @@ async def test_app_override_keeps_history_default_and_concurrent_choices(
         import json
 
         manifest = json.loads((source / "plugin.json").read_text())
-        manifest["sdk"]["version"] = "1.1.0"
+        manifest["sdk"]["version"] = "1.2.0"
         (source / "plugin.json").write_text(json.dumps(manifest))
         plugin = await host.load(source)
         await host.configure_chat_model("selection", "first")

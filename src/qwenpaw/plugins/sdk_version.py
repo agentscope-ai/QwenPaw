@@ -7,7 +7,7 @@ from packaging.version import InvalidVersion, Version
 
 from .errors import SDKCompatibilityError
 
-SDK_VERSION = "1.1.0"
+SDK_VERSION = "1.2.0"
 SDK_CAPABILITIES = frozenset(
     {
         "tools",
@@ -64,9 +64,9 @@ def validate_sdk(declaration, plugin_id=None):
     if "legacy_storage" in declaration:
         from ._storage_migration import validate_sources
 
-        if requested < Version("1.1.0"):
+        if requested < Version("1.2.0"):
             raise SDKCompatibilityError(
-                "sdk.legacy_storage requires SDK >= 1.1.0",
+                "sdk.legacy_storage requires SDK >= 1.2.0",
             )
         validate_sources(declaration, plugin_id)
     capabilities = declaration.get("capabilities", [])
@@ -81,9 +81,9 @@ def validate_sdk(declaration, plugin_id=None):
         )
     if {"stops", "shell", "workflows"}.intersection(
         capabilities,
-    ) and requested < Version("1.1.0"):
+    ) and requested < Version("1.2.0"):
         raise SDKCompatibilityError(
-            "stops/shell/workflows capabilities require SDK >= 1.1.0",
+            "stops/shell/workflows capabilities require SDK >= 1.2.0",
         )
 
     if "harnesses" in capabilities and requested < Version("1.1.0"):

@@ -48,7 +48,7 @@ export interface PawSseEvent {
 }
 
 export interface PawChatOptions {
-  /** @since 1.1.0 Per-turn selection; does not change the workspace default. */
+  /** @since 1.2.0 Per-turn selection; does not change the workspace default. */
   model?: ModelSelection;
   /** Defaults to the agent selected in the host UI. */
   agentId?: string;

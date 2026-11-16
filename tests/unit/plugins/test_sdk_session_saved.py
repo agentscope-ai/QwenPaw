@@ -53,7 +53,7 @@ async def test_session_save_signal_tracks_actual_disk_failure_and_recovery(
         OBSERVER,
         ["hooks", "storage"],
         plugin_id="save-observer",
-        sdk_version="1.1",
+        sdk_version="1.2",
     )
     assert check_plugin(source).ok
     async with PluginTestHost(tmp_path / "host") as host:

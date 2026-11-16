@@ -21,7 +21,7 @@ async def test_runtime_allows_resource_scope_async_context_protocol(
                 "id": "scope-protocol",
                 "version": "1.0",
                 "entry": {"backend": "main.py"},
-                "sdk": {"version": "1.1.0", "capabilities": ["resources"]},
+                "sdk": {"version": "1.2.0", "capabilities": ["resources"]},
             },
         ),
     )

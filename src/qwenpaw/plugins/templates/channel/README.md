@@ -19,15 +19,15 @@ python -m qwenpaw.plugins.check ./my-channel --runtime
 
 模板未演示平台验签、审批、扫码授权、HTTP 转发或独占账户；这些不能因模板可运行就认定验收通过。
 
-`ResponsePolicy.text_merge_delay_ms`（1.1.0）复用宿主文本合并机制：`None` 关闭合并，`0` 在回复结束时统一发送，正整数还会在连续空闲指定毫秒后发送。启用时必须声明 `channel.text_merge.v1`。用户取消会丢弃尚未发送的缓冲文本；已经开始的平台请求不能因此撤回。
+`ResponsePolicy.text_merge_delay_ms`（1.2.0）复用宿主文本合并机制：`None` 关闭合并，`0` 在回复结束时统一发送，正整数还会在连续空闲指定毫秒后发送。启用时必须声明 `channel.text_merge.v1`。用户取消会丢弃尚未发送的缓冲文本；已经开始的平台请求不能因此撤回。
 
-`ResponsePolicy.continue_on_delivery_error`（1.1.0，默认 `False`）决定一次发送失败后是否继续消费模型事件，不代表重试或忽略失败。最终回复仍标记失败；结果未知时仍禁止同一回复继续产生副作用。平台格式、卡片内容和业务规则留在驱动。
+`ResponsePolicy.continue_on_delivery_error`（1.2.0，默认 `False`）决定一次发送失败后是否继续消费模型事件，不代表重试或忽略失败。最终回复仍标记失败；结果未知时仍禁止同一回复继续产生副作用。平台格式、卡片内容和业务规则留在驱动。
 
-声明 `channel.run_events.v1` 后，`ChannelDriver.on_run(ch, event)`（1.1.0）接收已有的 `qwenpaw.plugins.channels.ChannelRunEvent`。`start/running` 在宿主接纳并准备处理后发出，`end` 提供 `completed/failed/cancelled`；主动发送与入队前拒绝不生成运行事件。`run_id` 是本渠道一次处理的编号，不等同于 Runtime 的运行查询编号；`target` 是公开回复目标的 `key`。群共享会话中，`user_id` 可以是共享身份，`sender_id/acl_sender_id` 仍表示平台操作者。
+声明 `channel.run_events.v1` 后，`ChannelDriver.on_run(ch, event)`（1.2.0）接收已有的 `qwenpaw.plugins.channels.ChannelRunEvent`。`start/running` 在宿主接纳并准备处理后发出，`end` 提供 `completed/failed/cancelled`；主动发送与入队前拒绝不生成运行事件。`run_id` 是本渠道一次处理的编号，不等同于 Runtime 的运行查询编号；`target` 是公开回复目标的 `key`。群共享会话中，`user_id` 可以是共享身份，`sender_id/acl_sender_id` 仍表示平台操作者。
 
 回调顺序由宿主管理，每次实际回调有五秒预算。开始回调未退出时，结束通知排在后面；结束通知未退出时，不能报告回复资源清理完成。停用等待超过宿主排空预算可以明确失败，不能把超时当作已清理。通知异常会记录诊断，不代替模型结果，也不会自动重放回调。这是当前 worker 的运行通知，不提供崩溃后的事件重放保证；`ch.delivery` 不在此回调中绑定投递事务。平台副作用使用 `send/on_stream/prepare_response/reaction`，回复资源由 `finish_response` 释放。
 
-可选的管理与审批接口从 SDK 1.1.0 引入：
+可选的管理与审批接口从 SDK 1.2.0 引入：
 
 - `ChannelDriver.manage(request)` 必须是只有一个请求参数的静态异步方法，运行在临时 worker 中，不会构造 Driver 或调用 `start()`。请求的 `operation` 为 `qrcode.fetch`、`qrcode.poll` 或 `connection.verify`；分别返回 `ChannelQRCode`、`ChannelAuthorization` 或 `ChannelVerification`，失败返回 `ChannelManagementFailure`。配置只读；任务和连接登记在 `request.resources`，使用 `remaining_timeout()` 和 `check_cancelled()` 遵守宿主预算。
 - `ChannelDefinition.authorization_fields` 是允许授权结果写回的字符串配置字段名元组，默认空。JSON 描述对应 `config_schema.x-qwenpaw-authorization-fields`。声明 `channel.management.qrcode.v1` 或 `channel.management.verify.v1` 后才能执行相应管理操作；声明 `channel.auth.qrcode.v1` 后，运行中的 `ch.auth.required(scan_url)` 可请求宿主展示扫码地址。
@@ -35,15 +35,15 @@ python -m qwenpaw.plugins.check ./my-channel --runtime
 
 静态渠道重载目前需要提供独立来源供宿主重新暂存和校验，例如 `host.reload(plugin_id, new_source=source)`。原地修改已安装代码后直接重载仍由宿主拒绝。
 
-独占资源也从 SDK 1.1.0 引入。`ChannelDefinition.exclusive_resources` 接受 `ChannelExclusiveResource(namespace, fields, operations=("run",))` 元组，JSON 对应 `config_schema.x-qwenpaw-exclusive-resources` 数组。`fields` 是配置中字符串或整数的字段名元组，多个字段整体识别一个资源；例如服务器加账号，或监听地址加端口。宿主使用校验和规范化后的配置生成不含原始值的标识，在启动之前检查冲突，在真实退出之后释放。
+独占资源也从 SDK 1.2.0 引入。`ChannelDefinition.exclusive_resources` 接受 `ChannelExclusiveResource(namespace, fields, operations=("run",))` 元组，JSON 对应 `config_schema.x-qwenpaw-exclusive-resources` 数组。`fields` 是配置中字符串或整数的字段名元组，多个字段整体识别一个资源；例如服务器加账号，或监听地址加端口。宿主使用校验和规范化后的配置生成不含原始值的标识，在启动之前检查冲突，在真实退出之后释放。
 
 `operations` 可声明 `run`、`qrcode.fetch`、`qrcode.poll`、`connection.verify`，默认只占用运行阶段。授权缓存可声明扫码操作，避免多个临时进程同时修改。不同插件要协调同一个资源，必须使用相同 namespace 和相同字段值顺序；命名空间、字段名本身不赋予文件或网络访问权限。空值会拒绝启动。此机制协调同一个宿主进程内的声明，不替代操作系统端口占用、文件锁或多个宿主之间的协调，也不会自动发现路径别名、符号链接或旧插件未声明的资源。
 
-HTTP/WebSocket 回调从 SDK 1.1.0 使用 `qwenpaw.plugins.channel_ingress`：在 `ChannelDefinition.ingress_routes` 声明 `ChannelIngressRoute(method, path)`，并声明 `ingress_endpoint`。`path` 是本渠道命名空间下的固定相对路径，不支持任意宿主路由或通配符。监听服务使用 `ch.ingress.path` 作为路径前缀，并登记到 `ch.resources`。
+HTTP/WebSocket 回调从 SDK 1.2.0 使用 `qwenpaw.plugins.channel_ingress`：在 `ChannelDefinition.ingress_routes` 声明 `ChannelIngressRoute(method, path)`，并声明 `ingress_endpoint`。`path` 是本渠道命名空间下的固定相对路径，不支持任意宿主路由或通配符。监听服务使用 `ch.ingress.path` 作为路径前缀，并登记到 `ch.resources`。
 
 `ch.ingress.register/update(ChannelIngressSpec(host, port, protocol, readiness, public_base_url))` 返回绑定；仅接受 loopback 转发目标。`binding.url(path)` 生成带工作区路由标识的已声明回调地址；`binding.verify(headers)` 校验当前宿主转发并返回原始 URL，随后必须由插件继续验证平台签名。旧绑定在更新或关闭后不能使用。`close()` 等待宿主在途转发结束，监听服务本身仍由插件资源作用域关闭。模板本身没有建立监听，因此不能当作这项能力的验收证据。
 
-结构化内容从 SDK 1.1.0 引入：声明 `send.structured_parts.v1`，并设置 `ResponsePolicy(content_source="semantic")`。默认 `"rendered"` 保留现有宿主展示方式。`ChannelResponse.content` 的每项是继承 `ContentBlock` 的 `ChannelContent`，新增 `role`（`message/reasoning/refusal/rendered`）；嵌套 `output` 为字符串或 `tuple[ChannelContent, ...]`。
+结构化内容从 SDK 1.2.0 引入：声明 `send.structured_parts.v1`，并设置 `ResponsePolicy(content_source="semantic")`。默认 `"rendered"` 保留现有宿主展示方式。`ChannelResponse.content` 的每项是继承 `ContentBlock` 的 `ChannelContent`，新增 `role`（`message/reasoning/refusal/rendered`）；嵌套 `output` 为字符串或 `tuple[ChannelContent, ...]`。
 
 - 正文为 `type="text", role="message"`；思考为 `type="thinking", role="reasoning"`；拒绝为 `type="text", role="refusal"`；宿主已排版的工具进度为 `role="rendered"`。
 - 工具调用和结果使用 `type="tool_call"/"tool_result"`，通过 `id/name` 对应；`arguments/output` 是经过显示设置过滤和长度限制的预览，不能当作完整执行参数。结果保留宿主提供的 `state`（例如 `success/error/interrupted/denied`）；缺少状态时为空字符串。

@@ -41,7 +41,7 @@ describe("published plugin SDK runtime", () => {
   it("binds checkpoints to an explicit conversation and preserves cancellation", async () => {
     const { api } = hostWith({
       ...supported,
-      sdk_version: "1.1.0",
+      sdk_version: "1.2.0",
       capabilities: ["checkpoints"],
     });
     const signal = new AbortController().signal;

@@ -14,7 +14,7 @@ def make_channel(root, source, definition, *, capabilities, requirements=""):
                 "version": "0.1.0",
                 "type": "channel",
                 "entry": {"descriptor": "channel.json"},
-                "sdk": {"version": "1.1.0", "capabilities": capabilities},
+                "sdk": {"version": "1.2.0", "capabilities": capabilities},
             },
         ),
     )

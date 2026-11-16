@@ -248,17 +248,38 @@ class ResourceScope:  # pylint: disable=protected-access
         result: asyncio.Future[_T] = loop.create_future()
         inherited = copy_context()
 
+        def completed(deliver, value):
+            # The result may arrive before thread-local destructors finish.
+            if thread.is_alive():
+                loop.call_later(0.001, completed, deliver, value)
+                return
+            handle.closed = True
+            if handle in self._handles:
+                self._handles.remove(handle)
+            deliver(value)
+
         def run() -> None:
             try:
                 value = inherited.run(function, *args, **kwargs)
             except BaseException as exc:
-                loop.call_soon_threadsafe(result.set_exception, exc)
+                loop.call_soon_threadsafe(completed, result.set_exception, exc)
             else:
-                loop.call_soon_threadsafe(result.set_result, value)
+                loop.call_soon_threadsafe(completed, result.set_result, value)
+
+        thread = threading.Thread(
+            target=run,
+            name=f"{self.owner.plugin_id}:run_sync",
+            daemon=True,
+        )
+
+        async def close():
+            if thread.ident is not None:
+                await custody.stop_thread(thread, None, "run_sync")
 
         # Observe late exceptions even when the original waiter is cancelled.
         result.add_done_callback(lambda done: done.exception())
-        self.thread(run, stop=threading.Event(), description="run_sync")
+        handle = self._defer(close, "run_sync")
+        thread.start()
         return await asyncio.shield(result)
 
     def process(

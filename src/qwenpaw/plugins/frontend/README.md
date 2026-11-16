@@ -46,11 +46,11 @@ do not read `navigator.language` or call React hooks during registration.
 Existing string labels remain unchanged, and omitting `title` preserves the
 host's path-derived title.
 
-## Added in 1.1.0
+## Added in 1.2.0
 
 `forApp(id).chat/chatStream(text, { model: { provider_id, model_id } })`
 and `tasks(id).start({ message, model })` select a model for this request only.
-They require SDK 1.1 standard app routes. The choice preserves app history and
+They require SDK 1.2 standard app routes. The choice preserves app history and
 does not change workspace defaults; a configured default is not required when
 the request names an available model. Unsupported legacy app routes reject
 the selection instead of silently discarding it.
@@ -76,11 +76,11 @@ only and takes a bounded `limit`, not a session identifier.
 the normal workspace selection flow. It rejects unavailable workspaces and
 will not overwrite a newer selection made while the request was pending.
 The host's existing `menu.add()` and `route.add()` return disposable handles.
-1.1 adds their missing standalone package declarations (`PluginMenuItem`,
+1.2 adds their missing standalone package declarations (`PluginMenuItem`,
 `PluginRoute`) without introducing competing runtime registration aliases.
 
 
-## Author checks (1.1.0)
+## Author checks (1.2.0)
 
 After installing TypeScript in your frontend project, run:
 

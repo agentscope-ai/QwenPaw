@@ -2,7 +2,7 @@ export * from "./host.js";
 export * from "./paw.js";
 import type { QwenPawWindowNamespace, ModelSelection } from "./host.js";
 import type { PawSdk, PawRequestOptions } from "./paw.js";
-export declare const SDK_VERSION: "1.1.0";
+export declare const SDK_VERSION: "1.2.0";
 /** Harness settings types are available since SDK 1.1.0. */
 export type { HarnessSettingsProps, HarnessFrontendExtension } from "./host.js";
 /** Features of this library, not a claim about the currently running backend. */
@@ -20,7 +20,7 @@ export declare function capabilities(
 export declare function getHost(): QwenPawWindowNamespace;
 export declare function forApp(appId: string): PawSdk;
 export interface ChatRequest {
-  /** @since 1.1.0 Per-task selection; does not change the workspace default. */
+  /** @since 1.2.0 Per-task selection; does not change the workspace default. */
   model?: ModelSelection;
   message: string;
   session_id?: string;
@@ -63,12 +63,12 @@ export interface AppTasks {
 }
 export declare function tasks(appId: string): AppTasks;
 
-/** @since 1.1.0 An explicitly selected main conversation in this workspace. */
+/** @since 1.2.0 An explicitly selected main conversation in this workspace. */
 export interface CheckpointScope extends PawRequestOptions {
   chatId: string;
   agentId?: string;
 }
-/** @since 1.1.0 */
+/** @since 1.2.0 */
 export interface CheckpointEntry {
   id: string;
   kind: string;
@@ -77,18 +77,18 @@ export interface CheckpointEntry {
   description: string;
   is_current: boolean;
 }
-/** @since 1.1.0 */
+/** @since 1.2.0 */
 export interface SnapshotResult {
   id: string;
   timestamp_ms: number;
 }
-/** @since 1.1.0 */
+/** @since 1.2.0 */
 export interface RestoreOptions extends CheckpointScope {
   include_memory?: boolean;
   include_files?: boolean;
   files?: string[];
 }
-/** @since 1.1.0 */
+/** @since 1.2.0 */
 export interface RestoreResult {
   id: string;
   dry_run: boolean;
@@ -98,7 +98,7 @@ export interface RestoreResult {
   include_memory: boolean;
   include_files: boolean;
 }
-/** @since 1.1.0 */
+/** @since 1.2.0 */
 export interface CheckpointClient {
   timeline(
     options: CheckpointScope & { limit?: number },
@@ -111,5 +111,5 @@ export interface CheckpointClient {
   /** Waits for native host confirmation; abort cancels a pending request. */
   restore(target: string, options: RestoreOptions): Promise<RestoreResult>;
 }
-/** @since 1.1.0 Requires the app's standard checkpoint capability. */
+/** @since 1.2.0 Requires the app's standard checkpoint capability. */
 export declare function checkpoints(appId: string): CheckpointClient;

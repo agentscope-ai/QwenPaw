@@ -56,10 +56,17 @@ class ShellRouter:
                 )
             if not matches:
                 previous = self.selected.get(identity)
-                if previous is not None and previous not in self.backends:
-                    raise SDKError(
-                        "Selected shell backend is unavailable; local execution refused",
-                    )
+                if previous is not None:
+                    previous_key, previous_owner = previous
+                    current = self.backends.get(previous_key)
+                    if (
+                        current is None
+                        or current[0].resources.owner != previous_owner
+                    ):
+                        raise SDKError(
+                            "Selected shell backend is unavailable; "
+                            "local execution refused",
+                        )
                 self.selected.pop(identity, None)
                 return None
             key, plugin, spec = matches[0]
@@ -67,7 +74,7 @@ class ShellRouter:
                 raise SDKError(
                     "Shell selection capacity reached; local execution refused",
                 )
-            self.selected[identity] = key
+            self.selected[identity] = (key, plugin.resources.owner)
             if sandbox_config is not None:
                 raise SDKError(
                     "Selected shell backend cannot enforce the required local sandbox policy",

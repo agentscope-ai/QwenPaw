@@ -123,7 +123,7 @@ async def test_real_mode_tool_preserves_user_workspace_and_session(tmp_path):
             "providers",
             "storage",
         ],
-        sdk_version="1.1",
+        sdk_version="1.2",
     )
     assert check_plugin(source).ok
     async with PluginTestHost(tmp_path / "host") as host:

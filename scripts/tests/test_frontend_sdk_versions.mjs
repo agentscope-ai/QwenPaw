@@ -96,8 +96,26 @@ test("SDK 1.0 rejects resolved new symbols, destructuring and model options", as
     );
 });
 
-test("SDK 1.1 accepts the same public usage", async () => {
+test("SDK 1.1 rejects new APIs while retaining Harness support", async () => {
   const result = await check("1.1.0", additions);
+  assert.equal(result.ok, false);
+  assert.deepEqual(
+    [...new Set(result.findings.map((f) => f.message.split(" ")[0]))].sort(),
+    [
+      "add", "chatId", "checkpoints", "composer", "menu", "model",
+      "model_id", "provider_id", "read", "route", "selectAgent", "timeline",
+    ],
+  );
+  assert.ok(result.findings.every((f) => f.rule === "sdk-version"));
+  const harness = await check("1.1.0", `
+import {getHost} from '@qwenpaw/plugin-sdk';
+getHost().harnesses.register('app', {backendId:'example'});
+`);
+  assert.equal(harness.ok, true, JSON.stringify(harness));
+});
+
+test("SDK 1.2 accepts the same public usage", async () => {
+  const result = await check("1.2.0", additions);
   assert.equal(result.ok, true, JSON.stringify(result));
 });
 

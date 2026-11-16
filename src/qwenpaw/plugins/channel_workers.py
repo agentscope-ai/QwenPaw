@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Public, metadata-only declarations for process-backed channels (SDK 1.1)."""
+"""Public, metadata-only declarations for process-backed channels (SDK 1.2)."""
 
 from __future__ import annotations
 

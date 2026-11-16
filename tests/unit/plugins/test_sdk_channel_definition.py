@@ -10,7 +10,7 @@ from qwenpaw.plugins.channel_workers import ChannelDefinition
 from qwenpaw.plugins.compliance import check_plugin
 
 
-def package(path, *, version="1.1.0"):
+def package(path, *, version="1.2.0"):
     definition = ChannelDefinition(
         "example",
         {"en": "Example", "zh": "示例"},
@@ -117,7 +117,7 @@ def test_channel_definition_roundtrip_freezing_and_no_import(tmp_path):
     ],
 )
 def test_static_channel_invalid_packages(tmp_path, case):
-    package(tmp_path, version="1.0" if case == "old-sdk" else "1.1")
+    package(tmp_path, version="1.0" if case == "old-sdk" else "1.2")
     source = tmp_path / "example/driver.py"
     if case == "missing":
         source.unlink()
