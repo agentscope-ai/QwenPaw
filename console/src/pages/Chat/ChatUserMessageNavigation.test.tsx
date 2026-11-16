@@ -273,9 +273,7 @@ describe("unified navigation across history and live rendering", () => {
         .textContent,
     ).toBe("99+");
     fireEvent.click(previous);
-    await waitFor(() =>
-      expect(onNavigate).toHaveBeenCalledWith(entry(98)),
-    );
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith(entry(98)));
     expect(state.load.mock.calls[1][1]).toBe("older");
   });
   it("renders a new chat before a session identity exists", () => {

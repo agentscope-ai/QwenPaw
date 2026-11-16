@@ -701,7 +701,9 @@ class DatabaseSession:
         if restore_runtime:
             states = iter(approximate)
             turn_seq = 0
-            while (state := await run_sync_io(next, states, None)) is not None:
+            while (
+                state := await run_sync_io(lambda: next(states, None))
+            ) is not None:
                 turn_seq += 1
                 existing = await run_sync_io(
                     self._catalog.read_turn_context,

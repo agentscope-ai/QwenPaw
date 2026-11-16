@@ -300,7 +300,7 @@ async def test_collection_preserves_database_session_identity(tmp_path):
             name="user",
             role="user",
             content=[TextBlock(text="remember")],
-        )
+        ),
     )
     proxy = StateProxy()
     proxy.data = {"state": state.model_dump(mode="json")}
@@ -321,8 +321,8 @@ async def test_collection_preserves_database_session_identity(tmp_path):
                         channel="console",
                         updated_at=datetime.now(timezone.utc),
                     ),
-                ]
-            )
+                ],
+            ),
         ),
     )
     metadata = await pu._read_chat_sessions_metadata(workspace)

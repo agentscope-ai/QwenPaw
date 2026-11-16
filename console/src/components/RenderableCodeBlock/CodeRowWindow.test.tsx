@@ -1,4 +1,10 @@
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { RenderableCodeBlock } from "./RenderableCodeBlock";
 import { CODE_ROW_LIMIT } from "./CodeRowWindow";

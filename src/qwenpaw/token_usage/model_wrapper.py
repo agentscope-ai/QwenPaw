@@ -251,9 +251,9 @@ class TokenRecordingModelWrapper(ChatModelBase):
                     if previous is not None and key in previous:
                         usage[key] = previous[key]
             if previous is None:
-                TokenRecordingModelWrapper._usage_by_session[session_id] = (
-                    usage
-                )
+                TokenRecordingModelWrapper._usage_by_session[
+                    session_id
+                ] = usage
                 return
             for key in (
                 "prompt_tokens",

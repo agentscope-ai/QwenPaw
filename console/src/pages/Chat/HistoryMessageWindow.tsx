@@ -121,7 +121,10 @@ export function HistoryNavigationDirectory({
         <span>{t("chat.messageNavigation.title", { count: total })}</span>
         <button
           type="button"
-          aria-label={t("chat.messageNavigation.locate", "Scroll directory to active user message")}
+          aria-label={t(
+            "chat.messageNavigation.locate",
+            "Scroll directory to active user message",
+          )}
           className={styles.navigationDirectoryLocate}
           disabled={!activeMessageId}
           onClick={(event) => {
@@ -166,9 +169,15 @@ export function HistoryNavigationDirectory({
               aria-current={active ? "true" : undefined}
               style={style}
             >
-              <span>{item.preview || t("chat.messageNavigation.userMessage", "User message")}</span>
+              <span>
+                {item.preview ||
+                  t("chat.messageNavigation.userMessage", "User message")}
+              </span>
               <time dateTime={item.createdAt}>
-                {formatNavigationTime(item.createdAt, i18n?.resolvedLanguage ?? i18n?.language)}
+                {formatNavigationTime(
+                  item.createdAt,
+                  i18n?.resolvedLanguage ?? i18n?.language,
+                )}
               </time>
             </button>
           );
@@ -552,7 +561,10 @@ export function HistoryMessageWindowCard() {
                 <button
                   type="button"
                   className={styles.scrollToBottom}
-                  aria-label={t("chat.messageNavigation.bottom", "Scroll to bottom")}
+                  aria-label={t(
+                    "chat.messageNavigation.bottom",
+                    "Scroll to bottom",
+                  )}
                   onClick={() => {
                     if (current.onReturnToLatest) {
                       current.onReturnToLatest();

@@ -48,13 +48,14 @@ def _message_rows(
     agent = state.get("agent") or {}
     context = (agent.get("state") or {}).get("context") or []
     exact = {
-        item.get("id"): item
-        for item in context
-        if isinstance(item, dict)
+        item.get("id"): item for item in context if isinstance(item, dict)
     }
     assistant_name = next(
-        (item.get("name") for item in context
-         if isinstance(item, dict) and item.get("role") == "assistant"),
+        (
+            item.get("name")
+            for item in context
+            if isinstance(item, dict) and item.get("role") == "assistant"
+        ),
         "assistant",
     )
     messages: list[tuple[dict[str, Any], dict[str, Any]]] = []
@@ -86,8 +87,7 @@ def _message_rows(
                 continue
             blocks = raw.get("content") or []
             if not any(
-                block.get("type") == "tool_call"
-                and block.get("id") == call_id
+                block.get("type") == "tool_call" and block.get("id") == call_id
                 for block in blocks
             ):
                 continue
@@ -143,7 +143,8 @@ def _scroll_state(
         "index": index,
         "continuation_summary": (
             deepcopy(original.get("continuation_summary"))
-            if compressed else None
+            if compressed
+            else None
         ),
         "summary_update_failed": False,
     }
@@ -186,9 +187,9 @@ def read_legacy_timeline(
     if not messages:
         return fallback, iter(())
     turns = _turns(messages)
-    converted = agentscope_msg_to_message([
-        Msg.model_validate(raw) for raw, _row in messages
-    ])
+    converted = agentscope_msg_to_message(
+        [Msg.model_validate(raw) for raw, _row in messages],
+    )
     exact_groups: dict[str, list[Message]] = {}
     for message in fallback:
         original_id = (message.metadata or {}).get("original_id")
@@ -219,7 +220,8 @@ def _approximate_states(state, turns, rows):
     synthetic = set((agent.get("scroll") or {}).get("synthetic_ids") or [])
     covered = 0
     for tier in ((agent.get("scroll") or {}).get("index") or {}).get(
-        "tiers", []
+        "tiers",
+        [],
     ):
         for block in tier:
             covered = max(covered, int(block.get("seq_hi") or 0))
@@ -229,14 +231,16 @@ def _approximate_states(state, turns, rows):
         prefix.extend(turn)
         boundary = max(int(row["seq"]) for _raw, row in prefix)
         compressed = covered > 0 and boundary > covered
-        current = deepcopy({
-            **state,
-            "agent": {
-                **agent,
-                "state": {**agent["state"], "context": []},
-                "scroll": {},
+        current = deepcopy(
+            {
+                **state,
+                "agent": {
+                    **agent,
+                    "state": {**agent["state"], "context": []},
+                    "scroll": {},
+                },
             },
-        })
+        )
         selected = [item for item in prefix if item[0]["id"]]
         if compressed:
             selected_ids = {raw["id"] for raw, _row in selected}
@@ -255,15 +259,21 @@ def _approximate_states(state, turns, rows):
             scroll_selected = selected
         current["agent"]["state"]["context"] = context
         current["agent"]["scroll"] = _scroll_state(
-            state, scroll_selected, rows, compressed
+            state,
+            scroll_selected,
+            rows,
+            compressed,
         )
         last_assistant = next(
-            (raw["id"] for raw, _row in reversed(selected)
-             if raw.get("role") == "assistant"),
+            (
+                raw["id"]
+                for raw, _row in reversed(selected)
+                if raw.get("role") == "assistant"
+            ),
             None,
         )
         if last_assistant:
-            current["agent"]["state"]["reply_context"]["reply_id"] = (
-                last_assistant
-            )
+            current["agent"]["state"]["reply_context"][
+                "reply_id"
+            ] = last_assistant
         yield current

@@ -51,7 +51,9 @@ async def conversation(tmp_path, monkeypatch):
         agent_id="agent",
         session_id="s",
         request=SimpleNamespace(
-            channel="console", user_id="u", request_context={},
+            channel="console",
+            user_id="u",
+            request_context={},
         ),
         extras={},
     )
