@@ -27,6 +27,10 @@ def normalize_base_path(value: str | None) -> str:
         raise ValueError(
             "QWENPAW_BASE_PATH must be a URL path without query or fragment",
         )
+    if "%" in path:
+        raise ValueError(
+            "QWENPAW_BASE_PATH must use decoded path segments, not percent encoding",
+        )
     path = path.rstrip("/")
     segments = [unquote(segment) for segment in path.split("/")[1:]]
     if any(

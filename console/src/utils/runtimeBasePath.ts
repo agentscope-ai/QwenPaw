@@ -8,7 +8,7 @@ export function getRuntimeBasePath(): string {
   if (typeof window === "undefined") return "";
   const value = window.__qpBase?.trim() || "";
   if (!value || value === "/") return "";
-  if (!value.startsWith("/") || /[?#\\]/.test(value)) return "";
+  if (!value.startsWith("/") || /[%?#\\]/.test(value)) return "";
   const path = value.replace(/\/+$/, "");
   try {
     const invalid = path

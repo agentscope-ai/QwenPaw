@@ -65,7 +65,7 @@ export default defineConfig(({ command, mode }) => {
     },
     plugins: [
       react(),
-      startupMonitorPlugin(),
+      startupMonitorPlugin(desktop ? "" : apiBaseUrl),
       ...(desktop
         ? [
             {

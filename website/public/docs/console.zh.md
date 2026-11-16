@@ -40,7 +40,8 @@ QWENPAW_BASE_PATH=/qwenpaw qwenpaw app
 ```
 
 该值必须是以 `/` 开头的 URL 路径，不能包含查询参数或片段，也支持
-`/apps/qwenpaw` 等多级路径。未设置或设为 `/` 时，保留现有根路径和
+`/apps/qwenpaw` 等多级路径。请填写解码后的路径段，不接受 `/apps/%71wenpaw`
+等百分号编码形式。未设置或设为 `/` 时，保留现有根路径和
 `/console` 行为。同一运行时配置覆盖 SPA 路由、静态资源、API 和 WebSocket，
 无需重新构建前端。
 

@@ -27,6 +27,7 @@ from qwenpaw.app.base_path import (
         ("", ""),
         (" / ", ""),
         ("/app/qwenpaw/web/", "/app/qwenpaw/web"),
+        ("/app/中文/", "/app/中文"),
     ],
 )
 def test_normalize_base_path(value, expected):
@@ -43,6 +44,9 @@ def test_normalize_base_path(value, expected):
         "/app%2fadmin",
         "/app?x=1",
         "/app#x",
+        "/app/%71wenpaw/web",
+        "/app/qwenpaw%20web",
+        "/app/%2571wenpaw/web",
     ],
 )
 def test_normalize_base_path_rejects_ambiguous_paths(value):

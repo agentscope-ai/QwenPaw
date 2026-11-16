@@ -25,6 +25,19 @@ describe("runtime base path", () => {
     );
   });
 
+  it.each(["/app/%71wenpaw/web", "/app/qwenpaw%20web", "/app/%2571wenpaw/web"])(
+    "rejects percent-encoded configuration %s",
+    (value) => {
+      window.__qpBase = value;
+      expect(getRuntimeBasePath()).toBe("");
+    },
+  );
+
+  it("preserves decoded Unicode prefixes", () => {
+    window.__qpBase = "/app/中文/";
+    expect(getRuntimeBasePath()).toBe("/app/中文");
+  });
+
   it("normalizes a trailing slash and rejects malformed injected values", () => {
     window.__qpBase = "/app/qwenpaw/web/";
     expect(getRuntimeBasePath()).toBe("/app/qwenpaw/web");
