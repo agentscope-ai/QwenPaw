@@ -520,6 +520,7 @@ export default function FilesNavigator({
   scope,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
+  const [modal, modalContextHolder] = Modal.useModal();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   // Depend on these primitives rather than on `scope`: the parent rebuilds the
   // scope object on every render, so a callback keyed on it would re-run the
@@ -623,7 +624,7 @@ export default function FilesNavigator({
     );
     if (!hasUnsavedProjectState) return true;
     return new Promise<boolean>((resolve) => {
-      Modal.confirm({
+      modal.confirm({
         title: t("files.changeDirectoryTitle"),
         content: t("files.changeDirectoryWarning"),
         okText: t("common.confirm"),
@@ -632,7 +633,7 @@ export default function FilesNavigator({
         onCancel: () => resolve(false),
       });
     });
-  }, [scopeKey, t]);
+  }, [modal, scopeKey, t]);
 
   const handleDirectoryChanged = useCallback(() => {
     useCodingTabsStore.getState().clearProjectTabs(scopeKey);
@@ -1094,6 +1095,7 @@ export default function FilesNavigator({
       data-root={rootFlavour}
       aria-label={t("files.navigator")}
     >
+      {modalContextHolder}
       <header className={styles.navigatorHeader}>
         <div className={styles.directoryToolbar}>
           <div className={styles.directoryContext} data-root={rootFlavour}>
