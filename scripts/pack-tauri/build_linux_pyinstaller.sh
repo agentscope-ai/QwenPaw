@@ -41,7 +41,7 @@ echo ""
 # ---------------------------------------------------------------- prerequisites
 echo "== Checking prerequisites =="
 missing=()
-for tool in npm node rustc cargo python3; do
+for tool in npm node rustc cargo python3 ldd; do
   if command -v "${tool}" >/dev/null 2>&1; then
     echo "  [OK] ${tool}"
   else
@@ -181,6 +181,33 @@ if [ "${TAURI_STATUS}" -ne 0 ]; then
     fi
   fi
 
+  # An executable AppRun alone is not proof of a complete bundle: linuxdeploy
+  # can die mid-deployment and leave a partial tree behind. Validate the
+  # required contents and the dependency closure of the main binary before
+  # packing; on failure, preserve the original tauri build error.
+  _problems=()
+  [ -x "${APPDIR}/usr/bin/qwenpaw-desktop" ] \
+    || _problems+=("missing main binary usr/bin/qwenpaw-desktop")
+  [ -n "$(ls -d "${APPDIR}"/usr/lib/*/binaries 2>/dev/null | head -1)" ] \
+    || _problems+=("missing resource payload usr/lib/*/binaries")
+  [ -n "$(ls "${APPDIR}"/usr/share/applications/*.desktop 2>/dev/null | head -1)" ] \
+    || _problems+=("missing .desktop entry")
+  _libpath="${APPDIR}/usr/lib"
+  for _d in "${APPDIR}"/usr/lib/*/; do
+    [ -d "${_d}" ] || continue
+    _libpath="${_libpath}:${_d%/}"
+  done
+  _unresolved="$(LD_LIBRARY_PATH="${_libpath}" \
+    ldd "${APPDIR}/usr/bin/qwenpaw-desktop" 2>/dev/null \
+    | grep 'not found' || true)"
+  [ -z "${_unresolved}" ] \
+    || _problems+=("unresolved shared libraries: ${_unresolved}")
+  if [ ${#_problems[@]} -gt 0 ]; then
+    echo "ERROR: refusing the appimagetool fallback; AppDir is incomplete:"
+    printf '  - %s\n' "${_problems[@]}"
+    exit "${TAURI_STATUS}"
+  fi
+
   TOOL_CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/qwenpaw-desktop"
   mkdir -p "${TOOL_CACHE}"
   APPIMAGETOOL="${TOOL_CACHE}/appimagetool-x86_64.AppImage"
@@ -191,9 +218,21 @@ if [ "${TAURI_STATUS}" -ne 0 ]; then
     chmod +x "${APPIMAGETOOL}"
   fi
 
+  # appimagetool requires AppRun and the runtime payload to be readable and
+  # executable by everyone; the bundler can emit group-only modes (0770)
+  # that pass the same-user -x check above. Normalize world-read/exec on
+  # files that are already readable/executable by someone, without adding
+  # new execute bits; appimagetool keeps its own permission validation.
+  chmod 0755 "${APPDIR}/AppRun"
+  chmod -R a+rX "${APPDIR}"
+
   APPIMAGE_OUT="${APPDIR_ROOT}/${APPDIR_NAME}.AppImage"
   ARCH="$(uname -m)" APPIMAGE_EXTRACT_AND_RUN=1 "${APPIMAGETOOL}" \
     --no-appstream "${APPDIR}" "${APPIMAGE_OUT}"
+  if [ ! -f "${APPIMAGE_OUT}" ]; then
+    echo "ERROR: appimagetool ran but ${APPIMAGE_OUT} was not created"
+    exit 1
+  fi
 fi
 echo ""
 
