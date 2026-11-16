@@ -580,6 +580,28 @@ describe("ConsolePollService", () => {
 
   // ── title blinking ──────────────────────────────────────────────────────
 
+  it("keeps one completion dot while notification blinking is active", async () => {
+    setHidden(true);
+    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+    render(<ConsolePollService />);
+    await poll(0);
+    act(() => {
+      document.title = "• Project plan · QwenPaw";
+      document.dispatchEvent(
+        new CustomEvent("qwenpaw:document-title-change", {
+          detail: document.title,
+        }),
+      );
+    });
+
+    await poll(800);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+    await poll(800);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+    await poll(AUTO_DISMISS_MS);
+    expect(document.title).toBe("• Project plan · QwenPaw");
+  });
+
   it("does not blink the title while the tab is visible", async () => {
     mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
     render(<ConsolePollService />);
@@ -704,46 +726,60 @@ describe("ConsolePollService", () => {
     expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Original Page`);
   });
 
-  it("blinks the latest route title after navigation", async () => {
-    mocks.getPushMessages.mockResolvedValue(respond([]));
-    render(<ConsolePollService />);
-    await poll(0);
+  it.each(["Models · QwenPaw", "Project plan · QwenPaw"])(
+    "blinks the latest page or session title (%s)",
+    async (title) => {
+      mocks.getPushMessages.mockResolvedValue(respond([]));
+      render(<ConsolePollService />);
+      await poll(0);
 
-    act(() => {
-      document.title = "Models · QwenPaw";
-      document.dispatchEvent(
-        new CustomEvent("qwenpaw:document-title-change", {
-          detail: document.title,
-        }),
-      );
-    });
-    setHidden(true);
-    fireVisibility("hidden");
-    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
-    await poll(BACKGROUND_POLL_INTERVAL_MS);
-    await poll(800);
+      act(() => {
+        document.title = title;
+        document.dispatchEvent(
+          new CustomEvent("qwenpaw:document-title-change", {
+            detail: document.title,
+          }),
+        );
+      });
+      setHidden(true);
+      fireVisibility("hidden");
+      mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+      await poll(BACKGROUND_POLL_INTERVAL_MS);
+      await poll(800);
 
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Models · QwenPaw`);
-  });
+      expect(document.title).toBe(`${TITLE_BLINK_PREFIX}${title}`);
 
-  it("adopts a new route title while blinking is already active", async () => {
-    setHidden(true);
-    mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
-    render(<ConsolePollService />);
-    await poll(0);
-    await poll(800);
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
+      setHidden(false);
+      fireVisibility("visible");
+      expect(document.title).toBe(title);
+    },
+  );
 
-    act(() => {
-      document.title = "Models · QwenPaw";
-      document.dispatchEvent(
-        new CustomEvent("qwenpaw:document-title-change", {
-          detail: document.title,
-        }),
-      );
-    });
-    await poll(1600);
+  it.each(["Models · QwenPaw", "Renamed conversation · QwenPaw"])(
+    "adopts the latest title while blinking is active (%s)",
+    async (title) => {
+      setHidden(true);
+      mocks.getPushMessages.mockResolvedValue(respond([msg("m1")]));
+      render(<ConsolePollService />);
+      await poll(0);
+      await poll(800);
+      expect(document.title).toBe(`${TITLE_BLINK_PREFIX}QwenPaw`);
 
-    expect(document.title).toBe(`${TITLE_BLINK_PREFIX}Models · QwenPaw`);
-  });
+      act(() => {
+        document.title = title;
+        document.dispatchEvent(
+          new CustomEvent("qwenpaw:document-title-change", {
+            detail: document.title,
+          }),
+        );
+      });
+      await poll(1600);
+
+      expect(document.title).toBe(`${TITLE_BLINK_PREFIX}${title}`);
+
+      setHidden(false);
+      fireVisibility("visible");
+      expect(document.title).toBe(title);
+    },
+  );
 });

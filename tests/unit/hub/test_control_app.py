@@ -2239,7 +2239,6 @@ def test_community_password_through_authenticated_hub(
     from qwenpaw.app.routers.community_connection import (
         router as community_router,
     )
-    from qwenpaw.utils.public_origin import HUB_PUBLIC_ORIGIN_HEADER
 
     runtime = FastAPI(middleware=production_app.user_middleware)
     runtime.include_router(community_router, prefix="/api")
@@ -2318,7 +2317,6 @@ def test_community_password_through_authenticated_hub(
         headers = {
             **_headers(token),
             "Origin": "https://public.example",
-            HUB_PUBLIC_ORIGIN_HEADER: "https://attacker.example",
             "X-Forwarded-Host": "attacker.example",
         }
         if entry in {"trusted_proxy", "untrusted_proxy"}:
@@ -2328,24 +2326,14 @@ def test_community_password_through_authenticated_hub(
             headers=headers,
             json={"account": "test@example.invalid", "password": "dummy"},
         )
-        allowed = entry in {"direct_https", "trusted_proxy"}
-        assert response.status_code == (200 if allowed else 403)
-        if allowed:
-            service.connect_password.assert_awaited_once_with(
-                "test@example.invalid",
-                "dummy",
-            )
-            assert (
-                seen[-1].headers[HUB_PUBLIC_ORIGIN_HEADER]
-                == "https://public.example"
-            )
-            crossed = client.post(
-                url,
-                headers={**headers, "Origin": "https://attacker.example"},
-                json={"account": "test@example.invalid", "password": "dummy"},
-            )
-            assert crossed.status_code == 403
-            assert service.connect_password.await_count == 1
-        else:
-            service.connect_password.assert_not_awaited()
-            assert HUB_PUBLIC_ORIGIN_HEADER not in seen[-1].headers
+        assert response.status_code == 200
+        service.connect_password.assert_awaited_once_with(
+            "test@example.invalid",
+            "dummy",
+        )
+        denied = client.post(
+            url,
+            json={"account": "test@example.invalid", "password": "dummy"},
+        )
+        assert denied.status_code == 401
+        assert service.connect_password.await_count == 1

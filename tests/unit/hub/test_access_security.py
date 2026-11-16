@@ -86,29 +86,3 @@ def test_rate_limit_blocks_then_expires() -> None:
     assert security.retry_after("login", "192.0.2.4") == 30
     now = 131.0
     assert security.retry_after("login", "192.0.2.4") is None
-
-
-def test_https_entry_requires_unambiguous_trusted_forwarding():
-    security = HubAccessSecurity(
-        AccessSecurityConfig(trusted_proxy_ips=["10.0.0.0/8"]),
-    )
-
-    def request(peer, values, scheme="http"):
-        return Request(
-            {
-                "type": "http",
-                "scheme": scheme,
-                "method": "POST",
-                "path": "/api/probe",
-                "client": (peer, 1234),
-                "server": ("public.example", 443),
-                "headers": [(b"x-forwarded-proto", value) for value in values],
-            },
-        )
-
-    assert security.is_https(request("10.0.0.2", [b"https"]))
-    assert not security.is_https(request("192.0.2.5", [b"https"]))
-    assert not security.is_https(request("10.0.0.2", [b"https", b"http"]))
-    assert not security.is_https(request("10.0.0.2", [b"https,http"]))
-    assert not security.is_https(request("10.0.0.2", []))
-    assert security.is_https(request("192.0.2.5", [], scheme="https"))

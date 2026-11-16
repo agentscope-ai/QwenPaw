@@ -444,13 +444,10 @@ class CommunityConnectionService:
         self,
         *,
         local: bool,
-        password_allowed: bool = False,
     ) -> dict:
         connection = await store.get_connection()
         sync = await store.get_sync_state()
         reason = "not_configured" if not self.config.configured else None
-        if reason is None and not local and not password_allowed:
-            reason = "unsupported_remote"
         pending = self._flow and self._flow["status"] in {
             "pending",
             "exchanging",
@@ -461,7 +458,7 @@ class CommunityConnectionService:
         elif sync.get("last_error") == "authorization_expired":
             status = "expired"
         credential_status = {}
-        if password_allowed:
+        if self.config.configured:
             saved = await run_sync_io(credentials.load)
             credential_status = {
                 "saved_account": saved["account"],
@@ -470,8 +467,7 @@ class CommunityConnectionService:
             }
         return {
             **credential_status,
-            "password_login_supported": password_allowed
-            and self.config.configured,
+            "password_login_supported": self.config.configured,
             "status": status,
             "configured": self.config.configured,
             "connected": connection is not None,
