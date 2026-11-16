@@ -1,0 +1,48 @@
+name: Plugin Versions
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Plugin Versions
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install gate dependencies
+        run: python -m pip install packaging pytest
+      - name: Verify version gate
+        run: >-
+          python -m pytest --noconftest -q
+          tests/unit/plugins/test_generate_plugin_metadata.py
+          -k 'release_content_digest or pr_version_guard or immutable_release'
+      - name: Check delivered plugin changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git diff --name-only "$BASE_SHA" HEAD -- plugins scripts/pack src/qwenpaw/plugins/official_channel_catalog.py src/qwenpaw/plugins/frontend .nvmrc .github/workflows setup.py pyproject.toml)" ]]; then
+            echo "No plugin release inputs changed."
+            exit 0
+          fi
+          base="$RUNNER_TEMP/plugin-version-base"
+          candidate="$RUNNER_TEMP/plugin-version-candidate"
+          mkdir -p "$base" "$candidate"
+          git archive "$BASE_SHA" | tar -x -C "$base"
+          git archive HEAD | tar -x -C "$candidate"
+          python scripts/pack/check_plugin_versions.py pr \
+            --base-root "$base" --candidate-root "$candidate" --build

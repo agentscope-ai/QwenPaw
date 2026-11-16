@@ -2016,6 +2016,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "update": {
+      "action": "Update",
+      "available": "New version available: {{version}}"
+    },
     "runtime": {
       "missing_code": "Plugin not installed"
     },

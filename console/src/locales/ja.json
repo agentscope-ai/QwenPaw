@@ -1340,6 +1340,10 @@
     "selectAtLeastOneDay": "曜日を少なくとも1つ選択してください。"
   },
   "channels": {
+    "update": {
+      "action": "更新",
+      "available": "新しいバージョン：{{version}}"
+    },
     "qrcodeInstallRequired": "QR コードをスキャンするには、プラグインをインストールしてください",
     "runtime": {
       "missing_code": "プラグインがインストールされていません"
