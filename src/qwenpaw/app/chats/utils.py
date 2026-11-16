@@ -607,6 +607,8 @@ def clean_display_text(text: str, role: str) -> str:
     ``$``-anchored, so a trailing headline would leave it un-anchored.
     """
     cleaned = strip_injected_skill_block(strip_headline(text) or "", role)
+    if role != "assistant":
+        return cleaned
     cleaned = strip_injected_context(cleaned) or ""
     return strip_model_scaffolding(cleaned) or ""
 

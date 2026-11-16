@@ -123,7 +123,7 @@ def strip_injected_context(text: str | None) -> str | None:
         match = _INJECTED_BLOCK_RE.match(visible)
         if match is None:
             break
-        visible = visible[match.end() :]
+        visible = visible[match.end() :].lstrip()
     if visible == text.lstrip():
         return text
     cleaned = re.sub(r"\n{3,}", "\n\n", visible).strip()
@@ -196,13 +196,17 @@ def strip_model_scaffolding(text: str | None) -> str | None:
     #    message it only closes a trailing reasoning paragraph, and the reply
     #    that sits before it must survive.
     spans = _quoted_spans(visible)
-    match = _SCAFFOLD_BARE_CLOSE_RE.search(visible)
-    if match is not None and not _is_quoted(spans, match.start()):
-        tail = visible[match.end() :].strip()
+    bare_close: re.Match[str] | None = None
+    for candidate in _SCAFFOLD_BARE_CLOSE_RE.finditer(visible):
+        if not _is_quoted(spans, candidate.start()):
+            bare_close = candidate
+            break
+    if bare_close is not None:
+        tail = visible[bare_close.end() :].strip()
         if tail:
             visible = tail
         else:
-            head = visible[: match.start()]
+            head = visible[: bare_close.start()]
             cut = head.rfind("\n\n")
             visible = head[:cut].strip() if cut != -1 else ""
 
@@ -298,6 +302,124 @@ def flush_headline_delta(state: HeadlineDeltaState) -> str:
     state.pending = ""
     state.suppressing = False
     state.legacy_comment = False
+    return visible
+
+
+_SCAFFOLD_TAG_LITERALS = tuple(
+    tag
+    for _name in _SCAFFOLD_TAGS.split("|")
+    for tag in (f"<{_name}>", f"</{_name}>")
+)
+
+_SCAFFOLD_DELTA_OPEN_RE = re.compile(
+    rf"<(?:{_SCAFFOLD_TAGS})>",
+    re.IGNORECASE,
+)
+_SCAFFOLD_DELTA_CLOSE_RE = re.compile(
+    rf"</(?:{_SCAFFOLD_TAGS})>",
+    re.IGNORECASE,
+)
+
+
+# Per-stream bookmark key for scaffold state inside the SSE request's state
+# map, which is shared with the headline state and therefore needs a prefix.
+SCAFFOLD_STATE_PREFIX = "scaffold:"
+
+
+class ScaffoldDeltaState:
+    """Cross-chunk state for streaming reasoning-scaffold removal.
+
+    A tag may straddle two content deltas, so an ambiguous trailing ``<…``
+    prefix is held in ``pending`` until the next delta decides whether it is
+    a tag. ``suppressing`` marks a reasoning block whose head was already
+    seen: everything inside it is dropped until the close tag arrives.
+    """
+
+    __slots__ = ("pending", "suppressing")
+
+    def __init__(self, pending: str = "", suppressing: bool = False) -> None:
+        self.pending = pending
+        self.suppressing = suppressing
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ScaffoldDeltaState):
+            return NotImplemented
+        return (
+            self.pending == other.pending
+            and self.suppressing == other.suppressing
+        )
+
+
+def _possible_scaffold_tag_prefix(value: str) -> bool:
+    """Whether *value* could still grow into a reasoning tag."""
+    if not value.startswith("<"):
+        return False
+    lowered = value.lower()
+    return any(tag.startswith(lowered) for tag in _SCAFFOLD_TAG_LITERALS)
+
+
+def strip_scaffold_delta(
+    text: str,
+    *,
+    state: ScaffoldDeltaState | None = None,
+) -> tuple[str, ScaffoldDeltaState]:
+    """Hide one streamed reasoning-scaffold fragment and return its state.
+
+    Mirrors :func:`strip_model_scaffolding` for the SSE path, where content
+    arrives as deltas and both the opening and the closing tag may be split
+    across two events. A block that opens but never closes is suppressed to
+    the end of the stream: partial reasoning is still reasoning.
+    """
+    state = state or ScaffoldDeltaState()
+    text = state.pending + text
+    state.pending = ""
+    visible: list[str] = []
+
+    while text:
+        if state.suppressing:
+            close = _SCAFFOLD_DELTA_CLOSE_RE.search(text)
+            if close is not None:
+                text = text[close.end() :]
+                state.suppressing = False
+                continue
+            # Hold a trailing partial close tag; drop the rest either way.
+            cut = text.rfind("<")
+            if cut >= 0 and _possible_scaffold_tag_prefix(text[cut:]):
+                state.pending = text[cut:]
+            return "".join(visible), state
+
+        # A close tag with no opening head means the provider already dropped
+        # the reasoning field. Whatever precedes the marker is still reasoning,
+        # so the marker and everything before it go; only the reply survives.
+        inline_close = _SCAFFOLD_DELTA_CLOSE_RE.search(text)
+        if inline_close is not None:
+            text = text[inline_close.end() :]
+            continue
+
+        opening = _SCAFFOLD_DELTA_OPEN_RE.search(text)
+        if opening is not None:
+            visible.append(text[: opening.start()])
+            text = text[opening.end() :]
+            state.suppressing = True
+            continue
+
+        cut = text.rfind("<")
+        if cut >= 0 and _possible_scaffold_tag_prefix(text[cut:]):
+            visible.append(text[:cut])
+            state.pending = text[cut:]
+            return "".join(visible), state
+
+        visible.append(text)
+        break
+
+    return "".join(visible), state
+
+
+def flush_scaffold_delta(state: ScaffoldDeltaState) -> str:
+    """Finalize one stream, releasing only an unconfirmed tag prefix."""
+    visible = "" if state.suppressing else state.pending
+    state.pending = ""
+    state.suppressing = False
     return visible
 
 

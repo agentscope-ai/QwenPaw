@@ -6,12 +6,15 @@ import pytest
 from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
     HeadlineDeltaState,
+    ScaffoldDeltaState,
     extract_headline,
     flush_headline_delta,
+    flush_scaffold_delta,
     strip_headline,
     strip_headline_delta,
     strip_injected_context,
     strip_model_scaffolding,
+    strip_scaffold_delta,
 )
 
 
@@ -337,3 +340,101 @@ def test_flush_headline_delta_discards_confirmed_headline() -> None:
     assert state.suppressing is True
     assert flush_headline_delta(state) == ""
     assert state == HeadlineDeltaState()
+
+
+def test_strip_injected_context_drops_second_block_after_blank_line() -> None:
+    text = (
+        "<system-info>runtime context</system-info>\n\n"
+        "<system-warning>disk is nearly full</system-warning>\n\n"
+        "here is the answer"
+    )
+
+    assert strip_injected_context(text) == "here is the answer"
+
+
+def test_strip_model_scaffolding_skips_quoted_close_tag() -> None:
+    text = "`</think>`\nhidden reasoning</think>visible answer"
+
+    assert strip_model_scaffolding(text) == "visible answer"
+
+
+def test_strip_scaffold_delta_hides_split_thinking_block() -> None:
+    state = ScaffoldDeltaState()
+    visible, state = strip_scaffold_delta("<thin", state=state)
+    assert visible == ""
+
+    visible, state = strip_scaffold_delta("king>secret plan", state=state)
+    assert visible == ""
+
+    visible, state = strip_scaffold_delta("</thin", state=state)
+    assert visible == ""
+
+    visible, state = strip_scaffold_delta("king>the answer", state=state)
+    assert visible == "the answer"
+    assert state == ScaffoldDeltaState()
+
+
+def test_strip_scaffold_delta_drops_leading_bare_close() -> None:
+    state = ScaffoldDeltaState()
+    visible, state = strip_scaffold_delta("</thi", state=state)
+    assert visible == ""
+
+    visible, state = strip_scaffold_delta("nking>visible answer", state=state)
+    assert visible == "visible answer"
+    assert state == ScaffoldDeltaState()
+
+
+def test_strip_scaffold_delta_drops_reasoning_before_inline_close() -> None:
+    """The provider may omit the opening tag and still inline reasoning."""
+    state = ScaffoldDeltaState()
+
+    visible, state = strip_scaffold_delta(
+        "hidden reasoning</think>visible answer",
+        state=state,
+    )
+
+    assert visible == "visible answer"
+    assert state == ScaffoldDeltaState()
+
+
+def test_strip_scaffold_delta_drops_unclosed_block() -> None:
+    state = ScaffoldDeltaState()
+    visible, state = strip_scaffold_delta(
+        "<thinking>all reasoning so far",
+        state=state,
+    )
+
+    assert visible == ""
+    assert state.suppressing is True
+    assert flush_scaffold_delta(state) == ""
+    assert state == ScaffoldDeltaState()
+
+
+def test_strip_scaffold_delta_keeps_plain_text() -> None:
+    state = ScaffoldDeltaState()
+
+    visible, state = strip_scaffold_delta("a < b shows less", state=state)
+
+    assert visible == "a < b shows less"
+    assert state == ScaffoldDeltaState()
+
+
+def test_strip_scaffold_delta_releases_non_tag_prefix() -> None:
+    state = ScaffoldDeltaState()
+    first, state = strip_scaffold_delta("compare <", state=state)
+    assert first == "compare "
+
+    second, state = strip_scaffold_delta("not-a-tag> ok", state=state)
+
+    assert first + second == "compare <not-a-tag> ok"
+    assert state == ScaffoldDeltaState()
+
+
+@pytest.mark.parametrize("suffix", ("<", "</", "</thi"))
+def test_flush_scaffold_delta_releases_unconfirmed_prefix(suffix: str) -> None:
+    state = ScaffoldDeltaState()
+    visible, state = strip_scaffold_delta("done " + suffix, state=state)
+
+    assert visible == "done "
+    assert flush_scaffold_delta(state) == suffix
+    assert state == ScaffoldDeltaState()

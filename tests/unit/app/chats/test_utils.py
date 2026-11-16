@@ -170,6 +170,17 @@ def test_clean_display_text_strips_inlined_reasoning():
     assert clean_display_text(text, "assistant") == "主人，我查到了"
 
 
+def test_clean_display_text_keeps_user_reasoning_like_text():
+    """Only assistant text is model output; a user's own words stay intact."""
+    text = "what does the </think> marker mean here"
+    assert clean_display_text(text, "user") == text
+
+
+def test_clean_display_text_keeps_user_injected_context_text():
+    text = "<system-info>quoted verbatim by the user</system-info>"
+    assert clean_display_text(text, "user") == text
+
+
 def test_msg_to_message_hides_inlined_reasoning_in_history_path():
     msg = Msg(
         name="assistant",

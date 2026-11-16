@@ -1118,8 +1118,13 @@ class BaseChannel(ABC):
         """
         from qwenpaw.agents.context.scroll.serialize import (
             HeadlineDeltaState,
+            SCAFFOLD_STATE_PREFIX,
+            ScaffoldDeltaState,
             strip_headline,
             strip_headline_delta,
+            strip_injected_context,
+            strip_model_scaffolding,
+            strip_scaffold_delta,
         )
 
         try:
@@ -1127,24 +1132,40 @@ class BaseChannel(ABC):
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
 
-        # A content delta may split the protocol line over several events.
+        is_content_event = getattr(event, "object", None) == "content"
+        is_content_delta = is_content_event and getattr(event, "delta", False)
+
+        # A content delta may split a protocol marker over several events.
         # Track that state inside the current SSE request rather than on the
         # shared channel instance, where concurrent sessions could interfere.
-        if (
-            headline_stream_states is not None
-            and getattr(event, "object", None) == "content"
-            and getattr(event, "delta", False)
-        ):
+        if headline_stream_states is not None and is_content_delta:
             msg_id = str(getattr(event, "msg_id", "") or "")
             index = int(getattr(event, "index", 0) or 0)
             stream_key = f"{msg_id}:{index}"
             raw_text = getattr(event, "text", "") or ""
+
+            # Reasoning scaffolding goes first: a suppressed block has to
+            # swallow this delta whole before the headline pass sees its
+            # bytes, and its own tag may also straddle the boundary.
+            scaffold_key = SCAFFOLD_STATE_PREFIX + stream_key
+            scaffold_state = headline_stream_states.get(scaffold_key)
+            if not isinstance(scaffold_state, ScaffoldDeltaState):
+                scaffold_state = ScaffoldDeltaState()
+            clean_text, scaffold_state = strip_scaffold_delta(
+                raw_text,
+                state=scaffold_state,
+            )
+            if scaffold_state.suppressing or scaffold_state.pending:
+                headline_stream_states[scaffold_key] = scaffold_state
+            else:
+                headline_stream_states.pop(scaffold_key, None)
+
             state = headline_stream_states.get(
                 stream_key,
                 HeadlineDeltaState(),
             )
             clean_text, state = strip_headline_delta(
-                raw_text,
+                clean_text,
                 state=state,
             )
             if isinstance(payload, dict) and "text" in payload:
@@ -1153,6 +1174,17 @@ class BaseChannel(ABC):
                 headline_stream_states[stream_key] = state
             else:
                 headline_stream_states.pop(stream_key, None)
+        elif (
+            is_content_event
+            and isinstance(payload, dict)
+            and "text" in payload
+        ):
+            # A whole-message content event carries no delta state, so the
+            # text can be cleaned in one pass.
+            whole = payload.get("text") or ""
+            if whole:
+                whole = strip_injected_context(whole) or ""
+                payload["text"] = strip_model_scaffolding(whole) or ""
 
         def walk(node: Any) -> Any:
             if isinstance(node, str):
@@ -1181,19 +1213,16 @@ class BaseChannel(ABC):
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
 
-            # Headlines reach the UI only through this raw-event path; rewrite
-            # to strip them, but only when a fence marker is actually present
-            # so the common (headline-free) event pays nothing.
-            is_tracked_delta = (
-                headline_stream_states is not None
-                and getattr(event, "object", None) == "content"
-                and getattr(event, "delta", False)
-            )
+            # Headlines and model scaffolding both reach the UI only through
+            # this raw-event path. Every content event is rewritten (a
+            # scaffolding tag carries no fence marker), while other events
+            # still pay nothing unless a marker or buffered state is present.
+            is_content_event = getattr(event, "object", None) == "content"
             should_strip = (
                 "⟦" in data
                 or "〚" in data
                 or bool(headline_stream_states)
-                or is_tracked_delta
+                or is_content_event
             )
             if hasattr(event, "model_dump") and should_strip:
                 data = self._strip_event_headlines(
@@ -1239,20 +1268,21 @@ class BaseChannel(ABC):
     ) -> list[str]:
         """Finalize buffered marker prefixes as ordinary content deltas."""
         from qwenpaw.agents.context.scroll.serialize import (
+            SCAFFOLD_STATE_PREFIX,
+            ScaffoldDeltaState,
             flush_headline_delta,
+            flush_scaffold_delta,
+            strip_headline,
         )
 
         flushed: list[str] = []
-        for stream_key, state in list(headline_stream_states.items()):
+
+        def emit(stream_key: str, text: str) -> None:
+            if not text:
+                return
             stream_msg_id, separator, raw_index = stream_key.rpartition(":")
             if not separator:
                 stream_msg_id, raw_index = stream_key, "0"
-            if msg_id is not None and stream_msg_id != msg_id:
-                continue
-            headline_stream_states.pop(stream_key, None)
-            text = flush_headline_delta(state)
-            if not text:
-                continue
             try:
                 index = int(raw_index)
             except ValueError:
@@ -1269,6 +1299,26 @@ class BaseChannel(ABC):
                     ensure_ascii=False,
                 ),
             )
+
+        for stream_key, state in list(headline_stream_states.items()):
+            is_scaffold = stream_key.startswith(SCAFFOLD_STATE_PREFIX)
+            rest = (
+                stream_key[len(SCAFFOLD_STATE_PREFIX) :]
+                if is_scaffold
+                else stream_key
+            )
+            stream_msg_id, separator, _raw_index = rest.rpartition(":")
+            if not separator:
+                stream_msg_id = rest
+            if msg_id is not None and stream_msg_id != msg_id:
+                continue
+            headline_stream_states.pop(stream_key, None)
+            if is_scaffold:
+                if isinstance(state, ScaffoldDeltaState):
+                    flushed_text = flush_scaffold_delta(state)
+                    emit(rest, strip_headline(flushed_text) or "")
+                continue
+            emit(rest, flush_headline_delta(state))
         return flushed
 
     @classmethod
