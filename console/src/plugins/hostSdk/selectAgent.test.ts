@@ -51,3 +51,32 @@ it("does not overwrite a newer user choice while the server is answering", async
   await expect(pending).rejects.toThrow("changed");
   expect(useAgentStore.getState().selectedAgent).toBe("newer-choice");
 });
+
+it("rejects a pending switch after the user leaves and returns", async () => {
+  let resolve!: (value: AgentListResponse) => void;
+  vi.mocked(agentsApi.listAgents).mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const pending = selectAgent("allowed");
+  useAgentStore.getState().setSelectedAgent("newer-choice");
+  useAgentStore.getState().setSelectedAgent("default");
+  resolve(response);
+  await expect(pending).rejects.toThrow("changed");
+  expect(useAgentStore.getState().selectedAgent).toBe("default");
+});
+
+it("allows unrelated store updates while checking selection", async () => {
+  let resolve!: (value: AgentListResponse) => void;
+  vi.mocked(agentsApi.listAgents).mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  const pending = selectAgent("allowed");
+  useAgentStore.setState({ agents: response.agents });
+  resolve(response);
+  await pending;
+  expect(useAgentStore.getState().selectedAgent).toBe("allowed");
+});

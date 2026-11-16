@@ -4,6 +4,8 @@
 from pathlib import Path
 from types import MappingProxyType
 from contextlib import ExitStack
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 import asyncio
 
 from fastapi import HTTPException
@@ -14,6 +16,30 @@ from ..utils.request_cancellation import (
     ClientDisconnected,
     cancel_on_disconnect,
 )
+
+
+class _DownloadReader:
+    """Own one reusable worker and keep files open until its work exits."""
+
+    def __init__(self):
+        self.files = ExitStack()
+        self.executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="sdk-file-download",
+        )
+
+    async def run(self, function, *args):
+        return await asyncio.get_running_loop().run_in_executor(
+            self.executor,
+            copy_context().run,
+            function,
+            *args,
+        )
+
+    def close(self):
+        # ConnectionCloser retains this blocking cleanup across timeouts.
+        self.executor.shutdown(wait=True, cancel_futures=True)
+        self.files.close()
 
 
 async def invoke(request, callback):
@@ -144,9 +170,10 @@ async def file_response(call, result):
     private = call.storage._root
     if not path.is_relative_to(private):
         path = await call.workspace_ops.resolve_path(path)
-    # Registered before the worker: cleanup joins the worker before closing
-    # its file, including cancellation during open/read.
-    files = call.resources.connection(ExitStack(), description="file download")
+    reader = call.resources.connection(
+        _DownloadReader(),
+        description="file download",
+    )
 
     def open_checked():
         if _check_path(path, guardian=FilePathToolGuardian()):
@@ -157,7 +184,7 @@ async def file_response(call, result):
             | getattr(os, "O_NONBLOCK", 0)
             | getattr(os, "O_NOFOLLOW", 0),
         )
-        stream = files.enter_context(os.fdopen(descriptor, "rb"))
+        stream = reader.files.enter_context(os.fdopen(descriptor, "rb"))
         try:
             opened = os.fstat(stream.fileno())
             current = path.stat()
@@ -176,12 +203,12 @@ async def file_response(call, result):
             raise
 
     try:
-        stream = await call.resources.run_sync(open_checked)
+        stream = await reader.run(open_checked)
     except FileNotFoundError as exc:
         raise HTTPException(404, "Download not found") from exc
 
     async def chunks():
-        while data := await call.resources.run_sync(stream.read, 64 * 1024):
+        while data := await reader.run(stream.read, 64 * 1024):
             yield data
 
     name = result.filename or path.name

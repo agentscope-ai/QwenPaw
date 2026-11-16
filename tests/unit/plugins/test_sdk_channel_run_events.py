@@ -12,7 +12,7 @@ from qwenpaw.channel_protocol.models import (
     ResponseOutcome,
 )
 from qwenpaw.plugins.channels import ChannelMessage
-from qwenpaw.plugins.errors import SDKAccessError
+from qwenpaw.plugins.errors import ResourceError, SDKAccessError
 from qwenpaw.plugins.messages import ContentBlock
 from qwenpaw.plugins.channel_workers import ChannelDefinition, ReplyTarget
 from qwenpaw.plugins.testing import PluginTestHost
@@ -143,6 +143,87 @@ async def test_no_capability_does_not_deliver_run_notification(tmp_path):
             )
         assert not adapter.driver.events
     finally:
+        await adapter.stop()
+
+
+async def test_cancelled_end_notification_retires_without_duplicate_callback(
+    tmp_path,
+):
+    class CancelledEnd(Observer):
+        async def on_run(self, ch, event):
+            await super().on_run(ch, event)
+            if event.phase == "end":
+                raise asyncio.CancelledError
+
+    adapter, peer, identity = await setup(
+        tmp_path,
+        CancelledEnd,
+        capabilities=("channel.generic.v1", "channel.run_events.v1"),
+    )
+    try:
+        call = peer.methods["channel.run.event"]
+        params = await run_params(adapter, identity)
+        assert await call(params, None) == {"status": "complete"}
+        end = {**params, "phase": "end", "status": "completed"}
+        assert await call(end, None) == {"status": "failed"}
+        assert await call(end, None) == {"status": "failed"}
+        await adapter._finish(
+            ResponseFinishParams(
+                identity.channel_key,
+                identity.instance_id,
+                identity.generation,
+                params["response_handle"],
+                ResponseOutcome.COMPLETED,
+            ),
+            None,
+        )
+        assert [event.phase for event in adapter.driver.events] == [
+            "start",
+            "end",
+        ]
+        assert [
+            (target.key, outcome)
+            for target, outcome in adapter.driver.finished
+        ] == [("room", "completed")]
+        assert adapter.runs.runs == {}
+    finally:
+        await adapter.stop()
+
+
+async def test_cancelled_end_keeps_live_start_notification_owned(tmp_path):
+    adapter, peer, identity = await setup(
+        tmp_path,
+        Observer,
+        capabilities=("channel.generic.v1", "channel.run_events.v1"),
+    )
+    adapter.driver.wait_start = True
+    params = await run_params(adapter, identity)
+    call = peer.methods["channel.run.event"]
+    starting = asyncio.create_task(call(params, None))
+    ending = None
+    try:
+        await asyncio.wait_for(adapter.driver.entered.wait(), 2)
+        ending = asyncio.create_task(
+            call({**params, "phase": "end", "status": "completed"}, None),
+        )
+        state = adapter.runs.runs[params["response_handle"]]
+        async with asyncio.timeout(2):
+            while "end" not in state:
+                await asyncio.sleep(0)
+        state["end"].cancel()
+        assert await ending == {"status": "failed"}
+        with pytest.raises(ResourceError, match="RUN_NOTIFICATION_PENDING"):
+            adapter.runs.require_finished(params["response_handle"])
+        adapter.driver.release.set()
+        assert await starting == {"status": "complete"}
+        adapter.runs.release(params["response_handle"])
+        assert adapter.runs.runs == {}
+    finally:
+        adapter.driver.release.set()
+        await asyncio.gather(
+            *(task for task in (starting, ending) if task),
+            return_exceptions=True,
+        )
         await adapter.stop()
 
 

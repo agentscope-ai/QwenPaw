@@ -141,8 +141,12 @@ class RunNotifications:
     def require_finished(self, handle):
         state = self.runs.get(handle)
         if state is not None:
-            end = state.get("end")
-            if end is None or not end.done() or end.cancelled():
+            # Cancellation is terminal only after the actual task exits.
+            # A cancelled end task may still leave its shielded start alive.
+            if any(
+                state.get(phase) is None or not state[phase].done()
+                for phase in ("start", "end")
+            ):
                 raise ResourceError("RUN_NOTIFICATION_PENDING")
 
     def release(self, handle):

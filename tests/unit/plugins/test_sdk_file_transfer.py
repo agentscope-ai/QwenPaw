@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 """Actual form parser, scoped files and streaming through minimal SDK routes."""
 
+import asyncio
+import io
+import os
+import threading
+
 import httpx
+import pytest
 
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.plugins.compliance import check_plugin
 from qwenpaw.plugins.apps import PawApp, FileResponse
+from qwenpaw.plugins import custody
+from qwenpaw.plugins._http import _DownloadReader
+from qwenpaw.plugins.errors import ResourceError
+from qwenpaw.plugins.resources import ResourceOwner, ResourceScope
 from .sdk_author_fixture import make_plugin
 
 SOURCE = """
@@ -27,6 +37,101 @@ class Plugin:
         ctx.register_app(app)
 plugin = Plugin()
 """
+
+
+async def test_download_reuses_one_worker_and_joins_it(
+    sdk_component,
+    monkeypatch,
+):
+    workers = set()
+    original = os.fdopen
+
+    def tracked_open(*args, **kwargs):
+        stream = original(*args, **kwargs)
+        if stream.mode != "rb":
+            return stream
+
+        class Reader:
+            def read(self, size):
+                workers.add(threading.current_thread())
+                return stream.read(size)
+
+            def __getattr__(self, name):
+                return getattr(stream, name)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return stream.__exit__(*exc)
+
+        return Reader()
+
+    content = bytes(range(256)) * 16384
+
+    def declare(ctx):
+        app = PawApp(app_id="reader")
+
+        @app.route("/file")
+        async def download(call, request):
+            await call.storage.awrite_bytes("report.bin", content)
+            return FileResponse(call.storage.path("report.bin"))
+
+        ctx.register_app(app)
+
+    async with sdk_component(declare, capabilities=("apps",)) as (host, _):
+        monkeypatch.setattr(os, "fdopen", tracked_open)
+        response = await host.request("GET", "/api/reader/file")
+        assert (response.status, response.body) == (200, content)
+        assert len(workers) == 1
+        assert not any(worker.is_alive() for worker in workers)
+
+
+@pytest.mark.parametrize("operation", ["open", "read"])
+async def test_download_cancel_keeps_file_until_worker_exits(
+    monkeypatch,
+    operation,
+):
+    monkeypatch.setattr(custody, "CONNECTION_STOP_SECONDS", 0.03)
+    resources = ResourceScope(ResourceOwner("download-test", 1), lambda: None)
+    reader = resources.connection(_DownloadReader(), "file download")
+    stream = io.BytesIO(b"contents")
+    entered, release = threading.Event(), threading.Event()
+    workers = []
+
+    def work():
+        workers.append(threading.current_thread())
+        if operation == "open":
+            reader.files.enter_context(stream)
+        entered.set()
+        release.wait(5)
+        return stream.read()
+
+    if operation == "read":
+        reader.files.enter_context(stream)
+    waiting = asyncio.create_task(reader.run(work))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        waiting.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiting
+        with pytest.raises(ResourceError, match="did not fully close"):
+            await resources.close()
+        assert (resources.closed, stream.closed, workers[0].is_alive()) == (
+            False,
+            False,
+            True,
+        )
+        assert resources.snapshot()["resources"] == ("file download",)
+    finally:
+        release.set()
+        monkeypatch.setattr(custody, "CONNECTION_STOP_SECONDS", 5)
+        await resources.close()
+    assert (resources.closed, stream.closed, workers[0].is_alive()) == (
+        True,
+        True,
+        False,
+    )
 
 
 async def test_uploaded_content_download_identity_limits_and_lifecycle(
