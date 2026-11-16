@@ -2488,6 +2488,9 @@
     "closeWorkspace": "Đóng workspace"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Đã chọn thư mục gốc của ổ đĩa",
+    "volumeRootWarningMessage": "{{path}} là thư mục gốc của ổ đĩa. Sandbox không thể cấp quyền truy cập tại đây — mục quyền của nó có thể kế thừa và thư mục gốc không có thư mục cha, nên nó sẽ áp dụng cho toàn bộ ổ đĩa và có thể khiến ổ đĩa không truy cập được. Phiên này sẽ chạy không có sandbox. Vẫn tiếp tục?",
+    "workspaceUnknown": "Chưa lấy được thư mục workspace mặc định. Vui lòng thử lại sau giây lát.",
     "agentTitle": "Thư mục dự án của tác nhân",
     "sessionTitle": "Thư mục dự án của phiên",
     "pathPlaceholder": "Nhập đường dẫn thư mục tuyệt đối",
@@ -3263,6 +3266,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "update": {
+      "action": "Cập nhật",
+      "available": "Có phiên bản mới: {{version}}"
+    },
     "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
     "runtime": {
       "missing_code": "Chưa cài đặt plugin"

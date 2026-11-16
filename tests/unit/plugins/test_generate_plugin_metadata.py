@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import shutil
 import sys
 import zipfile
@@ -26,11 +27,54 @@ from generate_plugin_metadata import (  # noqa: E402
     _iter_tree_relpaths,
     _normalize_pack_exclude,
     _zip_plugin,
+    build_official_channel_bundle,
     discover_and_pack,
     get_version,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_official_channel_publication_matches_bundled_content(tmp_path):
+    inventory = runpy.run_path(
+        str(REPO_ROOT / "src/qwenpaw/plugins/official_channel_catalog.py"),
+    )["OFFICIAL_CHANNELS"]
+    owners = {row["plugin_id"] for row in inventory}
+    public = tmp_path / "public"
+    index, failed = discover_and_pack(
+        REPO_ROOT / "plugins",
+        public,
+        "/files/plugins",
+        only=list(owners),
+    )
+    assert not failed
+    entries = {entry["plugin_id"]: entry for entry in index["files"].values()}
+    assert set(entries) == owners
+    assert entries["azure-bot"]["url"].startswith(
+        "/files/plugins/channel/azure-bot/",
+    )
+
+    bundled = tmp_path / "bundled"
+    bundle_index = json.loads(
+        build_official_channel_bundle(
+            REPO_ROOT,
+            bundled,
+            host_version="2.3.0",
+        ).read_text(),
+    )
+    for row in bundle_index["plugins"]:
+        entry = entries[row["plugin_id"]]
+        assert entry["platform"] == "channel"
+        assert entry["version"] == row["version"]
+        with (
+            zipfile.ZipFile(
+                public / "channel" / row["plugin_id"] / entry["filename"],
+            ) as online,
+            zipfile.ZipFile(bundled / row["filename"]) as offline,
+        ):
+            assert {name: online.read(name) for name in online.namelist()} == {
+                name: offline.read(name) for name in offline.namelist()
+            }
 
 
 def test_structured_qwenpaw_version_passthrough() -> None:
@@ -352,3 +396,135 @@ def test_private_channel_zip_preserves_runtime_and_source_manifest(tmp_path):
         }
         assert zipped.read("channel-preview/plugin.json") == manifest_bytes
     assert (plugin_dir / "plugin.json").read_bytes() == manifest_bytes
+
+
+def test_release_content_digest_uses_delivered_paths_and_bytes(tmp_path):
+    import os
+    from generate_plugin_metadata import plugin_content_digest
+
+    source = _make_plugin_tree(tmp_path)
+    manifest = _demo_manifest()
+    original = plugin_content_digest(source, manifest)
+    os.utime(source / "backend/main.py", (100, 100))
+    (source / "ui/src/App.tsx").write_text("excluded change")
+    assert plugin_content_digest(source, manifest) == original
+    (source / "backend/main.py").rename(source / "backend/renamed.py")
+    assert plugin_content_digest(source, manifest) != original
+    (source / "backend/renamed.py").rename(source / "backend/main.py")
+    (source / "backend/main.py").write_text("delivered change")
+    assert plugin_content_digest(source, manifest) != original
+
+
+@pytest.mark.parametrize("failure", [None, "content", "read", "race"])
+def test_immutable_release_keeps_original_artifact_and_identity(
+    tmp_path,
+    failure,
+):
+    import hashlib
+    from check_plugin_versions import check_release
+
+    class Store:
+        def __init__(self):
+            self.objects = {}
+
+        def read(self, key):
+            if failure == "read":
+                raise PermissionError("remote read denied")
+            return self.objects.get(key)
+
+        def create(self, key, data, *, public=False):
+            if failure == "race" and key.endswith(".json"):
+                record = json.loads(data)
+                record["content_sha256"] = "0" * 64
+                self.objects[key] = json.dumps(record).encode()
+            return self.objects.setdefault(key, data)
+
+    source = _make_plugin_tree(tmp_path)
+    manifest = _demo_manifest()
+    (source / "plugin.json").write_text(json.dumps(manifest))
+    archive = tmp_path / "dist/tool/demo-plugin/demo-plugin-1.0.0.zip"
+    _zip_plugin(source, archive, manifest)
+    original = archive.read_bytes()
+    index_path = tmp_path / "dist/index.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "product": "plugins",
+                "files": {archive.stem: {}},
+            },
+        ),
+    )
+    store = Store()
+    if failure in {"read", "race"}:
+        with pytest.raises((PermissionError, ValueError)):
+            check_release(tmp_path / "dist", store, publish=True)
+        assert not any(key.endswith(".zip") for key in store.objects)
+        return
+    check_release(tmp_path / "dist", store, publish=True)
+    before = dict(store.objects)
+    if failure == "content":
+        (source / "backend/main.py").write_text("new release content")
+    # Same bytes with different ZIP metadata must reuse the published ZIP.
+    _zip_plugin(source, archive, manifest, deterministic=True)
+    index_path.write_text(
+        json.dumps(
+            {
+                "product": "plugins",
+                "files": {
+                    archive.stem: {
+                        "sha256": hashlib.sha256(
+                            archive.read_bytes(),
+                        ).hexdigest(),
+                    },
+                },
+            },
+        ),
+    )
+    if failure == "content":
+        with pytest.raises(ValueError, match="demo-plugin"):
+            check_release(tmp_path / "dist", store, publish=True)
+        assert store.objects == before
+    else:
+        check_release(tmp_path / "dist", store, publish=True)
+        assert store.objects == before
+        assert (
+            store.objects[
+                "files/plugins/tool/demo-plugin/demo-plugin-1.0.0.zip"
+            ]
+            == original
+        )
+        published = json.loads(index_path.read_text())["files"][archive.stem]
+        assert published["sha256"] == hashlib.sha256(original).hexdigest()
+        assert published["size_bytes"] == len(original)
+
+
+@pytest.mark.parametrize(
+    "version,catalog_present",
+    [("2.2.2", False), ("2.3.0", False), ("2.2.2", True)],
+)
+def test_immutable_release_distinguishes_legacy_hosts_from_broken_bundles(
+    tmp_path,
+    version,
+    catalog_present,
+):
+    from check_plugin_versions import check_release
+
+    with zipfile.ZipFile(
+        tmp_path / "qwenpaw-2.2.2-py3-none-any.whl",
+        "w",
+    ) as wheel:
+        wheel.writestr(
+            "qwenpaw-2.2.2.dist-info/METADATA",
+            f"Name: qwenpaw\nVersion: {version}\n",
+        )
+        if catalog_present:
+            wheel.writestr("qwenpaw/plugins/official_channel_catalog.py", "")
+
+    def no_remote():
+        raise AssertionError("Legacy host must not contact the identity store")
+
+    if catalog_present or version == "2.3.0":
+        with pytest.raises(ValueError, match="channel index"):
+            check_release(tmp_path, no_remote, dry_run=True)
+    else:
+        check_release(tmp_path, no_remote, dry_run=True)

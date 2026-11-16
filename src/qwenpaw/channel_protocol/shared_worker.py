@@ -363,6 +363,11 @@ def main() -> int:
             "qwenpaw/channel_protocol",
             "qwenpaw/channel_protocol.py",
         ),
+        environment_passthrough=(
+            "HOME",
+            "QWENPAW_WORKING_DIR",
+            "QWENPAW_RUNTIME_ID",
+        ),
     )
 
 

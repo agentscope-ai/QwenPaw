@@ -1,9 +1,13 @@
-import { act, render } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useSessionListStore } from "../../stores/sessionListStore";
+import {
+  SESSION_LIST_REFRESH_EVENT,
+  useSessionListStore,
+} from "../../stores/sessionListStore";
 import { useAgentStore } from "../../stores/agentStore";
 import { useSessionAttentionStore } from "../../stores/sessionAttentionStore";
 import ConsolePollService from "../../components/ConsolePollService";
+import { SessionListPollingController } from "../../components/SessionListPollingController";
 import { RouteDocumentTitle } from "./RouteDocumentTitle";
 import { getRouteTitle } from "./routeTitle";
 
@@ -11,6 +15,12 @@ const notificationMocks = vi.hoisted(() => ({
   getPushMessages: vi.fn(),
   setApprovals: vi.fn(),
   observe: vi.fn(),
+}));
+const sessionListMocks = vi.hoisted(() => ({
+  getSessionList: vi.fn(),
+  getActiveOwner: vi.fn(() => ({ agentId: "default" })),
+  isActiveOwner: vi.fn(() => true),
+  isSessionSwitching: false,
 }));
 
 vi.mock("../../api/modules/console", () => ({
@@ -25,6 +35,9 @@ vi.mock("../../notifications/useApprovalNotifications", () => ({
 vi.mock("../../notifications/useSystemNotifications", () => ({
   useSystemNotifications: () => notificationMocks.observe,
 }));
+vi.mock("../../pages/Chat/sessionApi", () => ({
+  default: sessionListMocks,
+}));
 
 describe("RouteDocumentTitle", () => {
   beforeEach(() => {
@@ -33,6 +46,9 @@ describe("RouteDocumentTitle", () => {
     notificationMocks.getPushMessages
       .mockReset()
       .mockResolvedValue({ messages: [] });
+    sessionListMocks.getSessionList.mockReset();
+    sessionListMocks.getActiveOwner.mockReturnValue({ agentId: "default" });
+    sessionListMocks.isActiveOwner.mockReturnValue(true);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   });
@@ -71,7 +87,7 @@ describe("RouteDocumentTitle", () => {
       });
     });
     await act(() => vi.advanceTimersByTimeAsync(30800));
-    expect(document.title).toBe("• Project plan · QwenPaw");
+    expect(document.title).toBe("Project plan · QwenPaw");
 
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
@@ -81,7 +97,7 @@ describe("RouteDocumentTitle", () => {
     expect(document.title).toBe("Project plan · QwenPaw");
   });
 
-  it("keeps a completion dot until the current tab becomes visible", () => {
+  it("keeps completion in the favicon until the current tab becomes visible", () => {
     const initial = {
       id: "local-a",
       realId: "chat-a",
@@ -99,7 +115,12 @@ describe("RouteDocumentTitle", () => {
         sessions: [{ ...initial, lastFinishedAt: "2026-11-09T10:00:00Z" }],
       });
     });
-    expect(document.title).toBe("• Project plan · QwenPaw");
+    expect(document.title).toBe("Project plan · QwenPaw");
+    expect(
+      decodeURIComponent(
+        document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href,
+      ),
+    ).toContain("#52c41a");
 
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
     act(() => document.dispatchEvent(new Event("visibilitychange")));
@@ -110,6 +131,55 @@ describe("RouteDocumentTitle", () => {
     ).toBe("2026-11-09T10:00:00Z");
 
     vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(document.title).toBe("Project plan · QwenPaw");
+  });
+
+  it("refreshes a hidden current chat after successful completion", async () => {
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const agentId = useAgentStore.getState().selectedAgent;
+    const initial = {
+      id: "chat-a",
+      name: "Project plan",
+      lastFinishedAt: "2026-11-09T09:00:00Z",
+      messages: [],
+    };
+    const completed = { ...initial, lastFinishedAt: "2026-11-09T10:00:00Z" };
+    let currentSessions = [initial];
+    useSessionAttentionStore.setState({
+      seenFinishedAt: { [`${agentId}:chat-a`]: initial.lastFinishedAt },
+    });
+    sessionListMocks.getSessionList.mockImplementation(
+      async () => currentSessions,
+    );
+
+    render(
+      <>
+        <SessionListPollingController />
+        <RouteDocumentTitle title="Chat" sessionId="chat-a" />
+      </>,
+    );
+    await waitFor(() =>
+      expect(sessionListMocks.getSessionList).toHaveBeenCalledOnce(),
+    );
+    expect(document.title).toBe("Project plan · QwenPaw");
+
+    currentSessions = [completed];
+    await act(async () => {
+      document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT));
+    });
+    await waitFor(() =>
+      expect(
+        decodeURIComponent(
+          document.querySelector<HTMLLinkElement>('link[rel="icon"]')!.href,
+        ),
+      ).toContain("#52c41a"),
+    );
+    expect(sessionListMocks.getSessionList).toHaveBeenCalledTimes(2);
+
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     act(() => document.dispatchEvent(new Event("visibilitychange")));
     expect(document.title).toBe("Project plan · QwenPaw");
   });
