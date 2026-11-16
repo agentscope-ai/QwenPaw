@@ -4,6 +4,7 @@
 import asyncio
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
 
 import pytest
 import threading
@@ -307,6 +308,47 @@ async def test_workflow_retains_thread_and_clears_ambient_request(
                 await manager.stop()
 
 
+@pytest.mark.parametrize(
+    "initialization_error",
+    [
+        None,
+        FileNotFoundError("git"),
+        OSError("checkpoint storage unavailable"),
+    ],
+)
+async def test_workflow_does_not_require_checkpoint_initialization(
+    sdk_component,
+    monkeypatch,
+    initialization_error,
+):
+    calls = []
+
+    async def work(call, parameters):
+        calls.append(call.workspace_id)
+        return WorkflowResult(text="completed without checkpoints")
+
+    async with sdk_component() as (host, ctx):
+        workspace = await host._workspace("one")
+        initialize = Mock(
+            side_effect=initialization_error or FileNotFoundError("git"),
+        )
+        monkeypatch.setattr(RUNTIME, "_initialize_storage", initialize)
+        if initialization_error is not None:
+            with pytest.raises(type(initialization_error)):
+                await RUNTIME.get_for_workspace_async(workspace)
+        attempts = initialize.call_count
+        ctx.register_workflow(
+            WorkflowSpec("report", work, WorkflowSchedule("0 0 * * *")),
+        )
+        result = await host.run_workflow(
+            "resource-contract:report",
+            workspace_id="one",
+        )
+        assert result == WorkflowResult(text="completed without checkpoints")
+        assert calls == ["one"]
+        assert initialize.call_count == attempts
+
+
 async def test_restore_waits_for_workflow_and_blocks_new_admission(
     sdk_component,
 ):
@@ -325,12 +367,7 @@ async def test_restore_waits_for_workflow_and_blocks_new_admission(
             WorkflowSpec("report", work, WorkflowSchedule("0 0 * * *")),
         )
         workspace = host._workspaces["one"]
-        engine = await RUNTIME.get_for_workspace_async(workspace)
-        guard = WorkspaceMutationGuard(
-            workspace,
-            timeout=2,
-            waiting_tasks=engine._query_waiters,
-        )
+        engine = None
         running = quiescing = None
         try:
             running = asyncio.create_task(
@@ -340,6 +377,13 @@ async def test_restore_waits_for_workflow_and_blocks_new_admission(
                 ),
             )
             await asyncio.wait_for(entered.wait(), 2)
+            # Checkpoints may first initialize after workflow admission.
+            engine = await RUNTIME.get_for_workspace_async(workspace)
+            guard = WorkspaceMutationGuard(
+                workspace,
+                timeout=2,
+                waiting_tasks=engine._query_waiters,
+            )
             quiescing = asyncio.create_task(guard.quiesce())
             await asyncio.sleep(0.05)
             assert not quiescing.done()
@@ -367,7 +411,8 @@ async def test_restore_waits_for_workflow_and_blocks_new_admission(
             assert calls == ["one", "one"]
         finally:
             release.set()
-            engine.query_gate.set()
+            if engine is not None:
+                engine.query_gate.set()
             await asyncio.gather(
                 *(task for task in (running, quiescing) if task is not None),
                 return_exceptions=True,

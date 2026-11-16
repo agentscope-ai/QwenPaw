@@ -137,12 +137,15 @@ def register(plugin, spec):
 
         async def owned(scheduled, arguments):
             try:
-                engine = await RUNTIME.get_for_workspace_async(workspace)
-                engine._query_waiters.add(cleanup_task)
-                try:
-                    await engine.query_gate.wait()
-                finally:
-                    engine._query_waiters.discard(cleanup_task)
+                engine = await RUNTIME.get_existing_for_workspace_async(
+                    workspace,
+                )
+                if engine is not None:
+                    engine._query_waiters.add(cleanup_task)
+                    try:
+                        await engine.query_gate.wait()
+                    finally:
+                        engine._query_waiters.discard(cleanup_task)
                 return await invoke(scheduled, arguments)
             except Exception as exc:
                 # A business failure belongs to scheduler logging, not an
