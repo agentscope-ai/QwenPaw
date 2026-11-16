@@ -32,7 +32,7 @@ from models.concurrency import model_slot
 from models.reference_markers import ReferenceMarkerSpec
 from services.runtime_files.atomic_store import atomic_replace_bytes
 from utils.logger import setup_logger
-from utils.exceptions import ModelError
+from utils.exceptions import ModelError, redact_urls
 from utils.paths import media_url_for, unique_task_work_path
 from utils.remote_download import download_remote_file
 
@@ -451,6 +451,41 @@ def is_content_refusal(message: str) -> bool:
     return any(marker in folded for marker in CONTENT_REFUSAL_MARKERS)
 
 
+# Provider rejections that mean "I could not fetch your reference image".
+# They are deterministic for the same inputs: the stored pre-signed URL
+# outlived its grant (issue #8592) or points at bytes the provider cannot
+# reach, so retrying the same request cannot succeed.
+REFERENCE_DOWNLOAD_FAILURE_MARKERS = (
+    "failed to download image",
+    "download image failed",
+    "failed to download the image",
+    "image download failed",
+    "failed to fetch image",
+    "invalid image url",
+    "image url is invalid",
+    "url expired",
+    "urlexpired",
+    "image is not accessible",
+)
+
+REFERENCE_DOWNLOAD_ADVICE = (
+    "The provider could not fetch a reference image, which is "
+    "deterministic for the same inputs and is not a model configuration "
+    "problem. A stored pre-signed source URL has most likely expired: "
+    "regenerate or reselect the reference image so a fresh local copy is "
+    "uploaded, then retry."
+)
+
+
+def is_reference_download_failure(message: str) -> bool:
+    """Whether a provider error means a reference image was unreachable."""
+
+    folded = (message or "").casefold()
+    return any(
+        marker in folded for marker in REFERENCE_DOWNLOAD_FAILURE_MARKERS
+    )
+
+
 def format_http_error_detail(response: httpx.Response) -> str:
     body_text = response.text.strip()
     if body_text:
@@ -500,7 +535,7 @@ def persist_image_bytes(img_bytes: bytes, model_name: str, source: str) -> str:
 
 async def download_remote_image(remote_url: str, model_name: str) -> str:
     """Download a remote image URL and persist it in current Task scratch."""
-    logger.info(f"Image generated (url) | url={remote_url[:80]}")
+    logger.info(f"Image generated (url) | url={redact_urls(remote_url)[:80]}")
     try:
         async with httpx.AsyncClient(
             timeout=60,
@@ -552,9 +587,12 @@ def _logged_model_error(message: str, model_name: str) -> ModelError:
 
     The message doubles as the persisted task error that the transient
     classifier matches, so it must always carry a detail — an empty one
-    once turned a plain network blip into a deterministic wall.
+    once turned a plain network blip into a deterministic wall.  Provider
+    responses echo request URLs, so credentials are scrubbed before the
+    text is logged or persisted (issue #8592).
     """
 
+    message = redact_urls(message)
     logger.error(message)
     return ModelError(message, model_name=model_name)
 
@@ -858,10 +896,28 @@ class BaseImageModel(ABC):
                 self.model_name,
             )
         except httpx.HTTPStatusError as e:
-            detail = format_http_error_detail(e.response)
+            # Upstream bodies echo the reference URL, and object-storage
+            # signatures in that URL are a usable grant; scrub before the
+            # detail reaches the task error, trace or log.
+            detail = redact_urls(format_http_error_detail(e.response))
             logger.error(
                 f"Image generation HTTP error: {e.response.status_code} - {detail[:500]}",
             )
+            # A 4xx provider rejection that names the reference download is
+            # deterministic: the stored pre-signed URL is dead, not flaky.
+            # Upstream 5xx means the object store had a transient failure,
+            # so those stay retryable.
+            if (
+                is_reference_download_failure(detail)
+                and e.response.status_code < 500
+            ):
+                raise ModelError(
+                    f"Image generation failed with status "
+                    f"{e.response.status_code}: {detail[:500]}. "
+                    f"{REFERENCE_DOWNLOAD_ADVICE}",
+                    model_name=self.model_name,
+                    retryable=False,
+                )
             raise ModelError(
                 f"Image generation failed with status {e.response.status_code}: "
                 f"{detail[:500]}. "

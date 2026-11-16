@@ -31,7 +31,7 @@ import re
 import socket
 import stat
 from typing import Any, Protocol, TYPE_CHECKING
-from urllib.parse import unquote, urlparse, urlsplit
+from urllib.parse import parse_qsl, unquote, urlparse, urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
 from domain.enums import (
@@ -806,6 +806,82 @@ def _indexed_path(project_root: Path, indexed: IndexedFile) -> Path:
     return project_root.joinpath(*PurePosixPath(indexed.relative_uri).parts)
 
 
+# A stored provider URL is reused for a later reference only while it is
+# still fetchable.  The safety margin keeps a request from racing expiry.
+_PROVIDER_URL_EXPIRY_MARGIN_SECONDS = 60.0
+
+_PROVIDER_URL_SIGNATURE_KEYS = frozenset(
+    {
+        "ossaccesskeyid",
+        "signature",
+        "x-amz-credential",
+        "x-amz-signature",
+        "x-oss-credential",
+        "x-oss-signature",
+        "q-sign-algorithm",
+        "q-signature",
+    },
+)
+
+
+def _provider_url_deadline(params: Mapping[str, str]) -> float | None:
+    """Epoch seconds at which a signed URL stops working, if declared."""
+
+    raw_expires = params.get("expires", "").strip()
+    if raw_expires:
+        try:
+            return float(raw_expires)
+        except ValueError:
+            return None
+    amz_expires = params.get("x-amz-expires", "").strip()
+    amz_date = params.get("x-amz-date", "").strip()
+    if amz_expires and amz_date:
+        try:
+            issued = datetime.strptime(amz_date, "%Y%m%dT%H%M%SZ")
+            return issued.replace(tzinfo=UTC).timestamp() + float(amz_expires)
+        except ValueError:
+            return None
+    q_sign_time = params.get("q-sign-time", "").strip()
+    if ";" in q_sign_time:
+        try:
+            return float(q_sign_time.split(";", 1)[1])
+        except ValueError:
+            return None
+    return None
+
+
+def _provider_source_url_usable(
+    source_url: str,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Whether a stored provider source URL can still be fetched.
+
+    ``_materialize_and_publish`` records the Token Plan endpoint's
+    short-lived pre-signed object URL so a later reference can skip
+    re-uploading the bytes.  Reusing it after expiry makes the provider
+    fail the reference download, which surfaces as a misleading
+    ``MODEL_ERROR`` (issue #8592).  Signed URLs without a provable
+    deadline are treated as expired so the local indexed copy is used.
+    """
+
+    if not source_url:
+        return False
+    parsed = urlsplit(source_url)
+    if parsed.scheme.casefold() not in {"http", "https"}:
+        return False
+    params = {
+        key.casefold(): value
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    }
+    signed = any(key in params for key in _PROVIDER_URL_SIGNATURE_KEYS)
+    deadline = _provider_url_deadline(params)
+    if deadline is None:
+        return not signed
+    current = (now or datetime.now(UTC)).timestamp()
+    return deadline - _PROVIDER_URL_EXPIRY_MARGIN_SECONDS > current
+
+
 def _resolve_version_references(
     *,
     project: Project,
@@ -833,7 +909,7 @@ def _resolve_version_references(
             provider_meta = artifact.metadata.get("provider", {})
             if isinstance(provider_meta, dict):
                 source_url = provider_meta.get("source_url", "")
-        if source_url:
+        if source_url and _provider_source_url_usable(source_url):
             indexed = project.assets.files_by_id.get(version.file_id)
             if indexed is None or not indexed.media_type.casefold().startswith(
                 "image/",
@@ -851,6 +927,16 @@ def _resolve_version_references(
                 },
             )
             continue
+        if source_url:
+            # The pre-signed URL outlived its grant.  Sending it makes the
+            # provider refuse the reference download, and that refusal is
+            # indistinguishable from a model failure; the immutable local
+            # copy is always fetchable instead.
+            logger.warning(
+                "Stored provider source URL for %s expired or is "
+                "unverifiable; falling back to the local asset copy",
+                version_id,
+            )
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):

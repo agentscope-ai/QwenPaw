@@ -977,6 +977,20 @@ def _finalize_round(
     return outcome, feedback_sent
 
 
+def _missing_review_binary(kind: str) -> str | None:
+    """The probe binary an objective review pass needs but cannot resolve."""
+    from services.runtime_files.runtime_dependencies import (
+        resolve_ffmpeg,
+        resolve_ffprobe,
+    )
+
+    if resolve_ffmpeg() is None:
+        return "ffmpeg"
+    if kind == "element_video" and resolve_ffprobe() is None:
+        return "ffprobe"
+    return None
+
+
 async def run_media_review_loop(
     services: "CreatorFileServices",
     *,
@@ -994,6 +1008,28 @@ async def run_media_review_loop(
     relative_uri = str(indexed.get("relative_uri") or "")
     reports_root = _reports_root(services, project_id)
     owner = admission.owner_token()
+    missing_binary = await asyncio.to_thread(_missing_review_binary, kind)
+    if missing_binary is not None:
+        # A missing probe binary is an environment fault, not a review
+        # attempt.  Admitting first would consume the slot's physical
+        # budget and silently disable auto-review forever (issue #8592).
+        logger.warning(
+            "media review skipped for %s: %s is unavailable; set "
+            "CREATOR_%s_PATH or install ffmpeg on PATH",
+            version_id,
+            missing_binary,
+            missing_binary.upper(),
+        )
+        trace_event(
+            "run_review.media_skipped",
+            component=_TRACE_COMPONENT,
+            attributes={
+                "artifactRef": f"artifact-version:{version_id}",
+                "reason": f"{missing_binary}_unavailable",
+            },
+            projectId=project_id,
+        )
+        return None
     admitted: int | None = None
     try:
         admitted = await asyncio.to_thread(
