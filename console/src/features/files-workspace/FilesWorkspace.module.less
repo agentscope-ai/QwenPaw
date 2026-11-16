@@ -45,16 +45,32 @@
   }
 }
 
+.drawer.drawerFullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  border-left: 0;
+  z-index: 1000;
+}
+
 .drawerHeader {
   min-height: 58px;
   padding: 10px 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
   border-bottom: 1px solid var(--files-line);
   background: color-mix(in srgb, var(--files-bg) 92%, transparent);
   backdrop-filter: blur(16px);
+
+  .iconButton {
+    width: 40px;
+    min-height: 40px;
+  }
 }
 
 .fileMark {
@@ -84,8 +100,11 @@
   }
 
   span {
+    overflow: hidden;
     color: var(--files-muted);
     font-size: var(--app-font-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -177,12 +196,13 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: clamp(20px, 4vw, 48px);
 }
 
 .textPreview {
+  box-sizing: border-box;
   max-width: 920px;
   margin: 0 auto;
+  padding: clamp(16px, 3vw, 32px);
   color: inherit;
   font-family: "SFMono-Regular", Consolas, monospace;
   font-size: var(--app-font-secondary);
@@ -195,6 +215,8 @@
   min-height: 58px;
   padding: 10px 14px;
   display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
@@ -1082,11 +1104,27 @@
 }
 
 @media (max-width: 1024px) {
-  .drawer,
-  .drawerPreview,
-  .drawerWorkspace {
-    width: calc(100% - 20px);
+  .drawer:not(.drawerDirect):not(.drawerFullscreen) {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
     min-width: 0;
+    max-width: 100%;
+    border-left: 0;
+  }
+
+  .drawerHeader {
+    gap: 8px;
+    padding: 8px 12px;
+
+    .iconButton {
+      width: var(--app-hit-touch);
+      min-height: var(--app-hit-touch);
+    }
+  }
+
+  .resizeHandle {
+    display: none;
   }
 
   .sourcePanel {

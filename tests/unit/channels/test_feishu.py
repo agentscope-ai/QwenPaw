@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Feishu native parsing, response cards and SDK lifecycle."""
+
 import asyncio
 import io
 import json
@@ -57,6 +58,10 @@ class Api:
         }
         if self.kind == "image":
             row["bytes"] = body.image.read()
+        elif self.kind == "file":
+            row["file_name"] = body.file_name
+            row["file_type"] = body.file_type
+            row["bytes"] = body.file.read()
         self.rows.append(row)
         return ok(
             message_id="sent",
@@ -301,6 +306,80 @@ async def test_image_download_and_upload_preserve_bytes(native, tmp_path):
     )
 
 
+async def test_file_upload_decodes_percent_encoded_locator_name(
+    native,
+    tmp_path,
+):
+    rt = native
+    event = await ingress(rt, message("file"))
+    path = tmp_path / "附件-主要工作工时对标测算情况.docx"
+    path.write_bytes(b"outbound-file")
+    locator = path.as_uri()
+    assert "%E9%99%84" in locator
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [{"type": "file", "file_url": locator}],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "附件-主要工作工时对标测算情况.docx"
+    assert row["file_type"] == "doc"
+    assert row["bytes"] == b"outbound-file"
+
+
+async def test_file_upload_decodes_https_locator_name(native):
+    rt = native
+    event = await ingress(rt, message("https"))
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [
+                {
+                    "type": "file",
+                    "file_url": "https://example.com/a/%E9%99%84%E4%BB%B6"
+                    ".docx?token=1",
+                },
+            ],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "附件.docx"
+
+
+async def test_upload_file_name_keeps_windows_basename(native):
+    platform = module("feishu", "platform")
+    name = platform.LarkOapiPlatform._upload_file_name(
+        {"file_url": "D:\\dir\\附件.docx"},
+        "D:\\dir\\附件.docx",
+    )
+    assert name == "附件.docx"
+
+
+async def test_file_upload_prefers_explicit_filename(native, tmp_path):
+    rt = native
+    event = await ingress(rt, message("rename"))
+    path = tmp_path / "原文.docx"
+    path.write_bytes(b"outbound-file")
+    assert (
+        await send(
+            rt,
+            event["response_handle"],
+            [
+                {
+                    "type": "file",
+                    "file_url": path.as_uri(),
+                    "filename": "改名后.docx",
+                },
+            ],
+        )
+    )["state"] == "acknowledged"
+    row = next(item for item in rt.rows if item["kind"] == "file")
+    assert row["file_name"] == "改名后.docx"
+
+
 async def test_stream_finalizes_same_card(native):
     rt = native
     event = await ingress(rt, message("stream"))
@@ -388,3 +467,143 @@ async def test_stop_joins_sdk_thread_and_closes_http(native):
     await native.driver.stop()
     assert not thread.is_alive() and client.is_closed
     assert native.driver._platform is None
+
+
+@pytest_asyncio.fixture
+async def reconnect(monkeypatch):
+    """Drive real supervisor/connect code through explicitly gated attempts."""
+    driver_module = module("feishu")
+    driver = driver_module.FeishuDriver()
+    states, calls = [], []
+    attempts = asyncio.Queue()
+    outcomes = {"disconnect": [], "connect": []}
+    connected = asyncio.Event()
+    disconnected = asyncio.Event()
+    disconnected.set()
+
+    async def state(value):
+        states.append(value)
+        if value == "connected":
+            connected.set()
+
+    async def wait_disconnected():
+        await disconnected.wait()
+        disconnected.clear()
+
+    async def operation(name):
+        calls.append(name)
+        if outcomes[name]:
+            error = outcomes[name].pop(0)
+            if error is not None:
+                raise error
+
+    async def disconnect():
+        await operation("disconnect")
+
+    async def connect(*callbacks):
+        await operation("connect")
+
+    async def sleep(delay):
+        gate = asyncio.Event()
+        await attempts.put((delay, gate))
+        await gate.wait()
+
+    async def close():
+        calls.append("close")
+
+    # Replace only this module's asyncio reference; event-loop scheduling and
+    # pytest's own asyncio remain real. No wall-clock backoff sleeps are used.
+    driver._context = NS(set_platform_state=state)
+    driver._platform = NS(
+        wait_disconnected=wait_disconnected,
+        disconnect=disconnect,
+        connect=connect,
+        close=close,
+    )
+    # _connect() and stop() need the real asyncio primitives.
+    monkeypatch.setattr(
+        driver_module,
+        "asyncio",
+        NS(sleep=sleep, Event=asyncio.Event, gather=asyncio.gather),
+    )
+    driver._stopping = False
+    driver._connected = True
+    driver._supervisor = asyncio.create_task(driver._supervise())
+
+    async def next_attempt():
+        return await asyncio.wait_for(attempts.get(), timeout=1)
+
+    try:
+        yield NS(
+            driver=driver,
+            states=states,
+            calls=calls,
+            outcomes=outcomes,
+            next_attempt=next_attempt,
+            connected=connected,
+        )
+    finally:
+        await driver.stop()
+
+
+async def test_supervisor_retries_initial_cleanup_failure(reconnect):
+    rt = reconnect
+    rt.outcomes["disconnect"] = [RuntimeError("cleanup timeout"), None]
+    delay, gate = await rt.next_attempt()
+    assert delay == 1.0
+    gate.set()
+    delay, gate = await rt.next_attempt()
+    assert delay == 2.0
+    assert rt.calls == ["disconnect"]
+    assert not rt.driver._supervisor.done()
+    gate.set()
+    # A successful reconnect returns the supervisor to wait_disconnected().
+    await asyncio.wait_for(rt.connected.wait(), timeout=1)
+    assert rt.calls == ["disconnect", "disconnect", "connect"]
+    assert rt.states[-1] == "connected"
+    assert "failed" not in rt.states
+
+
+async def test_supervisor_retries_connect_and_cleanup_failure(reconnect):
+    rt = reconnect
+    rt.outcomes["disconnect"] = [None, RuntimeError("cleanup timeout"), None]
+    rt.outcomes["connect"] = [RuntimeError("connect failed"), None]
+    _, gate = await rt.next_attempt()
+    gate.set()
+    delay, gate = await rt.next_attempt()
+    assert delay == 2.0
+    assert rt.calls == ["disconnect", "connect"]
+    gate.set()
+    delay, gate = await rt.next_attempt()
+    assert delay == 4.0
+    assert rt.calls == ["disconnect", "connect", "disconnect"]
+    assert not rt.driver._supervisor.done()
+    gate.set()
+    await asyncio.wait_for(rt.connected.wait(), timeout=1)
+    assert rt.calls == [
+        "disconnect",
+        "connect",
+        "disconnect",
+        "disconnect",
+        "connect",
+    ]
+    assert rt.states[-1] == "connected"
+    assert "failed" not in rt.states
+
+
+async def test_supervisor_stop_cancels_persistent_cleanup_retry(reconnect):
+    rt = reconnect
+    rt.outcomes["disconnect"] = [RuntimeError("cleanup stuck")] * 8
+    for expected_delay in (1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0):
+        delay, gate = await rt.next_attempt()
+        assert delay == expected_delay
+        assert "connect" not in rt.calls
+        gate.set()
+    await rt.next_attempt()
+    task = rt.driver._supervisor
+    async with asyncio.timeout(1):
+        await rt.driver.stop()
+    assert task.cancelled()
+    assert rt.driver._supervisor is None
+    assert rt.calls == ["disconnect"] * 7 + ["close"]
+    assert rt.states[-1] == "disconnected"

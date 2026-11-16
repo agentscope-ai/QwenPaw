@@ -5,6 +5,7 @@ import { removePluginRuntime } from "./pluginRuntimeCleanup";
 import { routeRegistry } from "./registry/store";
 import { subscribeToPluginChanges } from "../utils/pluginChangeEvents";
 import { harnessRegistry, refreshHarnessCatalog } from "./harnesses";
+import { loadHostUiDependencies } from "./hostUiDependencies";
 
 interface FrontendPluginInfo {
   id: string;
@@ -107,6 +108,9 @@ async function executePluginScript(plugin: FrontendPluginInfo): Promise<void> {
   }
 
   const source = await response.text();
+  // Every startup, PawApp install, and reload evaluates through here.
+  // Keep availability checks after this await: preparation can be slow.
+  await loadHostUiDependencies();
   if (started !== revision) {
     if (!harness) {
       const current = (await fetchFrontendPlugins()).find(

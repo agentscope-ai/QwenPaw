@@ -1,94 +1,60 @@
-import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkInitialBundle, measureInitialBundle } from "./initial-bundle.mjs";
 
-const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const outputDirectory = join(scriptDirectory, "..", "dist");
-const indexPath = join(outputDirectory, "index.html");
-const maximumRawBytes = 10 * 1024 * 1024;
-const maximumBrotliBytes = 3 * 1024 * 1024;
-
-const html = await readFile(indexPath, "utf-8");
-const assets = new Set(
-  [...html.matchAll(/\/assets\/[^"' ]+\.(?:css|js)/g)].map(([asset]) => asset),
+const outputDirectory = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "dist",
 );
-
-const initialJavaScriptAssets = [...assets].filter((asset) =>
-  asset.endsWith(".js"),
+const MiB = 1024 * 1024;
+const budgets = {
+  rawBytes: 4 * MiB,
+  brotliBytes: 1.2 * MiB,
+  chunkRawBytes: 2.5 * MiB,
+  chunkBrotliBytes: 0.75 * MiB,
+  lazyOnly: ["charts-vendor", "d3-vendor", "editor-vendor"],
+};
+const report = await measureInitialBundle(outputDirectory);
+const javaScript = report.assets.filter((asset) => asset.file.endsWith(".js"));
+const toMiB = (bytes) => (bytes / MiB).toFixed(3);
+console.table(
+  report.assets.map((asset) => ({
+    asset: asset.file,
+    "raw MiB": toMiB(asset.rawBytes),
+    "Brotli MiB": toMiB(asset.brotliBytes),
+    compression: asset.compressed ? "Brotli" : "raw fallback",
+  })),
 );
-const initialJavaScriptNames = new Set(
-  initialJavaScriptAssets.map((asset) => asset.split("/").at(-1)),
-);
-const importGraph = new Map();
-
-for (const asset of initialJavaScriptAssets) {
-  const source = await readFile(join(outputDirectory, asset), "utf-8");
-  const dependencies = new Set(
-    [...source.matchAll(/\b(?:from|import)\s*\(?["']\.\/([^"']+\.js)["']/g)]
-      .map((match) => match[1])
-      .filter((dependency) => initialJavaScriptNames.has(dependency)),
-  );
-  importGraph.set(asset.split("/").at(-1), dependencies);
-}
-
-const visited = new Set();
-const active = new Set();
-const stack = [];
-
-function findImportCycle(asset) {
-  if (active.has(asset)) {
-    return [...stack.slice(stack.indexOf(asset)), asset];
-  }
-  if (visited.has(asset)) {
-    return null;
-  }
-
-  visited.add(asset);
-  active.add(asset);
-  stack.push(asset);
-  for (const dependency of importGraph.get(asset) ?? []) {
-    const cycle = findImportCycle(dependency);
-    if (cycle) {
-      return cycle;
-    }
-  }
-  stack.pop();
-  active.delete(asset);
-  return null;
-}
-
-for (const asset of initialJavaScriptNames) {
-  const cycle = findImportCycle(asset);
-  if (cycle) {
-    throw new Error(`Initial JavaScript import cycle: ${cycle.join(" -> ")}`);
-  }
-}
-
-let rawBytes = 0;
-let brotliBytes = 0;
-for (const asset of assets) {
-  const path = join(outputDirectory, asset);
-  const rawSize = (await stat(path)).size;
-  rawBytes += rawSize;
-  try {
-    brotliBytes += (await stat(`${path}.br`)).size;
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    brotliBytes += rawSize;
-  }
-}
-
-const toMiB = (bytes) => (bytes / 1024 / 1024).toFixed(2);
+console.table([
+  {
+    budget: "Initial raw",
+    "used MiB": toMiB(report.rawBytes),
+    "limit MiB": toMiB(budgets.rawBytes),
+  },
+  {
+    budget: "Initial Brotli",
+    "used MiB": toMiB(report.brotliBytes),
+    "limit MiB": toMiB(budgets.brotliBytes),
+  },
+  {
+    budget: "Each initial JS raw",
+    "used MiB": toMiB(Math.max(...javaScript.map((asset) => asset.rawBytes))),
+    "limit MiB": toMiB(budgets.chunkRawBytes),
+  },
+  {
+    budget: "Each initial JS Brotli",
+    "used MiB": toMiB(
+      Math.max(...javaScript.map((asset) => asset.brotliBytes)),
+    ),
+    "limit MiB": toMiB(budgets.chunkBrotliBytes),
+  },
+]);
 console.log(
-  `Initial bundle: ${toMiB(rawBytes)} MiB raw, ` +
-    `${toMiB(brotliBytes)} MiB Brotli across ${assets.size} assets.`,
+  `Initial bundle: ${toMiB(report.rawBytes)} MiB raw, ` +
+    `${toMiB(report.brotliBytes)} MiB Brotli across ${
+      report.assets.length
+    } assets.`,
 );
-
-if (rawBytes > maximumRawBytes) {
-  throw new Error(`Initial raw bundle exceeds ${toMiB(maximumRawBytes)} MiB.`);
-}
-if (brotliBytes > maximumBrotliBytes) {
-  throw new Error(
-    `Initial Brotli bundle exceeds ${toMiB(maximumBrotliBytes)} MiB.`,
-  );
-}
+const failures = checkInitialBundle(report, budgets);
+if (failures.length > 0) throw new Error(failures.join("\n"));
