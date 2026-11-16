@@ -202,9 +202,9 @@ describe("SubtitleTemplatePicker", () => {
     try {
       const { container } = render(<Harness />);
       await waitFor(() =>
-        expect(
-          previewWords(container, "variety_pop").style.letterSpacing,
-        ).toBe("0.99em"),
+        expect(previewWords(container, "variety_pop").style.letterSpacing).toBe(
+          "0.99em",
+        ),
       );
     } finally {
       vi.unstubAllGlobals();
@@ -248,9 +248,10 @@ describe("SubtitleTemplatePicker", () => {
       expect(card.closest("button")).toHaveAttribute("aria-pressed", "true"),
     );
     // The base pack card of the same pack stays unlit.
-    expect(
-      screen.getByText("综艺花字").closest("button"),
-    ).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("综艺花字").closest("button")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
   });
 
   it("does not light a bundle whose only difference is the face pick", async () => {

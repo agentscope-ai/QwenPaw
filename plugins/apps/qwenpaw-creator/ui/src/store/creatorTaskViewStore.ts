@@ -12,10 +12,7 @@ interface CreatorTaskViewState {
   tasks: TaskView[];
   loading: boolean;
   error: string | null;
-  refresh: (
-    projectId: string,
-    options?: { dedupe?: boolean },
-  ) => Promise<void>;
+  refresh: (projectId: string, options?: { dedupe?: boolean }) => Promise<void>;
   consumeEvent: (event: CreatorEvent) => void;
   cancel: (taskId: string) => Promise<void>;
   reset: () => void;

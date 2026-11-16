@@ -68,13 +68,13 @@ describe("SubtitleAnimationControls", () => {
 
   it("says the pack decides while nothing is picked", () => {
     render(<Harness />);
-    expect(
-      screen.getByText("未选择时跟随风格包默认动效"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("未选择时跟随风格包默认动效")).toBeInTheDocument();
   });
 
   it("reflects what the caption document already plays", () => {
-    render(<Harness initial={{ entrance: "type_on", exit: "none", loop: false }} />);
+    render(
+      <Harness initial={{ entrance: "type_on", exit: "none", loop: false }} />,
+    );
     expect(screen.getByText("逐字浮现")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -97,9 +97,7 @@ describe("SubtitleAnimationControls", () => {
     await user.click(screen.getByText("弹入"));
     expect(emitted.at(-1)).toBeNull();
     expect(screen.getByText("弹入")).toHaveAttribute("aria-pressed", "false");
-    expect(
-      screen.getByText("未选择时跟随风格包默认动效"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("未选择时跟随风格包默认动效")).toBeInTheDocument();
   });
 
   it("keeps the other picks when one field is taken back", async () => {

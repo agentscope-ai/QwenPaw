@@ -1651,7 +1651,7 @@ async def _plan_story_beats(
 def _caption_settings_state(
     settings: ProjectSettings,
 ) -> tuple[str | None, dict[str, Any] | None]:
-    """ ``(pack id, user overrides)`` the caption renderer reads today."""
+    """``(pack id, user overrides)`` the caption renderer reads today."""
 
     return (
         settings.subtitle_template,
@@ -1729,7 +1729,9 @@ def resolve_caption_animation(
 
     if caption_owned_template(motion):
         assert motion is not None
-        style_state, animation_state = caption_notes_states(motion.design_notes)
+        style_state, animation_state = caption_notes_states(
+            motion.design_notes,
+        )
         stamped_pack = (style_state or "").split("|", 1)[0]
         if stamped_pack and stamped_pack != (pack_id or "auto"):
             return pack_caption_animation(pack_id, override)
@@ -1833,12 +1835,16 @@ def normalise_caption_animation(
     """
 
     data = animation or {}
-    entrance = str(data.get("entrance") or "") if (
-        data.get("entrance") in CAPTION_ENTRANCES
-    ) else "soft_fade"
-    exit_style = str(data.get("exit") or "") if (
-        data.get("exit") in CAPTION_EXITS
-    ) else "none"
+    entrance = (
+        str(data.get("entrance") or "")
+        if (data.get("entrance") in CAPTION_ENTRANCES)
+        else "soft_fade"
+    )
+    exit_style = (
+        str(data.get("exit") or "")
+        if (data.get("exit") in CAPTION_EXITS)
+        else "none"
+    )
     return {
         "entrance": entrance,
         "exit": exit_style,

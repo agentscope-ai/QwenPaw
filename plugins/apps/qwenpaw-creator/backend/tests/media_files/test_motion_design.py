@@ -791,16 +791,16 @@ async def test_late_pack_switch_redescribes_authored_captions(
 
     services = CreatorFileServices.create(tmp_path)
     project = Project.new(project_id="late-pack", name="后切换风格包")
-    project.timelines.items["timeline:main"].elements_by_id["caption"] = (
-        TimelineElement(
-            element_id="caption",
-            span=TimelineSpan(start_tick=0, duration_tick=3000),
-            location=ElementLocation(x=0.5, y=0.86, width=0.8, height=0.18),
-            creation=OverlayCreation(
-                text="这条字幕先有了自己的描述",
-                prompt="镜头推进时轻微抖动",
-            ),
-        )
+    project.timelines.items["timeline:main"].elements_by_id[
+        "caption"
+    ] = TimelineElement(
+        element_id="caption",
+        span=TimelineSpan(start_tick=0, duration_tick=3000),
+        location=ElementLocation(x=0.5, y=0.86, width=0.8, height=0.18),
+        creation=OverlayCreation(
+            text="这条字幕先有了自己的描述",
+            prompt="镜头推进时轻微抖动",
+        ),
     )
     services.projects.create(project)
     model = AsyncMock(
@@ -1003,8 +1003,7 @@ class TestProjectAnimationOverride:
             "loop": True,
         }
         assert (
-            motion_design.caption_animation_override(ProjectSettings())
-            is None
+            motion_design.caption_animation_override(ProjectSettings()) is None
         )
 
     def test_override_merges_onto_the_pack_field_by_field(self) -> None:
@@ -1107,7 +1106,9 @@ class TestCaptionStyleDerivation:
             ),
         )
         assert motion_design.caption_document_is_stale(built, project) is False
-        assert motion_design.caption_document_is_stale(drifted, project) is True
+        assert (
+            motion_design.caption_document_is_stale(drifted, project) is True
+        )
 
     def test_a_pack_switch_replays_the_new_signature(self) -> None:
         built, _concept = motion_design.build_caption_document(
@@ -1179,10 +1180,7 @@ class TestCaptionStyleDerivation:
         )
 
     def test_pack_tracking_and_leading_enter_the_font_fit(self) -> None:
-        text = (
-            "这是一行足够长的字幕文案用来验证字距与行高都会挤进字号自适应"
-            "再长一点凑满四十多个汉字才够看效果吧"
-        )
+        text = "这是一行足够长的字幕文案用来验证字距与行高都会挤进字号自适应" "再长一点凑满四十多个汉字才够看效果吧"
         plain = render_caption_template(text, box_width=0.8, box_height=0.18)
         spaced = render_caption_template(
             text,
@@ -1399,9 +1397,7 @@ class TestCaptionBackgroundOpacity:
                 subtitle_style=SubtitleStyle(background_opacity=0.75),
             ),
         )
-        assert (
-            motion_design.caption_document_is_stale(built, lighter) is True
-        )
+        assert motion_design.caption_document_is_stale(built, lighter) is True
         # And a project that never touched the control still matches the
         # four-token stamp every older document carries.
         untouched = SimpleNamespace(

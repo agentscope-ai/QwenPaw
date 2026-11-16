@@ -184,9 +184,7 @@ def test_a_cached_naive_timestamp_degrades_to_a_miss(tmp_path) -> None:
     store.create(_project("project-b", "B"))
     store.list()  # warm both summaries
 
-    damaged = (
-        store.project_root("project-a") / "runtime" / "summary.json"
-    )
+    damaged = store.project_root("project-a") / "runtime" / "summary.json"
     payload = json.loads(damaged.read_text(encoding="utf-8"))
     payload["updatedAt"] = "2026-11-12T10:00:00"  # naive but valid string
     damaged.write_text(json.dumps(payload), encoding="utf-8")
@@ -197,9 +195,7 @@ def test_a_cached_naive_timestamp_degrades_to_a_miss(tmp_path) -> None:
     assert names == ["A", "B"]
 
     # Same for createdAt when sorting by creation time.
-    payload["updatedAt"] = (
-        "2026-07-15T08:00:01+00:00"  # restore aware value
-    )
+    payload["updatedAt"] = "2026-07-15T08:00:01+00:00"  # restore aware value
     payload["createdAt"] = "2026-11-12T10:00:00"
     damaged.write_text(json.dumps(payload), encoding="utf-8")
     created_order = store.list(sort_by="created_at")

@@ -128,7 +128,7 @@ def test_legacy_files_without_a_face_still_load(client, tmp_path) -> None:
                 "style_id": "user:old",
                 "name": "老风格",
                 "color": "#ff0000",
-            }
+            },
         ),
         encoding="utf-8",
     )

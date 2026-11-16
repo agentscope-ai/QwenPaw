@@ -3,7 +3,10 @@ import { useTranslation } from "react-i18next";
 import { Button, Modal, Select, Tooltip } from "antd";
 import type { SelectProps } from "antd";
 
-import type { SubtitleAnimationPolicy, SubtitleStyle } from "@/contracts/creator";
+import type {
+  SubtitleAnimationPolicy,
+  SubtitleStyle,
+} from "@/contracts/creator";
 import SubtitleAnimationControls from "./SubtitleAnimationControls";
 import SubtitleStyleControls from "./SubtitleStyleControls";
 import SubtitleTemplatePicker from "./SubtitleTemplatePicker";

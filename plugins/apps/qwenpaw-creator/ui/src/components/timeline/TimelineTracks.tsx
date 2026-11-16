@@ -142,9 +142,7 @@ function SubtitleLaneHeader({
   }
   // The count is the promise the backend toggle keeps: subtitles only, so
   // the label states how many rows are about to change.
-  const action = t(
-    toggle.enabled ? "plan.subtitleRemove" : "plan.subtitleAdd",
-  );
+  const action = t(toggle.enabled ? "plan.subtitleRemove" : "plan.subtitleAdd");
   const label = `${action} · ${toggle.count}`;
   return (
     // A native `title` waits about a second and ignores the app theme, so

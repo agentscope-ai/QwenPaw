@@ -363,9 +363,7 @@ def plate_with_opacity(
     if not plate:
         return ""
     raw = (
-        style.get("background_opacity")
-        if isinstance(style, Mapping)
-        else None
+        style.get("background_opacity") if isinstance(style, Mapping) else None
     )
     # A missing, unreadable or non-finite value all mean the same thing to
     # this function: nothing was picked, so the pack keeps its own alpha.
@@ -384,7 +382,7 @@ def plate_with_opacity(
         red, green, blue = match.group(1, 2, 3)
     elif _HEX_COLOR.fullmatch(text):
         digits = text.lstrip("#")
-        red, green, blue = (str(int(digits[i:i + 2], 16)) for i in (0, 2, 4))
+        red, green, blue = (str(int(digits[i : i + 2], 16)) for i in (0, 2, 4))
     else:
         # An unparseable colour stays as the pack wrote it rather than being
         # guessed at; the browser reads it either way.
@@ -467,9 +465,7 @@ def render_caption_template(
         else "#fff"
     )
     pack_stroke = (
-        float(pack.get("strokeScale", 1.0) or 1.0)
-        if pack is not None
-        else 1.0
+        float(pack.get("strokeScale", 1.0) or 1.0) if pack is not None else 1.0
     )
     user_stroke = _caption_style_number(style, "stroke_scale", 1.0, 0.0, 3.0)
     stroke = max(0.0, pack_stroke * user_stroke)
@@ -480,7 +476,7 @@ def render_caption_template(
     )
     user_family = (
         _SUBTITLE_FONT_CSS_STACKS.get(
-            str(style.get("font_family") or "").strip().lower()
+            str(style.get("font_family") or "").strip().lower(),
         )
         if isinstance(style, Mapping)
         else None

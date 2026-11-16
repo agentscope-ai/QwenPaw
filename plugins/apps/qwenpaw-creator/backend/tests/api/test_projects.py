@@ -852,9 +852,9 @@ def test_subtitle_style_patch_redraws_prompts_and_documents(
         def durable() -> str:
             """The committed ``project.json`` text at this exact step."""
 
-            return (
-                api_runtime_root / project_id / "project.json"
-            ).read_text(encoding="utf-8")
+            return (api_runtime_root / project_id / "project.json").read_text(
+                encoding="utf-8",
+            )
 
         unknown = await client.patch(
             f"/projects/{project_id}/subtitles/style",
@@ -992,9 +992,9 @@ def test_subtitle_style_patch_redraws_prompts_and_documents(
     assert declined.status_code == 200, declined.text
     assert declined.json()["skippedNonTemplate"] == 1
     assert declined.json()["redrawnDocuments"] == 0
-    declined_elements = stored(after_decline).timelines.items[
-        "timeline:main"
-    ].elements_by_id
+    declined_elements = (
+        stored(after_decline).timelines.items["timeline:main"].elements_by_id
+    )
     assert declined_elements["free"].creation.prompt == ""
     assert "x" * 64 in (declined_elements["free"].creation.motion.html or "")
 

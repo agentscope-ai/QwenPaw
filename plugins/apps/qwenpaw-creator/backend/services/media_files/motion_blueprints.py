@@ -1252,16 +1252,14 @@ CAPTION_BLUEPRINT_ORDER = ("stagger_pop", "ink_reveal", "glow_breath")
 # every stack falls back to a face that always exists.  The attributes that
 # actually distinguish a pack everywhere (weight / spacing / stroke / plate /
 # glow) are set independently of the family.
-_SANS_FAMILY = (
-    "\"PingFang SC\",\"Noto Sans CJK SC\",\"Microsoft YaHei\",sans-serif"
-)
-_SERIF_FAMILY = "\"Songti SC\",\"Noto Serif CJK SC\",\"SimSun\",serif"
-_HAND_FAMILY = "\"Kaiti SC\",\"STKaiti\",\"Noto Serif CJK SC\",serif"
+_SANS_FAMILY = '"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif'
+_SERIF_FAMILY = '"Songti SC","Noto Serif CJK SC","SimSun",serif'
+_HAND_FAMILY = '"Kaiti SC","STKaiti","Noto Serif CJK SC",serif'
 # The exact stack the plain-subtitle template has always emitted; the
 # baseline typography below reuses it so "no pack" stays pixel-identical.
 _LEGACY_SANS_FAMILY = (
-    "\"Noto Sans CJK SC\",\"Noto Sans SC\",\"PingFang SC\","
-    "\"Microsoft YaHei\",sans-serif"
+    '"Noto Sans CJK SC","Noto Sans SC","PingFang SC",'
+    '"Microsoft YaHei",sans-serif'
 )
 # The historical plain-subtitle look.  Kept byte-for-byte identical so a
 # project that never picked a pack renders exactly as it did before.
@@ -1298,10 +1296,7 @@ SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
         "name": "综艺花字",
         "description": "活泼/搞笑/高光：逐字弹入与关键词强调",
         "caption_order": ("stagger_pop", "keyword_spotlight", "brush_strike"),
-        "style_line": (
-            "综艺花字：特粗无衬线大字、紧凑字距、高对比白色描边，"
-            "弹入入场 + 关键词二次强调的活泼语汇"
-        ),
+        "style_line": ("综艺花字：特粗无衬线大字、紧凑字距、高对比白色描边，" "弹入入场 + 关键词二次强调的活泼语汇"),
         "typography": {
             "fontFamily": _SANS_FAMILY,
             "fontWeight": 800,
@@ -1316,10 +1311,7 @@ SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
         "name": "电影叙事",
         "description": "沉稳/文艺/短剧：横向揭示与低语独白",
         "caption_order": ("ink_reveal", "drama_whisper", "editorial_title"),
-        "style_line": (
-            "电影叙事：细衬线大字宽字距、低饱和、仅极细描边，"
-            "缓慢横向滑入与淡出，不加底板"
-        ),
+        "style_line": ("电影叙事：细衬线大字宽字距、低饱和、仅极细描边，" "缓慢横向滑入与淡出，不加底板"),
         "typography": {
             "fontFamily": _SERIF_FAMILY,
             "fontWeight": 500,
@@ -1338,10 +1330,7 @@ SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
             "precision_subtitle",
             "chapter_label",
         ),
-        "style_line": (
-            "简洁讲解：中等字重无衬线、半透明深色胶囊底板托字、"
-            "零动画静态呈现，只保留极短淡入"
-        ),
+        "style_line": ("简洁讲解：中等字重无衬线、半透明深色胶囊底板托字、" "零动画静态呈现，只保留极短淡入"),
         "typography": {
             "fontFamily": _SANS_FAMILY,
             "fontWeight": 600,
@@ -1358,10 +1347,7 @@ SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
         "name": "治愈手写",
         "description": "Vlog/日常/手账：纸纹手写与情绪光晕",
         "caption_order": ("handwritten_note", "glow_breath", "ink_reveal"),
-        "style_line": (
-            "治愈手写：楷体手写气质、奶油纸色底板，"
-            "打字机式逐字浮现后静止"
-        ),
+        "style_line": ("治愈手写：楷体手写气质、奶油纸色底板，" "打字机式逐字浮现后静止"),
         "typography": {
             "fontFamily": _HAND_FAMILY,
             "fontWeight": 500,
@@ -1372,16 +1358,17 @@ SUBTITLE_TEMPLATE_PACKS: dict[str, dict[str, object]] = {
             "plate": "rgba(255,248,232,0.5)",
             "plateRadius": "0.18em",
         },
-        "animation": {"entrance": "type_on", "exit": "soft_fade", "loop": False},
+        "animation": {
+            "entrance": "type_on",
+            "exit": "soft_fade",
+            "loop": False,
+        },
     },
     "neon_music": {
         "name": "霓虹音乐",
         "description": "MV/夜间/音乐：霓虹脉冲与呼吸光晕",
         "caption_order": ("neon_pulse", "glow_breath", "brush_strike"),
-        "style_line": (
-            "霓虹音乐：亮色文字叠多层霓虹发光、暗底压光，"
-            "弹入后持续呼吸脉冲"
-        ),
+        "style_line": ("霓虹音乐：亮色文字叠多层霓虹发光、暗底压光，" "弹入后持续呼吸脉冲"),
         "typography": {
             "fontFamily": _SANS_FAMILY,
             "fontWeight": 700,
@@ -1548,17 +1535,19 @@ def subtitle_style_override_line(
         alpha = float(background)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         alpha = None
-    if alpha is not None and math.isfinite(alpha) and subtitle_pack_typography(
-        pack_id,
-    ).get("plate"):
+    if (
+        alpha is not None
+        and math.isfinite(alpha)
+        and subtitle_pack_typography(
+            pack_id,
+        ).get("plate")
+    ):
         # A plate only exists where a pack draws one (smart recommend draws
         # none), so the sentence is spoken for that plate or not at all:
         # promising a background the template leaves transparent is the drift
         # this wording exists to avoid.
         parts.append(
-            "不加字幕底板"
-            if alpha <= 0.0
-            else f"字幕底板不透明度 {alpha * 100:.0f}%",
+            "不加字幕底板" if alpha <= 0.0 else f"字幕底板不透明度 {alpha * 100:.0f}%",
         )
     return "；".join(parts)
 
@@ -1581,7 +1570,8 @@ def subtitle_pack_prompt_line(
     style_line = subtitle_pack_style_line(pack_id) or ""
     override_line = subtitle_style_override_line(style, pack_id)
     parts = [
-        part for part in (
+        part
+        for part in (
             style_line,
             f"用户覆盖样式：{override_line}" if override_line else "",
             (
@@ -1592,7 +1582,8 @@ def subtitle_pack_prompt_line(
                 if animation and (style_line or override_line)
                 else ""
             ),
-        ) if part
+        )
+        if part
     ]
     return "；".join(parts)
 

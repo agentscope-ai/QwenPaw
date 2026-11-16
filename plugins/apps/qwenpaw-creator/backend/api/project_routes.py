@@ -775,8 +775,7 @@ async def set_subtitle_style(
             or "subtitle_style" in request.model_fields_set
         ):
             raise ValidationError(
-                "elementIds 只能配合入场/出场/循环选择；"
-                "风格包与覆盖样式始终作用于全项目字幕。",
+                "elementIds 只能配合入场/出场/循环选择；" "风格包与覆盖样式始终作用于全项目字幕。",
             )
         # A present key is authoritative, so the UI can also go back:
         # ``null``/``""`` mean smart recommend and an explicit ``null`` style
@@ -821,6 +820,7 @@ async def set_subtitle_style(
             stored, indexed = externalize_motion_document(document, file_store)
             indexed_files[indexed.file_id] = indexed
             return stored.model_dump(mode="json")
+
         timelines = candidate["timelines"]["items"]
         # The caption boxes are validated against the same canvas the design
         # pass and the renderer use, so a switch here cannot bake a document

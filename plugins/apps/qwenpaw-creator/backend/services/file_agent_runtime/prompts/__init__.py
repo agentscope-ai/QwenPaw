@@ -148,6 +148,7 @@ def render_creator_system_prompt(
     from services.media_files.motion_blueprints import (
         subtitle_settings_prompt_block,
     )
+
     if (
         model_config.get_execution_authorization_mode()
         == model_config.EXECUTION_AUTHORIZATION_ALLOW_ALL

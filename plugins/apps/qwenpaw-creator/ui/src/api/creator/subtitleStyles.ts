@@ -15,9 +15,7 @@ export interface UserSubtitleStyleBundle {
   animation?: SubtitleAnimationPolicy | null;
 }
 
-export function listUserSubtitleStyles(): Promise<
-  UserSubtitleStyleListResponse
-> {
+export function listUserSubtitleStyles(): Promise<UserSubtitleStyleListResponse> {
   return creatorRequest<UserSubtitleStyleListResponse>(
     "/subtitle-packs/custom",
   );

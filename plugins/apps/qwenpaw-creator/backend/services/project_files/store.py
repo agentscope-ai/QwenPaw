@@ -1522,9 +1522,7 @@ class ProjectStore:
             }
         except (KeyError, TypeError, ValueError):
             return None
-        if any(
-            value.tzinfo is None for value in parsed_datetimes.values()
-        ):
+        if any(value.tzinfo is None for value in parsed_datetimes.values()):
             return None
         try:
             return ProjectSummary(

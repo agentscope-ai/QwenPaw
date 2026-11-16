@@ -174,7 +174,10 @@ class TestExternalizedMotionAndFingerprint:
         )
         assert target.read_text(encoding="utf-8") == _CSS_HTML
         # Identical content deduplicates to the same stored file.
-        _again, again_indexed = externalize_motion_document(self._motion(), store)
+        _again, again_indexed = externalize_motion_document(
+            self._motion(),
+            store,
+        )
         assert again_indexed.file_id == indexed.file_id
         project = _ProjectStub({indexed.file_id: indexed})
         payload = _motion_document_payload(project, stored)

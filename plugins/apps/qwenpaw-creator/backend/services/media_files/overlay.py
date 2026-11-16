@@ -338,7 +338,7 @@ def _subtitle_pack_painter(
     pack_id: str | None,
     style: Mapping[str, Any] | None = None,
 ) -> tuple[float, tuple[int, int, int, int] | None, float]:
-    """ ``(stroke multiplier, plate colour, plate radius in em)`` for a pack.
+    """``(stroke multiplier, plate colour, plate radius in em)`` for a pack.
 
     The last-resort PNG cannot offer the pack's font family, weight or
     letter-spacing (PIL drives one validated CJK face), but the two

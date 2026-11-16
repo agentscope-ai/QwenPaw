@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Input, message, Modal, Popconfirm, Tooltip } from "antd";
 
@@ -183,12 +189,20 @@ function captionShadowStack(
 ): string {
   const parts: string[] = [];
   if (stroke > 0) {
-    parts.push(`0 ${captionEm(0.025 * stroke)} ${captionEm(0.05 * stroke)} #000d`);
-    parts.push(`0 ${captionEm(0.04 * stroke)} ${captionEm(0.14 * stroke)} #000b`);
+    parts.push(
+      `0 ${captionEm(0.025 * stroke)} ${captionEm(0.05 * stroke)} #000d`,
+    );
+    parts.push(
+      `0 ${captionEm(0.04 * stroke)} ${captionEm(0.14 * stroke)} #000b`,
+    );
   }
   if (glow) {
     const halo = colour.startsWith("#") ? colour : "#ffffff";
-    parts.push(`0 0 .06em ${halo}`, `0 0 .18em ${halo}88`, `0 0 .38em ${halo}55`);
+    parts.push(
+      `0 0 .06em ${halo}`,
+      `0 0 .18em ${halo}88`,
+      `0 0 .38em ${halo}55`,
+    );
   }
   return parts.length ? parts.join(",") : "none";
 }
@@ -460,7 +474,8 @@ export function SubtitleTemplatePicker({
               }
             : { width: "100%" }),
           animation:
-            (ENTRANCE_ANIMATION[spec.entrance] ?? "capAppear .14s linear both") +
+            (ENTRANCE_ANIMATION[spec.entrance] ??
+              "capAppear .14s linear both") +
             (spec.loop ? ",capBreath 9.6s ease-in-out .45s infinite" : ""),
         };
         // Name the face the way the font picker above names it, so the
@@ -468,28 +483,28 @@ export function SubtitleTemplatePicker({
         const family = cardFontFamily.includes("Songti")
           ? t("home.subtitleStyleFontSong")
           : cardFontFamily.includes("Kaiti")
-            ? t("home.subtitleStyleFontKai")
-            : t("home.subtitleStyleFontHei");
+          ? t("home.subtitleStyleFontKai")
+          : t("home.subtitleStyleFontHei");
         // Name the pack's numeric weight the way 字号 names its size, so the
         // footnote reads 特粗/粗/半粗 instead of a bare 800/700/600.
         const weightLabel =
           spec.fontWeight >= 750
             ? t("home.subtitlePreviewWeightExtrabold")
             : spec.fontWeight >= 650
-              ? t("home.subtitlePreviewWeightBold")
-              : spec.fontWeight >= 550
-                ? t("home.subtitlePreviewWeightSemibold")
-                : spec.fontWeight >= 450
-                  ? t("home.subtitlePreviewWeightMedium")
-                  : t("home.subtitlePreviewWeightRegular");
+            ? t("home.subtitlePreviewWeightBold")
+            : spec.fontWeight >= 550
+            ? t("home.subtitlePreviewWeightSemibold")
+            : spec.fontWeight >= 450
+            ? t("home.subtitlePreviewWeightMedium")
+            : t("home.subtitlePreviewWeightRegular");
         const plateAlpha = parseFloat(spec.plate.split(",")[3] ?? "0") || 0;
         const plateText = !spec.plate
           ? t("home.subtitlePreviewPlateNone")
           : cardBgOpacity === 0
-            ? t("home.subtitlePreviewPlateOff")
-            : t("home.subtitlePreviewPlatePct", {
-                percent: Math.round((cardBgOpacity ?? plateAlpha) * 100),
-              });
+          ? t("home.subtitlePreviewPlateOff")
+          : t("home.subtitlePreviewPlatePct", {
+              percent: Math.round((cardBgOpacity ?? plateAlpha) * 100),
+            });
         // The footnote speaks the user's language: the raw entrance id
         // (soft_fade / pop / ...) reads as machine noise next to the pills.
         const entranceKey = CAPTION_ENTRANCE_CHOICES.find(
@@ -565,7 +580,9 @@ export function SubtitleTemplatePicker({
             </span>
             <span className="text-[11px] leading-4 text-[var(--color-text-tertiary)]">
               {custom?.description ||
-                t(subtitlePackDescKey(custom ? (custom.packId ?? null) : spec.id))}
+                t(
+                  subtitlePackDescKey(custom ? custom.packId ?? null : spec.id),
+                )}
             </span>
             <span className="font-mono text-[10px] leading-[14px] text-[var(--color-text-tertiary)]">
               {t("home.subtitlePreviewMeta", {
