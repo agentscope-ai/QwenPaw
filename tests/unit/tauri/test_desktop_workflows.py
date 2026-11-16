@@ -399,6 +399,68 @@ def test_nsis_fresh_install_requires_a_new_cli(nsis_cli_install):
     assert cli.read_bytes() == b"new CLI"
 
 
+def test_nsis_previous_uninstall_uses_the_new_installer_guard():
+    """The maintenance page must not launch an old NSIS uninstaller raw."""
+    template = (
+        REPO_ROOT / "console/src-tauri/nsis/tauri-installer.nsi"
+    ).read_text(encoding="utf-8")
+    maintenance = template.split("Function PageLeaveReinstall\n", 1)[1]
+    maintenance = maintenance.split("FunctionEnd", 1)[0]
+    nsis_uninstall = maintenance.split(
+        'ReadRegStr $4 SHCTX "${MANUPRODUCTKEY}" ""',
+        1,
+    )[1].split("${EndIf}", 1)[0]
+    assert "!insertmacro QWENPAW_UNINSTALL_PREVIOUS" in nsis_uninstall
+    assert "ExecWait" not in nsis_uninstall
+
+
+@pytest.mark.parametrize("phase", ["cancelled", "partial", "complete"])
+def test_nsis_cli_gate_covers_uninstall_before_install(
+    nsis_cli_install,
+    phase,
+):
+    """Legacy uninstall cleanup must neither reopen nor orphan the CLI."""
+    cli, launcher, run = nsis_cli_install
+    root = cli.parents[2]
+    completed = phase == "complete"
+    backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
+    marker = cli.with_name(cli.name + ".qwenpaw-installing")
+    for action in ("Prepare", "BeginInstall"):
+        result = run(action)
+        assert result.returncode == 0, result.stdout + result.stderr
+    assert not cli.exists()
+
+    # Old uninstallers remove known payload files and restore Native Host.
+    if phase != "cancelled":
+        (root / "qwenpaw-desktop.exe").unlink()
+    if completed:
+        (cli.parent / "qwenpaw-backend.exe").unlink()
+    result = run("Restore")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
+
+    result = run("CompleteUninstall" if completed else "AbortInstall")
+    assert result.returncode == (0 if completed else 1)
+    assert not cli.exists()
+    assert backup.exists() is not completed
+    assert marker.exists() is not completed
+    if not completed:
+        assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
+
+    # Both successful removal and an interrupted uninstall can be repaired.
+    for action in ("Prepare", "BeginInstall"):
+        result = run(action)
+        assert result.returncode == 0, result.stdout + result.stderr
+    assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
+    cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
+    result = run("CompleteInstall")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert cli.read_bytes() == b"new CLI"
+    assert not backup.exists()
+    assert not marker.exists()
+    assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
+
+
 def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
     """A version-probe-like caller must not reopen the CLI during copying."""
     cli, _, run = nsis_cli_install

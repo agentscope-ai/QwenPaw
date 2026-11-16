@@ -364,7 +364,7 @@ Function PageLeaveReinstall
       ${IfThen} $UpdateMode = 1 ${|} StrCpy $R1 "$R1 /UPDATE" ${|} ; append /UPDATE
       ${IfThen} $PassiveMode = 1 ${|} StrCpy $R1 "$R1 /P" ${|} ; append /P
       StrCpy $R1 "$R1 _?=$4" ; append uninstall directory
-      ExecWait '$R1' $0
+      !insertmacro QWENPAW_UNINSTALL_PREVIOUS
     ${EndIf}
 
     BringToFront

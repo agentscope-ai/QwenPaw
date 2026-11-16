@@ -4,6 +4,7 @@
 Var QwenPawCliPathCheckbox
 Var QwenPawCliPathState
 Var QwenPawCliPrepared
+Var QwenPawCliPreparedDir
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
 
@@ -112,7 +113,7 @@ Function QWENPAW_ABORT_INSTALL
     Return
   ${EndIf}
   StrCpy $QwenPawCliPrepared 0
-  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action AbortInstall`
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$QwenPawCliPreparedDir" -Action AbortInstall`
   ${If} $0 != 0
     DetailPrint "$(qwenpawInstallIncomplete)"
     DetailPrint "$1"
@@ -192,8 +193,40 @@ FunctionEnd
 !insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un." ""
 
 !macro NSIS_HOOK_PREINSTALL
+  ${If} $QwenPawCliPrepared == 1
+  ${AndIf} $QwenPawCliPreparedDir != $INSTDIR
+    Call QWENPAW_ABORT_INSTALL
+  ${EndIf}
   StrCpy $QwenPawCliPrepared 1
+  StrCpy $QwenPawCliPreparedDir $INSTDIR
   Call QWENPAW_PREPARE_INSTALL
+!macroend
+
+; The maintenance page runs the installed (possibly older) uninstaller
+; before Section Install. Gate its CLI with the new installer helper first.
+; $4 is the registered old directory; $R1 is the old uninstall command.
+!macro QWENPAW_UNINSTALL_PREVIOUS
+  Push $INSTDIR
+  StrCpy $INSTDIR $4
+  !insertmacro NSIS_HOOK_PREINSTALL
+  ; Once the old uninstaller starts, it may already have removed resources.
+  !insertmacro QWENPAW_INSTALL_ACTION BeginInstall
+  ClearErrors
+  ExecWait '$R1' $0
+  ${IfThen} ${Errors} ${|} StrCpy $0 2 ${|}
+  ${If} $0 == 0
+  ${AndIfNot} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
+    !insertmacro QWENPAW_INSTALL_ACTION CompleteUninstall
+    StrCpy $QwenPawCliPrepared 0
+    RMDir "$INSTDIR\binaries\qwenpaw-backend"
+    RMDir "$INSTDIR\binaries"
+    RMDir "$INSTDIR"
+  ${ElseIf} $0 == 0
+    StrCpy $0 2
+  ${EndIf}
+  ; Report ExecWait's result, not errors from removing nonempty directories.
+  ClearErrors
+  Pop $INSTDIR
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL

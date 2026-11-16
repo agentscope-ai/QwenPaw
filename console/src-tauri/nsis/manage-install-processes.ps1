@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
-    [ValidateSet("Prepare", "Restore", "BeginInstall", "CompleteInstall", "AbortInstall")]
+    [ValidateSet("Prepare", "Restore", "BeginInstall", "CompleteInstall", "CompleteUninstall", "AbortInstall")]
     [string]$Action = "Prepare",
     [int]$NsisProcessId = 0,
     [switch]$GateCli
@@ -255,6 +255,8 @@ try {
         # A later installer must not restore an old CLI into a partial update.
         New-Item -ItemType Directory -Path (Split-Path $cli) -Force | Out-Null
         Set-Content -LiteralPath $installMarker -Value $gateMarker -Encoding Ascii
+        # An older uninstaller may have restored the browser launcher.
+        Enable-NativeHostGate -Root (Get-InstallRoot)
         # Do not publish a staged executable left by an interrupted install.
         if (Test-Path -LiteralPath $cliStaged) {
             Remove-Item -LiteralPath $cliStaged -Force
@@ -275,8 +277,18 @@ try {
         Restore-NativeHostLauncher -Root (Get-InstallRoot)
         exit 0
     }
+    if ($Action -eq "CompleteUninstall") {
+        foreach ($path in @($cliBackup, $cliStaged, $installMarker)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+        Restore-NativeHostLauncher -Root (Get-InstallRoot)
+        exit 0
+    }
     if ($Action -eq "AbortInstall") {
         if (Test-Path -LiteralPath $installMarker) {
+            Enable-NativeHostGate -Root (Get-InstallRoot)
             throw "Installation is incomplete. Run the installer again to restore the qwenpaw command."
         }
         if (Test-Path -LiteralPath $cliBackup) {
