@@ -58,6 +58,11 @@ export interface ChannelSchema {
   qrcode_available?: boolean;
   global_enabled?: boolean;
   diagnostic?: string;
+  update?: {
+    installed_version: string;
+    version: string;
+    source: string;
+  };
   repair?: {
     action: "install" | "enable" | "repair";
     plugin_id: string;
@@ -76,6 +81,8 @@ export interface ChannelConflictResponse {
 }
 
 export const channelApi = {
+  updateChannelPlugin: (update: NonNullable<ChannelSchema["update"]>) =>
+    installPlugin(update.source, { force: true }),
   repairChannel: (repair: NonNullable<ChannelSchema["repair"]>) => {
     const id = encodeURIComponent(repair.plugin_id);
     if (repair.action === "install") {

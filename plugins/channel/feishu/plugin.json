@@ -1,7 +1,7 @@
 {
   "id": "feishu",
   "name": "Feishu / Lark",
-  "version": "0.1.0.dev0",
+  "version": "0.1.0",
   "type": "channel",
   "description": "Feishu / Lark channel with messaging and instance-owned connection lifecycle; standalone integration preview.",
   "author": "QwenPaw Team",
@@ -9,7 +9,7 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.2.2b4"
+    "min": "2.3.1"
   },
-  "publish": false
+  "publish": true
 }
