@@ -28,6 +28,10 @@ UI flavours:
                                the Tauri webview on macOS).
 - ``--ui-mode tauri-windows``  Playwright + headless Chromium (same engine
                                family as Tauri's WebView2 on Windows).
+- ``--ui-mode tauri-linux``    Playwright + WebKit, plus an X11 probe
+                               (xdotool + ImageMagick) that asserts the real
+                               packaged GTK/WebKitGTK window is mapped and
+                               rendering.
 
 Designed to be invoked by ``.github/workflows/desktop-release.yml`` after the
 desktop server has been booted on ``--base-url``. The API layer uses only
@@ -732,6 +736,82 @@ def make_driver(
     raise UIDriverInitError(f"unknown ui-mode: {ui_mode!r}")
 
 
+def verify_linux_native_window(
+    screenshot_dir: str | None = None,
+    timeout_s: int = 60,
+) -> None:
+    """Assert the packaged GTK/WebKitGTK window exists and is not blank.
+
+    The Playwright driver opens its own browser context against the backend,
+    so it cannot see the AppImage's real window. Probe the X11 session
+    directly: locate the app window with xdotool, capture it with
+    ImageMagick, and fail on a blank (zero-variance) capture.
+    """
+    import subprocess
+
+    def _candidates(pattern: str) -> list[str]:
+        try:
+            out = subprocess.run(
+                ["xdotool", "search", "--name", pattern],
+                capture_output=True, text=True, timeout=15,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return []
+        return [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
+
+    wid = ""
+    deadline = time.monotonic() + timeout_s
+    while not wid and time.monotonic() < deadline:
+        for pattern in ("QwenPaw",):
+            for cand in _candidates(pattern):
+                try:
+                    geo = subprocess.run(
+                        ["xdotool", "getwindowgeometry", "--shell", cand],
+                        capture_output=True, text=True, timeout=15,
+                    ).stdout
+                except (OSError, subprocess.SubprocessError):
+                    continue
+                w = h = 0
+                for ln in geo.splitlines():
+                    if ln.startswith("WIDTH="):
+                        w = int(ln.split("=", 1)[1] or "0")
+                    elif ln.startswith("HEIGHT="):
+                        h = int(ln.split("=", 1)[1] or "0")
+                if w >= 200 and h >= 200:
+                    wid = cand
+                    break
+        if not wid:
+            time.sleep(2)
+    if not wid:
+        raise RuntimeError(
+            "packaged window not found on X11: no mapped window matching "
+            "'QwenPaw' with size >=200x200 within 60s"
+        )
+
+    shot = (
+        os.path.join(screenshot_dir, "00-native-window.png")
+        if screenshot_dir
+        else ""
+    )
+    if shot:
+        subprocess.run(
+            ["import", "-window", wid, shot],
+            check=True, capture_output=True, timeout=30,
+        )
+        sd = subprocess.run(
+            ["convert", shot, "-colorspace", "Gray",
+             "-format", "%[standard-deviation]", "info:"],
+            check=True, capture_output=True, text=True, timeout=30,
+        ).stdout.strip()
+        if float(sd) < 0.01:
+            raise RuntimeError(
+                f"packaged window {wid} is blank (grayscale stddev {sd})"
+            )
+        print(f"PASS  native window mapped and rendering (wid={wid}, stddev={sd})")
+    else:
+        print(f"PASS  native window mapped (wid={wid}, no screenshot dir)")
+
+
 # =============================================================================
 # UI-level verification (three-round conversation)
 # =============================================================================
@@ -940,6 +1020,25 @@ def main() -> int:
         # ---- API-level checks (always run, no key needed) ----
         verify_packaged_api(base_url)
 
+        ss_dir = (
+            os.path.join(
+                args.screenshot_dir,
+                "verify-screenshots",
+            )
+            if args.screenshot_dir
+            else None
+        )
+
+        # ---- Packaged window check (tauri-linux only) ----
+        # The Playwright driver below opens its own browser context against
+        # the backend, so it cannot see the AppImage's real GTK/WebKitGTK
+        # window; probe the X11 session directly instead.
+        if args.ui_mode == "tauri-linux" and not args.skip_ui:
+            if os.environ.get("DISPLAY"):
+                verify_linux_native_window(ss_dir)
+            else:
+                print("SKIP  native window check (no DISPLAY)")
+
         # ---- UI load (always run unless --skip-ui, no key needed) ----
         # This catches broken Vite bundles, missing assets, CSP issues,
         # and Tauri webview load failures even without LLM credentials.
@@ -947,14 +1046,6 @@ def main() -> int:
             print("SKIP  UI verification (--skip-ui)")
         else:
             try:
-                ss_dir = (
-                    os.path.join(
-                        args.screenshot_dir,
-                        "verify-screenshots",
-                    )
-                    if args.screenshot_dir
-                    else None
-                )
                 driver = make_driver(
                     args.ui_mode,
                     ss_dir,

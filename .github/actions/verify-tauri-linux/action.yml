@@ -17,10 +17,12 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install verify deps (Playwright + WebKit)
+    - name: Install verify deps (Playwright + WebKit + X11 tools)
       shell: bash
       run: |
         set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y xvfb xdotool imagemagick
         python -m pip install --upgrade pip
         python -m pip install -r scripts/verify/requirements-verify.txt
         python -m playwright install webkit --with-deps
@@ -32,6 +34,17 @@ runs:
         ALLOW_FLAKY_LLM: ${{ inputs.allow-flaky-llm }}
       run: |
         set -euo pipefail
+        # Shared Xvfb session: the AppImage and the headed Playwright verifier
+        # must see the same display. launch_tauri_linux.sh detects DISPLAY and
+        # skips its own xvfb-run in that case.
+        Xvfb :99 -screen 0 1600x1000x24 > /dev/null 2>&1 &
+        XVFB_PID=$!
+        trap 'kill "${XVFB_PID}" 2>/dev/null || true' EXIT
+        for _ in $(seq 1 30); do
+          [ -e /tmp/.X11-unix/X99 ] && break
+          sleep 0.5
+        done
+        export DISPLAY=:99
         source scripts/verify/launch_tauri_linux.sh
         extra_flags=()
         if [ "$ALLOW_FLAKY_LLM" = "true" ]; then

@@ -18,13 +18,26 @@ chmod +x "${ARTIFACT}"
 echo "[launch_tauri_linux] launching ${ARTIFACT}"
 # APPIMAGE_EXTRACT_AND_RUN avoids requiring FUSE on CI runners.
 # The compositing switches keep WebKit usable on a software-rendered X server.
-xvfb-run -a -s "-screen 0 1600x1000x24" \
+if [ -n "${DISPLAY:-}" ]; then
+  # A display is already available (shared Xvfb in CI, or a real desktop for
+  # local runs): launch directly on it so other X clients in the same
+  # session (e.g. the headed Playwright verifier) can see the window.
+  echo "[launch_tauri_linux] reusing display ${DISPLAY}"
   env APPIMAGE_EXTRACT_AND_RUN=1 \
       WEBKIT_DISABLE_COMPOSITING_MODE=1 \
       WEBKIT_DISABLE_DMABUF_RENDERER=1 \
       "${ARTIFACT}" \
-  > "${STDOUT_LOG}" 2> "${STDERR_LOG}" &
-LAUNCH_PID=$!
+    > "${STDOUT_LOG}" 2> "${STDERR_LOG}" &
+  LAUNCH_PID=$!
+else
+  xvfb-run -a -s "-screen 0 1600x1000x24" \
+    env APPIMAGE_EXTRACT_AND_RUN=1 \
+        WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        WEBKIT_DISABLE_DMABUF_RENDERER=1 \
+        "${ARTIFACT}" \
+    > "${STDOUT_LOG}" 2> "${STDERR_LOG}" &
+  LAUNCH_PID=$!
+fi
 echo "[launch_tauri_linux] pid=${LAUNCH_PID}"
 
 PORT_FILE="${HOME}/.qwenpaw/desktop_port"
