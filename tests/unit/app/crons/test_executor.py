@@ -14,7 +14,6 @@ from qwenpaw.app.crons.models import (
     DispatchSpec,
     DispatchTarget,
 )
-from qwenpaw.app.crons.models import DispatchSpec, DispatchTarget
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.schemas import Event, RunStatus
 from tests.unit.app.conftest import make_cron_job_spec
