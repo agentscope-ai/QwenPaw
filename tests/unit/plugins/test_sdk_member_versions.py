@@ -29,6 +29,25 @@ def package(tmp_path, source, version):
 @pytest.mark.parametrize(
     "source",
     [
+        "from qwenpaw.plugins.harnesses import HarnessSpec\n",
+        (
+            "from qwenpaw.plugins import PluginContext\n"
+            "def f(ctx: PluginContext):\n    ctx.register_harness(None)\n"
+        ),
+        (
+            "from qwenpaw.plugins.testing import PluginTestHost\n"
+            "def f(host: PluginTestHost):\n    return host.list_harnesses()\n"
+        ),
+        (
+            "from qwenpaw.plugins.testing import PluginTestHost\n"
+            "async def f(host: PluginTestHost):\n"
+            "    return await host.harness_status('example')\n"
+        ),
+        (
+            "from qwenpaw.plugins.testing import PluginTestHost\n"
+            "def f(host: PluginTestHost):\n"
+            "    return host.run_harness('example', None)\n"
+        ),
         (
             "from qwenpaw.plugins.resources import ResourceScope as Scope\n"
             "async def f(r: Scope):\n"

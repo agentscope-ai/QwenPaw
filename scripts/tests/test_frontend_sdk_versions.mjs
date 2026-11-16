@@ -68,6 +68,7 @@ void forApp('app').chat('hello', options);
 void tasks('app').start({message:'hello', ...options});
 void host().menu.add('app', {id:'menu',label:'Menu'});
 void host().route.add('app', {id:'route',path:'/plugin/app',component:()=>null});
+void host().harnesses.register('app', {backendId:'example'});
 `;
 
 test("SDK 1.0 rejects resolved new symbols, destructuring and model options", async () => {
@@ -85,6 +86,7 @@ test("SDK 1.0 rejects resolved new symbols, destructuring and model options", as
     "model",
     "menu",
     "route",
+    "harnesses",
   ])
     assert.ok(
       result.findings.some(

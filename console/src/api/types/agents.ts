@@ -20,6 +20,8 @@ export interface AgentSummary {
   pinned?: boolean;
   startup_status?: AgentStartupStatus;
   backend: AgentBackend;
+  backend_status?: "available" | "missing" | "disabled" | "failed";
+  backend_plugin_id?: string | null;
   backend_capabilities?: Partial<HarnessCapabilities>;
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;

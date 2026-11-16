@@ -820,7 +820,21 @@ def _source_files(root):
     return files
 
 
+def _copy_source_file(source, target):
+    if os.name != "nt":
+        return shutil.copy2(source, target)
+    shutil.copyfile(source, target)
+    # Acquire write access before preserving a source's read-only attributes.
+    with open(target, "r+b") as stream:
+        shutil.copystat(source, target)
+        os.fsync(stream.fileno())
+    return target
+
+
 def _sync_source(root):
+    if os.name == "nt":
+        # Each copy was already synced through its writable file handle.
+        return
     for path in root.rglob("*"):
         if path.is_file():
             with path.open("rb") as stream:
@@ -846,7 +860,7 @@ def backup_source(directory, target):
         backup = directory / "previous_source"
         if backup.exists():
             shutil.rmtree(backup)
-        shutil.copytree(target, backup)
+        shutil.copytree(target, backup, copy_function=_copy_source_file)
         if _source_files(backup) != before["files"]:
             raise RuntimeError(
                 "DEPENDENCY_PLAN_STALE: plugin source changed during backup.",
@@ -870,7 +884,7 @@ def restore_source(directory, operation):
         staging = directory / "restored_source"
         if staging.exists():
             shutil.rmtree(staging)
-        shutil.copytree(backup, staging)
+        shutil.copytree(backup, staging, copy_function=_copy_source_file)
         _sync_source(staging)
     if target.is_symlink():
         raise RuntimeError(

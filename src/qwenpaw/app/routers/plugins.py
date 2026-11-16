@@ -29,6 +29,8 @@ from ...plugins.dependency_upgrade import (
 )
 from ...plugins.dependency_gate import SharedDependencyError
 from ...market.registry import MarketProviderBusyError
+from ...installation_origin import read_plugin_origin
+from ...utils.io_utils import run_sync_io
 from ...plugins.activity import PluginBusyError
 from ...plugins.registry import MemoryBackendInUseError
 
@@ -311,7 +313,13 @@ def _list_plugins_from_disk() -> list[dict]:
                 "loaded": False,
                 "plugin_type": manifest.plugin_type,
                 "frontend_entry": manifest.entry.frontend,
+                "sdk_harnesses": "harnesses"
+                in (manifest.sdk or {}).get("capabilities", []),
                 "market_id": _read_market_id(item),
+                "installation_origin": read_plugin_origin(
+                    plugins_dir,
+                    manifest.id,
+                ),
             },
         )
     return result
@@ -374,6 +382,7 @@ async def _load_plugin_with_optional_force_reinstall(
     reload_agents: bool = True,
     pawport_owner: dict | None = None,
     recover_incomplete: bool = False,
+    installation_source: str = "",
 ):
     """Load a plugin, optionally unloading first under one lifecycle lock.
 
@@ -410,6 +419,7 @@ async def _load_plugin_with_optional_force_reinstall(
         before_force_unload=_before_force_unload if force else None,
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
+        installation_source=installation_source,
     )
 
 
@@ -467,6 +477,11 @@ async def list_plugins(request: Request):
             "plugin_type": manifest.plugin_type,
             "frontend_entry": manifest.entry.frontend,
             "market_id": _read_market_id(record.source_path),
+            "installation_origin": await run_sync_io(
+                read_plugin_origin,
+                record.source_path.parent,
+                manifest.id,
+            ),
         }
 
     return list(result.values())
@@ -548,6 +563,11 @@ async def install_plugin_source(
             request,
             source_path,
             force=force,
+            installation_source=(
+                normalized
+                if normalized.startswith(("http://", "https://"))
+                else ""
+            ),
             **_interrupt_options(interrupt_tasks),
             reload_agents=reload_agents,
             pawport_owner=pawport_owner,
@@ -646,6 +666,11 @@ async def install_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": record.status == "active",
@@ -730,6 +755,11 @@ async def upload_plugin(
         "id": record.manifest.id,
         "name": record.manifest.name,
         "version": record.manifest.version,
+        "installation_origin": await run_sync_io(
+            read_plugin_origin,
+            record.source_path.parent,
+            record.manifest.id,
+        ),
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": record.status == "active",
@@ -1200,6 +1230,13 @@ async def serve_plugin_ui_file(
             )
         source_path = candidate
 
+    from ...utils.io_utils import run_sync_io
+
+    return await run_sync_io(_plugin_file_response, source_path, file_path)
+
+
+def _plugin_file_response(source_path: Path, file_path: str):
+    """Resolve/stat one static file without touching loader state."""
     full_path = (source_path / file_path).resolve()
 
     if not full_path.is_relative_to(source_path.resolve()):

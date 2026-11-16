@@ -31,6 +31,7 @@ SDK_CAPABILITIES = frozenset(
         "events",
         "apps",
         "channels",
+        "harnesses",
     },
 )
 
@@ -84,6 +85,9 @@ def validate_sdk(declaration, plugin_id=None):
         raise SDKCompatibilityError(
             "stops/shell/workflows capabilities require SDK >= 1.1.0",
         )
+
+    if "harnesses" in capabilities and requested < Version("1.1.0"):
+        raise SDKCompatibilityError("harnesses requires SDK version >= 1.1.0")
     secrets = declaration.get("secrets", [])
     if not isinstance(secrets, list) or not all(
         isinstance(name, str) and name for name in secrets

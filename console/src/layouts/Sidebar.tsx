@@ -43,10 +43,6 @@ import SidebarSettingsPanel from "./SidebarSettingsPanel";
 import { clearAuthToken, getApiToken } from "../api/config";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
-import {
-  syncSessionsGlobal,
-  type ExtendedSession,
-} from "../stores/sessionListStore";
 import { useSidebarStore } from "../stores/sidebarStore";
 import { buildChatPath } from "../utils/sessionRoute";
 import { addRouterBasename, getOsRootHref } from "../utils/navigationMode";
@@ -397,33 +393,6 @@ export default function Sidebar({
       cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
-
-  // ── Pre-fetch sessions on mount ───────────────────────────────────────────
-  // On mobile the sidebar starts collapsed so SidebarSessionList is unmounted
-  // and never fetches.  When the user expands the sidebar the list mounts fresh
-  // but the Zustand store may still be empty (ChatSessionInitializer may not
-  // have synced yet).  Proactively fetch sessions into the store so the data
-  // is ready the moment the user expands.  Fire on mount regardless of
-  // sidebar is expanded.
-  // Uses sessionApi.getSessionList() instead of raw api.listChats() to ensure
-  // the same data processing pipeline (dedup, realId, generating state) as
-  // the shared conversation-history list.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const list = await sessionApi.getSessionList();
-        if (!cancelled && list.length > 0) {
-          syncSessionsGlobal(list as ExtendedSession[]);
-        }
-      } catch {
-        // Best-effort: let SidebarSessionList retry on its own.
-      }
-    })();
-    return () => {
-      cancelled = true;
     };
   }, []);
 

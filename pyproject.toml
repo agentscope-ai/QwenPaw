@@ -43,6 +43,7 @@ dependencies = [
     "modelscope>=1.35.0",
     "huggingface_hub>=0.20.0",
     "pillow>=10.0.0",
+    "markdown-it-py>=3.0.0,<5",
     "agent-client-protocol>=0.9.0,<0.11.0",
     # Streaming-markdown terminal UI for the bundled `qwenpaw` TUI
     # (v4+ adds the streaming Markdown widget). 8.2.8 fixes parsing of
@@ -130,9 +131,10 @@ test = [
     "pytest-cov>=6.2.1",
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.5.0",
+    # The desktop spec preflight executes the real PyInstaller collectors.
+    "pyinstaller>=6.0.0",
     "hypothesis>=6.0.0",
     "respx>=0.22.0",
-    "qoder-agent-sdk==1.0.9",
 ]
 dev = [
     "pre-commit>=4.2.0",
@@ -146,6 +148,8 @@ hub = [
 whisper = [
     "openai-whisper>=20231117",
 ]
+# Transitional dependency preparation only; install and enable the matching
+# Harness plugin separately. Retained for one compatibility cycle.
 codex = [
     "openai-codex==0.144.4",
 ]
@@ -203,7 +207,7 @@ channels = [
 ]
 full = [
     "qwenpaw[channels]",
-    "qwenpaw[qwenpaw-data,hub,local,whisper,codex,qoder]",
+    "qwenpaw[qwenpaw-data,hub,local,whisper]",
 ]
 sip = [
     "pyVoIP>=1.6.0",

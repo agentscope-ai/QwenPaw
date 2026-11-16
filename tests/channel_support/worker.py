@@ -10,6 +10,12 @@ import sys
 import threading
 
 
+def _publish_pid(marker, pid):
+    pending = marker.with_suffix(".tmp")
+    pending.write_text(str(pid), encoding="utf-8")
+    pending.replace(marker)
+
+
 class Worker:
     def bind(self, context):
         self.context = context
@@ -22,7 +28,7 @@ class Worker:
         mode = config.get("mode")
         marker = Path(config["marker"])
         if mode == "blocked":
-            marker.write_text(str(os.getpid()))
+            _publish_pid(marker, os.getpid())
             threading.Event().wait()
         if mode == "tree":
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -41,7 +47,7 @@ class Worker:
             )
             while not Path(ready).exists():
                 await asyncio.sleep(0.005)
-            marker.write_text(str(child.pid))
+            _publish_pid(marker, child.pid)
         print("sample SDK connected", flush=True)
         print("sample SDK diagnostic", file=sys.stderr, flush=True)
         self.started.set()

@@ -142,6 +142,36 @@ PUBLIC_API = MappingProxyType(
             "MemoryContext",
             "MemoryTask",
         ),
+        "qwenpaw.plugins.harnesses": (
+            "HarnessSpec",
+            "HarnessContext",
+            "HarnessCallContext",
+            "HarnessApprovalSummary",
+            "HarnessApprovalDecision",
+            "HarnessRunRequest",
+            "HarnessEvent",
+            "HarnessEventKind",
+            "HarnessHistoryItem",
+            "HarnessHistoryKind",
+            "HarnessAttachment",
+            "HarnessAttachmentKind",
+            "HarnessCapabilities",
+            "HarnessCommand",
+            "HarnessApprovalPreset",
+            "HarnessModel",
+            "HarnessStatus",
+            "HarnessLogin",
+            "HarnessDiscoveredSkill",
+            "HarnessDiscoveredMCPServer",
+            "HarnessRuntimeCapabilities",
+            "HarnessSkillDefinition",
+            "HarnessMCPServerDefinition",
+            "HarnessBackend",
+            "HarnessArchiveBackend",
+            "HarnessOperationNotSupportedError",
+            "MCPTransport",
+            "MCPToolPolicy",
+        ),
         "qwenpaw.plugins.events": (
             "JSONValue",
             "JSONData",
@@ -259,6 +289,7 @@ _MEMBER_VERSIONS = {
     ),
     "qwenpaw.plugins.modes.ModeContext": (("identity", "1.1.0"),),
     "qwenpaw.plugins.PluginContext": (
+        ("register_harness", "1.1.0"),
         ("register_stop", "1.1.0"),
         ("register_shell_backend", "1.1.0"),
         ("register_workflow", "1.1.0"),
@@ -290,6 +321,9 @@ _MEMBER_VERSIONS = {
         ("category", "1.1.0"),
     ),
     "qwenpaw.plugins.testing.PluginTestHost": (
+        ("list_harnesses", "1.1.0"),
+        ("harness_status", "1.1.0"),
+        ("run_harness", "1.1.0"),
         ("process_channels", "1.1.0"),
         # Existing 1.0 keyword forwarding is now explicit in the signature.
         ("call_tool.workspace_id", "1.0.0"),
@@ -318,6 +352,10 @@ _MEMBER_VERSIONS = {
 }
 
 _EXPORT_VERSIONS = {
+    **{
+        f"qwenpaw.plugins.harnesses.{name}": "1.1.0"
+        for name in PUBLIC_API["qwenpaw.plugins.harnesses"]
+    },
     **{
         f"qwenpaw.plugins.channel_ingress.{name}": "1.1.0"
         for name in PUBLIC_API["qwenpaw.plugins.channel_ingress"]
@@ -395,7 +433,7 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.0.0"
+    sdk_version: str = "1.1.0"
     rules_version: str = "1.1.0"
     checked_at: str = ""
     plugin_id: str = ""

@@ -363,6 +363,25 @@ export interface QwenPawMemoryBackendsNamespace {
   register(pluginId: string, extension: MemoryBackendExtension): Disposable;
 }
 
+/** @since 1.1.0 Harness frontend settings contributions. */
+export interface HarnessSettingsProps {
+  backendId: string;
+  value: Record<string, unknown>;
+  onChange(value: Record<string, unknown>): void;
+  open: boolean;
+}
+
+/** @since 1.1.0 */
+export interface HarnessFrontendExtension {
+  backendId: string;
+  SettingsComponent?: React.ComponentType<HarnessSettingsProps>;
+}
+
+/** @since 1.1.0 */
+export interface QwenPawHarnessesNamespace {
+  register(pluginId: string, extension: HarnessFrontendExtension): Disposable;
+}
+
 export interface PluginRouteDeclaration {
   path: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -388,6 +407,8 @@ export interface QwenPawWindowNamespace {
   chat: QwenPawChatNamespace;
   audit: QwenPawAuditNamespace;
   memoryBackends: QwenPawMemoryBackendsNamespace;
+  /** @since 1.1.0 */
+  harnesses: QwenPawHarnessesNamespace;
   modules: Record<string, Record<string, unknown>>;
   paw?: {
     forApp(appId: string): import("./paw.js").PawSdk;
