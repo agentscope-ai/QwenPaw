@@ -9,7 +9,6 @@ import {
   ConfigProvider as AntdConfigProvider,
   theme as antdTheme,
 } from "antd";
-import designI18n from "@agentscope-ai/design/lib/i18n";
 import type { ThemeConfig as AntThemeConfig } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import {
@@ -19,19 +18,8 @@ import {
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
-import zhCN from "antd/locale/zh_CN";
 import enUS from "antd/locale/en_US";
-import jaJP from "antd/locale/ja_JP";
-import ruRU from "antd/locale/ru_RU";
-import idID from "antd/locale/id_ID";
-import type { Locale } from "antd/es/locale";
-import dayjs from "dayjs";
-import relativeTime from "dayjs/plugin/relativeTime";
-import "dayjs/locale/zh-cn";
-import "dayjs/locale/ja";
-import "dayjs/locale/ru";
-import "dayjs/locale/id";
-dayjs.extend(relativeTime);
+import { useUiLocale } from "./hooks/useUiLocale";
 import MainLayout from "./layouts/MainLayout";
 import { useTheme } from "./contexts/ThemeContext";
 import { FontSizeProvider } from "./contexts/FontSizeContext";
@@ -86,14 +74,6 @@ import { PressFeedback } from "./components/interaction/PressFeedback";
 import { AuthStatusProvider } from "./contexts/AuthStatusContext";
 import "katex/dist/katex.min.css";
 
-const antdLocaleMap: Record<string, Locale> = {
-  zh: zhCN,
-  en: enUS,
-  ja: jaJP,
-  ru: ruRU,
-  id: idID,
-};
-
 export function getAppThemeToken(
   userTheme: ThemeConfig,
   isDark: boolean,
@@ -143,14 +123,6 @@ export function getAppComponentTokens(
     },
   };
 }
-
-const dayjsLocaleMap: Record<string, string> = {
-  zh: "zh-cn",
-  en: "en",
-  ja: "ja",
-  ru: "ru",
-  id: "id",
-};
 
 const GlobalStyle = createGlobalStyle`
 * {
@@ -409,12 +381,7 @@ function AppInner({
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const sparkTheme = (selectedTheme as { theme?: AntThemeConfig }).theme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
-  const [antdLocale, setAntdLocale] = useState<Locale>(
-    antdLocaleMap[lang] ?? enUS,
-  );
-  useEffect(() => {
-    designI18n.updateLocale(antdLocale.locale);
-  }, [antdLocale]);
+  const antdLocale = useUiLocale(lang);
 
   useEffect(() => {
     if (!localStorage.getItem("language")) {
@@ -458,22 +425,6 @@ function AppInner({
     setOrRemove("--app-radius", userTheme.radius);
     setOrRemove("--border-radius", userTheme.radius);
   }, [isDark, userTheme]);
-
-  useEffect(() => {
-    const handleLanguageChanged = (lng: string) => {
-      const shortLng = lng.split("-")[0];
-      setAntdLocale(antdLocaleMap[shortLng] ?? enUS);
-      dayjs.locale(dayjsLocaleMap[shortLng] ?? "en");
-    };
-
-    // Set initial dayjs locale
-    dayjs.locale(dayjsLocaleMap[lang.split("-")[0]] ?? "en");
-
-    i18n.on("languageChanged", handleLanguageChanged);
-    return () => {
-      i18n.off("languageChanged", handleLanguageChanged);
-    };
-  }, [i18n]);
 
   // Disable the default browser context menu in the Tauri desktop build so
   // users cannot open DevTools via right-click. DevTools is still available
