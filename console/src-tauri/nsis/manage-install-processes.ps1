@@ -1,9 +1,10 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$InstallDir,
-    [ValidateSet("Prepare", "Restore")]
+    [ValidateSet("Prepare", "Restore", "BeginInstall", "CompleteInstall", "AbortInstall")]
     [string]$Action = "Prepare",
-    [int]$NsisProcessId = 0
+    [int]$NsisProcessId = 0,
+    [switch]$GateCli
 )
 
 # Prepare a recognized QwenPaw installation for NSIS replacement. The script
@@ -14,6 +15,10 @@ $ErrorActionPreference = "Stop"
 $gateMarker = "QWENPAW_INSTALL_MAINTENANCE"
 $launcher = Join-Path $env:USERPROFILE ".qwenpaw\bin\qwenpaw-nm-host.bat"
 $launcherBackup = "$launcher.qwenpaw-maintenance"
+$cli = Join-Path $InstallDir "binaries\qwenpaw-backend\qwenpaw.exe"
+$cliBackup = "$cli.qwenpaw-maintenance"
+$cliStaged = "$cli.qwenpaw-new"
+$installMarker = "$cli.qwenpaw-installing"
 
 function Get-NormalizedPath {
     param([string]$Path)
@@ -205,7 +210,8 @@ function Test-IsAutomaticProcess {
     $relative = $Process.ExecutablePath.Substring($Root.Length).TrimStart("\")
     if ($relative -ieq "qwenpaw-desktop.exe" -or
         $relative -ieq "binaries\qwenpaw-backend\qwenpaw-backend.exe" -or
-        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe") {
+        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe" -or
+        $relative -ieq "binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-maintenance") {
         return $true
     }
     $isBundledPython = (
@@ -244,6 +250,41 @@ function Write-ProcessList {
 }
 
 try {
+    if ($Action -eq "BeginInstall") {
+        # Persist before the first overwrite, including fresh installations.
+        # A later installer must not restore an old CLI into a partial update.
+        New-Item -ItemType Directory -Path (Split-Path $cli) -Force | Out-Null
+        Set-Content -LiteralPath $installMarker -Value $gateMarker -Encoding Ascii
+        # Do not publish a staged executable left by an interrupted install.
+        if (Test-Path -LiteralPath $cliStaged) {
+            Remove-Item -LiteralPath $cliStaged -Force
+        }
+        exit 0
+    }
+    if ($Action -eq "CompleteInstall") {
+        if (Test-Path -LiteralPath $cliStaged) {
+            Move-Item -LiteralPath $cliStaged -Destination $cli -Force
+        } elseif (-not (Test-Path -LiteralPath $cli)) {
+            throw "The new qwenpaw executable is missing. Run the installer again."
+        }
+        foreach ($path in @($cliBackup, $installMarker)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+        Restore-NativeHostLauncher -Root (Get-InstallRoot)
+        exit 0
+    }
+    if ($Action -eq "AbortInstall") {
+        if (Test-Path -LiteralPath $installMarker) {
+            throw "Installation is incomplete. Run the installer again to restore the qwenpaw command."
+        }
+        if (Test-Path -LiteralPath $cliBackup) {
+            Move-Item -LiteralPath $cliBackup -Destination $cli -Force
+        }
+        Restore-NativeHostLauncher -Root (Get-InstallRoot)
+        exit 0
+    }
     if ($Action -eq "Restore") {
         $requestedRoot = (Get-NormalizedPath -Path $InstallDir).TrimEnd("\")
         Restore-NativeHostLauncher -Root $requestedRoot
@@ -261,13 +302,30 @@ try {
 
     Enable-NativeHostGate -Root $root
     $nsisProcessIds = Get-NsisProcessIds -ProcessId $NsisProcessId
-    $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
-    $automatic = @(
-        $scoped | Where-Object {
-            Test-IsAutomaticProcess -Process $_ -Root $root
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $scoped = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
+        $automatic = @(
+            $scoped | Where-Object {
+                Test-IsAutomaticProcess -Process $_ -Root $root
+            }
+        )
+        Stop-ProcessRecords -Processes $automatic
+
+        if (-not $GateCli -or -not (Test-Path -LiteralPath $cli)) {
+            break
         }
-    )
-    Stop-ProcessRecords -Processes $automatic
+        try {
+            # External version probes can restart the CLI after the sweep.
+            # Keep its normal path absent until all new resources are ready.
+            Move-Item -LiteralPath $cli -Destination $cliBackup -Force
+            break
+        } catch {
+            if ($attempt -eq 4) {
+                throw
+            }
+            Start-Sleep -Milliseconds 200
+        }
+    }
 
     $remaining = Get-ScopedProcesses -Root $root -ExcludedProcessIds $nsisProcessIds
     if ($remaining.Count -gt 0) {

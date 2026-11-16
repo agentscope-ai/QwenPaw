@@ -2,7 +2,10 @@
 ; crates/tauri-bundler/src/bundle/windows/nsis/installer.nsi
 ; Local change: use per-file compression instead of /SOLID to reduce the
 ; uncompressed temporary datablock size during packaging.
+; Keep the CLI entry unavailable until every bundled resource is installed.
 Unicode true
+; Publishing the CLI requires a complete payload, so no file may be skipped.
+AllowSkipFiles off
 ManifestDPIAware true
 ; Add in `dpiAwareness` `PerMonitorV2` to manifest for Windows 10 1607+ (note this should not affect lower versions since they should be able to ignore this and pick up `dpiAware` `true` set by `ManifestDPIAware true`)
 ; Currently undocumented on NSIS's website but is in the Docs folder of source tree, see
@@ -648,6 +651,8 @@ Section Install
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  !insertmacro QWENPAW_INSTALL_ACTION BeginInstall
+
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
 
@@ -656,7 +661,11 @@ Section Install
     CreateDirectory "$INSTDIR\\{{this}}"
   {{/each}}
   {{#each resources}}
+    !if "{{this.[1]}}" == "binaries\qwenpaw-backend\qwenpaw.exe"
+    File /a "/oname={{this.[1]}}.qwenpaw-new" "{{no-escape @key}}"
+    !else
     File /a "/oname={{this.[1]}}" "{{no-escape @key}}"
+    !endif
   {{/each}}
 
   ; Copy external binaries
@@ -795,6 +804,9 @@ Section Uninstall
   {{/each}}
 
   ; Delete external binaries
+  Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-maintenance"
+  Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-new"
+  Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-installing"
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
   {{/each}}

@@ -5,8 +5,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import threading
+import time
 import tomllib
 
 from packaging.specifiers import SpecifierSet
@@ -275,6 +278,176 @@ def test_nsis_template_avoids_solid_compression() -> None:
     assert f"Vendored from Tauri v{tauri_cli_version}" in template
     assert 'SetCompressor "{{compression}}"' in template
     assert "SetCompressor /SOLID" not in template
+
+
+@pytest.fixture
+def nsis_cli_install(tmp_path):
+    """Run the real installer helper against an isolated installation."""
+    if sys.platform != "win32":
+        pytest.skip("NSIS process preparation requires Windows")
+    root = tmp_path / "QwenPaw Desktop"
+    backend = root / "binaries" / "qwenpaw-backend"
+    backend.mkdir(parents=True)
+    (root / "qwenpaw-desktop.exe").write_bytes(b"desktop")
+    (backend / "qwenpaw-backend.exe").write_bytes(b"backend")
+    cli = backend / "qwenpaw.exe"
+    cli.write_bytes(b"old CLI")
+    profile = tmp_path / "profile"
+    launcher = profile / ".qwenpaw" / "bin" / "qwenpaw-nm-host.bat"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text(f'@"{cli}"\n', encoding="utf-8-sig")
+    powershell = (
+        Path(os.environ["SystemRoot"])
+        / "System32/WindowsPowerShell/v1.0/powershell.exe"
+    )
+    script = REPO_ROOT / "console/src-tauri/nsis/manage-install-processes.ps1"
+
+    def run(action):
+        return subprocess.run(
+            [
+                str(powershell),
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+                "-InstallDir",
+                str(root),
+                "-GateCli",
+                "-Action",
+                action,
+            ],
+            env={**os.environ, "USERPROFILE": str(profile)},
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=30,
+        )
+
+    return cli, launcher, run
+
+
+@pytest.mark.parametrize("phase", ["prepare", "copy", "complete"])
+def test_nsis_cli_gate_recovers_at_the_correct_install_phase(
+    nsis_cli_install,
+    phase,
+):
+    """Cancellation must never reopen an entry into a partial update."""
+    cli, launcher, run = nsis_cli_install
+    staged = cli.with_name(cli.name + ".qwenpaw-new")
+    backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
+    marker = cli.with_name(cli.name + ".qwenpaw-installing")
+
+    result = run("Prepare")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not cli.exists()
+    assert backup.read_bytes() == b"old CLI"
+    assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
+    if phase != "prepare":
+        staged.write_bytes(b"stale staged CLI")
+        result = run("BeginInstall")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert marker.exists()
+        assert not staged.exists()
+        assert not cli.exists()
+    if phase == "complete":
+        staged.write_bytes(b"new CLI")
+        result = run("CompleteInstall")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert cli.read_bytes() == b"new CLI"
+        assert not backup.exists()
+        assert not marker.exists()
+
+    result = run("AbortInstall")
+    if phase == "copy":
+        assert result.returncode == 1
+        assert "Run the installer again" in result.stdout
+        assert not cli.exists()
+        # A subsequent attempt can finish without restoring the old entry.
+        for action in ("Prepare", "BeginInstall"):
+            result = run(action)
+            assert result.returncode == 0, result.stdout + result.stderr
+        staged.write_bytes(b"retried CLI")
+        result = run("CompleteInstall")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert cli.read_bytes() == b"retried CLI"
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        expected = b"old CLI" if phase == "prepare" else b"new CLI"
+        assert cli.read_bytes() == expected
+    assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
+
+
+def test_nsis_fresh_install_requires_a_new_cli(nsis_cli_install):
+    """Fresh installs use the same staging rule and can retry publication."""
+    cli, launcher, run = nsis_cli_install
+    root = cli.parents[2]
+    cli.unlink()
+    launcher.unlink()
+    (root / "qwenpaw-desktop.exe").unlink()
+    (cli.parent / "qwenpaw-backend.exe").unlink()
+    for action in ("Prepare", "BeginInstall"):
+        result = run(action)
+        assert result.returncode == 0, result.stdout + result.stderr
+    result = run("CompleteInstall")
+    assert result.returncode == 1
+    assert not cli.exists()
+    cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
+    for _ in range(2):
+        result = run("CompleteInstall")
+        assert result.returncode == 0, result.stdout + result.stderr
+    assert cli.read_bytes() == b"new CLI"
+
+
+def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
+    """A version-probe-like caller must not reopen the CLI during copying."""
+    cli, _, run = nsis_cli_install
+    shutil.copyfile(Path(os.environ["SystemRoot"]) / "System32/ping.exe", cli)
+    stopped = threading.Event()
+    started = threading.Event()
+    blocked = threading.Event()
+    children = []
+
+    def probe():
+        while not stopped.is_set():
+            try:
+                child = subprocess.Popen(
+                    [str(cli), "-t", "127.0.0.1"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            except OSError:
+                blocked.set()
+            else:
+                children.append(child)
+                started.set()
+                # Relaunch as soon as the installer stops the previous probe.
+                while child.poll() is None and not stopped.wait(0.02):
+                    pass
+            stopped.wait(0.02)
+
+    thread = threading.Thread(target=probe, daemon=True)
+    thread.start()
+    try:
+        assert started.wait(5)
+        result = run("Prepare")
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert blocked.wait(5)
+        assert not cli.exists()
+        result = run("BeginInstall")
+        assert result.returncode == 0, result.stdout + result.stderr
+        count = len(children)
+        time.sleep(0.2)
+        assert len(children) == count
+        assert all(child.poll() is not None for child in children)
+    finally:
+        stopped.set()
+        thread.join(timeout=5)
+        for child in children:
+            if child.poll() is None:
+                child.kill()
+            child.wait(timeout=5)
 
 
 def test_shared_daemon_keeps_channel_runtime_environment() -> None:

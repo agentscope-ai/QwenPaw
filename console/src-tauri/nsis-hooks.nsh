@@ -3,6 +3,7 @@
 
 Var QwenPawCliPathCheckbox
 Var QwenPawCliPathState
+Var QwenPawCliPrepared
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
 
@@ -106,8 +107,39 @@ Function QWENPAW_CLI_PATH_PAGE_LEAVE
   ${NSD_GetState} $QwenPawCliPathCheckbox $QwenPawCliPathState
 FunctionEnd
 
-!macro QWENPAW_DEFINE_INSTALL_FUNCTIONS PREFIX
-Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
+Function QWENPAW_ABORT_INSTALL
+  ${If} $QwenPawCliPrepared != 1
+    Return
+  ${EndIf}
+  StrCpy $QwenPawCliPrepared 0
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action AbortInstall`
+  ${If} $0 != 0
+    DetailPrint "$(qwenpawInstallIncomplete)"
+    DetailPrint "$1"
+    MessageBox MB_OK|MB_ICONEXCLAMATION "$(qwenpawInstallIncomplete)$\n$\n$1" /SD IDOK
+  ${EndIf}
+FunctionEnd
+
+Function .onInstFailed
+  Call QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+Function .onGUIEnd
+  Call QWENPAW_ABORT_INSTALL
+FunctionEnd
+
+!macro QWENPAW_INSTALL_ACTION ACTION
+  qwenpaw_${ACTION}_retry:
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -Action ${ACTION}`
+  ${If} $0 != 0
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(qwenpawPrepareInstallFailed)$\n$\n$1" /SD IDCANCEL IDRETRY qwenpaw_${ACTION}_retry
+    Call QWENPAW_ABORT_INSTALL
+    SetErrorLevel 1
+    Quit
+  ${EndIf}
+!macroend
+
+Function un.QWENPAW_RESTORE_INSTALL_STATE
   Push $0
   Push $1
   IfFileExists "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" 0 qwenpaw_restore_done
@@ -121,6 +153,7 @@ Function ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
   Pop $0
 FunctionEnd
 
+!macro QWENPAW_DEFINE_INSTALL_FUNCTIONS PREFIX CLI_GATE
 Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   Push $0
   Push $1
@@ -130,7 +163,7 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   System::Call 'kernel32::GetCurrentProcessId() i .r2'
 
   qwenpaw_prepare_retry:
-  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2`
+  !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$INSTDIR" -NsisProcessId $2 ${CLI_GATE}`
   ${If} $0 == 0
     Goto qwenpaw_prepare_done
   ${Else}
@@ -141,7 +174,11 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
   ${EndIf}
 
   qwenpaw_prepare_cancel:
+  !if "${PREFIX}" == ""
+  Call QWENPAW_ABORT_INSTALL
+  !else
   Call ${PREFIX}QWENPAW_RESTORE_INSTALL_STATE
+  !endif
   Quit
 
   qwenpaw_prepare_done:
@@ -151,15 +188,17 @@ Function ${PREFIX}QWENPAW_PREPARE_INSTALL
 FunctionEnd
 !macroend
 
-!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS ""
-!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un."
+!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "" "-GateCli"
+!insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un." ""
 
 !macro NSIS_HOOK_PREINSTALL
+  StrCpy $QwenPawCliPrepared 1
   Call QWENPAW_PREPARE_INSTALL
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  Call QWENPAW_RESTORE_INSTALL_STATE
+  !insertmacro QWENPAW_INSTALL_ACTION CompleteInstall
+  StrCpy $QwenPawCliPrepared 0
   !insertmacro QWENPAW_ADD_CLI_PATH_IF_SELECTED
   !insertmacro QWENPAW_INSTALL_DEBUG_LAUNCHER
 !macroend
