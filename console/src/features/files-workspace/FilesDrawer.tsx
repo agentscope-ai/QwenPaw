@@ -20,6 +20,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { ConfigProvider } from "antd";
 import { workspaceApi } from "../../api/modules/workspace";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import FilePreview, { isPreviewable } from "../../pages/Coding/FilePreview";
@@ -78,6 +79,10 @@ export default function FilesDrawer({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const drawerRef = useRef<HTMLElement>(null);
+  const getPopupContainer = useCallback(
+    () => drawerRef.current ?? document.body,
+    [],
+  );
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
   const fullscreenFocusReturnRef = useRef<HTMLButtonElement | null>(null);
   const [metadata, setMetadata] = useState<FileMetadata | null>(null);
@@ -176,6 +181,12 @@ export default function FilesDrawer({
         }
       }
       if (event.key === "Escape") {
+        const popup =
+          event.target instanceof Element
+            ? event.target.closest('[role="menu"], [role="dialog"]')
+            : null;
+        // Let nested menus and dialogs handle Escape before the drawer.
+        if (popup && popup !== drawer) return;
         event.preventDefault();
         if (isFullscreen) {
           setIsFullscreen(false);
@@ -538,11 +549,13 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace
-                initialTarget={target}
-                initialMemoryTag={memoryTagToBrowse}
-                scope={scope}
-              />
+              <ConfigProvider getPopupContainer={getPopupContainer}>
+                <FilesWorkspace
+                  initialTarget={target}
+                  initialMemoryTag={memoryTagToBrowse}
+                  scope={scope}
+                />
+              </ConfigProvider>
             </Suspense>
           ) : (
             <>
