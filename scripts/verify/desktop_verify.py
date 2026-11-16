@@ -753,7 +753,9 @@ def verify_linux_native_window(
         try:
             out = subprocess.run(
                 ["xdotool", "search", "--name", pattern],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
         except (OSError, subprocess.SubprocessError):
             return []
@@ -767,7 +769,9 @@ def verify_linux_native_window(
                 try:
                     geo = subprocess.run(
                         ["xdotool", "getwindowgeometry", "--shell", cand],
-                        capture_output=True, text=True, timeout=15,
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
                     ).stdout
                 except (OSError, subprocess.SubprocessError):
                     continue
@@ -785,7 +789,7 @@ def verify_linux_native_window(
     if not wid:
         raise RuntimeError(
             "packaged window not found on X11: no mapped window matching "
-            "'QwenPaw' with size >=200x200 within 60s"
+            "'QwenPaw' with size >=200x200 within 60s",
         )
 
     shot = (
@@ -796,18 +800,32 @@ def verify_linux_native_window(
     if shot:
         subprocess.run(
             ["import", "-window", wid, shot],
-            check=True, capture_output=True, timeout=30,
+            check=True,
+            capture_output=True,
+            timeout=30,
         )
         sd = subprocess.run(
-            ["convert", shot, "-colorspace", "Gray",
-             "-format", "%[standard-deviation]", "info:"],
-            check=True, capture_output=True, text=True, timeout=30,
+            [
+                "convert",
+                shot,
+                "-colorspace",
+                "Gray",
+                "-format",
+                "%[standard-deviation]",
+                "info:",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
         ).stdout.strip()
         if float(sd) < 0.01:
             raise RuntimeError(
-                f"packaged window {wid} is blank (grayscale stddev {sd})"
+                f"packaged window {wid} is blank (grayscale stddev {sd})",
             )
-        print(f"PASS  native window mapped and rendering (wid={wid}, stddev={sd})")
+        print(
+            f"PASS  native window mapped and rendering (wid={wid}, stddev={sd})",
+        )
     else:
         print(f"PASS  native window mapped (wid={wid}, no screenshot dir)")
 
