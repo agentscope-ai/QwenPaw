@@ -1,0 +1,131 @@
+{
+  "host_version": "2.3.0",
+  "plugins": [
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "azure-bot",
+      "version": "2.0.0",
+      "content_sha256": "0464b405d0474552ff05bf7a387a4f474442d5b2fb6f4183cadca9f12490df3e"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "dingtalk",
+      "version": "0.1.0.dev0",
+      "content_sha256": "44271ac487e2c4d3d3d19dd3d627239c8b0df5312d21df70679f46ead89282c0"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "discord",
+      "version": "0.1.0.dev0",
+      "content_sha256": "091800ce1221a07cab119b8fc779ff5465e9db50d56d8b4608b3cd959020b250"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "feishu",
+      "version": "0.1.0.dev0",
+      "content_sha256": "ef57b568d5406d41c7eace4c4b70c2eed8d622d081e994e68aaed658339943ee"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "imessage",
+      "version": "0.1.0.dev0",
+      "content_sha256": "08c7076d8a5b55bd19714482dfe7306425b7663b042a381f3436988f93f3b808"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "matrix",
+      "version": "0.1.0.dev0",
+      "content_sha256": "edd7e55435cb1f19b42208e59759d15488778bc69c312d23e2aba190c65acfba"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "mattermost",
+      "version": "0.1.0.dev0",
+      "content_sha256": "dc5751e06f315f01585c3d52f6060e1d8b777659d08f3708cddd220b36abc8cd"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "mqtt",
+      "version": "0.1.0.dev0",
+      "content_sha256": "47816adb82bbca5c2723f3e728dc7add55700ca8dc953ef32f974d66420f7760"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "onebot",
+      "version": "0.1.0.dev0",
+      "content_sha256": "d2aa3985df32c0be1d3b65def8740934694d103f1f887d77b36a5244fb35a5bb"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "qq",
+      "version": "0.1.0.dev0",
+      "content_sha256": "6c3a2ec63614b87e7a26af6c4e8656409c49775116d9ed8e3edf6226d6df7e16"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "sip",
+      "version": "0.1.0.dev0",
+      "content_sha256": "fd6e17170a48446b6206f1b32824daf6cc9f076cac0d3e0d5e8a276830f83860"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "slack",
+      "version": "0.1.0.dev0",
+      "content_sha256": "ae761bb9cb5b28c6b526a021e98a276a6543bb663bab78fb9c262eea45d5f478"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "telegram",
+      "version": "0.1.0.dev0",
+      "content_sha256": "7a88eef1db2c4c05ba5407ec9a9dabde35a3e70355d38614d6f5381367647d23"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "voice",
+      "version": "0.1.0.dev0",
+      "content_sha256": "a9a74532ffa09676ad5e8c8cb2748e2d1869d14d22a297aedba09d1f720fb219"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "wechat",
+      "version": "0.1.0.dev0",
+      "content_sha256": "ee203a9b3197829a6ef6c661d0ee6d96f3bc390f84d6b57b26e8e287478441f3"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "wecom",
+      "version": "0.1.0.dev0",
+      "content_sha256": "22b95aab16253c7a02d0d426c26b62b034c737aea86211bb73710e12b1217377"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "xiaoyi",
+      "version": "0.1.0.dev0",
+      "content_sha256": "a4d8d2e600eb97dfa8414de8bba5df55bf9f47a756becd276a7c63b86efb7f18"
+    },
+    {
+      "schema_version": 1,
+      "kind": "channel",
+      "plugin_id": "yuanbao",
+      "version": "0.1.0.dev0",
+      "content_sha256": "f2dd92836899e6e16c58991bc5b0600ca6b5b563293b42a0f7b02034ecf85e1c"
+    }
+  ]
+}

@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   # ── Stage 1: Build wheel ───────────────────────────────────────────────────
@@ -98,9 +99,18 @@ jobs:
       verify_pip: true
       verify_script_install: true
 
+  plugin-versions:
+    needs: [build]
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
+    uses: ./.github/workflows/plugin-release-guard.yml
+    with:
+      host-artifact: qwenpaw-dist
+      check-source: false
+    secrets: inherit
+
   # ── Stage 3: Publish to PyPI ───────────────────────────────────────────────
   publish:
-    needs: [verify, build]
+    needs: [verify, build, plugin-versions]
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.force_push_to_pypi == 'true')
     steps:

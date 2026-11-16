@@ -9,6 +9,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 
 import pytest
 import pytest_asyncio
@@ -178,6 +179,152 @@ def test_official_discovery_and_descriptor_snapshot_are_static(
                 ),
                 descriptor=description.descriptor,
             )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "version,identity,expected",
+    [
+        ("0.1.0.dev0", "feishu", True),
+        ("0.1.0", "feishu", False),
+        ("0.2.0", "feishu", False),
+        ("invalid", "feishu", False),
+        ("0.1.0.dev0", "other", False),
+        ("0.1.0.dev0", "bad-index", False),
+    ],
+)
+async def test_channel_update_catalog_is_passive(
+    host,
+    monkeypatch,
+    static_channel_guard,
+    version,
+    identity,
+    expected,
+):
+    from qwenpaw.app.channels.catalog import (
+        clean_channel_config,
+        get_configurable_channel_catalog_async,
+    )
+    from qwenpaw.plugins.settings import persist_plugin_settings
+
+    source = host.artifact(version)
+    shutil.copytree(source, host.installed)
+    manifest_path = host.installed / "plugin.json"
+    manifest = json.loads(manifest_path.read_text())
+    if identity == "other":
+        manifest["id"] = identity
+        manifest_path.write_text(json.dumps(manifest))
+    persist_plugin_settings(KEY, enabled=False, config={"untouched": 7})
+    before = host.config_path.read_bytes()
+
+    def versions():
+        if identity == "bad-index":
+            raise ValueError("Official index identity mismatch")
+        return {KEY: "0.1.0"}
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.official_channels.bundled_channel_versions",
+        versions,
+        raising=False,
+    )
+    loop_thread = threading.get_ident()
+    reads = []
+    read_text = Path.read_text
+
+    def observe_read(path, *args, **kwargs):
+        if path == manifest_path:
+            reads.append(threading.get_ident())
+            assert reads[-1] != loop_thread
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", observe_read)
+    catalog = await get_configurable_channel_catalog_async()
+    assert catalog[KEY].get("update") == (
+        {
+            "installed_version": "0.1.0.dev0",
+            "version": "0.1.0",
+            "source": "bundled:feishu",
+        }
+        if expected
+        else None
+    )
+    assert "update" not in catalog["console"]
+    assert "update" not in catalog["dingtalk"]
+    assert catalog[KEY]["global_enabled"] is False
+    assert host.config_path.read_bytes() == before
+    assert clean_channel_config({"enabled": False, "update": {}}) == {
+        "enabled": False,
+    }
+    if identity != "bad-index":
+        assert reads
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport", ["bundled", "https"])
+async def test_channel_update_keeps_disabled_intent(
+    host,
+    monkeypatch,
+    static_channel_guard,
+    transport,
+):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from qwenpaw.app.routers.plugins import install_plugin_source
+    from qwenpaw.config.utils import load_config
+    from qwenpaw.plugins.settings import persist_plugin_settings
+
+    shutil.copytree(host.artifact(), host.installed)
+    persist_plugin_settings(KEY, enabled=False, config={"custom": "keep"})
+    persist_plugin_settings(
+        "dingtalk",
+        enabled=True,
+        config={"custom": "other"},
+    )
+    await host.loader.load_all_plugins(types=["channel"], activate=False)
+    before = load_config().plugins.copy()
+    candidate = host.artifact("2.0.0")
+
+    @asynccontextmanager
+    async def bundled(plugin_id, **kwargs):
+        assert plugin_id == KEY
+        yield candidate
+
+    monkeypatch.setattr(
+        "qwenpaw.plugins.official_channels.async_bundled_channel_source",
+        bundled,
+    )
+    source = "bundled:" + KEY
+    if transport == "https":
+        import zipfile
+
+        source = "https://download.qwenpaw.agentscope.io/feishu-2.0.0.zip"
+
+        async def download(url, destination):
+            assert url == source
+            with zipfile.ZipFile(destination, "w") as archive:
+                for path in candidate.rglob("*"):
+                    if path.is_file():
+                        archive.write(
+                            path,
+                            KEY + "/" + path.relative_to(candidate).as_posix(),
+                        )
+
+        monkeypatch.setattr(
+            "qwenpaw.app.routers.plugins._async_download",
+            download,
+        )
+    record = await install_plugin_source(
+        source,
+        force=True,
+        app=SimpleNamespace(state=SimpleNamespace(plugin_loader=host.loader)),
+    )
+    assert record.manifest.version == "2.0.0"
+    assert not record.global_enabled and not record.enabled
+    assert load_config().plugins == before
+    assert (
+        json.loads((host.installed / "plugin.json").read_text())["version"]
+        == "2.0.0"
+    )
 
 
 @pytest.mark.asyncio
@@ -842,6 +989,61 @@ async def test_channel_preflight_rechecks_metadata_read_during_probe(
 
 
 @pytest.mark.asyncio
+async def test_channel_worker_preserves_canonical_runtime_context(
+    host,
+    monkeypatch,
+):
+    from qwenpaw.constant import WORKING_DIR
+
+    WORKING_DIR.mkdir(parents=True, exist_ok=True)
+    (WORKING_DIR / ".env").write_text(
+        "CHANNEL_CONTEXT_ENV_PROBE=unexpected\n",
+        encoding="utf-8",
+    )
+    home = host.root / "runtime home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", "./unresolved-runtime")
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "channel-context-runtime")
+    monkeypatch.delenv("CHANNEL_CONTEXT_ENV_PROBE", raising=False)
+    expected_home = str(home) if os.name != "nt" else None
+    expected_profile = str(Path.home().resolve()) if os.name == "nt" else None
+    media = host.root / "explicit-media"
+    ws = await host.workspace("context", media_dir=str(media))
+    source = host.artifact()
+    shutil.copytree(
+        Path(__file__).resolve().parents[3]
+        / "plugins/channel/wechat/qwenpaw_channel_wechat",
+        source / "qwenpaw_channel_wechat",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    driver = source / "sample.py"
+    driver.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "if os.name != 'nt':\n"
+        "    import pwd\n"
+        "    def missing_user(uid): raise KeyError(uid)\n"
+        "    pwd.getpwuid = missing_user\n"
+        "from qwenpaw_channel_wechat.platform import WeChatPlatform\n"
+        "from qwenpaw.constant import WORKING_DIR\n"
+        f"assert WORKING_DIR == Path({str(WORKING_DIR)!r})\n"
+        f"assert os.environ['QWENPAW_WORKING_DIR'] == {str(WORKING_DIR)!r}\n"
+        "assert os.environ['QWENPAW_RUNTIME_ID'] == 'channel-context-runtime'\n"
+        "assert 'CHANNEL_CONTEXT_ENV_PROBE' not in os.environ\n"
+        f"assert os.environ.get('HOME') == {expected_home!r}\n"
+        f"assert os.environ.get('USERPROFILE') == {expected_profile!r}\n"
+        + driver.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    record = await host.loader.load_plugin_from_path(source)
+    assert record.status == "active"
+    _, value = await host.identity(ws)
+    assert value["config"]["workspace_dir"] == str(ws.workspace_dir)
+    assert value["config"]["media_dir"] == str(media)
+    assert value["config"]["app_secret"] == "local-only"
+
+
+@pytest.mark.asyncio
 async def test_local_install_enable_uses_installed_code_and_offline_dependency(
     host,
     monkeypatch,
@@ -1155,6 +1357,9 @@ async def test_disable_reenable_uninstall_reaps_only_owned_resources(host):
     business.write_text("keep")
     user_config = ws.workspace_dir / "agent.json"
     config_before = user_config.read_bytes()
+    host.loader._recovery_blocked[
+        KEY
+    ] = "Recovery has runtime resources; unload first"
     await host.loader.lifecycle.set_enabled(KEY, False)
     assert (
         not alive(before["pid"])
