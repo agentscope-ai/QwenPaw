@@ -29,7 +29,7 @@ from ...plugins.apps import HttpRequest
 from ...plugins.errors import SDKAccessError, StaleContextError
 from ...plugins._drivers import _instance_id, _revision, workspace_is_current
 from ..driver_config_service import DriverConfigService
-from ...utils.io_utils import run_async_to_completion
+from ...utils.io_utils import run_async_to_completion, run_sync_io
 from .oauth_pending import (
     PendingAuthorization,
     attempts,
@@ -251,7 +251,8 @@ async def _callback(request, body, grant, attempt):
         raise HTTPException(409, "OAuth source changed")
     from ...config.utils import load_config
 
-    profile = load_config().agents.profiles.get(grant.agent_id)
+    config = await run_sync_io(load_config)
+    profile = config.agents.profiles.get(grant.agent_id)
     if profile is None or not profile.enabled:
         raise HTTPException(403, "OAuth workspace is unavailable")
     service = DriverConfigService(workspace)
