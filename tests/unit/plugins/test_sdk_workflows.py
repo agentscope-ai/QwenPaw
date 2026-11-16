@@ -11,6 +11,9 @@ import threading
 from qwenpaw.app.crons.manager import CronManager
 from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
 from qwenpaw.app.inbox_store import list_events
+from qwenpaw.checkpoints.models import CheckpointError
+from qwenpaw.checkpoints.restore import WorkspaceMutationGuard
+from qwenpaw.checkpoints.runtime import RUNTIME
 from qwenpaw.plugins.compliance import check_plugin
 from qwenpaw.plugins.testing import PluginTestHost
 from .sdk_author_fixture import make_plugin
@@ -225,6 +228,7 @@ async def test_workflow_retains_thread_and_clears_ambient_request(
     request_user = ContextVar("workflow_test_user", default="no-user")
     started, release = threading.Event(), threading.Event()
     calls, registrations = [], []
+    stopping = None
 
     async def work(call, parameters):
         calls.append((request_user.get(), call.identity))
@@ -268,6 +272,19 @@ async def test_workflow_retains_thread_and_clears_ambient_request(
                 request_user.reset(token)
             assert calls[0][0] == "no-user" and calls[0][1].user_id == ""
             await asyncio.sleep(0.15)
+            workspace = host._workspaces["one"]
+            guard = WorkspaceMutationGuard(workspace, timeout=0.03)
+            with pytest.raises(CheckpointError, match="did not become idle"):
+                await guard.quiesce()
+            assert await workspace.task_tracker.has_active_tasks()
+            active = await workspace.task_tracker.snapshot_active_tasks()
+            stopping = asyncio.create_task(
+                workspace.task_tracker.request_stop(next(iter(active))),
+            )
+            await asyncio.sleep(0)
+            with pytest.raises(CheckpointError, match="did not become idle"):
+                await guard.quiesce()
+            assert not stopping.done()
             managers[0]._scheduler.modify_job(
                 job_id,
                 next_run_time=datetime.now(timezone.utc),
@@ -281,8 +298,81 @@ async def test_workflow_retains_thread_and_clears_ambient_request(
         finally:
             release.set()
             await registrations[0].close()
+            if stopping is not None:
+                assert await stopping
+            callbacks = await guard.quiesce()
+            guard.resume(callbacks)
+            assert await workspace.task_tracker.snapshot_active_tasks() == {}
             for manager in managers:
                 await manager.stop()
+
+
+async def test_restore_waits_for_workflow_and_blocks_new_admission(
+    sdk_component,
+):
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def work(call, parameters):
+        calls.append(call.workspace_id)
+        entered.set()
+        await release.wait()
+        return WorkflowResult()
+
+    async with sdk_component() as (host, ctx):
+        manager = await cron(host, "one")
+        ctx.register_workflow(
+            WorkflowSpec("report", work, WorkflowSchedule("0 0 * * *")),
+        )
+        workspace = host._workspaces["one"]
+        engine = await RUNTIME.get_for_workspace_async(workspace)
+        guard = WorkspaceMutationGuard(
+            workspace,
+            timeout=2,
+            waiting_tasks=engine._query_waiters,
+        )
+        running = quiescing = None
+        try:
+            running = asyncio.create_task(
+                host.run_workflow(
+                    "resource-contract:report",
+                    workspace_id="one",
+                ),
+            )
+            await asyncio.wait_for(entered.wait(), 2)
+            quiescing = asyncio.create_task(guard.quiesce())
+            await asyncio.sleep(0.05)
+            assert not quiescing.done()
+            release.set()
+            await running
+            guard.resume(await quiescing)
+            assert calls == ["one"]
+
+            engine.query_gate.clear()
+            running = asyncio.create_task(
+                host.run_workflow(
+                    "resource-contract:report",
+                    workspace_id="one",
+                ),
+            )
+            async with asyncio.timeout(2):
+                while not engine._query_waiters:
+                    await asyncio.sleep(0)
+            callbacks = await guard.quiesce()
+            assert calls == ["one"]
+            assert not running.done()
+            guard.resume(callbacks)
+            engine.query_gate.set()
+            await running
+            assert calls == ["one", "one"]
+        finally:
+            release.set()
+            engine.query_gate.set()
+            await asyncio.gather(
+                *(task for task in (running, quiescing) if task is not None),
+                return_exceptions=True,
+            )
+            await manager.stop()
 
 
 async def test_workflow_invalid_declarations_leave_no_intents(sdk_component):

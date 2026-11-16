@@ -79,6 +79,7 @@ _STATE_MAX_BYTES = 1024 * 1024
 _STATE_MAX_KEYS = 64
 _TEXT_MERGE_MAX_RESPONSES = 128
 _TEXT_MERGE_MAX_BYTES = 768 * 1024
+_RUN_NOTIFICATION_TIMEOUT = 12.0
 
 
 def _rpc_result_unknown(error):
@@ -2599,19 +2600,21 @@ class IsolatedChannelProxy(BaseChannel):
         if cycle is None:
             return
         try:
-            while True:
-                result = await self.channel_process.call(
-                    "channel.run.event",
-                    {
-                        **self._identity().to_mapping(),
-                        **cycle,
-                        "phase": phase,
-                        "status": status,
-                    },
-                    timeout=6,
-                )
-                if phase != "end" or result.get("status") != "pending":
-                    break
+            async with asyncio.timeout(_RUN_NOTIFICATION_TIMEOUT):
+                while True:
+                    result = await self.channel_process.call(
+                        "channel.run.event",
+                        {
+                            **self._identity().to_mapping(),
+                            **cycle,
+                            "phase": phase,
+                            "status": status,
+                        },
+                        timeout=6,
+                    )
+                    if phase != "end" or result.get("status") != "pending":
+                        break
+                    await asyncio.sleep(0.05)
             if result.get("status") != "complete":
                 self._record_diagnostic(
                     (
@@ -2620,6 +2623,10 @@ class IsolatedChannelProxy(BaseChannel):
                         else "RUN_NOTIFICATION_FAILED"
                     ),
                 )
+        except TimeoutError:
+            # Finish still records the outcome, while the worker retains
+            # its pending notification and route until cleanup completes.
+            self._record_diagnostic("RUN_NOTIFICATION_PENDING")
         except Exception:
             self._record_diagnostic("RUN_NOTIFICATION_FAILED")
 

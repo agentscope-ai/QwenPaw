@@ -52,6 +52,31 @@ def _make_stream(events: list[str]):
 
 
 @pytest.mark.asyncio
+async def test_background_task_tracks_until_completion_and_detaches():
+    tracker = TaskTracker()
+    release = asyncio.Event()
+    task = asyncio.create_task(release.wait())
+    tracker.track_background_task("workflow:report", task)
+    try:
+        assert await tracker.snapshot_active_tasks() == {
+            "workflow:report": task,
+        }
+        assert await tracker.has_active_tasks_excluding(task) is False
+        with pytest.raises(ValueError, match="already tracked"):
+            tracker.track_background_task("workflow:report", task)
+        queue = await tracker.attach("workflow:report")
+        release.set()
+        await task
+        assert await tracker.snapshot_active_tasks() == {}
+        assert tracker._runs == {}
+        assert await queue.get() is not None  # Replay boundary.
+        assert await queue.get() is None
+    finally:
+        release.set()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_get_status_idle_for_unknown_run_key():
     tracker = TaskTracker()
 

@@ -6,6 +6,7 @@ import inspect
 import math
 import re
 
+from ..agents.tools.shell import resolve_shell_command_timeout
 from .errors import SDKError
 from .shell import ShellRequest, ShellResult
 
@@ -190,6 +191,9 @@ async def function_call(tool, **arguments):
         context.get("user_id", ""),
     )
     owned = getattr(PluginRegistry(), "_sdk_shell_router", None)
+    arguments["timeout"] = resolve_shell_command_timeout(
+        arguments.get("timeout", 60.0),
+    )
     if owned is not None:
         result = await owned.execute(
             identity,

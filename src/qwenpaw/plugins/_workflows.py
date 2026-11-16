@@ -8,6 +8,8 @@ import inspect
 import math
 import re
 
+from ..checkpoints.runtime import RUNTIME
+from ..utils.io_utils import run_async_to_completion
 from .context import RequestContext
 from .errors import ResourceError, SDKError
 from .resources import Registration
@@ -51,10 +53,18 @@ def register(plugin, spec):
         with plugin._activation():
             scope = plugin.resources.child(workspace_id=workspace.agent_id)
             pending_scope = None
+            cleanup_task = None
 
-            async def drain():
+            async def close_resources():
                 if pending_scope is not None and not pending_scope.closed:
                     await pending_scope.close()
+
+            async def drain():
+                await close_resources()
+                if cleanup_task is not None:
+                    await asyncio.shield(
+                        asyncio.gather(cleanup_task, return_exceptions=True),
+                    )
 
             scope.defer(drain, "workflow invocation resources")
         running = False
@@ -127,14 +137,40 @@ def register(plugin, spec):
 
         async def owned(scheduled, arguments):
             try:
+                engine = await RUNTIME.get_for_workspace_async(workspace)
+                engine._query_waiters.add(cleanup_task)
+                try:
+                    await engine.query_gate.wait()
+                finally:
+                    engine._query_waiters.discard(cleanup_task)
                 return await invoke(scheduled, arguments)
             except Exception as exc:
                 # A business failure belongs to scheduler logging, not an
                 # unbounded list of historical resource-cleanup errors.
                 return exc
 
+        async def retain_until_idle(task):
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if not task.done():
+                    task.cancel()
+            finally:
+                await run_async_to_completion(settle(task))
+
+        async def settle(task):
+            await asyncio.gather(task, return_exceptions=True)
+            while True:
+                try:
+                    await close_resources()
+                    return
+                except ResourceError:
+                    # A timed-out invocation may still own a writing thread.
+                    # Restore must wait for actual resource completion.
+                    await asyncio.sleep(0.1)
+
         async def run(*, scheduled=True, parameters_override=None):
-            nonlocal running
+            nonlocal running, cleanup_task
             if not admitted or scope.closed or scope._closing:
                 raise SDKError("Workflow registration has ended")
             if running:
@@ -151,11 +187,20 @@ def register(plugin, spec):
                 await drain()
                 # Scheduled service work must not inherit the installing
                 # HTTP request's user, model, project or cancellation context.
-                result = await Context().run(
+                task = Context().run(
                     scope.task,
                     owned(scheduled, arguments),
                     "workflow:" + name,
                 )
+                cleanup_task = Context().run(
+                    asyncio.create_task,
+                    retain_until_idle(task),
+                )
+                workspace.task_tracker.track_background_task(
+                    f"workflow:{scope.owner}:{name}",
+                    cleanup_task,
+                )
+                result = await task
                 if isinstance(result, Exception):
                     raise result
                 return result

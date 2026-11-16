@@ -3,16 +3,71 @@
 
 import asyncio
 import shlex
+from unittest.mock import AsyncMock
 
 import pytest
 
 from qwenpaw.agents.tools.shell import execute_shell_command
+from qwenpaw.agents.tools import shell as native_shell
 from qwenpaw.plugins.shell import ShellBackendSpec, ShellResult
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.runtime.tool_guard import GuardedFunctionTool
 from qwenpaw.governance.tool_adapter import PolicyGuardedTool
 
 from .sdk_author_fixture import make_plugin
+
+
+@pytest.mark.parametrize("policy", [False, True])
+@pytest.mark.parametrize(
+    ("arguments", "configured", "expected"),
+    [
+        ({}, 120.0, 120.0),
+        ({}, None, 60.0),
+        ({"timeout": 60.0}, 120.0, 120.0),
+        ({"timeout": 90.0}, 120.0, 90.0),
+        ({"timeout": "90"}, 120.0, 90.0),
+        ({"timeout": "invalid"}, 120.0, 120.0),
+    ],
+)
+async def test_remote_and_local_share_effective_timeout(
+    sdk_component,
+    monkeypatch,
+    policy,
+    arguments,
+    configured,
+    expected,
+):
+    selected, seen = [True], []
+
+    async def execute(call, request):
+        seen.append(request.timeout)
+        return ShellResult(0, "REMOTE")
+
+    def declare(ctx):
+        ctx.register_shell_backend(
+            ShellBackendSpec("remote", lambda identity: selected[0], execute),
+        )
+
+    monkeypatch.setattr(
+        native_shell,
+        "get_current_shell_command_timeout",
+        lambda: configured,
+    )
+    local = AsyncMock(return_value=(0, "LOCAL", ""))
+    monkeypatch.setattr(native_shell, "_execute_posix_host", local)
+    monkeypatch.setattr(native_shell, "_execute_windows_host", local)
+    async with sdk_component(declare, capabilities=("shell",)) as (host, _):
+        await host._workspace("test")
+        native = tool(policy=policy)
+        assert (await native(command="echo ok", **arguments)).content[
+            0
+        ].text == "REMOTE"
+        assert seen == [expected]
+        selected[0] = False
+        assert (await native(command="echo ok", **arguments)).content[
+            0
+        ].text == "LOCAL"
+        assert local.call_args.args[2] == expected
 
 
 @pytest.mark.parametrize("policy", [False, True])

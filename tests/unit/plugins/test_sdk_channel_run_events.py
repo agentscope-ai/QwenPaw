@@ -3,9 +3,12 @@
 
 import asyncio
 import json
+from contextvars import ContextVar
+from types import SimpleNamespace
 
 import pytest
 
+from qwenpaw.app.channels import isolated_proxy
 from qwenpaw.channel_protocol.errors import RpcError
 from qwenpaw.channel_protocol.models import (
     ResponseFinishParams,
@@ -45,6 +48,119 @@ class Observer(Driver):
 
     async def stop(self, ch):
         self.stopped = True
+
+
+@pytest.mark.parametrize("cancel_request", [False, True])
+async def test_pending_end_has_total_deadline_and_retains_cleanup(
+    tmp_path,
+    monkeypatch,
+    cancel_request,
+):
+    class HungEnd(Observer):
+        async def on_run(self, ch, event):
+            self.events.append(event)
+            if event.phase == "end":
+                self.entered.set()
+                try:
+                    await asyncio.Future()
+                except asyncio.CancelledError:
+                    await self.release.wait()
+                    raise
+
+    adapter, peer, identity = await setup(
+        tmp_path,
+        HungEnd,
+        capabilities=("channel.generic.v1", "channel.run_events.v1"),
+    )
+    params = await run_params(adapter, identity)
+    assert await peer.methods["channel.run.event"](params, None) == {
+        "status": "complete",
+    }
+    outcome = "cancelled" if cancel_request else "completed"
+    ending = asyncio.create_task(
+        peer.methods["channel.run.event"](
+            {**params, "phase": "end", "status": outcome},
+            None,
+        ),
+    )
+    await asyncio.wait_for(adapter.driver.entered.wait(), 2)
+    end = adapter.runs.runs[params["response_handle"]]["end"]
+    end.cancel()
+    await asyncio.sleep(0)
+
+    diagnostics, polls = [], []
+
+    async def rpc(method, values, **kwargs):
+        if method == "channel.run.event" and not end.done():
+            polls.append(values)
+            return {"status": "pending"}
+        if method == "channel.response.finish":
+            values = ResponseFinishParams.from_mapping(values)
+        return await peer.methods[method](values, None)
+
+    proxy = object.__new__(isolated_proxy.IsolatedChannelProxy)
+    proxy.channel_process = SimpleNamespace(call=rpc)
+    proxy._identity = lambda: identity
+    proxy._record_diagnostic = diagnostics.append
+    proxy._text_merge = {}
+    proxy._response_context = ContextVar("test_response_scope", default=None)
+    monkeypatch.setattr(isolated_proxy, "_RUN_NOTIFICATION_TIMEOUT", 0.12)
+    cycle = {
+        key: value
+        for key, value in params.items()
+        if key not in {*identity.to_mapping(), "phase", "status"}
+    }
+    meta = {"response_handle": params["response_handle"]}
+
+    async def request():
+        async with proxy._response_scope(meta):
+            proxy._response_context.get()["run"] = cycle
+            if cancel_request:
+                raise asyncio.CancelledError
+
+    running = asyncio.create_task(request())
+    try:
+        async with asyncio.timeout(1):
+            while not polls:
+                await asyncio.sleep(0)
+            if cancel_request:
+                running.cancel()
+                await asyncio.sleep(0.02)
+                running.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.shield(running)
+            else:
+                await asyncio.shield(running)
+        assert diagnostics == [
+            "RUN_NOTIFICATION_PENDING",
+            "RESPONSE_FINISH_FAILED",
+        ]
+        assert not end.done()
+        assert (
+            adapter._routes.snapshot(
+                params["response_handle"],
+            ).cleanup_state
+            == "pending"
+        )
+        assert adapter.driver.finished == []
+
+        adapter.driver.release.set()
+        await ending
+        await proxy._finish_cycle(meta, outcome)
+        assert adapter.runs.runs == {}
+        assert [
+            (event.phase, event.status) for event in adapter.driver.events
+        ] == [
+            ("start", "running"),
+            ("end", outcome),
+        ]
+        assert [
+            (target.key, status) for target, status in adapter.driver.finished
+        ] == [("room", outcome)]
+    finally:
+        adapter.driver.release.set()
+        await asyncio.gather(running, ending, return_exceptions=True)
+        await adapter.stop()
 
 
 async def run_params(adapter, identity):
