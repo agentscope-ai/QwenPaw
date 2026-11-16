@@ -15,17 +15,20 @@ import io
 import json
 import logging
 from pathlib import Path
+import posixpath
 import re
 import sys
 import threading
 import time
 import types
 from typing import Any
+from urllib.parse import unquote, urlparse
 import uuid
 
 import httpx
 
 from qwenpaw.app.channels.utils import file_url_to_local_path
+from qwenpaw.utils.media_paths import media_basename
 from .errors import FeishuDeliveryError
 from .card_templates import (
     build_tool_guard_approval_card,
@@ -1208,6 +1211,35 @@ class LarkOapiPlatform:
                 retryable=exc.retryable,
             ) from exc
 
+    @staticmethod
+    def _upload_file_name(
+        part: Mapping[str, Any],
+        locator: str,
+    ) -> str:
+        """Return the file name Feishu should show for an uploaded file.
+
+        A tool-result media part usually carries no ``filename``: the display
+        name of the originating ``DataBlock`` is not part of the transport, so
+        the locator is all that is left. Locators are percent-encoded (RFC 8089
+        for ``file://``, plain quoting for http(s)), so their basenames must be
+        decoded before use — otherwise Feishu displays
+        ``%E9%99%84%E4%BB%B6-….docx`` instead of ``附件-….docx``. This mirrors
+        the DingTalk channel.
+        """
+        explicit = part.get("filename")
+        if isinstance(explicit, str) and explicit.strip():
+            name = Path(explicit).name
+            if name:
+                return name
+        local_path = file_url_to_local_path(locator)
+        if local_path is not None:
+            return media_basename(local_path) or "file.bin"
+        parsed = urlparse(locator)
+        if parsed.scheme in {"http", "https"}:
+            # Drop the query — ``report.docx?token=…`` is not a file name.
+            return unquote(posixpath.basename(parsed.path)) or "file.bin"
+        return media_basename(locator) or "file.bin"
+
     async def _send_file_part(
         self,
         receive_id_type: str,
@@ -1228,9 +1260,7 @@ class LarkOapiPlatform:
                 "FILE_TOO_LARGE",
                 side_effect_possible=False,
             )
-        filename = str(
-            part.get("filename") or Path(locator).name or "file.bin",
-        )
+        filename = self._upload_file_name(part, locator)
         suffix = Path(filename).suffix.lower().lstrip(".")
         file_type = "stream"
         if suffix in {

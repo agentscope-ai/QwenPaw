@@ -24,6 +24,29 @@ describe("channelApi", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("updates bundled channel code without changing channel settings", async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ id: "matrix", status: "active" })),
+      );
+    vi.stubGlobal("fetch", fetch);
+    await channelApi.updateChannelPlugin({
+      installed_version: "0.1.0.dev0",
+      version: "0.1.0",
+      source: "bundled:matrix",
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toMatch(/\/plugins\/install$/);
+    expect(JSON.parse(init.body)).toEqual({
+      source: "bundled:matrix",
+      force: true,
+    });
+    expect(request).not.toHaveBeenCalled();
   });
 
   // ---- listing & shape ---------------------------------------------------
