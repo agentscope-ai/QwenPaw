@@ -4,6 +4,7 @@
 import asyncio
 import json
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -52,9 +53,10 @@ async def setup(
     *,
     peer=None,
     capabilities=("channel.generic.v1",),
+    generation=1,
 ):
     peer = peer or HostPeer(tmp_path)
-    identity = IdentityParams("example", "worker", 1)
+    identity = IdentityParams("example", "worker", generation)
     adapter = prepare_driver(
         cls,
         {
@@ -68,6 +70,134 @@ async def setup(
     adapter.bind(DriverContext(peer, identity, capabilities))
     await adapter.start({})
     return adapter, peer, identity
+
+
+@pytest.mark.parametrize(
+    "messages",
+    [
+        (("chat-A", "42"), ("chat-B", "42")),
+        (("chat:A", "42"), ("chat", "A:42")),
+    ],
+)
+async def test_message_identity_is_session_scoped_and_restart_stable(
+    tmp_path,
+    messages,
+):
+    class DeduplicatingPeer(HostPeer):
+        def __init__(self, root):
+            super().__init__(root)
+            self.queued = {}
+
+        async def call(self, name, params):
+            if name != "event.batch":
+                return await super().call(name, params)
+            self.batches.append(params)
+            event = params["events"][0]
+            key = event["event_id"]
+            duplicate = key in self.queued
+            if not duplicate:
+                self.queued[key] = event
+            return {
+                "batch_id": params["batch_id"],
+                "duplicate_event_ids"
+                if duplicate
+                else "accepted_event_ids": [key],
+            }
+
+    peer = DeduplicatingPeer(tmp_path)
+    adapter, _, _ = await setup(tmp_path, peer=peer)
+    handles = []
+    try:
+        for session, message_id in messages:
+            result = await adapter.ch.receive(
+                ChannelMessage(
+                    "alice",
+                    (ContentBlock(text="hello"),),
+                    session_id=session,
+                    message_id=message_id,
+                ),
+            )
+            assert result.status == "accepted"
+            handles.append(result.response_handle)
+        assert len(set(handles)) == 2
+        assert [
+            (event["conversation"]["id"], event["metadata"]["message_id"])
+            for event in peer.queued.values()
+        ] == list(messages)
+        await adapter.stop()
+        adapter, _, _ = await setup(tmp_path, peer=peer, generation=2)
+        for (session, message_id), handle in zip(messages, handles):
+            result = await adapter.ch.receive(
+                ChannelMessage(
+                    "alice",
+                    (ContentBlock(text="hello"),),
+                    session_id=session,
+                    message_id=message_id,
+                ),
+            )
+            assert (result.status, result.response_handle) == (
+                "duplicate",
+                handle,
+            )
+        assert len(peer.queued) == 2
+    finally:
+        await adapter.stop()
+
+
+async def test_reply_thread_survives_target_resolution_and_worker_restart(
+    tmp_path,
+):
+    class ThreadDriver(Driver):
+        async def resolve_target(self, ch, target):
+            return replace(target, key="platform-room")
+
+    adapter, peer, identity = await setup(tmp_path, ThreadDriver)
+    try:
+        received = await adapter.ch.receive(
+            ChannelMessage(
+                "alice",
+                (ContentBlock(text="hello"),),
+                session_id="room",
+                message_id="42",
+                thread_id="thread-7",
+                metadata={"thread_id": "untrusted", "route": "original"},
+            ),
+        )
+        expected = ReplyTarget(
+            "platform-room",
+            "alice",
+            "room",
+            {
+                "route": "original",
+                "thread_id": "thread-7",
+                "session_id": "room",
+                "user_id": "alice",
+                "is_group": False,
+                "bot_mentioned": False,
+                "debounce_key": "room:alice",
+                "message_id": "42",
+            },
+        )
+        for attempt in range(2):
+            await adapter._send(
+                send_params(
+                    identity,
+                    received.response_handle,
+                    f"send-{attempt}",
+                ),
+                None,
+            )
+            assert adapter.driver.sent[-1].target == expected
+            if attempt == 0:
+                await adapter.stop()
+                adapter, _, identity = await setup(
+                    tmp_path,
+                    ThreadDriver,
+                    peer=peer,
+                    generation=2,
+                )
+    finally:
+        await adapter.stop()
 
 
 @pytest.mark.asyncio

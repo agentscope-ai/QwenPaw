@@ -892,7 +892,9 @@ class PluginContext:  # pylint: disable=protected-access
                 )
                 from ._checkpoints import control_context
 
-                token = control_context.set(context if spec.control else None)
+                token = control_context.set(
+                    (context, runtime) if spec.control else None,
+                )
                 try:
                     result = await self._call(spec.handler, context, arguments)
                 finally:

@@ -495,7 +495,10 @@ class WorkerAdapter(SharedResponseDriver):
             )
         ):
             raise ValueError("Channel message identity flags must be booleans")
-        if not message.message_id or not message.session_id:
+        if any(
+            not isinstance(value, str) or not value
+            for value in (message.message_id, message.session_id)
+        ):
             raise ValueError(
                 "Process channel messages require message_id and session_id",
             )
@@ -504,12 +507,14 @@ class WorkerAdapter(SharedResponseDriver):
         task = asyncio.current_task()
         self._ingress.add(task)
         try:
-            handle = (
-                "sdk:reply:"
-                + hashlib.sha256(
-                    (self.ch.instance_id + ":" + message.message_id).encode(),
-                ).hexdigest()
+            identity = json.dumps(
+                [self.ch.instance_id, message.session_id, message.message_id],
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
+            digest = hashlib.sha256(identity.encode()).hexdigest()
+            handle = "sdk:reply:" + digest
+            event_id = "sdk:message:" + digest
             metadata = {
                 key: value
                 for key, value in json_mapping(message.metadata).items()
@@ -521,6 +526,7 @@ class WorkerAdapter(SharedResponseDriver):
                 else message.sender_id
             )
             metadata.update(
+                message_id=message.message_id,
                 session_id=message.session_id,
                 user_id=user_id,
                 is_group=message.is_group,
@@ -533,10 +539,11 @@ class WorkerAdapter(SharedResponseDriver):
             }
             if message.thread_id:
                 conversation["thread_id"] = message.thread_id
+                metadata["thread_id"] = message.thread_id
             event = InboundEvent.from_mapping(
                 {
                     **self._context.identity.to_mapping(),
-                    "event_id": message.message_id,
+                    "event_id": event_id,
                     "event_kind": "message",
                     "conversation": conversation,
                     "sender_id": message.sender_id,
@@ -577,15 +584,15 @@ class WorkerAdapter(SharedResponseDriver):
                 detailed=True,
             )
             if ack:
-                if message.message_id in ack.accepted_event_ids:
+                if event_id in ack.accepted_event_ids:
                     return ChannelReceiveResult("accepted", handle)
-                if message.message_id in ack.duplicate_event_ids:
+                if event_id in ack.duplicate_event_ids:
                     return ChannelReceiveResult("duplicate", handle)
                 rejected = next(
                     (
                         row
                         for row in ack.rejected_events
-                        if row.event_id == message.message_id
+                        if row.event_id == event_id
                     ),
                     None,
                 )

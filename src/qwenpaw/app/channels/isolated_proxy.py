@@ -200,8 +200,13 @@ class IsolatedChannelProxy(BaseChannel):
 
     def _normalize_event(self, event):
         payload = normalize_inbound_event(event)
+        message_id = event.metadata.get("message_id")
         payload["meta"].update(
-            _sdk_message_ids=[event.event_id],
+            _sdk_message_ids=[
+                message_id
+                if isinstance(message_id, str) and message_id
+                else event.event_id,
+            ],
             _sdk_sender_id=event.sender_id,
             _sdk_acl_sender_id=event.acl_sender_id,
         )

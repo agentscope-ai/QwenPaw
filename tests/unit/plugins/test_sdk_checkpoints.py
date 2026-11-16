@@ -3,11 +3,15 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
 from qwenpaw.plugins.testing import PluginTestHost
 from .sdk_checkpoint_fixture import make_checkpoint_plugin
+from .sdk_author_fixture import make_plugin
+from qwenpaw.plugins.channels import ChannelMessage
+from qwenpaw.plugins.messages import ContentBlock
 from qwenpaw.plugins.checkpoints import CheckpointError
 from qwenpaw.plugins.compliance import check_plugin
 from qwenpaw.checkpoints.policy import session_file_path
@@ -19,6 +23,129 @@ async def pending(host):
         while not (requests := await host.approval_requests("conversation")):
             await asyncio.sleep(0.01)
         return requests[0]
+
+
+async def test_channel_restore_sends_approval_to_original_route(tmp_path):
+    channel_name = "checkpoint-notify"
+    transport = make_plugin(
+        tmp_path,
+        """
+from qwenpaw.plugins.channels import ChannelSpec
+class Transport:
+    async def start(self, call): pass
+    async def stop(self, call): return True
+    async def send(self, call, message): pass
+class Plugin:
+    def register(self, ctx):
+        ctx.register_channel(ChannelSpec(
+            'checkpoint-notify', 'Checkpoint notifications', Transport))
+plugin = Plugin()
+""",
+        ["channels"],
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        assert (await host.install(make_checkpoint_plugin(tmp_path))).ok
+        await host.load(transport)
+        await host.start_channel(channel_name, workspace_id="one")
+        workspace = await host._workspace("one")
+        path = session_file_path(
+            workspace.workspace_dir,
+            session_id="conversation",
+            user_id="alice",
+            channel=channel_name,
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = json.dumps(
+            {
+                "agent": {
+                    "state": {
+                        "context": [
+                            {"role": "user", "content": "before"},
+                        ],
+                    },
+                },
+            },
+        )
+        path.write_text(original)
+        saved = await host.call_control_command(
+            "/contract-checkpoint snapshot first",
+            workspace_id="one",
+            session_id="conversation",
+            user_id="alice",
+            channel=channel_name,
+        )
+        target = json.loads(saved.content[0].text)["id"]
+        path.write_text(original.replace("before", "after"))
+        channel = await workspace.channel_manager.get_channel(channel_name)
+        notify = AsyncMock(wraps=channel.send_approval_notification)
+        channel.send_approval_notification = notify
+        sent = AsyncMock(wraps=channel._backend.send)
+        channel._backend.send = sent
+        approval = None
+        try:
+            await host.receive_channel(
+                channel_name,
+                ChannelMessage(
+                    "alice",
+                    (
+                        ContentBlock(
+                            text=f"/contract-checkpoint restore {target}",
+                        ),
+                    ),
+                    session_id="conversation",
+                    message_id="restore-42",
+                    metadata={"route": "original", "thread_id": "thread-7"},
+                ),
+                workspace_id="one",
+            )
+            approval = await pending(host)
+            async with asyncio.timeout(3):
+                while not sent.await_count:
+                    await asyncio.sleep(0.01)
+            assert notify.await_count == 1
+            values = notify.await_args.kwargs
+            assert {
+                key: values[key]
+                for key in (
+                    "session_id",
+                    "user_id",
+                    "request_id",
+                )
+            } == {
+                "session_id": "conversation",
+                "user_id": "alice",
+                "request_id": approval.request_id,
+            }
+            assert {
+                key: values["channel_meta"][key]
+                for key in (
+                    "route",
+                    "thread_id",
+                )
+            } == {"route": "original", "thread_id": "thread-7"}
+            message = sent.await_args.args[1]
+            assert {
+                key: message.metadata[key]
+                for key in (
+                    "route",
+                    "thread_id",
+                )
+            } == {"route": "original", "thread_id": "thread-7"}
+            assert "after" in path.read_text()
+            assert await host.resolve_approval(
+                approval.request_id,
+                approved=True,
+            )
+            async with asyncio.timeout(WAIT_TIMEOUT):
+                while path.read_text() != original:
+                    await asyncio.sleep(0.01)
+        finally:
+            if approval is not None:
+                await host.resolve_approval(
+                    approval.request_id,
+                    approved=False,
+                )
+            await host.stop_channel(channel_name, workspace_id="one")
 
 
 async def test_snapshot_timeline_approval_denial_cancel_and_restore(tmp_path):

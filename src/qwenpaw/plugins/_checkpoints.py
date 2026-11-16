@@ -19,7 +19,7 @@ from .errors import SDKAccessError
 from .tools import ToolContext
 from ..checkpoints.models import CheckpointError as HostCheckpointError
 
-control_context: ContextVar[ToolContext | None] = ContextVar(
+control_context: ContextVar[tuple[ToolContext, object] | None] = ContextVar(
     "sdk_control_context",
     default=None,
 )
@@ -113,6 +113,21 @@ async def approve_restore(call, identity, preview):
     from ..security.tool_guard.approval import ApprovalDecision
 
     approvals = get_approval_service()
+    extra = {"plugin_id": call.plugin_id}
+    control = control_context.get()
+    if control is not None and control[0] is call:
+        # Only the host request may supply a channel instance and reply route.
+        runtime = control[1]
+        request = getattr(runtime, "request", None)
+        channel = getattr(request, "channel_instance", None)
+        if channel is None and identity.channel != "console":
+            manager = getattr(runtime.workspace, "channel_manager", None)
+            if manager is not None:
+                channel = await manager.get_channel(identity.channel)
+        extra.update(
+            _channel_instance=channel,
+            channel_meta=dict(getattr(request, "channel_meta", None) or {}),
+        )
     pending = await approvals.create_pending_summary(
         session_id=identity.session_id,
         root_session_id=identity.session_id,
@@ -125,7 +140,7 @@ async def approve_restore(call, identity, preview):
             "Restore checkpoint",
             result_summary=json.dumps(asdict(preview), ensure_ascii=False),
         ),
-        extra={"plugin_id": call.plugin_id},
+        extra=extra,
         timeout_seconds=120,
         identity_policy=ApprovalIdentityPolicy.EXACT_REQUESTER,
     )
@@ -173,8 +188,10 @@ async def restore(
         raise CheckpointError("File selection requires include_files")
     if not dry_run and include_files and not files:
         raise CheckpointError("Select files before applying a file restore")
+    control = control_context.get()
     if not dry_run and not (
-        isinstance(call, AppContext) or control_context.get() is call
+        isinstance(call, AppContext)
+        or (control is not None and control[0] is call)
     ):
         raise SDKAccessError(
             "Only app requests or control commands may request a confirmed restore",
