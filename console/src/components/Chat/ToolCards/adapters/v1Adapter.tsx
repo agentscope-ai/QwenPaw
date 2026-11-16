@@ -20,7 +20,7 @@ import React from "react";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
 import { useToolCallTurnEnded } from "../shared/ToolCallTurnContext";
 import type { BuiltinCardComponent } from "../cards";
-import { GenericToolCard } from "../lazyRegistry";
+import GenericToolCard from "../cards/GenericToolCard";
 
 // ---------------------------------------------------------------------------
 // Helpers

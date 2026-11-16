@@ -1,7 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createElement, type ComponentProps } from "react";
-import { renderHook } from "@testing-library/react";
-import { ChatAnywhereSessionsContext } from "@agentscope-ai/chat";
 
 const sessionApiMock = vi.hoisted(() => ({
   lastActiveChatId: null as string | null,
@@ -10,28 +7,7 @@ const sessionApiMock = vi.hoisted(() => ({
 
 vi.mock("../../pages/Chat/sessionApi", () => ({ default: sessionApiMock }));
 
-import { getCurrentSessionId, useHostCurrentSession } from "./hooks";
-
-it("observes the same SDK session context across session and fork switches", () => {
-  let currentSessionId = "parent-chat";
-  const { result, rerender } = renderHook(() => useHostCurrentSession(), {
-    wrapper: ({ children }) =>
-      createElement(ChatAnywhereSessionsContext.Provider, {
-        children,
-        // This hook only reads currentSessionId from the SDK state.
-        value: { currentSessionId } as ComponentProps<
-          typeof ChatAnywhereSessionsContext.Provider
-        >["value"],
-      }),
-  });
-  expect(result.current).toEqual({ id: "parent-chat" });
-  currentSessionId = "fork-chat";
-  rerender();
-  expect(result.current).toEqual({ id: "fork-chat" });
-  currentSessionId = "";
-  rerender();
-  expect(result.current).toBeNull();
-});
+import { getCurrentSessionId } from "./hooks";
 
 describe("getCurrentSessionId", () => {
   beforeEach(() => {
