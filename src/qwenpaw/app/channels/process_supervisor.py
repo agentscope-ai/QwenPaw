@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from copy import deepcopy
 from ...channel_protocol.artifacts import code_root_digest
 from dataclasses import dataclass, field, replace
+import os
 from pathlib import Path
 from typing import Any
 from ...plugins.execution.bootstrap import validate_private_environment
@@ -85,6 +86,18 @@ class ChannelProcess(PluginProcess):
     connecting_state = "connecting"
     component_states = {"connecting", "connected", "disconnected", "failed"}
     failed_reason = "PLATFORM_START_FAILED"
+
+    def _launch_environment(self) -> dict[str, str]:
+        """Project this runtime's resolved paths into channel workers only."""
+        from ...constant import WORKING_DIR
+
+        environment = super()._launch_environment()
+        environment["QWENPAW_WORKING_DIR"] = str(WORKING_DIR)
+        if os.name != "nt" and (home := os.environ.get("HOME")):
+            environment["HOME"] = str(Path(home).absolute())
+        if runtime_id := os.environ.get("QWENPAW_RUNTIME_ID"):
+            environment["QWENPAW_RUNTIME_ID"] = runtime_id
+        return environment
 
     def endpoint_observation(self) -> dict[str, Any]:
         """Read current run/handshake custody without exposing launch secrets."""
