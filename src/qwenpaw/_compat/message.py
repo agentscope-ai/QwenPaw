@@ -46,8 +46,8 @@ def _ensure_url_scheme(url: str) -> str:
 
     Always ``unquote()`` first so percent-encoded non-ASCII characters
     (e.g. ``%E6%B5%8B%E8%AF%95`` → ``测试``) resolve to the real
-    filename on disk.  Then uses ``file://`` + raw path (not
-    ``Path.as_uri()``) to avoid re-encoding.
+    filename on disk.  Encode ``#`` after normalization so it cannot
+    become a URI fragment, while leaving non-ASCII characters readable.
     """
     if url.startswith(("/", "~")):
         resolved = str(Path(unquote(url)).expanduser().resolve())
@@ -58,7 +58,7 @@ def _ensure_url_scheme(url: str) -> str:
     else:
         return url
 
-    resolved = resolved.replace("\\", "/")
+    resolved = resolved.replace("\\", "/").replace("#", "%23")
     if resolved.startswith("//"):
         # UNC path: \\server\share\... -> file://server/share/...
         return "file://" + resolved.lstrip("/")
