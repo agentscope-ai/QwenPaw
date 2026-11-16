@@ -30,12 +30,21 @@ export function bindChatComposer(binding: Binding): Disposable {
     )
       revision++;
   };
+  const rotated = (event: Event) => {
+    const scope = binding.scope();
+    const agentId = (event as CustomEvent<{ agentId?: string }>).detail
+      ?.agentId;
+    if (active === binding && (!scope || scope.agentId === (agentId ?? "")))
+      revision++;
+  };
   document.addEventListener("input", changed, true);
+  window.addEventListener("qwenpaw:pending-composer-rotated", rotated);
   window.addEventListener("session-model-changed", changed);
   window.addEventListener("model-switched", changed);
   return {
     dispose() {
       document.removeEventListener("input", changed, true);
+      window.removeEventListener("qwenpaw:pending-composer-rotated", rotated);
       window.removeEventListener("session-model-changed", changed);
       window.removeEventListener("model-switched", changed);
       if (active === binding) {

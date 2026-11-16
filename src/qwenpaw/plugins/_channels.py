@@ -458,6 +458,7 @@ def register(plugin, spec):
                     base.storage._root / "channels" / spec.name,
                     plugin._storage_guard,
                     _admission=plugin._storage_admission,
+                    _legacy_sources=base.storage._legacy_sources,
                 )
                 media_root = base.media._storage._root / "channels" / spec.name
                 self._sdk_context = replace(

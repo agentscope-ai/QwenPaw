@@ -185,9 +185,13 @@ async def test_tree_closes_descendant_after_leader_exit(
     try:
         assert psutil.pid_exists(pid), "The descendant must outlive its leader"
         await resources.close()
-        assert not psutil.pid_exists(
-            pid,
-        ), "A live descendant is not cleanup success"
+        try:
+            assert psutil.Process(pid).status() in {
+                psutil.STATUS_ZOMBIE,
+                psutil.STATUS_DEAD,
+            }, "A live descendant is not cleanup success"
+        except psutil.NoSuchProcess:
+            pass
     finally:
         if psutil.pid_exists(pid):
             psutil.Process(pid).kill()

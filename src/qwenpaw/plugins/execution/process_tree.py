@@ -49,9 +49,22 @@ class ProcessTree:
         groups = set()
         for pid in psutil.pids():
             try:
-                if os.getsid(pid) == self.pid:
-                    groups.add(os.getpgid(pid))
-            except ProcessLookupError:
+                if os.getsid(pid) != self.pid:
+                    continue
+                if psutil.Process(pid).status() in (
+                    psutil.STATUS_ZOMBIE,
+                    psutil.STATUS_DEAD,
+                ):
+                    if pid != self.pid:
+                        # Reap adopted descendants when we are a subreaper.
+                        # The leader belongs to Popen or asyncio's watcher.
+                        try:
+                            os.waitpid(pid, os.WNOHANG)
+                        except ChildProcessError:
+                            pass  # Another parent owns this exit status.
+                    continue
+                groups.add(os.getpgid(pid))
+            except (ProcessLookupError, psutil.NoSuchProcess):
                 pass
         return groups
 
@@ -157,7 +170,7 @@ class ProcessTree:
                 pass
 
     def alive(self) -> bool:
-        """Return whether the owned tree still has members."""
+        """Return whether any owned process has not exited."""
         if self._job is not None:
             # JOBOBJECT_BASIC_ACCOUNTING_INFORMATION: four LARGE_INTEGERs,
             # then page faults, total processes, active processes, terminated.

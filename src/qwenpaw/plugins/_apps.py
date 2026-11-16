@@ -272,6 +272,7 @@ class Services:  # pylint: disable=protected-access
             base.storage._root / "apps" / key,
             self.guard,
             _admission=self.plugin._storage_admission,
+            _legacy_sources=base.storage._legacy_sources,
         )
         media_root = base.media._storage._root / "apps" / key
         return AppContext(

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { bindChatComposer, composer } from "./composer";
 import { setTextareaValue } from "../../pages/Chat/utils";
+import { rotatePendingComposer } from "../../pages/Chat/chatInputDraft";
 import type {
   ComposerSnapshot,
   Disposable,
@@ -11,6 +12,7 @@ const bindings: Disposable[] = [];
 afterEach(() => {
   bindings.splice(0).forEach((binding) => binding.dispose());
   document.body.replaceChildren();
+  sessionStorage.clear();
 });
 
 function setup(
@@ -47,6 +49,33 @@ function read(): ComposerSnapshot {
 }
 
 describe("host-owned composer snapshots", () => {
+  it.each(["", "new"])(
+    "invalidates a rotated blank session (%s) even when scope and text match",
+    (sessionId) => {
+      const { element, state } = setup();
+      state.sessionId = sessionId;
+      state.chatId = "";
+      const previous = read();
+      rotatePendingComposer("another-agent");
+      expect(read().revision).toBe(previous.revision);
+      rotatePendingComposer(state.agentId);
+      expect(composer.replace(previous, "old async result")).toBe(false);
+      expect(element.value).toBe("original");
+      expect(composer.replace(read(), "current result")).toBe(true);
+      expect(element.value).toBe("current result");
+    },
+  );
+
+  it("discards a model lookup when the pending composer rotates", async () => {
+    let resolve!: (model: ModelSelection) => void;
+    const { state } = setup(() => new Promise((done) => (resolve = done)));
+    state.sessionId = state.chatId = "";
+    const pending = composer.model();
+    rotatePendingComposer(state.agentId);
+    resolve({ provider_id: "p", model_id: "old" });
+    expect(await pending).toBeNull();
+  });
+
   it("replaces once, updates the real input and refuses forged or reused snapshots", () => {
     const { element } = setup();
     const snapshot = read();

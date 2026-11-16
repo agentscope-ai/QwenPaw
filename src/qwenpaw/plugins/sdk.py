@@ -313,6 +313,7 @@ class PluginContext:  # pylint: disable=protected-access
                     self.storage._root / "workspaces" / key,
                     self._storage_guard,
                     _admission=self._storage_admission,
+                    _legacy_sources=self.storage._legacy_sources,
                 )
                 media_root = self.media._storage._root / "workspaces" / key
                 media = MediaStore(

@@ -10,16 +10,18 @@ import os
 import pytest
 
 from qwenpaw.plugins.errors import SDKError, StaleContextError
+from qwenpaw.plugins.apps import PawApp
+from qwenpaw.plugins.channels import ChannelSpec
 from qwenpaw.plugins.sdk_version import validate_sdk
 from qwenpaw.plugins.testing import PluginTestHost
 from .sdk_author_fixture import make_plugin
 
 
-def package(tmp_path):
+def package(tmp_path, capabilities=("storage",)):
     root = make_plugin(
         tmp_path,
         "class Plugin:\n    def register(self, ctx): pass\nplugin=Plugin()\n",
-        ["storage"],
+        list(capabilities),
     )
     manifest = json.loads((root / "plugin.json").read_text())
     manifest["sdk"].update(
@@ -112,6 +114,96 @@ async def test_declared_migration_preserves_sources_and_existing_data(
         assert (
             ctx.storage.read_bytes("partial/nested/second.json") == b"second"
         )
+
+
+async def test_workspace_and_app_storage_inherit_declared_sources(tmp_path):
+    def migrate(storage):
+        with pytest.raises(SDKError, match="Undeclared"):
+            storage.import_legacy("unknown", "unknown")
+        with pytest.raises(SDKError, match="Undeclared"):
+            storage.import_legacy_tree("unknown", "unknown")
+        return {
+            "file": storage.import_legacy("profile", "profile.json"),
+            "tree": list(storage.import_legacy_tree("history", "history")),
+            "profile": storage.read_json("profile.json"),
+            "history": storage.read_json("history/entry.json"),
+        }
+
+    expected = {
+        "file": True,
+        "tree": ["history/entry.json"],
+        "profile": {"name": "legacy"},
+        "history": {"value": 1},
+    }
+    async with PluginTestHost(tmp_path / "host") as host:
+        ctx = await host.load(
+            package(tmp_path, ("storage", "apps", "channels")),
+        )
+        origin = host.root / "extension-contract"
+        (origin / "history").mkdir(parents=True)
+        (origin / "profiles.json").write_text('{"name":"legacy"}')
+        (origin / "history" / "entry.json").write_text('{"value":1}')
+        assert migrate(ctx.storage) == expected
+        for workspace_id in ("one", "two"):
+            await host._workspace(workspace_id)
+            async with ctx._invocation(
+                workspace_id=workspace_id,
+                session_id="",
+            ) as call:
+                assert migrate(call.storage) == expected
+                call.storage.write_json("profile.json", {"name": "new"})
+                assert migrate(call.storage) == {
+                    **expected,
+                    "file": False,
+                    "tree": [],
+                    "profile": {"name": "new"},
+                }
+
+        app = PawApp(app_id="migration")
+
+        @app.route("/import", methods=("POST",))
+        async def import_data(call, request):
+            return migrate(call.storage)
+
+        ctx.register_app(app)
+        for workspace_id, user_id in (
+            ("one", "alice"),
+            ("two", "alice"),
+            ("one", "bob"),
+        ):
+            for repeat in (False, True):
+                response = await host.request(
+                    "POST",
+                    "/api/migration/import",
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                )
+                assert response.status == 200, response.text
+                assert response.json() == {
+                    **expected,
+                    "file": not repeat,
+                    "tree": [] if repeat else ["history/entry.json"],
+                }
+        assert ctx.storage.read_json("profile.json") == {"name": "legacy"}
+        assert (origin / "profiles.json").read_text() == '{"name":"legacy"}'
+
+        channel_results = []
+
+        class Transport:
+            async def start(self, call):
+                channel_results.append(migrate(call.storage))
+
+            async def stop(self, call):
+                return True
+
+            async def send(self, call, message):
+                pass
+
+        ctx.register_channel(ChannelSpec("migration", "Migration", Transport))
+        for workspace_id in ("one", "two"):
+            await host.start_channel("migration", workspace_id=workspace_id)
+            await host.stop_channel("migration", workspace_id=workspace_id)
+        assert channel_results == [expected, expected]
 
 
 @pytest.mark.parametrize(
