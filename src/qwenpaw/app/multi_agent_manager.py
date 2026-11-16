@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 _OLD_WORKSPACE_TASK_WAIT_SECONDS = 60.0
 _OLD_WORKSPACE_TASK_MAX_WAIT_ROUNDS = 24 * 60
 _OLD_WORKSPACE_CLEANUP_RETRY_SECONDS = 5.0
+# A published workspace runs plugin ``workspace_created`` hooks before its
+# startup event is set.  Requests must not observe that half-provisioned
+# window; this bounds how long they wait for the hooks to finish.
+_AGENT_PUBLISH_READY_TIMEOUT_SECONDS = 180.0
 
 
 class MultiAgentManager:
@@ -57,6 +61,7 @@ class MultiAgentManager:
         self.agents: Dict[str, Workspace] = {}
         self._lock = asyncio.Lock()
         self._pending_starts: Dict[str, asyncio.Event] = {}
+        self._pending_start_owners: Dict[str, asyncio.Task] = {}
         self._agent_startup_statuses: Dict[str, AgentStartupStatus] = {}
         self._agent_startup_tasks: Dict[str, asyncio.Task[bool]] = {}
         self._custom_startup_semaphore = asyncio.Semaphore(
@@ -282,9 +287,43 @@ class MultiAgentManager:
         if self._closing:
             raise RuntimeError("Workspace manager is stopping")
         if agent_id in self.agents:
+            await self._wait_for_published_agent_ready(agent_id)
             return self.agents[agent_id]
         await self._wait_for_scheduled_startup(agent_id)
         return await self._run_agent_operation(agent_id, self._get_agent)
+
+    async def _wait_for_published_agent_ready(self, agent_id: str) -> None:
+        """Wait out the publish-to-provisioning window for *agent_id*.
+
+        ``_get_agent`` publishes the instance before running plugin
+        ``workspace_created`` hooks so hooks can resolve the workspace.
+        The fast path must not hand that instance to a request until the
+        hooks finish; otherwise a run can build against a partially
+        projected toolkit and hang before its first model call.
+        """
+        event = self._pending_starts.get(agent_id)
+        if event is None or event.is_set():
+            return
+        owner = self._pending_start_owners.get(agent_id)
+        if owner is asyncio.current_task():
+            # A startup hook resolving its own workspace must not deadlock.
+            return
+        try:
+            await asyncio.wait_for(
+                event.wait(),
+                timeout=_AGENT_PUBLISH_READY_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError as exc:
+            raise ConfigurationException(
+                config_key="agent",
+                message=(
+                    f"Agent {agent_id!r} was published before plugin "
+                    "provisioning completed and did not finish in time"
+                ),
+            ) from exc
+        # The starter may have failed after publication; make that visible
+        # now instead of returning a workspace it could not provision.
+        self._check_startup_status(agent_id)
 
     async def _run_agent_operation(self, agent_id, operation):
         lock = self._operation_locks.setdefault(agent_id, asyncio.Lock())
@@ -359,6 +398,7 @@ class MultiAgentManager:
                 agent_ref = config.agents.profiles[agent_id]
                 event = asyncio.Event()
                 self._pending_starts[agent_id] = event
+                self._pending_start_owners[agent_id] = asyncio.current_task()
                 self._agent_startup_statuses[
                     agent_id
                 ] = AgentStartupStatus.STARTING
@@ -432,6 +472,7 @@ class MultiAgentManager:
     async def _finish_agent_startup(self, agent_id, event):
         async with self._lock:
             self._pending_starts.pop(agent_id, None)
+            self._pending_start_owners.pop(agent_id, None)
             if agent_id in self.agents:
                 if (
                     self._agent_startup_statuses.get(agent_id)

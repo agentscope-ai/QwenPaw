@@ -39,6 +39,12 @@ from ..utils.logging import (
     add_project_file_handler,
     setup_logger,
 )
+from ..utils.runtime_readiness import (
+    bind_runtime_ready,
+    mark_runtime_failed,
+    mark_runtime_ready,
+    reset_runtime_readiness,
+)
 from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
 from .auth import (
@@ -457,6 +463,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.get_agent_by_id = _get_agent_by_id
 
     app.state.startup_ready = asyncio.Event()
+    app.state.runtime_ready = asyncio.Event()
+    bind_runtime_ready(app.state.runtime_ready)
     app.state.market_ready = asyncio.Event()
     app.state.market_startup_failed = False
     app.state.startup_time = startup_start_time
@@ -502,6 +510,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     startup_display = AgentStartupDisplay(read_last_api()).start()
 
     async def _background_startup():  # pylint: disable=too-many-statements
+        runtime_published = False
         try:
             # ---- Plugin System (phase 1: startup-critical plugins) ----
             # Channels, memory backends and Hubs register before readiness.
@@ -722,15 +731,28 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 "Background startup completed in "
                 f"{startup_elapsed:.3f} seconds",
             )
+
+            # Publish runtime readiness only after every background phase
+            # (plugins, workspace projections, provider sync, skill pool)
+            # has finished.  ``startup_ready`` above is core-agent scope and
+            # is intentionally published earlier for the UI.
+            mark_runtime_ready()
+            runtime_published = True
+            logger.info("Runtime ready for request admission")
+
+            # Cosmetic: never let a display failure retract readiness.
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
 
-        except Exception:
+        except Exception as exc:
+            mark_runtime_failed(f"{type(exc).__name__}: {exc}")
             logger.error(
                 "Background startup encountered an error",
                 exc_info=True,
             )
         finally:
+            if not runtime_published:
+                mark_runtime_failed("background startup did not complete")
             if not app.state.market_ready.is_set():
                 app.state.market_startup_failed = True
                 app.state.market_ready.set()
@@ -832,7 +854,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 logger.error(f"Error during sandbox cleanup: {e}")
 
         logger.info("Application shutdown complete")
-        startup_display.stop()
+        try:
+            startup_display.stop()
+        finally:
+            reset_runtime_readiness()
 
 
 app = FastAPI(
