@@ -1,7 +1,7 @@
 {
   "id": "telegram",
   "name": "Telegram",
-  "version": "0.1.0.dev0",
+  "version": "0.1.0",
   "type": "channel",
   "description": "Telegram Bot API polling messaging channel.",
   "author": "QwenPaw Team",
@@ -9,7 +9,7 @@
     "descriptor": "channel.json"
   },
   "qwenpaw_version": {
-    "min": "2.2.2b4"
+    "min": "2.3.1"
   },
-  "publish": false
+  "publish": true
 }

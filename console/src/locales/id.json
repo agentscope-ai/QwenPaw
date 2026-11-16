@@ -1751,6 +1751,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "update": {
+      "action": "Perbarui",
+      "available": "Versi baru tersedia: {{version}}"
+    },
     "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
     "runtime": {
       "missing_code": "Plugin belum diinstal"
