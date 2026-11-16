@@ -230,7 +230,7 @@ async def test_host_close_retains_native_tracker_completion_callback(
         )
         await host.receive_channel(
             CHANNEL,
-            incoming("empty-output", "native-tail"),
+            incoming(f"ordinary", f"native-tail"),
         )
         await asyncio.wait_for(entered.wait(), WAIT_TIMEOUT)
         native = callback_tasks[0]
