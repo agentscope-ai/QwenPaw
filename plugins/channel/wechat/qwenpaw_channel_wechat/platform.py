@@ -407,6 +407,11 @@ class WeChatPlatform:
         if not isinstance(response, dict) or not (
             {"ret", "errcode"} & response.keys()
         ):
+            # iLink sendmessage answers HTTP 200 with only message_id.
+            # ret/errcode, when present, stay the status and are checked
+            # below, including when a message_id is also in the body.
+            if isinstance(response, dict) and response.get("message_id"):
+                return
             raise WeChatDeliveryError(
                 "PLATFORM_RESULT_UNKNOWN",
                 side_effect_possible=True,
