@@ -1084,6 +1084,8 @@ class PluginLifecycle:
                 )
                 self._loader.startup_blocked_plugins.discard(plugin_id)
                 return record
+            await self._loader._retry_plugin_recovery_unlocked(plugin_id)
+            record = self._loader.get_loaded_plugin(plugin_id)
             source = (
                 record.source_path
                 if record is not None

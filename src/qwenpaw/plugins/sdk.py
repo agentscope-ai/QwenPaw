@@ -28,6 +28,7 @@ from .events import EventSubscription
 from .apps import PawApp
 
 if TYPE_CHECKING:
+    from .harnesses import HarnessSpec
     from .logging import PluginLogger
     from .drivers import DriverProtocolSpec
 
@@ -1386,6 +1387,11 @@ class PluginContext:  # pylint: disable=protected-access
     ) -> Registration:
         """Declare an owned protocol without opening or discovering sources."""
         from ._drivers import register
+
+        return register(self, spec)
+
+    def register_harness(self, spec: HarnessSpec) -> Registration:
+        from ._harnesses import register
 
         return register(self, spec)
 

@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OfficialPluginCatalogEntry } from "@/api/modules/plugin";
+import type {
+  OfficialPluginCatalogEntry,
+  PluginInfo,
+} from "@/api/modules/plugin";
 import { OfficialPluginList } from "./OfficialPluginList";
 
 const hoisted = vi.hoisted(() => ({
@@ -70,6 +73,101 @@ describe("OfficialPluginList", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
+
+  it("filters Harness plugins by the linked plugin ID and keeps search editable", () => {
+    hoisted.plugins.push(
+      makeEntry("1.0.0", {
+        id: "codex-1.0.0",
+        plugin_id: "qwenpaw-harness-codex",
+        name: "Codex",
+      }),
+      makeEntry("1.0.0", {
+        id: "qoder-1.0.0",
+        plugin_id: "qwenpaw-harness-qoder",
+        name: "Qoder",
+      }),
+    );
+    render(
+      <OfficialPluginList
+        onInstalled={vi.fn()}
+        initialSearch="qwenpaw-harness-codex"
+      />,
+    );
+    const search = screen.getByPlaceholderText("pluginManager.filterByName");
+    expect(search).toHaveValue("qwenpaw-harness-codex");
+    expect(screen.getByRole("article", { name: "Codex" })).toBeVisible();
+    expect(screen.queryByRole("article", { name: "Qoder" })).toBeNull();
+
+    fireEvent.change(search, { target: { value: "qOdEr" } });
+    expect(screen.getByRole("article", { name: "Qoder" })).toBeVisible();
+    expect(screen.queryByRole("article", { name: "Codex" })).toBeNull();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+  });
+
+  it.each(["card", "list"])(
+    "updates and uninstalls the actual installed channel in %s view",
+    (view) => {
+      const installed: PluginInfo = {
+        id: "matrix",
+        name: "Matrix",
+        version: "0.1.0",
+        description: "Installed locally",
+        enabled: false,
+        loaded: false,
+        plugin_type: "channel",
+      };
+      const latest = makeEntry("0.1.1", {
+        id: "matrix-0.1.1",
+        plugin_id: "matrix",
+        name: "Matrix",
+        kind: "channel",
+        installed: true,
+        installed_version: "0.1.0",
+        upgrade_available: true,
+      });
+      hoisted.plugins.push(
+        latest,
+        makeEntry("1.0.0", {
+          installed: true,
+          installed_version: "1.0.0",
+        }),
+      );
+      const onUninstall = vi.fn();
+      const props = {
+        onInstalled: vi.fn(),
+        installedPlugins: [
+          installed,
+          { ...installed, id: "creator", plugin_type: "tool" as const },
+        ],
+        onUninstall,
+      };
+      const { rerender } = render(<OfficialPluginList {...props} />);
+      if (view === "list")
+        fireEvent.click(screen.getByLabelText("skills.listView"));
+
+      fireEvent.click(
+        screen.getByRole("button", { name: /pluginManager.update/ }),
+      );
+      expect(hoisted.handleInstall).toHaveBeenCalledWith(latest);
+      const uninstall = screen.getByRole("button", {
+        name: /pluginManager.uninstall/,
+      });
+      fireEvent.click(uninstall);
+      expect(onUninstall).toHaveBeenCalledWith(installed);
+
+      rerender(<OfficialPluginList {...props} uninstallingId="matrix" />);
+      expect(uninstall).toBeDisabled();
+      expect(
+        screen.getByRole("button", { name: /pluginManager.update/ }),
+      ).toBeDisabled();
+
+      rerender(<OfficialPluginList {...props} installedPlugins={[]} />);
+      expect(
+        screen.queryByRole("button", { name: /pluginManager.uninstall/ }),
+      ).toBeNull();
+    },
+  );
 
   it("renders one card per plugin and defaults to its newest version", () => {
     hoisted.plugins.push(

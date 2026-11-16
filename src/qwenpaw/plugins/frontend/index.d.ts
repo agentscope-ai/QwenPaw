@@ -3,6 +3,8 @@ export * from "./paw.js";
 import type { QwenPawWindowNamespace } from "./host.js";
 import type { PawSdk, PawRequestOptions } from "./paw.js";
 export declare const SDK_VERSION: "1.1.0";
+/** Harness settings types are available since SDK 1.1.0. */
+export type { HarnessSettingsProps, HarnessFrontendExtension } from "./host.js";
 /** Features of this library, not a claim about the currently running backend. */
 export declare const SDK_CAPABILITIES: readonly string[];
 export interface AppCapabilities {

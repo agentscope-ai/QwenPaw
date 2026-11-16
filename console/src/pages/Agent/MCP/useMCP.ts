@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBackendCapabilities } from "../../../utils/agentBackend";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { MCPAccessPolicy, MCPClientInfo } from "../../../api/types";
@@ -38,9 +39,8 @@ export function useMCP() {
   );
   const selectedAgentInfo = agents.find((item) => item.id === selectedAgent);
   const selectedBackend = selectedAgentInfo?.backend ?? "qwenpaw";
-  const canDiscoverProviderMCP = Boolean(
-    selectedAgentInfo?.backend_capabilities?.provider_mcp_discovery,
-  );
+  const capabilities = useBackendCapabilities(selectedAgentInfo);
+  const canDiscoverProviderMCP = Boolean(capabilities?.provider_mcp_discovery);
   const [clients, setClients] = useState<MCPClientInfo[]>([]);
   const [providerServers, setProviderServers] = useState<
     HarnessDiscoveredMCPServer[]

@@ -2,12 +2,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { routeRegistry } from "./registry/store";
+import { harnessRegistry } from "./harnesses";
+import { loadHostUiDependencies } from "./hostUiDependencies";
 import {
   loadAllPlugins,
   loadPawApp,
   reloadPawApp,
   resetPawAppLoaderForTests,
 } from "./usePluginLoader";
+
+vi.mock("./hostUiDependencies", () => ({
+  loadHostUiDependencies: vi.fn(async () => undefined),
+}));
 
 const originalCreateObjectUrl = URL.createObjectURL;
 const originalRevokeObjectUrl = URL.revokeObjectURL;
@@ -32,7 +38,10 @@ describe("frontend plugin loader", () => {
   beforeEach(() => {
     resetPawAppLoaderForTests();
     routeRegistry.__resetForTests();
+    harnessRegistry.syncCatalog([]);
+    localStorage.removeItem("qwenpaw_auth_token");
     vi.restoreAllMocks();
+    vi.mocked(loadHostUiDependencies).mockReset().mockResolvedValue(undefined);
     URL.createObjectURL = vi.fn(
       () => `data:text/javascript,${encodeURIComponent("export default true")}`,
     );
@@ -55,13 +64,99 @@ describe("frontend plugin loader", () => {
           plugin("notes", "app"),
         ]),
       )
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
       .mockImplementation(async () => new Response("export default true"));
 
     await expect(loadAllPlugins()).resolves.toEqual({
       loaded: 2,
       failed: [],
     });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[1][0]).toContain("/agents/backends");
+    expect(loadHostUiDependencies).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for shared UI dependencies before evaluating a plugin", async () => {
+    let ready!: () => void;
+    vi.mocked(loadHostUiDependencies).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        ready = resolve;
+      }),
+    );
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([plugin("tools", "frontend")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
+      .mockResolvedValueOnce(new Response("export default true"));
+
+    const loading = loadAllPlugins();
+    await vi.waitFor(() => expect(loadHostUiDependencies).toHaveBeenCalled());
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    ready();
+    await expect(loading).resolves.toEqual({ loaded: 1, failed: [] });
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports preparation failures without evaluating the plugin", async () => {
+    vi.mocked(loadHostUiDependencies).mockRejectedValueOnce(
+      new Error("UI chunk unavailable"),
+    );
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([plugin("tools", "frontend")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
+      .mockResolvedValueOnce(new Response("export default true"));
+
+    const summary = await loadAllPlugins();
+    expect(summary.loaded).toBe(0);
+    expect(summary.failed).toEqual(["tools: Error: UI chunk unavailable"]);
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("loads an enabled Harness and skips a disabled Harness", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (url) => {
+        const path = String(url);
+        if (path.endsWith("/frontend_plugin")) {
+          return jsonResponse([
+            {
+              ...plugin("active-harness", "general"),
+              harnesses: ["active"],
+              enabled: true,
+              status: "active",
+            },
+            {
+              ...plugin("disabled-harness", "general"),
+              harnesses: ["disabled"],
+              enabled: false,
+              status: "disabled",
+            },
+          ]);
+        }
+        if (path.includes("/agents/backends")) {
+          return jsonResponse({
+            backends: [
+              {
+                id: "active",
+                plugin_id: "active-harness",
+                status: "available",
+              },
+              {
+                id: "disabled",
+                plugin_id: "disabled-harness",
+                status: "disabled",
+              },
+            ],
+          });
+        }
+        return new Response("export default true");
+      });
+
+    await expect(loadAllPlugins()).resolves.toEqual({ loaded: 1, failed: [] });
+    const scripts = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes("/files/"));
+    expect(scripts).toHaveLength(1);
+    expect(scripts[0]).toContain("active-harness/files/");
   });
 
   it("loads a newly installed PawApp and exposes its route immediately", async () => {
@@ -84,9 +179,11 @@ describe("frontend plugin loader", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock
       .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
       .mockResolvedValueOnce(new Response("globalThis.__registerNotes()"));
 
     await expect(loadPawApp("notes")).resolves.toBeUndefined();
+    expect(loadHostUiDependencies).toHaveBeenCalledTimes(1);
     expect(routeRegistry.snapshot()).toMatchObject([
       { id: "notes.page", path: "/apps/notes", source: "notes" },
     ]);
@@ -96,6 +193,7 @@ describe("frontend plugin loader", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock
       .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
       .mockResolvedValueOnce(new Response("missing", { status: 503 }));
 
     const first = loadPawApp("notes");
@@ -104,6 +202,7 @@ describe("frontend plugin loader", () => {
 
     fetchMock
       .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
       .mockImplementationOnce(async () => {
         routeRegistry.add("notes", {
           id: "notes.page",
@@ -143,10 +242,12 @@ describe("frontend plugin loader", () => {
     const fetchMock = vi.spyOn(globalThis, "fetch");
     fetchMock
       .mockResolvedValueOnce(jsonResponse([plugin("notes", "app")]))
+      .mockResolvedValueOnce(jsonResponse({ backends: [] }))
       .mockResolvedValueOnce(new Response("updated"));
 
     await expect(reloadPawApp("notes")).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(loadHostUiDependencies).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(routeRegistry.snapshot()[0].Component).toBe(newComponent);
     expect(routeRegistry.snapshot()[0].Component).not.toBe(oldComponent);
   });

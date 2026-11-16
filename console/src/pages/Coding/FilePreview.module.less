@@ -168,9 +168,11 @@
 // ---- Markdown -------------------------------------------------------------
 
 .markdownWrap {
+  box-sizing: border-box;
   height: 100%;
   overflow-y: auto;
-  padding: 24px 32px;
+  overflow-wrap: anywhere;
+  padding: 24px clamp(16px, 3vw, 32px);
   color: var(--app-text);
   font-size: var(--app-font-body);
   line-height: 1.75;

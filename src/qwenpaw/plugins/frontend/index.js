@@ -1,6 +1,6 @@
 export const SDK_VERSION = "1.1.0";
 // Library features only. Query capabilities(appId) for the running backend.
-export const SDK_CAPABILITIES = Object.freeze(["host", "chat", "routes", "paw", "tasks"]);
+export const SDK_CAPABILITIES = Object.freeze(["host", "chat", "routes", "paw", "tasks", "harnesses"]);
 export function getHost() {
   const host = globalThis.window?.QwenPaw;
   if (!host) throw new Error("QwenPaw host is unavailable");

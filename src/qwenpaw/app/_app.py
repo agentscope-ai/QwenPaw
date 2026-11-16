@@ -590,6 +590,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader.registry.set_workspace_manager(workspace_registry)
             plugin_loader.registry.set_plugin_http_app(app)
+            app.state.plugin_registry = plugin_loader.registry
 
             from .mcp_plugin_upgrade import prepare_startup_plugins
 

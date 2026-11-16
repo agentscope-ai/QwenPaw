@@ -605,6 +605,9 @@ class WeComPlatform(InboundDecoder):
             if ack.get("errcode") != 0:
                 raise WeComDeliveryError("PLATFORM_REJECTED")
             body = ack.get("body")
+            # Successful chunk acknowledgements may omit the body.
+            if cmd == _UPLOAD_CMD_CHUNK and body is None:
+                body = {}
             if not isinstance(body, dict):
                 raise WeComDeliveryError(
                     "UPLOAD_ACK_INVALID",

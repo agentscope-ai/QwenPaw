@@ -117,6 +117,7 @@ export const LongTextPasteInput = forwardRef<
   return (
     <Input.TextArea
       {...props}
+      data-quote-composer
       ref={ref}
       onSelect={(event) => {
         if (onSelect) onSelect(event);

@@ -490,3 +490,50 @@ def mock_typesafe(monkeypatch):
         )
 
     return install
+
+
+@pytest.fixture
+def installed_router_harnesses(tmp_path, monkeypatch):
+    """Activate declared Harnesses for routes requiring installed backends."""
+    import asyncio
+
+    from qwenpaw.plugins import PluginLoader
+    from qwenpaw.plugins.registry import PluginRegistry
+    from tests.unit.plugins.test_sdk_entry_contract import write_plugin
+
+    previous = PluginRegistry._instance  # pylint: disable=protected-access
+    PluginRegistry._instance = None  # pylint: disable=protected-access
+    loader = PluginLoader(plugin_dirs=[tmp_path / "router-plugins"])
+    monkeypatch.setenv("QWENPAW_WORKING_DIR", str(tmp_path / "router-work"))
+
+    async def load():
+        for backend in ("codex", "qoder", "claude_code"):
+            root = tmp_path / "router-plugins" / f"qwenpaw-harness-{backend}"
+            manifest = write_plugin(
+                root,
+                "from qwenpaw.plugins.harnesses import "
+                "HarnessCapabilities, HarnessSpec\n"
+                "class Plugin:\n"
+                "    def register(self, context):\n"
+                "        context.register_harness(HarnessSpec(\n"
+                f"            {backend!r}, {backend!r}, "
+                "lambda context, settings: None, "
+                "HarnessCapabilities(model_selection=True, "
+                "reasoning_effort=True)))\n"
+                "plugin = Plugin()\n",
+                sdk={"version": "1.1.0", "capabilities": ["harnesses"]},
+                meta={"harnesses": [{"id": backend, "label": backend}]},
+            )
+            record = await loader.load_plugin(manifest, root, {})
+            assert record.status == "active", record.diagnostics
+
+    async def unload():
+        for plugin_id in list(loader.get_all_loaded_plugins()):
+            await loader.unload_plugin(plugin_id)
+
+    try:
+        asyncio.run(load())
+        yield loader
+    finally:
+        asyncio.run(unload())
+        PluginRegistry._instance = previous  # pylint: disable=protected-access

@@ -28,11 +28,12 @@ export function hasUnseenCompletion(
   session: AttentionSession,
 ): boolean {
   if (!session.lastFinishedAt) return false;
+  const finishedMs = Date.parse(session.lastFinishedAt);
+  if (!Number.isFinite(finishedMs)) return false;
   const key = sessionAttentionKey(agentId, session);
   if (!Object.prototype.hasOwnProperty.call(seenFinishedAt, key)) return false;
   const seenAt = seenFinishedAt[key];
   if (!seenAt) return true;
-  const finishedMs = Date.parse(session.lastFinishedAt);
   const seenMs = Date.parse(seenAt);
   return (
     Number.isFinite(finishedMs) &&
@@ -55,7 +56,11 @@ export const useSessionAttentionStore = create<SessionAttentionState>()(
             if (!Object.prototype.hasOwnProperty.call(next, key)) {
               // Existing completions are the baseline when this feature first
               // sees a session, so an upgrade does not mark all history unread.
-              next[key] = session.lastFinishedAt ?? null;
+              next[key] =
+                session.lastFinishedAt &&
+                Number.isFinite(Date.parse(session.lastFinishedAt))
+                  ? session.lastFinishedAt
+                  : null;
               changed = true;
             }
           }
@@ -64,10 +69,12 @@ export const useSessionAttentionStore = create<SessionAttentionState>()(
 
       markSeen: (agentId, session) => {
         if (!session.lastFinishedAt) return;
+        const finishedMs = Date.parse(session.lastFinishedAt);
+        if (!Number.isFinite(finishedMs)) return;
         const key = sessionAttentionKey(agentId, session);
         set((state) => {
-          if (state.seenFinishedAt[key] === session.lastFinishedAt)
-            return state;
+          const seenAt = state.seenFinishedAt[key];
+          if (seenAt && Date.parse(seenAt) >= finishedMs) return state;
           return {
             seenFinishedAt: {
               ...state.seenFinishedAt,
