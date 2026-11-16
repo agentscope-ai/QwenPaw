@@ -249,7 +249,7 @@ describe("ACP load guard", () => {
       </SettingsSearchRequest.Provider>,
     );
     await waitFor(() => expect(mocks.getACPNodeRuntime).toHaveBeenCalled());
-    expect(screen.getByText("acp.nodePath")).toBeVisible();
+    expect(await screen.findByText("acp.nodePath")).toBeVisible();
     expect(mocks.updateACPNodeRuntime).not.toHaveBeenCalled();
     expect(mocks.updateACPConfig).not.toHaveBeenCalled();
   });
