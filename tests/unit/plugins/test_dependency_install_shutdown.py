@@ -156,6 +156,61 @@ def test_windows_installer_owns_job_before_resuming(monkeypatch, outcome):
         assert ("resume" in events) == (outcome == "ok")
 
 
+async def test_upgrade_preparation_uses_install_policy_and_stops_on_shutdown(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.plugins.dependency_upgrade import dependency_upgrades
+
+    entered = threading.Event()
+    spawned = []
+    popen = subprocess.Popen
+
+    def observe(*args, **kwargs):
+        proc = popen(*args, **kwargs)
+        spawned.append(proc)
+        entered.set()
+        return proc
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        loader = host._loader
+        manager = dependency_upgrades(loader)
+        runner = loader._run_subprocess_with_streaming_log
+
+        def command(cmd, **kwargs):
+            assert kwargs["timeout"] == 1800
+            assert kwargs["cancel"] is not None
+            with patch("subprocess.Popen", observe):
+                return runner(cmd, **kwargs)
+
+        async def prepare(_source, _force, *, prepared=None):
+            return await loader._run_dependency_install_command(
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                local_whisper.PLUGIN_ID,
+            )
+
+        monkeypatch.setattr(manager, "_stage", prepare)
+        monkeypatch.setattr(
+            loader,
+            "_run_subprocess_with_streaming_log",
+            command,
+        )
+        task = asyncio.create_task(manager.stage(local_whisper.SOURCE))
+        try:
+            assert await asyncio.to_thread(entered.wait, 5)
+            assert task in loader._dependency_installs
+            await loader.stop_dependency_installs()
+            assert task.cancelled()
+            assert all(proc.poll() is not None for proc in spawned)
+            assert not loader._dependency_installs
+        finally:
+            for proc in spawned:
+                if proc.poll() is None:
+                    proc.kill()
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
 @pytest.mark.parametrize("kind", ["sdk", "legacy", "whisper"])
 @pytest.mark.parametrize("stage", ["installing", "waiting_lock"])
 @pytest.mark.parametrize("operation", ["install", "repair"])

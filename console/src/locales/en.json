@@ -888,6 +888,7 @@
     "localWhisperFfmpegHelp": "ffmpeg installation instructions",
     "localWhisperModelHint": "The model loads on the first transcription.",
     "localWhisperDependenciesKept": "Python dependencies are present. Install the plugin to use local transcription.",
+    "localWhisperInstallFailed": "Local Whisper installation did not finish",
     "localWhisperState_missing": "Local Whisper · Not installed",
     "localWhisperState_disabled": "Local Whisper · Disabled",
     "localWhisperState_installing": "Preparing Local Whisper. The first installation may download large Python dependencies.",
@@ -5443,6 +5444,11 @@
     "details": "Details"
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "A dependency has more than one installation source. Check the application logs for the package name, repair the environment, then retry.",
+      "invalidMetadata": "Dependency installation information is incomplete or invalid. Check the application logs, repair the environment, then retry.",
+      "failed": "Dependency preparation did not finish. Check the application logs, resolve the dependency issue, then retry."
+    },
     "dependencyUpgrade": {
       "title": "Confirm shared dependency upgrade",
       "confirm": "Upgrade and install",

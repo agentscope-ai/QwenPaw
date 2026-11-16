@@ -285,25 +285,48 @@ def test_wheel_size_budget(tmp_path, monkeypatch, over_budget, budget):
     assert not (tmp_path / "site").exists()
 
 
+@pytest.mark.parametrize("location", ["package", "native_script", "license"])
 def test_large_wheel_payload_stays_private_and_file_backed(
     tmp_path,
     monkeypatch,
+    location,
 ):
     import hashlib
     import sys
     from pathlib import Path
+
     from packaging.markers import default_environment
+
     from qwenpaw.plugins import wheel_additions as wheels
     from qwenpaw.plugins.execution.dependencies import DependencySnapshot
 
     payload = b"binary data\x00" * 8192
-    binary = "b01_probe/library.so"
-    wheel = write_wheel(tmp_path, "b01-probe", payload={binary: payload})
+    script_directory = (
+        "Scripts" if default_environment()["os_name"] == "nt" else "bin"
+    )
+    binary, installed = {
+        "package": ("b01_probe/library.so", "b01_probe/library.so"),
+        "native_script": (
+            "b01_probe-1.0.data/scripts/probe",
+            f"{script_directory}/probe",
+        ),
+        "license": (
+            "b01_probe-1.0.dist-info/licenses/NOTICE",
+            "b01_probe-1.0.dist-info/licenses/NOTICE",
+        ),
+    }[location]
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        payload={binary: payload},
+        executable=(binary,) if location == "native_script" else (),
+    )
     addition = wheels.WheelAddition(
         wheel,
         hashlib.sha256(wheel.read_bytes()).hexdigest(),
     )
     monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 4096)
+    monkeypatch.setattr(wheels, "_MAX_PARSED_BYTES", 8192)
     target = tmp_path / "site"
     target.mkdir()
     snapshot = DependencySnapshot(
@@ -323,7 +346,7 @@ def test_large_wheel_payload_stays_private_and_file_backed(
 
     monkeypatch.setattr(Path, "read_bytes", read)
     files, _ = wheels.validate_additions((addition,), snapshot, target)
-    content = files[binary]
+    content = files[installed]
     try:
         assert isinstance(content, memoryview)
         assert content.readonly
@@ -331,11 +354,75 @@ def test_large_wheel_payload_stays_private_and_file_backed(
             content[0] = 0
         wheel.write_bytes(b"changed after validation")
         dependency_gate._write_additions(target, files)
-        assert (target / binary).read_bytes() == payload
+        assert (target / installed).read_bytes() == payload
     finally:
         files.close()
     with pytest.raises(ValueError):
         len(content)
+
+
+def test_file_backed_text_members_validate_and_publish(tmp_path, monkeypatch):
+    import hashlib
+    import sys
+
+    from packaging.markers import default_environment
+
+    from qwenpaw.plugins import wheel_additions as wheels
+    from qwenpaw.plugins.execution.dependencies import DependencySnapshot
+
+    info = "b01_probe-1.0.dist-info"
+    wheel = write_wheel(
+        tmp_path,
+        "b01-probe",
+        metadata_headers="Requires-Dist: another>=1\n",
+        payload={
+            f"{info}/top_level.txt": "b01_probe\n",
+            "b01_probe-1.0.data/data/b01_probe/data.txt": "payload",
+            "b01_probe-1.0.data/scripts/probe": "#!python\nprint('ready')\n",
+        },
+    )
+    monkeypatch.setattr(wheels, "_IN_MEMORY_BYTES", 1)
+    target = tmp_path / "site"
+    target.mkdir()
+    snapshot = DependencySnapshot(
+        sys.executable,
+        sys.prefix,
+        (str(target),),
+        default_environment(),
+        ("py3-none-any",),
+        {},
+    )
+    files, proposed = wheels.validate_additions(
+        (
+            wheels.WheelAddition(
+                wheel,
+                hashlib.sha256(wheel.read_bytes()).hexdigest(),
+            ),
+        ),
+        snapshot,
+        target,
+    )
+    try:
+        assert all(
+            isinstance(files[f"{info}/{name}"], memoryview)
+            for name in ("METADATA", "WHEEL", "top_level.txt")
+        )
+        assert proposed.distributions["b01-probe"]["requires_dist"] == (
+            "another>=1",
+        )
+        assert "b01_probe" in proposed.distributions["b01-probe"]["top_level"]
+        dependency_gate._write_additions(target, files)
+        directory = (
+            "Scripts"
+            if snapshot.marker_environment["os_name"] == "nt"
+            else "bin"
+        )
+        script = (target / directory / "probe").read_bytes()
+        assert script.startswith(b"#!") and sys.executable.encode() in script
+        assert script.endswith(b"print('ready')\n")
+        assert (target / "b01_probe/data.txt").read_text() == "payload"
+    finally:
+        files.close()
 
 
 def test_invalid_record_closes_mapping_while_exception_is_retained(

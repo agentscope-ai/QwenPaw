@@ -579,29 +579,38 @@ describe("local Whisper installation", () => {
     expect(h.updateAudioMode).not.toHaveBeenCalled();
   });
 
-  it("keeps the selected backend and exposes a retryable install failure", async () => {
-    h.installLocalWhisper.mockRejectedValueOnce(new Error("offline"));
-    const { result } = renderHook(() => useVoiceTranscription());
-    await waitFor(() => expect(result.current.ready).toBe(true));
-    act(() => result.current.setProviderType("local_whisper"));
-    await act(() => result.current.installLocalWhisper());
-    expect(result.current.providerType).toBe("local_whisper");
-    expect(result.current.localWhisperStatus?.state).toBe("failed");
-    expect(result.current.localWhisperStatus?.error).toContain("offline");
-    const ready = {
-      ...WHISPER_STATUS,
-      state: "ready",
-      available: true,
-      whisper_installed: true,
-      plugin_installed: true,
-      plugin_enabled: true,
-      plugin_status: "active",
-    };
-    h.installLocalWhisper.mockResolvedValueOnce(ready);
-    h.getLocalWhisperStatus.mockResolvedValue(ready);
-    await act(() => result.current.installLocalWhisper());
-    expect(result.current.localWhisperStatus?.state).toBe("ready");
-  });
+  it.each([
+    ["offline", "offline"],
+    [
+      "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+      "pluginManager.dependencyErrors.ambiguous",
+    ],
+  ])(
+    "keeps the selected backend after an install failure: %s",
+    async (error, explanation) => {
+      h.installLocalWhisper.mockRejectedValueOnce(new Error(error));
+      const { result } = renderHook(() => useVoiceTranscription());
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      act(() => result.current.setProviderType("local_whisper"));
+      await act(() => result.current.installLocalWhisper());
+      expect(result.current.providerType).toBe("local_whisper");
+      expect(result.current.localWhisperStatus?.state).toBe("failed");
+      expect(result.current.localWhisperStatus?.error).toBe(explanation);
+      const ready = {
+        ...WHISPER_STATUS,
+        state: "ready",
+        available: true,
+        whisper_installed: true,
+        plugin_installed: true,
+        plugin_enabled: true,
+        plugin_status: "active",
+      };
+      h.installLocalWhisper.mockResolvedValueOnce(ready);
+      h.getLocalWhisperStatus.mockResolvedValue(ready);
+      await act(() => result.current.installLocalWhisper());
+      expect(result.current.localWhisperStatus?.state).toBe("ready");
+    },
+  );
 });
 
 it("refreshes uninstall status without overwriting unsaved voice choices", async () => {

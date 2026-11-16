@@ -8,6 +8,7 @@ import {
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import { reviewDependencyUpgrade } from "../PluginManager/dependencyUpgrade";
+import { pluginErrorMessage } from "@/utils/pluginError";
 import type { LocalWhisperStatus } from "../../../api/modules/agent";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -173,7 +174,11 @@ export function useVoiceTranscription() {
             status && {
               ...status,
               state: "failed",
-              error: String(err),
+              error: pluginErrorMessage(
+                err,
+                t("pluginManager.installFailed"),
+                t,
+              ),
             },
         );
       }
@@ -191,9 +196,11 @@ export function useVoiceTranscription() {
       if (generation === requestGenerationRef.current)
         setLocalWhisperStatus(status);
     } catch (err) {
-      message.error(String(err));
+      message.error(
+        pluginErrorMessage(err, t("pluginManager.enableFailed"), t),
+      );
     }
-  }, [message]);
+  }, [message, t]);
 
   const handleSave = useCallback(
     async (automatic = false) => {

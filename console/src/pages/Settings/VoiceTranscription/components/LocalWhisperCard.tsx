@@ -2,6 +2,7 @@ import { Alert, Button, Descriptions, Space, Typography } from "antd";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import type { LocalWhisperStatus } from "../../../../api/modules/agent";
+import { pluginErrorMessage } from "@/utils/pluginError";
 
 export function LocalWhisperCard({
   status,
@@ -16,6 +17,7 @@ export function LocalWhisperCard({
   const navigate = useNavigate();
   const review = Boolean(status.dependency_upgrade);
   const preparing = status.state === "installing" && !review;
+  const installFailed = status.state === "missing" && Boolean(status.error);
   const repair =
     status.plugin_installed &&
     (!status.whisper_installed ||
@@ -43,12 +45,19 @@ export function LocalWhisperCard({
             : "warning"
         }
         message={t(
-          status.state === "ready" && !status.available
+          installFailed
+            ? "voiceTranscription.localWhisperInstallFailed"
+            : status.state === "ready" && !status.available
             ? "voiceTranscription.localWhisperImportFailed"
             : `voiceTranscription.localWhisperState_${status.state}`,
         )}
         description={
-          status.error ||
+          (status.error &&
+            pluginErrorMessage(
+              status.error,
+              t("pluginManager.installFailed"),
+              t,
+            )) ||
           (status.available
             ? t("voiceTranscription.localWhisperModelHint")
             : status.state === "missing" && status.whisper_installed

@@ -45,6 +45,27 @@ function show(status: Partial<LocalWhisperStatus> = {}) {
 }
 
 describe("Local Whisper plugin and dependency status", () => {
+  it("explains an installation failure without showing an internal error code", () => {
+    const { onInstall } = show({
+      available: false,
+      plugin_installed: false,
+      plugin_enabled: false,
+      plugin_status: "missing",
+      state: "missing",
+      whisper_installed: false,
+      ffmpeg_installed: false,
+      error: "DEPENDENCY_ENVIRONMENT_AMBIGUOUS",
+    });
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "voiceTranscription.localWhisperInstallFailed",
+    );
+    expect(alert).toHaveTextContent("pluginManager.dependencyErrors.ambiguous");
+    expect(alert).not.toHaveTextContent("DEPENDENCY_ENVIRONMENT_AMBIGUOUS");
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(onInstall).toHaveBeenCalledOnce();
+  });
+
   it("shows the last import failure without offering installation again", () => {
     show({ available: false, error: "Torch could not be loaded" });
     expect(screen.getByRole("alert")).toHaveTextContent(

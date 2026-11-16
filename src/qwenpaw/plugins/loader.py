@@ -20,6 +20,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 from packaging.requirements import Requirement
 
+from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..utils.runtime_environment import CERTIFI_REQUIREMENT, require_pip
 
 from .architecture import PluginManifest, PluginRecord, PluginType
@@ -44,7 +45,11 @@ from .dependency_gate import (
     combined_requirements,
     is_requirement_satisfied,
 )
-from .dependency_process import run_install_command
+from .dependency_process import (
+    install_cancel,
+    install_timeout,
+    run_install_command,
+)
 from .lifecycle import (
     PluginLifecycle,
     QuiescenceError,
@@ -426,6 +431,33 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             await run_async_to_completion(
                 asyncio.gather(*tasks, return_exceptions=True),
             )
+
+    async def _run_dependency_install_command(self, command, plugin_id):
+        """Run a command within the owning dependency transaction's policy."""
+        cancel = install_cancel.get()
+        timeout = install_timeout.get()
+        worker = asyncio.create_task(
+            run_sync_io(
+                self._run_subprocess_with_streaming_log,
+                command,
+                timeout=timeout,
+                plugin_id=plugin_id,
+                cancel=cancel,
+            ),
+        )
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancel.set()
+            await run_async_to_completion(
+                asyncio.gather(worker, return_exceptions=True),
+            )
+            raise
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Dependency installation timed out for '{plugin_id}' "
+                f"({timeout} s limit exceeded)",
+            ) from exc
 
     @classmethod
     async def create(cls, plugin_dirs, *, channel_runtime=None):
@@ -1419,33 +1451,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
             from ..utils.io_utils import run_sync_io
 
             async def run(command):
-                from .dependency_process import install_cancel, install_timeout
-                from ..utils.io_utils import run_async_to_completion
-
-                cancel = install_cancel.get()
-                timeout = install_timeout.get()
-                worker = asyncio.create_task(
-                    run_sync_io(
-                        self._run_subprocess_with_streaming_log,
-                        command,
-                        timeout=timeout,
-                        plugin_id=plugin_id,
-                        cancel=cancel,
-                    ),
+                return await self._run_dependency_install_command(
+                    command,
+                    plugin_id,
                 )
-                try:
-                    return await asyncio.shield(worker)
-                except asyncio.CancelledError:
-                    cancel.set()
-                    await run_async_to_completion(
-                        asyncio.gather(worker, return_exceptions=True),
-                    )
-                    raise
-                except subprocess.TimeoutExpired as exc:
-                    raise RuntimeError(
-                        f"Dependency installation timed out for '{plugin_id}' "
-                        f"({timeout} s limit exceeded)",
-                    ) from exc
 
             runtime = getattr(self.registry, "channel_runtime", None)
             if (

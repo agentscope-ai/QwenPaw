@@ -1645,6 +1645,11 @@ class DependencyUpgradeManager:
         cls._save(directory, operation)
 
     async def stage(self, source_path, force=False, *, prepared=None):
+        """Prepare a plan under the shared install timeout and cancellation."""
+        async with self.loader._dependency_install_scope(Path(source_path)):
+            return await self._stage(source_path, force, prepared=prepared)
+
+    async def _stage(self, source_path, force=False, *, prepared=None):
         operation_id = uuid4().hex
         directory = self.root / operation_id
         try:
@@ -1750,11 +1755,9 @@ class DependencyUpgradeManager:
                 if attempt == 0 and prepared is not None:
                     await run_sync_io(prepared.claim, directory / "wheels")
                 else:
-                    result = await run_sync_io(
-                        self.loader._run_subprocess_with_streaming_log,
+                    result = await self.loader._run_dependency_install_command(
                         command,
-                        timeout=300,
-                        plugin_id=plugin_id,
+                        plugin_id,
                     )
                     if result.returncode:
                         preferences_failed = True
@@ -1764,11 +1767,11 @@ class DependencyUpgradeManager:
                         )
                         await run_sync_io(shutil.rmtree, directory / "wheels")
                         await run_sync_io((directory / "wheels").mkdir)
-                        result = await run_sync_io(
-                            self.loader._run_subprocess_with_streaming_log,
-                            command,
-                            timeout=300,
-                            plugin_id=plugin_id,
+                        result = (
+                            await self.loader._run_dependency_install_command(
+                                command,
+                                plugin_id,
+                            )
                         )
                     if result.returncode:
                         _refuse(

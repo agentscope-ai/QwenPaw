@@ -2887,6 +2887,11 @@
     }
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "Sumber instalasi dependensi tidak dapat ditentukan secara unik. Periksa nama paket di log aplikasi, perbaiki lingkungan, lalu coba lagi.",
+      "invalidMetadata": "Informasi instalasi dependensi tidak lengkap atau tidak valid. Periksa log aplikasi, perbaiki lingkungan, lalu coba lagi.",
+      "failed": "Persiapan dependensi belum selesai. Periksa log aplikasi, atasi masalah dependensi, lalu coba lagi."
+    },
     "title": "Manajer Plugin",
     "description": "Instal, kelola, dan hapus plugin tanpa me-restart layanan.",
     "installed": "Plugin Terinstal",
@@ -3592,6 +3597,7 @@
     "localWhisperFfmpegHelp": "Petunjuk instalasi ffmpeg",
     "localWhisperModelHint": "Model dimuat saat transkripsi pertama.",
     "localWhisperDependenciesKept": "Dependensi Python masih tersedia. Instal plugin untuk menggunakan transkripsi lokal.",
+    "localWhisperInstallFailed": "Instalasi Whisper lokal belum selesai",
     "localWhisperState_missing": "Whisper Lokal · Belum diinstal",
     "localWhisperState_disabled": "Whisper Lokal · Dinonaktifkan",
     "localWhisperState_installing": "Menyiapkan Whisper Lokal. Instalasi pertama mungkin mengunduh dependensi Python berukuran besar.",

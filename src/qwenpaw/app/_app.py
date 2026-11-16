@@ -177,10 +177,9 @@ async def _stop_workspaces_after_dependents(
             os._exit(1)  # pylint: disable=protected-access
 
     threading.Thread(target=enforce_deadline, daemon=True).start()
-    try:
-        await _stop_workspaces_after_dependents_impl(app, import_jobs)
-    finally:
-        completed.set()
+    await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    # A failed stop can leave live dependents; retain the exit deadline.
+    completed.set()
 
 
 async def _stop_workspaces_after_dependents_impl(

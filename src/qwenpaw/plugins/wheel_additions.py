@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _MAX_WHEEL_BYTES = 2 * 1024 * 1024 * 1024
 _MAX_WHEEL_UNPACKED_BYTES = 4 * 1024 * 1024 * 1024
 _IN_MEMORY_BYTES = 1024 * 1024
-_MAX_METADATA_BYTES = 16 * 1024 * 1024
+_MAX_PARSED_BYTES = 16 * 1024 * 1024
 
 
 def _reject(reason, code="DEPENDENCY_PLAN_UNVERIFIED", *, detail=None):
@@ -152,17 +152,18 @@ def _copy_bounded(source, target, limit):
 
 def _member_content(archive, info, members):
     """Stage large members; seal replaces their placeholders with views."""
-    parts = PurePosixPath(info.filename).parts
-    structured = parts[0].endswith(".dist-info") or (
-        len(parts) > 1 and parts[0].endswith(".data") and parts[1] == "scripts"
-    )
-    if structured and info.file_size > _MAX_METADATA_BYTES:
-        raise _reject("metadata or script size limit exceeded")
-    if structured or info.file_size <= _IN_MEMORY_BYTES:
+    if info.file_size <= _IN_MEMORY_BYTES:
         return archive.read(info)
     with archive.open(info) as source:
         members._store.stage(source, info, members)
     return b""
+
+
+def _parsed_bytes(content: bytes | memoryview) -> bytes:
+    """Bound whole-member allocations for text parsing and script rewriting."""
+    if len(content) > _MAX_PARSED_BYTES:
+        raise _reject("parsed member size limit exceeded")
+    return bytes(content)
 
 
 # lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
@@ -252,7 +253,9 @@ def _validate_record(
     files: Mapping[str, bytes | memoryview],
     record: str,
 ) -> None:
-    rows = list(csv.reader(io.StringIO(files[record].decode("utf-8"))))
+    rows = list(
+        csv.reader(io.StringIO(_parsed_bytes(files[record]).decode("utf-8"))),
+    )
     seen = set()
     for row in rows:
         if len(row) != 3 or row[0] in seen or row[0] not in files:
@@ -276,6 +279,9 @@ def _validate_record(
 
 def _script_bytes(content, executable, windows):
     """Bind wheel Python scripts to the audited interpreter without running."""
+    if content[:8] != b"#!python":
+        return content, False
+    content = _parsed_bytes(content)
     first, _, rest = content.partition(b"\n")
     if first.rstrip(b"\r") not in {b"#!python", b"#!pythonw"}:
         return content, False
@@ -626,9 +632,11 @@ def validate_additions(
                 ".dist-info",
             ).rpartition("-")
             metadata = BytesParser().parsebytes(
-                bytes(members[f"{info}/METADATA"]),
+                _parsed_bytes(members[f"{info}/METADATA"]),
             )
-            wheel = BytesParser().parsebytes(bytes(members[f"{info}/WHEEL"]))
+            wheel = BytesParser().parsebytes(
+                _parsed_bytes(members[f"{info}/WHEEL"]),
+            )
             if not valid_metadata_headers(
                 metadata,
                 ("Name", "Version"),
@@ -681,7 +689,7 @@ def validate_additions(
                 # Match the unchanged fresh audit for newly accepted data
                 # wheels, including conservative namespace import roots.
                 provider_tops = set(
-                    members.get(f"{info}/top_level.txt", b"")
+                    _parsed_bytes(members.get(f"{info}/top_level.txt", b""))
                     .decode("utf-8")
                     .split(),
                 ) or {name.replace("-", "_")}

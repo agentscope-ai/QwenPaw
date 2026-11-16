@@ -463,6 +463,7 @@
     "localWhisperFfmpegHelp": "Instruções de instalação do ffmpeg",
     "localWhisperModelHint": "O modelo será carregado na primeira transcrição.",
     "localWhisperDependenciesKept": "As dependências Python foram mantidas. Instale o plugin para usar a transcrição local.",
+    "localWhisperInstallFailed": "A instalação do Whisper local não foi concluída",
     "localWhisperState_missing": "Whisper local · Não instalado",
     "localWhisperState_disabled": "Whisper local · Desativado",
     "localWhisperState_installing": "Preparando o Whisper local. A primeira instalação pode baixar dependências Python grandes.",
@@ -4696,6 +4697,11 @@
     "executingAgent": "Agente Executando"
   },
   "pluginManager": {
+    "dependencyErrors": {
+      "ambiguous": "Não foi possível identificar uma única origem para a dependência. Consulte o nome do pacote nos logs do aplicativo, corrija o ambiente e tente novamente.",
+      "invalidMetadata": "As informações de instalação das dependências estão incompletas ou inválidas. Consulte os logs do aplicativo, corrija o ambiente e tente novamente.",
+      "failed": "A preparação das dependências não foi concluída. Consulte os logs do aplicativo, resolva o problema e tente novamente."
+    },
     "title": "Gerenciador de Plugins",
     "description": "Instalar, gerenciar e remover plugins sem reiniciar o serviço.",
     "installed": "Plugins Instalados",

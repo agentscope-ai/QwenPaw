@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 from dataclasses import dataclass, replace
 from importlib import metadata
 from importlib.machinery import EXTENSION_SUFFIXES
@@ -933,8 +934,6 @@ def observe_dependencies(
             packet["_audit_sites"],
             requirements,
         )
-        import logging
-
         for warning in view.warnings:
             logging.getLogger(__name__).warning(
                 "Dependency warning: %s",
@@ -975,6 +974,11 @@ def observe_dependencies(
         environment,
     ):
         if name in invalid and not packet.get("_reuse_ambiguous", False):
+            logging.getLogger(__name__).warning(
+                "Dependency audit refused package %r: %s",
+                name,
+                invalid[name],
+            )
             raise dependency_error(invalid[name])
         if name in rows and name not in scanned:
             rows[name]["top_level"] = _file_top_levels(
