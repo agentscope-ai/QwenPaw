@@ -859,8 +859,6 @@ describe("durable transcript pagination", () => {
     await sessionApi.getSession(chatId);
     const middle = await sessionApi.loadOlderHistory(chatId);
     const oldest = await sessionApi.loadOlderHistory(chatId);
-    const newer = sessionApi.loadNewerHistory(chatId);
-    const latest = sessionApi.loadNewerHistory(chatId);
 
     expect(middle.messages.map((message) => message.id)).toEqual([
       "middle-user-1",
@@ -872,18 +870,6 @@ describe("durable transcript pagination", () => {
       "old-user-2",
       "middle-user-1",
     ]);
-    expect(newer?.messages.map((message) => message.id)).toEqual([
-      "middle-user-1",
-      "middle-user-2",
-      "new-user-1",
-    ]);
-    expect(latest?.messages.map((message) => message.id)).toEqual([
-      "new-user-1",
-      "new-user-2",
-    ]);
-    expect(newer?.canLoadOlder).toBe(true);
-    expect(latest?.canLoadOlder).toBe(true);
-    expect(sessionApi.loadNewerHistory(chatId)).toBeNull();
     expect(getMessages).toHaveBeenCalledTimes(2);
   });
 
@@ -920,7 +906,6 @@ describe("durable transcript pagination", () => {
       "new-user",
     ]);
     expect(oldest.noMore).toBe(true);
-    expect(sessionApi.loadNewerHistory(chatId)).toBeNull();
   });
 
   it("releases a failed page request so an explicit retry can succeed", async () => {

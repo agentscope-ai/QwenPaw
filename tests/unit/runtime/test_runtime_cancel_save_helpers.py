@@ -10,8 +10,10 @@ fakes for the agent and envelope.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
+import pytest
 from agentscope.message import (
     Msg,
     TextBlock,
@@ -20,8 +22,11 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
+from agentscope.state import AgentState
 
+from qwenpaw.runtime.hooks import HookRegistry
 from qwenpaw.runtime.runtime import Runtime
+from qwenpaw.schemas import AgentRequest, AgentResponse, RunStatus
 
 
 def _runtime(workspace_agent_id="ws-agent"):
@@ -53,6 +58,101 @@ def _agent(name="TestAgent", context=None):
     )
     agent._save_to_context = lambda blocks: None
     return agent
+
+
+@pytest.mark.asyncio
+async def test_cancel_save_failure_propagates() -> None:
+    class BrokenSession:
+        async def save_session_state(self, **_kwargs) -> None:
+            raise RuntimeError("cancel save failed")
+
+    request = SimpleNamespace(
+        request_context={},
+        user_id="user",
+        channel="console",
+    )
+    agent = _agent(context=[])
+    agent.state_dict = lambda: {"state": {"context": []}}
+    ctx = SimpleNamespace(
+        request=request,
+        error=asyncio.CancelledError(),
+        agent=agent,
+        workspace=SimpleNamespace(session=BrokenSession()),
+        session_id="session",
+        extras={},
+    )
+    runtime = Runtime(workspace=ctx.workspace, app_services=None)
+
+    with pytest.raises(RuntimeError, match="cancel save failed"):
+        await runtime._try_save_on_cancel(ctx)
+
+
+@pytest.mark.asyncio
+async def test_completed_close_does_not_run_cancel_save(monkeypatch) -> None:
+    class Session:
+        def __init__(self) -> None:
+            self.save_count = 0
+
+        async def save_session_state(self, **_kwargs) -> None:
+            self.save_count += 1
+
+    session = Session()
+    hooks = HookRegistry()
+
+    async def dispatch(_text, _ctx):
+        return None
+
+    workspace = SimpleNamespace(
+        agent_id="agent",
+        workspace_dir="/tmp/workspace",
+        session=session,
+        plugins=SimpleNamespace(
+            hook_registry=hooks,
+            modes=[],
+            slash_command_registry=SimpleNamespace(dispatch=dispatch),
+        ),
+    )
+
+    class Agent:
+        name = "agent"
+        model = None
+
+        def __init__(self) -> None:
+            self.state = AgentState(context=[])
+
+        def state_dict(self):
+            return {"state": self.state.model_dump(mode="json")}
+
+    class Builder:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def build(self, _ctx):
+            return Agent()
+
+    class Executor:
+        def __init__(self, _agent, _envelope) -> None:
+            pass
+
+        async def run(self, _inputs):
+            if False:  # pylint: disable=using-constant-test
+                yield
+
+    monkeypatch.setattr("qwenpaw.runtime.runtime.AgentBuilder", Builder)
+    monkeypatch.setattr("qwenpaw.runtime.runtime.AgentExecutor", Executor)
+    runtime = Runtime(workspace=workspace, app_services=None)
+    stream = runtime.run(AgentRequest(session_id="session"))
+
+    while True:
+        item = await anext(stream)
+        if (
+            isinstance(item, AgentResponse)
+            and item.status == RunStatus.Completed
+        ):
+            break
+    await stream.aclose()
+
+    assert session.save_count == 0
 
 
 # ---------------------------------------------------------------------------

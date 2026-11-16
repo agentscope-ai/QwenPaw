@@ -1,5 +1,7 @@
 const RENDER_INTERVAL_MS = 50;
 const MAX_DELTA_BYTES = 64 * 1024;
+const isSequence = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 
 /** Coalesce text only; structural events retain their original ordering. */
 export function batchLiveChatDeltas(
@@ -65,20 +67,30 @@ export function batchLiveChatDeltas(
           emit(frame);
           return;
         }
-        const { text, ...fields } = event;
+        const { text, sequence_number, ...fields } = event;
         const key = JSON.stringify(
           Object.keys(fields)
             .sort()
             .map((name) => [name, fields[name]]),
         );
         const size = encoder.encode(text).byteLength;
-        if (key !== identity || bytes + size > MAX_DELTA_BYTES) flush();
+        const continues =
+          pending === undefined ||
+          (!("sequence_number" in event) && !("sequence_number" in pending)) ||
+          (isSequence(sequence_number) &&
+            isSequence(pending.sequence_number) &&
+            sequence_number === pending.sequence_number + 1);
+        if (key !== identity || !continues || bytes + size > MAX_DELTA_BYTES)
+          flush();
         if (size >= MAX_DELTA_BYTES) {
           emit(frame);
           return;
         }
-        if (pending) pending.text = String(pending.text) + text;
-        else pending = { ...event };
+        if (pending) {
+          pending.text = String(pending.text) + text;
+          if ("sequence_number" in event)
+            pending.sequence_number = sequence_number;
+        } else pending = { ...event };
         identity = key;
         bytes += size;
         timer ??= setTimeout(flush, interval);

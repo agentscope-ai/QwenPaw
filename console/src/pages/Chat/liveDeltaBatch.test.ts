@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Builder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import { batchLiveChatDeltas } from "./liveDeltaBatch";
+import { wrapReplayFastForward } from "./replayFastForward";
 
 const delta = (text: string, msg_id = "m1") => ({
   object: "content",
@@ -8,6 +9,10 @@ const delta = (text: string, msg_id = "m1") => ({
   delta: true,
   msg_id,
   text,
+});
+const sequencedDelta = (text: string, sequence_number: unknown) => ({
+  ...delta(text),
+  sequence_number,
 });
 function fixture(signal?: AbortSignal) {
   let source!: ReadableStreamDefaultController<Uint8Array>;
@@ -44,6 +49,21 @@ describe("live delta batching", () => {
     await stream.reader.cancel();
   });
 
+  it("combines consecutive sequences and keeps the last number", async () => {
+    const stream = fixture();
+    stream.emit(
+      sequencedDelta("first", 1),
+      sequencedDelta(" second", 2),
+      sequencedDelta(" third", 3),
+    );
+    stream.source.close();
+
+    expect(await stream.read()).toEqual(
+      sequencedDelta("first second third", 3),
+    );
+    expect((await stream.reader.read()).done).toBe(true);
+  });
+
   it("preserves SDK state across tool, usage and terminal boundaries", async () => {
     const initial = {
       object: "response",
@@ -60,8 +80,8 @@ describe("live delta batching", () => {
         role: "assistant",
         content: [],
       },
-      delta("first"),
-      delta(" second"),
+      sequencedDelta("first", 1),
+      sequencedDelta(" second", 2),
       { object: "message", id: "tool", type: "plugin_call", content: [] },
       {
         object: "content",
@@ -70,7 +90,7 @@ describe("live delta batching", () => {
         delta: true,
         data: { input: "pwd" },
       },
-      delta(" third"),
+      sequencedDelta(" third", 3),
       { type: "turn_usage", usage: { total_tokens: 12 } },
       { ...initial, status: "completed" },
     ];
@@ -89,11 +109,73 @@ describe("live delta batching", () => {
         if (!("type" in item && item.type === "turn_usage"))
           builder.handle(item as never);
       }
-      return builder.data;
+      return JSON.parse(
+        JSON.stringify(builder.data, (name, value) =>
+          name === "sequence_number" ? undefined : value,
+        ),
+      );
     };
     expect(materialize(received)).toEqual(materialize(events));
     expect(received).toHaveLength(events.length - 1);
     expect(received[received.length - 1].status).toBe("completed");
+  });
+
+  it.each([
+    ["gap", 1, 3],
+    ["duplicate", 2, 2],
+    ["backwards", 3, 2],
+    ["zero", 0, 1],
+    ["negative", -1, 1],
+    ["fraction", 1.5, 2],
+    ["unsafe", Number.MAX_SAFE_INTEGER + 1, Number.MAX_SAFE_INTEGER + 2],
+    ["non-number", "1", 2],
+    ["invalid pair", "invalid", "invalid"],
+    ["missing first", undefined, 2],
+    ["missing second", 1, undefined],
+  ])("keeps %s sequence boundaries", async (_name, first, second) => {
+    const stream = fixture();
+    const events = [
+      sequencedDelta("a", first),
+      sequencedDelta("b", second),
+    ].map((event) => {
+      if (event.sequence_number === undefined) delete event.sequence_number;
+      return event;
+    });
+    stream.emit(...events);
+    stream.source.close();
+
+    expect(await stream.read()).toEqual(events[0]);
+    expect(await stream.read()).toEqual(events[1]);
+    expect((await stream.reader.read()).done).toBe(true);
+  });
+
+  it("preserves sequence boundaries after replay fast-forward", async () => {
+    let source!: ReadableStreamDefaultController<Uint8Array>;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          source = controller;
+        },
+      }),
+    );
+    const encode = (...events: object[]) =>
+      events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+    const batched = batchLiveChatDeltas(wrapReplayFastForward(response, 5000));
+    source.enqueue(
+      new TextEncoder().encode(
+        encode(sequencedDelta("a", 1), sequencedDelta("b", 2)) +
+          'data: {"type": "replay_end"}\n\n',
+      ),
+    );
+    source.enqueue(new TextEncoder().encode(encode(sequencedDelta("d", 4))));
+    source.close();
+
+    const output = await new Response(batched.body).text();
+    expect(output).toBe(
+      `data: ${JSON.stringify(sequencedDelta("ab", 2))}\n\n` +
+        `data: ${JSON.stringify(sequencedDelta("d", 4))}\n\n`,
+    );
+    expect(output).not.toContain("replay_end");
   });
 
   it("keeps distinct blocks and message ids separate", async () => {

@@ -113,38 +113,3 @@ def write_message_blocks(
         "AND message_id = ? AND ordinal >= ?",
         (session_id, message_id, len(content)),
     )
-
-
-def copy_message_blocks(
-    connection: sqlite3.Connection,
-    *,
-    source_session_id: str,
-    target_session_id: str,
-) -> None:
-    """Copy only blocks whose envelopes were selected into the new session."""
-    rows = connection.execute(
-        "SELECT b.* FROM parent.transcript_blocks b "
-        "JOIN transcript_messages m ON m.message_id = b.message_id "
-        "WHERE b.session_id = ? AND m.session_id = ?",
-        (source_session_id, target_session_id),
-    )
-    for row in rows:
-        connection.execute(
-            "INSERT INTO transcript_blocks VALUES "
-            "(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                target_session_id,
-                row["message_id"],
-                block_identity(
-                    target_session_id,
-                    row["message_id"],
-                    row["ordinal"],
-                ),
-                row["ordinal"],
-                row["kind"],
-                row["content_hash"],
-                row["payload_json"],
-                row["byte_length"],
-                row["version"],
-            ),
-        )

@@ -566,6 +566,11 @@ class Workspace:  # pylint: disable=too-many-public-methods
             legacy_messages=legacy_messages,
         )
         del legacy_messages
+
+        async def finish_cancelled() -> None:
+            await stream.aclose()
+            await recorder.finish("cancelled")
+
         try:
             await recorder.start()
             async for item in stream:
@@ -605,7 +610,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
                             )
                 yield item
         except (asyncio.CancelledError, GeneratorExit, KeyboardInterrupt):
-            await asyncio.shield(recorder.finish("cancelled"))
+            await run_async_to_completion(finish_cancelled())
             raise
         except BaseException as exc:
             error = {
@@ -615,10 +620,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
             await recorder.finish("failed", error=error)
             raise
         finally:
-            from ...plugins._events import observing
-
-            if observing():
-                await stream.aclose()
+            await stream.aclose()
         await recorder.finish("completed")
 
     async def finalize_turn_usage(

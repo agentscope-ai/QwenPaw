@@ -62,7 +62,7 @@ class Runtime:
     ) -> AsyncGenerator[Any, None]:
         """8-phase lifecycle orchestration."""
         request = self.normalize_request(request)
-        from ..schemas import AgentRequest
+        from ..schemas import AgentRequest, AgentResponse, RunStatus
 
         if (
             isinstance(request, AgentRequest)
@@ -79,13 +79,23 @@ class Runtime:
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
+        response_completed = False
+
+        def observe_completion(value: Any) -> Any:
+            nonlocal response_completed
+            if (
+                isinstance(value, AgentResponse)
+                and value.status == RunStatus.Completed
+            ):
+                response_completed = True
+            return value
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
             r = await hooks.run(Phase.PRE_DISPATCH, ctx)
             if r.action == HookAction.SHORT_CIRCUIT:
                 async for ev in envelope.from_msg(r.payload):
-                    yield ev
+                    yield observe_completion(ev)
                 return
             if r.action == HookAction.SKIP_AGENT:
                 skip_agent = True
@@ -96,14 +106,14 @@ class Runtime:
             cmd_msg = await cmd_registry.dispatch(text or "", ctx)
             if cmd_msg is not None:
                 async for ev in envelope.from_msg(cmd_msg):
-                    yield ev
+                    yield observe_completion(ev)
                 skip_agent = True
             else:
                 # --- [phase 2] POST_DISPATCH ---
                 r = await hooks.run(Phase.POST_DISPATCH, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
                     async for ev in envelope.from_msg(r.payload):
-                        yield ev
+                        yield observe_completion(ev)
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
                     skip_agent = True
@@ -113,7 +123,7 @@ class Runtime:
                 r = await hooks.run(Phase.PRE_AGENT_BUILD, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
                     async for ev in envelope.from_msg(r.payload):
-                        yield ev
+                        yield observe_completion(ev)
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
                     skip_agent = True
@@ -133,7 +143,7 @@ class Runtime:
                 r = await hooks.run(Phase.PRE_EXECUTE, ctx)
                 if r.action == HookAction.SHORT_CIRCUIT:
                     async for ev in envelope.from_msg(r.payload):
-                        yield ev
+                        yield observe_completion(ev)
                     skip_agent = True
                 elif r.action == HookAction.SKIP_AGENT:
                     skip_agent = True
@@ -172,13 +182,14 @@ class Runtime:
 
             # Finalize envelope (complete message + response).
             async for ev in envelope.finalize():
-                yield ev
+                yield observe_completion(ev)
 
         except GeneratorExit:
             # The consumer closed the stream; persist without yielding an
             # error envelope into a generator that is already closing.
-            ctx.error = asyncio.CancelledError()
-            await self._try_save_on_cancel(ctx)
+            if not response_completed:
+                ctx.error = asyncio.CancelledError()
+                await self._try_save_on_cancel(ctx)
             raise
         except (asyncio.CancelledError, KeyboardInterrupt) as e:
             ctx.error = e
@@ -278,7 +289,7 @@ class Runtime:
                 )
 
     async def _try_save_on_cancel(self, ctx: HookContext) -> None:
-        """Best-effort session save on cancellation.
+        """Persist session state on cancellation.
 
         Before snapshotting, any partial streaming content accumulated in
         the ``Envelope`` is injected into the agent's context so the
@@ -403,6 +414,7 @@ class Runtime:
                 ctx.session_id,
                 exc_info=True,
             )
+            raise
 
     # pylint: disable=too-many-branches
     @staticmethod

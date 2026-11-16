@@ -237,7 +237,6 @@ vi.mock("./sessionApi", async (importOriginal) => ({
   mergeHistoryMessages: (await importOriginal<typeof import("./sessionApi")>())
     .mergeHistoryMessages,
   default: {
-    loadUserMessageIndex: vi.fn(async () => []),
     loadUserMessageIndexPage: vi.fn(async () => ({ items: [], total: 0 })),
     onSessionIdResolved: null,
     onSessionRemoved: null,
@@ -272,7 +271,6 @@ vi.mock("./sessionApi", async (importOriginal) => ({
       messages: [],
       noMore: true,
     })),
-    loadNewerHistory: vi.fn(() => null),
     showLatestHistory: vi.fn(() => null),
     syncVisibleHistory: vi.fn(),
     setVisibleSession: vi.fn(),

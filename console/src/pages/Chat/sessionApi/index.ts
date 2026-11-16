@@ -1100,25 +1100,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     state.pages[0] = messages;
   }
 
-  /** Move one loaded page towards the newest messages without a request. */
-  loadNewerHistory(sessionId: string): {
-    messages: IAgentScopeRuntimeWebUIMessage[];
-    atLatest: boolean;
-    canLoadOlder: boolean;
-  } | null {
-    const backendId = this.getHistoryBackendId(sessionId);
-    const state = this.historyWindows.get(backendId);
-    if (!state || state.activeIndex === 0) return null;
-    state.activeIndex--;
-    const page = this.historyPages.get(backendId);
-    return {
-      messages: this.renderHistoryWindow(backendId),
-      atLatest: state.activeIndex === 0,
-      canLoadOlder:
-        state.activeIndex + 1 < state.pages.length || Boolean(page?.has_more),
-    };
-  }
-
   /** Restore the newest loaded page before starting or reconnecting a run. */
   showLatestHistory(
     sessionId: string,
@@ -1312,11 +1293,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         signal,
       )
     ).text;
-  }
-
-  async loadUserMessageIndex(sessionId: string, signal?: AbortSignal) {
-    return (await this.loadUserMessageIndexPage(sessionId, undefined, signal))
-      .items;
   }
 
   async loadUserMessageIndexPage(

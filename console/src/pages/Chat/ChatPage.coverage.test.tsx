@@ -271,7 +271,6 @@ vi.mock("./sessionApi", () => ({
       messages: [],
       noMore: true,
     })),
-    loadNewerHistory: vi.fn(() => null),
     showLatestHistory: vi.fn(() => null),
     syncVisibleHistory: vi.fn(),
     setVisibleSession: vi.fn(),
