@@ -112,7 +112,7 @@ describe("normalizeCjkEmphasis", () => {
     expect(normalizeCjkEmphasis("\\**内容。**后")).toBe("\\**内容。**后");
     expect(normalizeCjkEmphasis("\\\\**内容。**后")).toBe("\\\\**内容**。后");
     expect(normalizeCjkEmphasis("**内容。\\**后")).toBe("**内容。\\**后");
-    expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\**。后");
+    expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\。**后");
   });
 
   it("preserves matched repairs around unrelated unclosed delimiters", () => {
@@ -188,7 +188,9 @@ describe("normalizeCjkEmphasis guardrails", () => {
 
   it("does not create a new escape pair when punctuation moves", () => {
     expect(normalizeCjkEmphasis("**内容\\。**后")).toBe("**内容\\。**后");
-    expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\**。后");
+    // The backslash splits the pair, so the closing run never pairs with the
+    // opening one and the text stays untouched.
+    expect(normalizeCjkEmphasis("**内容\\\\。**后")).toBe("**内容\\\\。**后");
   });
 });
 

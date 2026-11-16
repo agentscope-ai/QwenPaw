@@ -25,7 +25,10 @@
  * Related: CommonMark discussion `commonmark/commonmark-spec#650`.
  */
 
-import { buildSyntaxMasks } from "./markdownSyntaxMask";
+import {
+  buildRendererMasks,
+  rewriteImprovesRendering,
+} from "./markdownRendererTokens";
 
 const CORE_PUNCTUATION = new Set([
   "。",
@@ -68,24 +71,12 @@ interface Replacement {
 export function normalizeCjkEmphasis(markdown: string): string {
   if (markdown.length === 0) return markdown;
 
-  const { block, protectedText, paragraphReset } =
-    buildProtectionMasks(markdown);
+  const { protectedText, paragraphReset } = buildRendererMasks(markdown);
   const replacements: Replacement[] = [];
   let delimiters: Delimiter[] = [];
-  let wasBlock = false;
 
   for (let index = 0; index < markdown.length; index++) {
     if (paragraphReset[index]) delimiters = [];
-
-    if (block[index]) {
-      if (!wasBlock) delimiters = [];
-      wasBlock = true;
-      continue;
-    }
-    if (wasBlock) {
-      delimiters = [];
-      wasBlock = false;
-    }
     if (protectedText[index]) continue;
 
     const character = markdown[index];
@@ -148,15 +139,12 @@ export function normalizeCjkEmphasis(markdown: string): string {
     copiedThrough = replacement.delimiterEnd;
   }
   output += markdown.slice(copiedThrough);
-  return output;
-}
 
-function buildProtectionMasks(markdown: string): {
-  block: Uint8Array;
-  protectedText: Uint8Array;
-  paragraphReset: Uint8Array;
-} {
-  return buildSyntaxMasks(markdown);
+  // Whether a moved punctuation run really closes emphasis is the renderer's
+  // call, not ours. Keep the rewrite only when the same configuration that
+  // draws the bubble reports a better result for the rewritten text, which also
+  // drops candidates whose validity depends on another block.
+  return rewriteImprovesRendering(markdown, output) ? output : markdown;
 }
 
 function countRun(
