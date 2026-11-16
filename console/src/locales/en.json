@@ -1,4 +1,43 @@
 {
+  "webApp": {
+    "cloud": "Cloud",
+    "bound": "Connected",
+    "addToHome": "Add to home screen",
+    "switchTarget": "Switch workspace",
+    "signOut": "Sign out of Web App",
+    "update": "Update"
+  },
+  "platformAccess": {
+    "account": "Platform account",
+    "bind": "Connect Platform",
+    "signIn": "Sign in to cloud",
+    "signOut": "Sign out of Platform",
+    "localIdentity": "Local account",
+    "cloudIdentity": "Cloud account",
+    "addToPhone": "Add to phone (Beta)",
+    "addToPhoneTitle": "Add to phone",
+    "betaNotice": "Beta feature. May be unstable.",
+    "notSignedIn": "Not signed in",
+    "connection": "Local node",
+    "online": "Online",
+    "offline": "Offline",
+    "offlineHint": "The node is offline. You can still add it to your phone.",
+    "retryBind": "Retry connection",
+    "bindingExpired": "This node binding is no longer valid. Disconnect it, then connect again.",
+    "disconnect": "Disconnect node",
+    "disconnectConfirm": "Disconnect this QwenPaw from Platform?",
+    "waitingLogin": "Complete Platform sign-in and authorization in the new window.",
+    "popupBlocked": "Allow pop-up windows, then sign in again.",
+    "bindFirst": "First sign in to Platform and connect this QwenPaw from the bottom-left account menu.",
+    "goToAccount": "Open account menu",
+    "qrConsent": "Scan to sign in to your full Platform account, including its cloud and connected nodes.",
+    "verifyPhone": "Match the digits on your phone, then confirm sign-in.",
+    "confirmPhone": "Confirm this phone",
+    "phoneConnected": "Phone signed in",
+    "installOnPhone": "Continue on your phone to add the app to your home screen.",
+    "expired": "This QR code has expired. Refresh it to scan again.",
+    "refreshQr": "Refresh QR code"
+  },
   "accessibility": {
     "skipToContent": "Skip to content"
   },

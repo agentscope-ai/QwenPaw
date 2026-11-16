@@ -59,6 +59,7 @@ from .api_models import (
 from ..user_assets.avatars import AvatarStore
 from ..user_assets.avatar_routes import avatar_router
 from .auth import HubAuthService, HubDatabaseBusyError, HubUser
+from .platform_access import HubPlatformConnections, mount_platform_routes
 from .bootstrap import get_hub_root
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
@@ -183,6 +184,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         credential_vault,
     )
+    platform_connections = HubPlatformConnections(
+        runtime_service.root_dir,
+        hub_auth,
+        runtime_service,
+        credential_vault,
+    )
     governance = GovernanceStore(runtime_service.registry.database_path)
     model_catalog = ModelCatalog(governance, credential_vault)
     model_budgets = TokenBudgetService(governance)
@@ -248,6 +255,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        platform_watch = asyncio.create_task(platform_connections.watch())
         try:
             await run_in_threadpool(model_gateway.recover)
             model_networks.clear()
@@ -260,6 +268,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
             async with model_listener.serve(bind_hosts):
                 yield
         finally:
+            platform_watch.cancel()
+            await asyncio.gather(platform_watch, return_exceptions=True)
             if docker_pulls is not None:
                 await run_in_threadpool(docker_pulls.close)
             await run_in_threadpool(runtime_service.close)
@@ -1583,6 +1593,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
         )
         return response
 
+    mount_platform_routes(
+        app,
+        platform_connections,
+        require_user,
+        ensure_personal_runtime,
+    )
+
     @app.api_route(
         "/api/{path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
@@ -1593,6 +1610,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
+        if path.startswith("remote-access/"):
+            raise HTTPException(
+                status_code=404,
+                detail="Unknown Hub operation",
+            )
         require_model_route(path, request.method)
         record = await ensure_personal_runtime(user)
         require_session_runtime(request, record)
@@ -1647,9 +1669,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
         headers["X-QwenPaw-Runtime-Token"] = internal_token
         session = getattr(request.state, "pawapp_session", None)
         headers.update(
-            {PAWAPP_SCOPE_HEADER: quote(str(session["app"]), safe="")}
-            if session is not None
-            else {},
+            (
+                {PAWAPP_SCOPE_HEADER: quote(str(session["app"]), safe="")}
+                if session is not None
+                else {}
+            ),
         )
         callback_route = oauth_callback_route(request.method, path)
         if callback_route:

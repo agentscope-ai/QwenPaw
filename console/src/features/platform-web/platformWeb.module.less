@@ -1,0 +1,27 @@
+.workspace {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 180px;
+  height: var(--app-hit-desktop);
+  min-height: var(--app-hit-desktop);
+  svg {
+    flex-shrink: 0;
+  }
+  @media (max-width: 768px) {
+    width: var(--app-hit-touch);
+    min-width: var(--app-hit-touch);
+    height: var(--app-hit-touch);
+    padding: 0;
+    .workspaceName,
+    .workspaceChevron {
+      display: none;
+    }
+  }
+}
+.workspaceName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,4 +1,5 @@
 import { normalizeConsoleBasename } from "./consoleBasename";
+import { consoleHost } from "../features/platform-web/context";
 
 interface LocationLike {
   pathname: string;
@@ -7,7 +8,7 @@ interface LocationLike {
 }
 
 const CONSOLE_BASENAME = normalizeConsoleBasename(
-  import.meta.env.VITE_CONSOLE_BASENAME,
+  consoleHost?.basename ?? import.meta.env.VITE_CONSOLE_BASENAME,
 );
 const OS_PAW_APP_STATE_KEY = "osPawAppId";
 

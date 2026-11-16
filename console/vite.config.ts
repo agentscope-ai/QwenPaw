@@ -38,7 +38,9 @@ export default defineConfig(({ command, mode }) => {
     base:
       !desktop && consoleBasename
         ? `${normalizeConsoleBasename(consoleBasename)}/`
-        : "/",
+        : desktop
+        ? "/"
+        : "./",
     define: {
       VITE_API_BASE_URL: JSON.stringify(desktop ? "" : apiBaseUrl),
       TOKEN: JSON.stringify(env.TOKEN || ""),
@@ -47,6 +49,19 @@ export default defineConfig(({ command, mode }) => {
     plugins: [
       react(),
       startupMonitorPlugin(),
+      {
+        name: "console-host-document",
+        transformIndexHtml(html: string) {
+          const base =
+            !desktop && consoleBasename
+              ? `${normalizeConsoleBasename(consoleBasename)}/`
+              : "/";
+          return html.replace(
+            "<head>",
+            `<head><base href="${base}"><meta name="qwenpaw-console-protocol" content="1">`,
+          );
+        },
+      } satisfies Plugin,
       ...(desktop
         ? [
             {
