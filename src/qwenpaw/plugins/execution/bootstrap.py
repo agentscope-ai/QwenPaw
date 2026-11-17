@@ -37,6 +37,7 @@ _STARTUP_ENVIRONMENT = (
             "PROCESSOR_ARCHITECTURE",
             "PROCESSOR_ARCHITEW6432",
             "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
             "SYSTEMDRIVE",
             "SYSTEMROOT",
             "TEMP",
@@ -53,7 +54,11 @@ _STARTUP_ENVIRONMENT = (
 )
 _AMBIENT_IMPORT_ENVIRONMENT = frozenset({"PYTHONHOME", "PYTHONPATH"})
 _PRIVATE_ENVIRONMENT_CONTROL = frozenset(
-    name.upper() for name in _STARTUP_ENVIRONMENT
+    # SSL_CERT_DIR was already a legal explicit plugin setting. Inheriting
+    # the host default must not newly prohibit that existing override.
+    name.upper()
+    for name in _STARTUP_ENVIRONMENT
+    if name != "SSL_CERT_DIR"
 ) | frozenset(
     {
         "HOME",

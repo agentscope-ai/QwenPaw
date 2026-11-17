@@ -821,6 +821,49 @@ async def test_put_transcription_provider_accepts_empty_unset() -> None:
     assert config.agents.transcription_provider_id == ""
 
 
+async def test_put_transcription_model_trims_and_persists() -> None:
+    config = SimpleNamespace(
+        agents=SimpleNamespace(transcription_model="whisper-1"),
+    )
+
+    async def fake_run_sync_io(fn, *args, **kwargs):
+        return fn(*args)
+
+    with patch.object(ws, "run_sync_io", new=fake_run_sync_io):
+        with patch.object(
+            ws,
+            "mutate_config",
+            lambda mutator: mutator(config),
+        ):
+            result = await ws.put_transcription_model(
+                {"transcription_model": "  FunAudioLLM/SenseVoiceSmall  "},
+            )
+    assert result == {"transcription_model": "FunAudioLLM/SenseVoiceSmall"}
+    assert config.agents.transcription_model == "FunAudioLLM/SenseVoiceSmall"
+
+
+async def test_put_transcription_model_accepts_empty_reset() -> None:
+    """``""`` resets to the built-in default and is not rejected."""
+    config = SimpleNamespace(
+        agents=SimpleNamespace(transcription_model="whisper-large-v3"),
+    )
+
+    async def fake_run_sync_io(fn, *args, **kwargs):
+        return fn(*args)
+
+    with patch.object(ws, "run_sync_io", new=fake_run_sync_io):
+        with patch.object(
+            ws,
+            "mutate_config",
+            lambda mutator: mutator(config),
+        ):
+            result = await ws.put_transcription_model(
+                {"transcription_model": ""},
+            )
+    assert result == {"transcription_model": ""}
+    assert config.agents.transcription_model == ""
+
+
 async def test_get_audio_mode_reads_global_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -844,6 +887,21 @@ async def test_get_transcription_provider_type_reads_global_config(
     )
     assert await ws.get_transcription_provider_type() == {
         "transcription_provider_type": "whisper_api",
+    }
+
+
+async def test_get_transcription_model_reads_global_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        ws,
+        "load_config",
+        lambda: SimpleNamespace(
+            agents=SimpleNamespace(transcription_model="whisper-large-v3"),
+        ),
+    )
+    assert await ws.get_transcription_model() == {
+        "transcription_model": "whisper-large-v3",
     }
 
 

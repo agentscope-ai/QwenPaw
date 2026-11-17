@@ -25,6 +25,8 @@ from urllib.parse import parse_qs, urlencode, urlsplit
 import httpx
 
 from . import community_store as store
+from . import community_credentials as credentials
+from ..utils.io_utils import run_sync_io
 
 PLATFORM = "https://platform.agentscope.io"
 AUTH_TTL = 300
@@ -364,6 +366,7 @@ class CommunityConnectionService:
         self._server: asyncio.Server | None = None
         self._expiry_task: asyncio.Task | None = None
         self._closed = asyncio.Event()
+        self._credential_revision = 0
 
     async def _request(
         self,
@@ -400,6 +403,12 @@ class CommunityConnectionService:
                     headers=headers,
                     **kwargs,
                 )
+            if path == "/api/cli/v1/auth/login" and response.status_code in {
+                400,
+                401,
+                403,
+            }:
+                raise CommunityConnectionError("credentials_rejected", 409)
             if response.status_code == 401:
                 raise CommunityConnectionError("authorization_expired", 401)
             if response.status_code == 403:
@@ -431,12 +440,14 @@ class CommunityConnectionService:
                 502,
             ) from exc
 
-    async def status(self, *, local: bool) -> dict:
+    async def status(
+        self,
+        *,
+        local: bool,
+    ) -> dict:
         connection = await store.get_connection()
         sync = await store.get_sync_state()
         reason = "not_configured" if not self.config.configured else None
-        if reason is None and not local:
-            reason = "unsupported_remote"
         pending = self._flow and self._flow["status"] in {
             "pending",
             "exchanging",
@@ -446,11 +457,21 @@ class CommunityConnectionService:
             status = reason or ("authorizing" if pending else "disconnected")
         elif sync.get("last_error") == "authorization_expired":
             status = "expired"
+        credential_status = {}
+        if self.config.configured:
+            saved = await run_sync_io(credentials.load)
+            credential_status = {
+                "saved_account": saved["account"],
+                "password_saved": bool(saved["password"]),
+                "credential_state": saved["state"],
+            }
         return {
+            **credential_status,
+            "password_login_supported": self.config.configured,
             "status": status,
             "configured": self.config.configured,
             "connected": connection is not None,
-            "local_login_supported": reason is None,
+            "local_login_supported": local and self.config.configured,
             "connection_available": reason is None,
             "unavailable_reason": reason,
             "messages_enabled": self.config.configured
@@ -505,6 +526,7 @@ class CommunityConnectionService:
         if not local:
             raise CommunityConnectionError("unsupported_remote", 409)
         async with self._lock:
+            self._credential_revision += 1
             await self._stop_flow("cancelled")
             self._closed.clear()
             state, verifier, flow_id = (
@@ -709,6 +731,9 @@ class CommunityConnectionService:
                     connection,
                     authorization_completed=True,
                 )
+                saved = await run_sync_io(credentials.load)
+                if saved["password"]:
+                    await run_sync_io(credentials.pause)
                 flow["status"] = "completed"
                 await self._stop_flow("completed")
         except CommunityConnectionError as exc:
@@ -738,6 +763,146 @@ class CommunityConnectionService:
                 # We still validate its token against /me before connecting.
                 pass
         return await self._connection_from_tokens(tokens)
+
+    async def _password_login(self, account: str, password: str) -> dict:
+        try:
+            tokens = await self._request(
+                "POST",
+                "/api/cli/v1/auth/login",
+                json={"account": account, "password": password},
+            )
+        except CommunityConnectionError as exc:
+            if exc.status_code in {400, 401, 403}:
+                raise CommunityConnectionError(
+                    "credentials_rejected",
+                    409,
+                ) from exc
+            raise
+        connection = await self._finalize_login(tokens)
+        connection["password_account"] = account
+        return connection
+
+    async def connect_password(self, account: str, password: str) -> dict:
+        """Validate first; a rejected replacement leaves the old login intact."""
+        if not self.config.configured:
+            raise CommunityConnectionError("not_configured", 409)
+        account = account.strip()
+        async with self._lock:
+            saved = await run_sync_io(credentials.load)
+            if not password and account == saved["account"]:
+                password = saved["password"]
+            if (
+                not account
+                or not password
+                or len(account) > 320
+                or len(password) > 4096
+            ):
+                raise CommunityConnectionError("credentials_required", 422)
+            self._credential_revision += 1
+            revision = self._credential_revision
+        connection = await self._password_login(account, password)
+        try:
+            async with self._lock:
+                if (
+                    revision != self._credential_revision
+                    or self._closed.is_set()
+                ):
+                    raise CommunityConnectionError("connection_changed", 409)
+                await self._stop_flow("cancelled")
+                await run_sync_io(credentials.save, account, password)
+                await store.save_connection(
+                    connection,
+                    authorization_completed=True,
+                )
+        except CommunityConnectionError:
+            await self._revoke_token(connection)
+            raise
+        return {"connected": True}
+
+    async def clear_credentials(self) -> dict:
+        """Forget saved password and disable deployment-env auto-login."""
+        async with self._lock:
+            self._credential_revision += 1
+            await run_sync_io(credentials.clear)
+        return {"cleared": True}
+
+    async def _password_reconnect(
+        self,
+        connection: dict | None = None,
+    ) -> dict | None:
+        revision = self._credential_revision
+        saved = await run_sync_io(credentials.load)
+        if (
+            saved["state"] != "active"
+            or not saved["account"]
+            or not saved["password"]
+        ):
+            return None
+        if (
+            connection
+            and connection.get("password_account") != saved["account"]
+        ):
+            return None
+        try:
+            renewed = await self._password_login(
+                saved["account"],
+                saved["password"],
+            )
+        except CommunityConnectionError as exc:
+            if exc.code in {
+                "credentials_rejected",
+                "permission_not_granted",
+                "authorization_expired",
+            }:
+                async with self._lock:
+                    if revision == self._credential_revision:
+                        await run_sync_io(credentials.pause, rejected=True)
+            raise
+        try:
+            async with self._lock:
+                if (
+                    revision != self._credential_revision
+                    or self._closed.is_set()
+                ):
+                    raise CommunityConnectionError("connection_changed", 409)
+                current = await store.get_connection()
+                if connection:
+                    if (
+                        not current
+                        or current["connection_id"]
+                        != connection["connection_id"]
+                    ):
+                        raise CommunityConnectionError(
+                            "connection_changed",
+                            409,
+                        )
+                    if renewed["account_id"] != current["account_id"]:
+                        await run_sync_io(credentials.pause, rejected=True)
+                        raise CommunityConnectionError("account_changed", 409)
+                    renewed["connection_id"] = current["connection_id"]
+                elif current:
+                    raise CommunityConnectionError("connection_changed", 409)
+                await store.save_connection(
+                    renewed,
+                    authorization_completed=True,
+                )
+        except CommunityConnectionError:
+            await self._revoke_token(renewed)
+            raise
+        return renewed
+
+    async def ensure_password_connection(self) -> None:
+        """Resume a saved/env login after restart, unless explicitly paused."""
+        if not self.config.configured:
+            return
+        async with self._refresh_lock:
+            if self._flow and self._flow["status"] in {
+                "pending",
+                "exchanging",
+            }:
+                return
+            if not await store.get_connection():
+                await self._password_reconnect()
 
     async def _connection_from_tokens(
         self,
@@ -815,14 +980,32 @@ class CommunityConnectionService:
                 not expires or expires > time.time() + 60
             ):
                 return connection
-            if not connection.get("refresh_token"):
-                raise CommunityConnectionError("authorization_expired", 401)
-            tokens = await self._request(
-                "POST",
-                "/api/cli/v1/auth/refresh",
-                json={"refresh_token": connection["refresh_token"]},
-            )
-            refreshed = await self._connection_from_tokens(tokens, connection)
+            try:
+                if not connection.get("refresh_token"):
+                    raise CommunityConnectionError(
+                        "authorization_expired",
+                        401,
+                    )
+                tokens = await self._request(
+                    "POST",
+                    "/api/cli/v1/auth/refresh",
+                    json={"refresh_token": connection["refresh_token"]},
+                )
+                refreshed = await self._connection_from_tokens(
+                    tokens,
+                    connection,
+                )
+                if connection.get("password_account"):
+                    refreshed["password_account"] = connection[
+                        "password_account"
+                    ]
+            except CommunityConnectionError as exc:
+                if exc.code != "authorization_expired":
+                    raise
+                renewed = await self._password_reconnect(connection)
+                if renewed is None:
+                    raise
+                return renewed
             async with self._lock:
                 current = await store.get_connection()
                 if (
@@ -874,6 +1057,10 @@ class CommunityConnectionService:
 
     async def disconnect(self) -> dict:
         async with self._lock:
+            self._credential_revision += 1
+            saved = await run_sync_io(credentials.load)
+            if saved["password"]:
+                await run_sync_io(credentials.pause)
             await self._stop_flow("cancelled")
             old = await store.get_connection()
             await store.disconnect()
@@ -1150,6 +1337,7 @@ class CommunityConnectionService:
         while not self._closed.is_set():
             retry_after: float | None = None
             try:
+                await self.ensure_password_connection()
                 if self.config.configured and self.config.messages_enabled:
                     await self.sync_once()
                 failures = 0

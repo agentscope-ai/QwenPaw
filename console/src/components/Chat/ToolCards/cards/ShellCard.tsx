@@ -16,13 +16,38 @@ export interface ShellCardProps {
   isStreaming?: boolean;
 }
 
+const COMMAND_FALLBACK_MAX_LENGTH = 120;
+const COMMAND_FALLBACK_SEPARATOR = " … ";
+
+const compactCommandFallback = (command: string): string => {
+  if (command.length <= COMMAND_FALLBACK_MAX_LENGTH) {
+    return command;
+  }
+
+  const availableLength =
+    COMMAND_FALLBACK_MAX_LENGTH - COMMAND_FALLBACK_SEPARATOR.length;
+  const headLength = Math.ceil(availableLength / 2);
+  const tailLength = Math.floor(availableLength / 2);
+  return `${command.slice(
+    0,
+    headLength,
+  )}${COMMAND_FALLBACK_SEPARATOR}${command.slice(-tailLength)}`;
+};
+
 const ShellCard: React.FC<ShellCardProps> = ({ content, isStreaming }) => {
   const { t } = useTranslation();
   const command =
     (content.params?.command as string) ||
     (content.params?.cmd as string) ||
     "";
-  const title = command ? t("tool.shell", { command }) : t("tool.shellDefault");
+  const intent =
+    (content.params?.title as string) || compactCommandFallback(command);
+  const isCompleted = content.status === "done";
+  const title = intent
+    ? t(isCompleted ? "tool.shellCompleted" : "tool.shell", {
+        command: intent,
+      })
+    : t(isCompleted ? "tool.shellCompletedDefault" : "tool.shellDefault");
 
   if (content.status === "error") {
     return (

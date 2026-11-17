@@ -3,7 +3,7 @@
 # Unlike plugins-release.yml (which publishes ALL plugins on every main
 # QwenPaw GitHub Release), this workflow is driven by the qwenpaw-data plugin's
 # own version: it fires when plugins/apps/qwenpaw-data/plugin.json changes, and
-# only uploads to OSS when that version is not yet on the CDN. Can also be
+# verifies immutable content before uploading to OSS. Can also be
 # run manually via the Actions tab (with an optional force flag).
 #
 # The full Data console is a reviewed snapshot tracked in this repository.
@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       force:
-        description: "Re-upload even if this version already exists on OSS"
+        description: "Rebuild and verify an existing version; different content is rejected"
         required: false
         type: boolean
         default: false
@@ -40,6 +40,7 @@ concurrency:
   # Shared with plugins-release.yml so index merges never run concurrently.
   group: plugins-release
   cancel-in-progress: false
+  queue: max
 
 env:
   PLUGIN_DIR: plugins/apps/qwenpaw-data
@@ -123,8 +124,8 @@ jobs:
             exit 1
           fi
           if [[ "$published" == "true" ]]; then
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
-            echo "${file_id} already on CDN; skipping upload."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            echo "${file_id} already on CDN; rebuilding to verify immutable content."
           else
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
             echo "${file_id} not on CDN yet; will publish."
@@ -260,61 +261,22 @@ jobs:
             -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
             -L CH
 
-      - name: Sync qwenpaw-data plugin zip to OSS (long-cache, immutable)
+      - name: Verify and publish immutable plugin ZIPs
+        uses: ./.github/actions/check-plugin-release
+        with:
+          artifacts-root: dist/plugins
+          publish: "true"
         env:
-          FORCE: ${{ github.event.inputs.force }}
-        run: |
-          shopt -s nullglob
-          while IFS= read -r -d '' f; do
-            rel="${f#dist/plugins/}"
-            # Versioned zips are advertised as immutable; never overwrite
-            # an existing object except on an explicit manual force run.
-            # A stat failure other than NoSuchKey aborts instead of
-            # risking an overwrite.
-            if [[ "$FORCE" != "true" ]]; then
-              if stat_out=$(ossutil stat \
-                "oss://qwenpaw-download/files/plugins/${rel}" 2>&1); then
-                echo "Skipping ${rel}: already published and immutable."
-                continue
-              elif ! grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
-                echo "ERROR: could not stat files/plugins/${rel} on OSS:" >&2
-                echo "$stat_out" >&2
-                exit 1
-              fi
-            fi
-            echo "Uploading $f -> files/plugins/${rel}"
-            ossutil cp "$f" \
-              "oss://qwenpaw-download/files/plugins/${rel}" \
-              --acl public-read \
-              --force \
-              --meta "Cache-Control:public, max-age=31536000, immutable"
-          done < <(find "dist/plugins/apps/${PLUGIN_ID}" -type f -name '*.zip' -print0 2>/dev/null || true)
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
 
       - name: Merge historical versions into index
         run: |
-          # Fail closed: a fetch error must never masquerade as "no index
-          # yet" and shrink the authoritative file list to this plugin.
-          # Only a confirmed NoSuchKey/404 may bootstrap an empty index.
-          if stat_out=$(ossutil stat \
-            "oss://qwenpaw-download/metadata/plugins/index.json" 2>&1); then
-            ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
-              existing-index.json
-            python3 -c 'import json; json.load(open("existing-index.json"))' || {
-              echo "ERROR: existing plugins index is not valid JSON." >&2
-              exit 1
-            }
-          elif grep -qiE 'NoSuchKey|StatusCode=404' <<< "$stat_out"; then
-            echo "No plugins index on OSS yet; bootstrapping an empty one."
-            echo '{}' > existing-index.json
-          else
-            echo "ERROR: could not stat the plugins index on OSS:" >&2
-            echo "$stat_out" >&2
-            exit 1
-          fi
-
           python3 scripts/pack/merge_plugin_index.py \
             --new dist/plugins/index.json \
-            --old existing-index.json \
+            --old dist/plugins/.published-index.json \
             --out dist/plugins/index.json
 
       - name: Upload plugins index (short-cache)

@@ -13,6 +13,8 @@ import CommunitySettings from "./index";
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
   start: vi.fn(),
+  connectPassword: vi.fn(),
+  clearPassword: vi.fn(),
   cancel: vi.fn(),
   disconnect: vi.fn(),
   setSync: vi.fn(),
@@ -80,6 +82,87 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("community account settings", () => {
+  it("shows password login without local browser authorization and clears the password input", async () => {
+    mocks.status.mockResolvedValue({
+      ...disconnected,
+      password_login_supported: true,
+      local_login_supported: false,
+    });
+    mocks.connectPassword.mockResolvedValue({ connected: true });
+    render(<CommunitySettings />);
+    const account = await screen.findByLabelText("community.loginAccount");
+    expect(screen.queryByText("community.unsupported_remote")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "community.connect" }),
+    ).toBeNull();
+    const password = screen.getByLabelText("community.loginPassword");
+    const submit = screen.getByRole("button", {
+      name: "community.saveAndConnect",
+    });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(account, { target: { value: "alice@example.com" } });
+    fireEvent.change(password, { target: { value: "test-password" } });
+    fireEvent.click(submit);
+    await waitFor(() =>
+      expect(mocks.connectPassword).toHaveBeenCalledWith(
+        "alice@example.com",
+        "test-password",
+      ),
+    );
+    await waitFor(() => expect((password as HTMLInputElement).value).toBe(""));
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("keeps saved passwords private and requires a new password when switching accounts", async () => {
+    mocks.status.mockResolvedValue({
+      ...connected,
+      password_login_supported: true,
+      saved_account: "alice@example.com",
+      password_saved: true,
+    });
+    render(<CommunitySettings />);
+    const account = await screen.findByLabelText("community.loginAccount");
+    const password = screen.getByLabelText("community.loginPassword");
+    const submit = screen.getByRole("button", {
+      name: "community.saveAndConnect",
+    });
+    expect((password as HTMLInputElement).value).toBe("");
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.change(account, { target: { value: "bob@example.com" } });
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(password, { target: { value: "replacement" } });
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => {
+      poll();
+    });
+    expect((account as HTMLInputElement).value).toBe("bob@example.com");
+  });
+
+  it("retains the existing account after a rejected replacement", async () => {
+    mocks.status.mockResolvedValue({
+      ...connected,
+      password_login_supported: true,
+      saved_account: "alice@example.com",
+      password_saved: true,
+    });
+    mocks.connectPassword.mockRejectedValue(new Error("credentials_rejected"));
+    render(<CommunitySettings />);
+    await screen.findByLabelText("community.loginAccount");
+    const password = screen.getByLabelText("community.loginPassword");
+    fireEvent.change(password, { target: { value: "wrong" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: "community.saveAndConnect" }),
+    );
+    await waitFor(() =>
+      expect(mocks.error).toHaveBeenCalledWith(
+        "communityErrors.credentialsRejected",
+      ),
+    );
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect((password as HTMLInputElement).value).toBe("");
+    expect(mocks.disconnect).not.toHaveBeenCalled();
+  });
+
   it("disables login until a supported connection is configured", async () => {
     mocks.status.mockResolvedValue({
       ...disconnected,

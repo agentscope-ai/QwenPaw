@@ -36,7 +36,6 @@ export const SETTINGS_SEARCH_KEYS: Record<string, string[]> = {
     "cronJobs.saveResultToInbox",
     "cronJobs.silentDelivery",
     "cronJobs.runtimeShareSession",
-    "cronJobs.runtimeMaxConcurrency",
     "cronJobs.runtimeTimeoutSeconds",
     "cronJobs.runtimeMisfireGraceSeconds",
   ],
@@ -318,7 +317,6 @@ const CRON_SEARCH_TABS: Record<string, string> = {
   "cronJobs.saveResultToInbox": "delivery",
   "cronJobs.silentDelivery": "delivery",
   "cronJobs.runtimeShareSession": "runtime",
-  "cronJobs.runtimeMaxConcurrency": "runtime",
   "cronJobs.runtimeTimeoutSeconds": "runtime",
   "cronJobs.runtimeMisfireGraceSeconds": "runtime",
 };

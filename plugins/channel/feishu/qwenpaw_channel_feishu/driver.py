@@ -111,6 +111,8 @@ class FeishuDriver(SharedResponseDriver):
             ready.set()
 
     async def _supervise(self):
+        import logging
+
         delay = 1.0
         try:
             while not self._stopping:
@@ -118,13 +120,23 @@ class FeishuDriver(SharedResponseDriver):
                 self._connected = False
                 self._connection_generation += 1
                 await self._context.set_platform_state("disconnected")
-                await self._platform.disconnect()
                 while not self._stopping:
                     await asyncio.sleep(delay)
+                    if self._stopping:
+                        break
                     try:
+                        # Do not reconnect until the previous connection is
+                        # fully cleaned up. Cleanup failures need backoff too.
+                        await self._platform.disconnect()
+                        if self._stopping:
+                            break
                         await self._connect()
                     except Exception:
-                        await self._platform.disconnect()
+                        logging.getLogger(__name__).warning(
+                            "Feishu reconnect cleanup or connection failed; "
+                            "retrying",
+                            exc_info=True,
+                        )
                         delay = min(30.0, delay * 2)
                     else:
                         delay = 1.0

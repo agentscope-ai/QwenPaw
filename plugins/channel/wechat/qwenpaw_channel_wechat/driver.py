@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.models import InboundEvent
@@ -17,6 +18,8 @@ from qwenpaw.channel_protocol.shared_response_driver import (
 )
 from qwenpaw.channel_protocol.targets import decode_reply_target
 from .errors import WeChatDeliveryError
+
+logger = logging.getLogger(__name__)
 
 
 class WeChatDriver(SharedResponseDriver):
@@ -197,6 +200,18 @@ class WeChatDriver(SharedResponseDriver):
         try:
             await platform.send_parts(route, params.content_parts)
         except WeChatDeliveryError as exc:
+            logger.warning(
+                "WeChat delivery failed: delivery_id=%s reason=%s "
+                "side_effect_possible=%s error_type=%s",
+                params.delivery_id,
+                exc.reason_code,
+                exc.side_effect_possible,
+                (
+                    type(exc.__cause__).__name__
+                    if exc.__cause__
+                    else type(exc).__name__
+                ),
+            )
             if exc.reason_code == "CONTEXT_TOKEN_INVALID":
                 self._routes.record_delivery(
                     params.to_handle,

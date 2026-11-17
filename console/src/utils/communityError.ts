@@ -2,6 +2,9 @@
 export function communityErrorKey(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || "");
   const codes: Record<string, string> = {
+    credentials_rejected: "credentialsRejected",
+    credentials_required: "credentialsRequired",
+    password_login_unavailable: "passwordUnavailable",
     authorization_expired: "expired",
     community_login_required: "loginRequired",
     not_connected: "loginRequired",

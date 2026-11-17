@@ -27,6 +27,7 @@ from .models import (
     ImportSelection,
     MigrationPlan,
 )
+from .providers import require_harness_plugin
 from .selection import (
     PLAN_SELECTION_FIELDS as _TYPE_FIELDS,
     validate_plan_selection,
@@ -131,6 +132,8 @@ class PortabilityImportJobManager:
             item not in _SUPPORTED_SOURCES for item in normalized
         ):
             raise ValueError("sources must contain codex or qoder")
+        for source in normalized:
+            require_harness_plugin(source)
         job_id = f"import-{uuid4().hex}"
         snapshot = ImportRun(
             job_id=job_id,
@@ -170,6 +173,8 @@ class PortabilityImportJobManager:
         }
         if set(selections) != ready:
             raise ValueError("selection must cover every detected source")
+        for source in selections:
+            require_harness_plugin(source)
         for source, selection in selections.items():
             validate_plan_selection(live.plans[source], selection)
         if not any(
@@ -223,6 +228,8 @@ class PortabilityImportJobManager:
         providers = {item.source: item for item in previous.snapshot.providers}
         if not selected_sources <= set(providers):
             raise ValueError("retry source is not part of the original import")
+        for source in selections:
+            require_harness_plugin(source)
         for source, selection in selections.items():
             self._validate_retry_selection(providers[source], selection)
         retry_id = f"import-{uuid4().hex}"

@@ -17,9 +17,12 @@ import {
   uploadPlugin,
   uninstallPlugin,
   fetchPluginStatus,
+  setPluginEnabled,
+  repairPluginDependencies,
 } from "./plugin";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import { subscribeToPluginChanges } from "../../utils/pluginChangeEvents";
 
 interface MockResponseOptions {
   ok: boolean;
@@ -180,7 +183,7 @@ describe("plugin module", () => {
     });
   });
 
-  it("uploadPlugin posts FormData and returns json on success", async () => {
+  it("uploadPlugin replaces a local ZIP with force and preserves its FormData file", async () => {
     const res = { id: "p1", name: "n" };
     global.fetch = vi
       .fn()
@@ -195,10 +198,45 @@ describe("plugin module", () => {
       string,
       RequestInit,
     ];
-    expect(url).toBe("http://test/plugins/upload");
+    expect(url).toBe("http://test/plugins/upload?force=true");
     expect(init.method).toBe("POST");
     expect(init.body).toBeInstanceOf(FormData);
     expect((init.body as FormData).get("file")).toBe(file);
+  });
+
+  it("uploadPlugin interrupts a busy replacement only after explicit confirmation", async () => {
+    const installed = { id: "p1", loaded: true };
+    const file = new File(["zip"], "p.zip", { type: "application/zip" });
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({
+          ok: false,
+          status: 409,
+          json: { detail: { code: "plugin_busy", can_interrupt: true } },
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, json: installed }),
+      );
+
+    const pending = uploadPlugin(file);
+    await vi.waitFor(() => expect(Modal.confirm).toHaveBeenCalledOnce());
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [firstUrl, firstInit] = vi.mocked(fetch).mock.calls[0];
+    expect(firstUrl).toBe("http://test/plugins/upload?force=true");
+    expect(firstInit?.body).toBeInstanceOf(FormData);
+    expect((firstInit?.body as FormData).get("file")).toBe(file);
+
+    await vi.mocked(Modal.confirm).mock.calls[0][0].onOk?.();
+    expect(await pending).toEqual(installed);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const [retryUrl, retryInit] = vi.mocked(fetch).mock.calls[1];
+    expect(retryUrl).toBe(
+      "http://test/plugins/upload?force=true&interrupt_tasks=true",
+    );
+    expect(retryInit?.body).toBeInstanceOf(FormData);
+    expect((retryInit?.body as FormData).get("file")).toBe(file);
   });
 
   it("uninstallPlugin resolves void on success and DELETEs by id", async () => {
@@ -211,6 +249,48 @@ describe("plugin module", () => {
       method: "DELETE",
       headers: {},
     });
+  });
+
+  it("enables or explicitly repairs a plugin and announces each change", async () => {
+    const enabled = { id: "harness/codex", enabled: true, loaded: true };
+    const repaired = {
+      id: "harness/codex",
+      status: "active",
+      enabled: true,
+      diagnostics: [],
+    };
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, json: enabled }),
+      )
+      .mockResolvedValueOnce(
+        mockResponse({ ok: true, status: 200, json: repaired }),
+      );
+    const changed = vi.fn();
+    const unsubscribe = subscribeToPluginChanges(changed);
+    try {
+      await expect(setPluginEnabled("harness/codex", true)).resolves.toEqual(
+        enabled,
+      );
+      await expect(repairPluginDependencies("harness/codex")).resolves.toEqual(
+        repaired,
+      );
+    } finally {
+      unsubscribe();
+    }
+    expect(fetch).toHaveBeenCalledWith(
+      "http://test/plugins/harness%2Fcodex/enabled",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ enabled: true }),
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "http://test/plugins/harness%2Fcodex/repair-dependencies",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(changed).toHaveBeenCalledTimes(2);
   });
 
   it("uninstallPlugin throws fallback message on failure", async () => {
@@ -351,6 +431,7 @@ describe("dependency upgrade protocol", () => {
   it.each([
     ["path install", () => installPlugin("/retained/matrix")],
     ["ZIP upload", () => uploadPlugin(new File(["zip"], "matrix.zip"))],
+    ["dependency repair", () => repairPluginDependencies("matrix")],
   ])(
     "%s retains machine-readable confirmation and the exact candidate",
     async (_, request) => {

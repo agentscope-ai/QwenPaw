@@ -539,7 +539,7 @@ class ChannelBackend:
             if (
                 metadata_before != metadata_after
                 or versions != snapshot.versions
-                or view.warnings != snapshot.warnings
+                or set(view.warnings) != set(snapshot.warnings)
             ):
                 raise RuntimeError("DEPENDENCY_ENVIRONMENT_IDENTITY_CHANGED")
             if _canonical_dependency_roots(

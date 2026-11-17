@@ -58,6 +58,29 @@ completes. Use the original service manager to start it afterward.
 
 ## Coordination state directory
 
+### Interrupted additive installations
+
+Online installations that only add packages retain a signed recovery record
+under the coordination root's `additions/<id>/` directory. On installation
+retry, Repair, or cold startup, QwenPaw verifies the recorded files and reruns
+dependency verification before removing that operation's repair marker.
+Normal startup without a marker does not scan package files.
+
+If verification cannot complete, preserve the record and marker. The retained
+standard-library worker is also usable while importing QwenPaw is blocked:
+
+```sh
+/absolute/python -I -S /absolute/state/additions/<id>/worker/dependency_recovery.py /absolute/site-packages
+```
+
+For a partial installation, stop every consumer of that environment through
+the original service manager first. Append `--rollback` to remove only the
+recorded additions whose bytes still match the retained evidence, then retry
+installation normally. The worker refuses rollback while consumers remain
+active or recorded files have changed. Never apply this command to an old
+plain-text marker without a matching signed record. Shared replacement
+transactions continue to use their own retained `dependency_worker.py` above.
+
 Reader leases, admission gates and maintenance markers live under one
 coordination root: `<startup home>/.qwenpaw/dependency-environments`, where
 the startup home is the account's passwd home, or `$HOME` when the passwd

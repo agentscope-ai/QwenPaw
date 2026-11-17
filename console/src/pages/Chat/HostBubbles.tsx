@@ -36,6 +36,8 @@ import {
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
+import { AlertTriangle } from "lucide-react";
+import { hasTruncatedModelOutput } from "./completionNotice";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { useEffectiveFontSize } from "@/contexts/FontSizeContext";
 import {
@@ -101,18 +103,25 @@ const HostMessage = React.memo(function HostMessage({
         switch (item.type) {
           case AgentScopeRuntimeContentType.TEXT:
             return (
-              <AssistantMarkdown
+              <div
                 key={index}
-                messageId={`${data.id}:${index}`}
-                content={item.text}
-                cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
-                // Native text deltas omit content.status; the message owns
-                // their lifecycle. Keep the legacy Markdown cursor separate.
-                isStreaming={
-                  (item.status ?? data.status) ===
-                  AgentScopeRuntimeRunStatus.InProgress
+                className={styles.quoteResponse}
+                data-quote-response={
+                  data.role === "assistant" ? "true" : undefined
                 }
-              />
+              >
+                <AssistantMarkdown
+                  messageId={`${data.id}:${index}`}
+                  content={item.text}
+                  cursor={item.status === AgentScopeRuntimeRunStatus.InProgress}
+                  // Native text deltas omit content.status; the message owns
+                  // their lifecycle. Keep the legacy Markdown cursor separate.
+                  isStreaming={
+                    (item.status ?? data.status) ===
+                    AgentScopeRuntimeRunStatus.InProgress
+                  }
+                />
+              </div>
             );
           case AgentScopeRuntimeContentType.REFUSAL:
             return (
@@ -183,7 +192,11 @@ function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
     case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
       return <ResponseTool key={item.id} data={item} isApproval />;
     case AgentScopeRuntimeMessageType.REASONING:
-      return <ResponseReasoning key={item.id} data={item} />;
+      return (
+        <div key={item.id} className={styles.reasoningStep}>
+          <ResponseReasoning data={item} />
+        </div>
+      );
     case AgentScopeRuntimeMessageType.ERROR:
       return <ResponseError key={item.id} data={item} />;
     case AgentScopeRuntimeMessageType.HEARTBEAT:
@@ -299,6 +312,12 @@ function DefaultHostResponseCard({
           />
         );
       })}
+      {hasTruncatedModelOutput(data) ? (
+        <div role="status" className={styles.completionWarning}>
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>{t("chat.outputTruncated")}</span>
+        </div>
+      ) : null}
       {data.error ? <ResponseError data={data.error} /> : null}
       {!messages.length && data.status === "canceled" ? (
         <Bubble.Interrupted title={t("chat.turnCanceled")} />
