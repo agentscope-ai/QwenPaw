@@ -718,6 +718,17 @@ async def list_execution_authorizations(
             _store(services),
             project_id,
         )
+        from services.file_agent_runtime.workgraph_execution import (
+            retire_drifted_workgraph_authorizations,
+        )
+
+        # Stale cards must disappear on the tray's own poll, otherwise a
+        # project edit leaves dead approvals that fail every approve click.
+        await retire_drifted_workgraph_authorizations(
+            services,
+            _store(services),
+            project_id,
+        )
         records = await asyncio.to_thread(
             _store(services).list_execution_authorizations,
             project_id,
@@ -837,8 +848,10 @@ async def _rebind_workgraph_authorization(
     from services.file_agent_runtime.driver import _execution_provider_model
     from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
     from services.file_agent_runtime.workgraph_execution import (
+        WORKGRAPH_TARGET_RETIRE_REASON,
         ready_request_context,
         requested_work_node,
+        workgraph_authorization_drift_reason,
     )
 
     scope = current.scope or {}
@@ -897,16 +910,31 @@ async def _rebind_workgraph_authorization(
             details=blocked_detail["details"],
         )
     plan = requested_work_node(snapshot, node)
-    if (
-        plan.spec.name != current.operation
-        or plan.parameters != scope["parameters"]
-        or _execution_provider_model(plan.spec, plan.parameters)
-        != (current.requested_provider, current.requested_model)
-    ):
+    reason = await workgraph_authorization_drift_reason(
+        services,
+        current.project_id,
+        snapshot,
+        graph,
+        current,
+    )
+    if reason == WORKGRAPH_TARGET_RETIRE_REASON:
+        raise ConflictError(
+            "授权的 WorkGraph 目标已改变：快照中的节点已不存在或不再匹配。"
+            "请重新发起一次制作请求并批准新的授权，再点「继续」。",
+            details={
+                "reason": "target_changed",
+                "nodeId": workgraph["nodeId"],
+                "targetRef": (current.target_scope or [None])[0],
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
+        )
+    if reason is not None:
         raise ConflictError(
             "执行参数或 provider/model 已改变，必须重新请求授权",
             details={
                 "reason": "params_changed",
+                "driftReason": reason,
                 "nodeId": node.node_id,
                 "targetRef": node.target_ref,
                 "blockedNodeIds": [],

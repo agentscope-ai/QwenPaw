@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -29,6 +30,7 @@ from services.media_files.call_budget import ensure_media_call_budget
 from services.media_files.review_admission import assert_media_review_admission
 from services.project_files import frontend_edit_hold
 from services.project_files.models import ArtifactVersion
+from services.project_files.production_stage import SCRIPT_ONLY_MESSAGE
 from services.specialist_tools import SpecialistToolSpec
 
 REQUEST_WORKGRAPH_EXECUTION = "request_workgraph_execution"
@@ -129,6 +131,7 @@ def _summarize_unstarted(
     review: int,
     prompt_sync: int,
     known_unstarted: int,
+    script_gate: int = 0,
 ) -> str:
     """Public wording for a wholly unstarted, pre-dispatch-blocked batch."""
     detail = []
@@ -138,7 +141,11 @@ def _summarize_unstarted(
         detail.append(
             f"{prompt_sync} 项需要先同步分镜/提示词内容" "（可在制作工作台保留现有内容并生成，或重新同步后再制作）",
         )
-    if other := known_unstarted - review - prompt_sync:
+    if script_gate:
+        detail.append(
+            f"{script_gate} 项等待确认剧本" "（请点击蓝图页顶部的「确认剧本并继续」，确认后重新提出制作请求）",
+        )
+    if other := known_unstarted - review - prompt_sync - script_gate:
         detail.append(f"{other} 项制作条件尚未满足")
     return (
         "尚未启动制作："
@@ -185,8 +192,23 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         and not item.get("taskId")
         for item in items
     )
+    # The script gate appends SCRIPT_ONLY_MESSAGE to every gated media node;
+    # counting it separately tells new users the exact next action instead of
+    # the generic "production conditions are not met" bucket.
+    script_gate = sum(
+        item.get("status") == "BLOCKED"
+        and item.get("reason") == "GATED"
+        and not item.get("taskId")
+        and SCRIPT_ONLY_MESSAGE in (item.get("missing") or [])
+        for item in items
+    )
     if known_unstarted == len(items):
-        return _summarize_unstarted(review, prompt_sync, known_unstarted)
+        return _summarize_unstarted(
+            review,
+            prompt_sync,
+            known_unstarted,
+            script_gate,
+        )
     task_ids = {
         task_id
         for item in items
@@ -209,7 +231,11 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         details.append(f"{review} 项等待现有审阅，尚未开始")
     if prompt_sync:
         details.append(f"{prompt_sync} 项需先同步分镜/提示词内容，尚未开始")
-    if other := known_unstarted - review - prompt_sync:
+    if script_gate:
+        details.append(
+            f"{script_gate} 项等待确认剧本，尚未开始" "（请点击蓝图页顶部的「确认剧本并继续」）",
+        )
+    if other := known_unstarted - review - prompt_sync - script_gate:
         details.append(f"{other} 项制作条件尚未满足，尚未开始")
     failed = sum(
         item.get("status") in {"FAILED", "CANCELLED", "QUARANTINED"}
@@ -711,3 +737,133 @@ async def ready_request_context(
     if check_media_budget:
         await asyncio.to_thread(ensure_media_call_budget, services, project_id)
     return snapshot, tasks, graph, blocked
+
+
+WORKGRAPH_DRIFT_RETIRE_REASON = "workgraph_terms_changed"
+WORKGRAPH_TARGET_RETIRE_REASON = "workgraph_target_removed"
+# The decision tray polls the authorization list every few seconds; the
+# sweep piggybacks on that poll but never evaluates more often than this.
+_DRIFT_SWEEP_INTERVAL_SECONDS = 5.0
+_drift_sweep_at: dict[str, float] = {}
+
+
+async def workgraph_authorization_drift_reason(
+    services: Any,
+    project_id: str,
+    snapshot: Any,
+    graph: Any,
+    record: Any,
+) -> str | None:
+    """Why a recorded WorkGraph approval no longer matches live terms.
+
+    Approvals bind exact billing terms. When the project or the model
+    config moves after the card was created, executing the node today
+    would bill something the user never saw, so the card must retire
+    instead of rejecting every approve click with a generic conflict.
+    """
+    from services.file_agent_runtime.driver import (
+        _execution_provider_model,
+        billing_arguments_for,
+    )
+
+    scope = record.scope or {}
+    if not isinstance(scope.get("workGraph"), dict):
+        return None
+    node = graph.by_id.get(scope["workGraph"].get("nodeId"))
+    if (
+        node is None
+        or node.kind not in {"visual", "lineup", "storyboard", "video"}
+        or record.target_scope != [node.target_ref]
+    ):
+        return WORKGRAPH_TARGET_RETIRE_REASON
+    plan = requested_work_node(snapshot, node)
+    if plan.spec.name != record.operation:
+        return WORKGRAPH_DRIFT_RETIRE_REASON
+    recorded_raw = scope.get("requestedParameters")
+    if not isinstance(recorded_raw, dict):
+        recorded_raw = scope.get("parameters")
+    if plan.parameters != recorded_raw:
+        return WORKGRAPH_DRIFT_RETIRE_REASON
+    recorded_billing = scope.get("parameters")
+    if not isinstance(recorded_billing, dict):
+        return WORKGRAPH_DRIFT_RETIRE_REASON
+    billing = await billing_arguments_for(
+        services,
+        project_id=project_id,
+        spec=plan.spec,
+        tool_arguments=plan.parameters,
+    )
+    if billing != recorded_billing:
+        return WORKGRAPH_DRIFT_RETIRE_REASON
+    if _execution_provider_model(plan.spec, plan.parameters) != (
+        record.requested_provider,
+        record.requested_model,
+    ):
+        return WORKGRAPH_DRIFT_RETIRE_REASON
+    return None
+
+
+async def retire_drifted_workgraph_authorizations(
+    services: Any,
+    store: Any,
+    project_id: str,
+) -> int:
+    """Expire pending WorkGraph approvals whose terms drifted.
+
+    Mirrors the script-checkpoint retirement: a card whose recorded
+    terms can no longer be honored disappears from the decision tray
+    instead of rejecting every approve click, and the parked run wakes
+    on the terminal status with a readable blocked reason.
+    """
+    from services.runtime_files.execution_models import (
+        ExecutionAuthorizationStatus,
+    )
+    from services.runtime_files.execution_store import (
+        ExecutionStateConflict,
+    )
+
+    now = time.monotonic()
+    if (
+        now - _drift_sweep_at.get(project_id, 0.0)
+        < _DRIFT_SWEEP_INTERVAL_SECONDS
+    ):
+        return 0
+    _drift_sweep_at[project_id] = now
+    pending = [
+        record
+        for record in store.list_execution_authorizations(project_id)
+        if record.status is ExecutionAuthorizationStatus.PENDING
+        and isinstance((record.scope or {}).get("workGraph"), dict)
+    ]
+    if not pending:
+        return 0
+    snapshot, _tasks, graph, _blocked = await ready_request_context(
+        services,
+        store,
+        project_id,
+        check_media_budget=False,
+    )
+    retired = 0
+    for record in pending:
+        reason = await workgraph_authorization_drift_reason(
+            services,
+            project_id,
+            snapshot,
+            graph,
+            record,
+        )
+        if reason is None:
+            continue
+        try:
+            store.decide_execution_authorization(
+                project_id,
+                record.authorization_id,
+                authorization_token=record.authorization_token,
+                status=ExecutionAuthorizationStatus.EXPIRED,
+                metadata={"retiredReason": reason},
+            )
+            retired += 1
+        except ExecutionStateConflict:
+            # A decision that won the CAS remains the durable authority.
+            continue
+    return retired

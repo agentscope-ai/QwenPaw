@@ -8558,68 +8558,13 @@ class FileCreatorAgentRuntime:
         project_id: str,
         tool_arguments: Mapping[str, Any],
     ) -> dict[str, Any]:
-        """Tool arguments adjusted so the estimate matches what is billed.
-
-        ``video_edit`` ignores the tool's ``durationSeconds``: the provider
-        bills the input video's own length (truncated to its documented
-        keep-window), so the estimate reads that duration from the exact
-        version instead of the requested one.
-        """
-
-        arguments = dict(tool_arguments)
-        if spec.provider_kind != "video":
-            return arguments
-        if str(arguments.get("mode") or "").strip().casefold() != "video_edit":
-            return arguments
-        video_ref = str(arguments.get("videoRef") or "").strip()
-        if not video_ref:
-            return arguments
-        from models.video_capabilities import (
-            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+        """Tool arguments adjusted so the estimate matches what is billed."""
+        return await billing_arguments_for(
+            self.services,
+            project_id=project_id,
+            spec=spec,
+            tool_arguments=tool_arguments,
         )
-        from services.media_files.r2v_execution import (
-            effective_video_duration_seconds,
-        )
-
-        try:
-            snapshot = await asyncio.to_thread(
-                self.services.projects.read,
-                project_id,
-            )
-            # Same resolver execution uses, so a probed-only asset is priced
-            # and authorized on the duration it will actually be billed for.
-            duration = await asyncio.to_thread(
-                effective_video_duration_seconds,
-                snapshot.project,
-                self.services.projects.project_root(project_id),
-                video_ref,
-            )
-        # Expected resolution failures (missing version, unreadable
-        # metadata) fall back to "unknown duration", which surfaces as a
-        # readable ValidationError below. Programming errors must propagate
-        # instead of masquerading as a bad user request.
-        except (CreatorError, ValueError, OSError) as error:
-            logger.warning(
-                "could not resolve the video_edit input duration | "
-                "project=%s ref=%s: %s",
-                project_id,
-                video_ref,
-                error,
-            )
-            duration = None
-        if not duration:
-            # Never offer an approvable price for terms we cannot verify:
-            # execution rejects an unknown video_edit length anyway, so fail
-            # here instead of authorizing the unverified requested duration.
-            raise ValidationError(
-                "无法确定 videoRef 的时长，video_edit 按输入视频计费，"
-                "因此无法给出可批准的费用；请重新引入该视频以补齐元数据后重试",
-            )
-        arguments["durationSeconds"] = min(
-            HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
-            max(1, round(duration)),
-        )
-        return arguments
 
     async def _await_execution_authorization(
         self,
@@ -11536,6 +11481,79 @@ def _specialist_tool_invocation_id(
         arguments,
         invocation_id=call_id if name == "ai_edit" else None,
     )
+
+
+async def billing_arguments_for(
+    services: Any,
+    *,
+    project_id: str,
+    spec: SpecialistToolSpec,
+    tool_arguments: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Tool arguments adjusted so the estimate matches what is billed.
+
+    ``video_edit`` ignores the tool's ``durationSeconds``: the provider
+    bills the input video's own length (truncated to its documented
+    keep-window), so the estimate reads that duration from the exact
+    version instead of the requested one. Approval drift checks reuse
+    this helper so recorded billing terms and live terms share one
+    definition.
+    """
+
+    arguments = dict(tool_arguments)
+    if spec.provider_kind != "video":
+        return arguments
+    if str(arguments.get("mode") or "").strip().casefold() != "video_edit":
+        return arguments
+    video_ref = str(arguments.get("videoRef") or "").strip()
+    if not video_ref:
+        return arguments
+    from models.video_capabilities import (
+        HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+    )
+    from services.media_files.r2v_execution import (
+        effective_video_duration_seconds,
+    )
+
+    try:
+        snapshot = await asyncio.to_thread(
+            services.projects.read,
+            project_id,
+        )
+        # Same resolver execution uses, so a probed-only asset is priced
+        # and authorized on the duration it will actually be billed for.
+        duration = await asyncio.to_thread(
+            effective_video_duration_seconds,
+            snapshot.project,
+            services.projects.project_root(project_id),
+            video_ref,
+        )
+    # Expected resolution failures (missing version, unreadable
+    # metadata) fall back to "unknown duration", which surfaces as a
+    # readable ValidationError below. Programming errors must propagate
+    # instead of masquerading as a bad user request.
+    except (CreatorError, ValueError, OSError) as error:
+        logger.warning(
+            "could not resolve the video_edit input duration | "
+            "project=%s ref=%s: %s",
+            project_id,
+            video_ref,
+            error,
+        )
+        duration = None
+    if not duration:
+        # Never offer an approvable price for terms we cannot verify:
+        # execution rejects an unknown video_edit length anyway, so fail
+        # here instead of authorizing the unverified requested duration.
+        raise ValidationError(
+            "无法确定 videoRef 的时长，video_edit 按输入视频计费，"
+            "因此无法给出可批准的费用；请重新引入该视频以补齐元数据后重试",
+        )
+    arguments["durationSeconds"] = min(
+        HAPPYHORSE_VIDEO_EDIT_KEPT_SECONDS,
+        max(1, round(duration)),
+    )
+    return arguments
 
 
 def _execution_provider_model(
