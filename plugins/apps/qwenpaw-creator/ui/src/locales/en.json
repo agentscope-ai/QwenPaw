@@ -59,7 +59,9 @@
     "marketSearchFailed": "Search failed",
     "marketSource": "Source",
     "marketAuthor": "Author",
-    "marketProviderUnavailable": "These markets are unavailable: {{providers}}",
+    "marketProviderAll": "All markets",
+    "marketProviderFilter": "Filter by market",
+    "marketProviderUnavailableReason": "Currently unavailable",
     "importUrlSourceHint": "Supported sources",
     "importUrlSourceDetected": "Detected: {{source}}",
     "importUrlSourceUnknown": "Unrecognized source URL; you can still try importing."

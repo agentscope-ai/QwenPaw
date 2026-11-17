@@ -59,7 +59,9 @@
     "marketSearchFailed": "搜索失败",
     "marketSource": "来源",
     "marketAuthor": "作者",
-    "marketProviderUnavailable": "以下市场当前不可用：{{providers}}",
+    "marketProviderAll": "全部市场",
+    "marketProviderFilter": "按市场筛选",
+    "marketProviderUnavailableReason": "当前不可用",
     "importUrlSourceHint": "支持来源",
     "importUrlSourceDetected": "已识别：{{source}}",
     "importUrlSourceUnknown": "未识别的 URL 来源，仍可尝试导入。"
