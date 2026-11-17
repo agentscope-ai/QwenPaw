@@ -2356,9 +2356,12 @@ export default function AgentDock({
             {!sidebar && (
               <div
                 onPointerDown={beginResize("y")}
-                className="absolute inset-x-4 top-0 z-20 h-1.5 cursor-ns-resize"
+                className="group absolute inset-x-4 top-0 z-20 flex h-1.5 cursor-ns-resize items-center justify-center"
                 title={t("agent.dragHeight")}
-              />
+              >
+                {/* Always-visible grip so the resizable edge is discoverable. */}
+                <span className="pointer-events-none h-0.5 w-10 rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+              </div>
             )}
             <div
               onPointerDown={beginResize("x")}
@@ -2367,14 +2370,12 @@ export default function AgentDock({
                   ? `group absolute inset-y-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center hover:bg-[var(--color-accent)]/20 ${
                       anchor === "left" ? "right-0" : "left-0"
                     }`
-                  : "absolute inset-y-4 left-0 z-20 w-1.5 cursor-ew-resize"
+                  : "group absolute inset-y-4 left-0 z-20 flex w-1.5 cursor-ew-resize items-center justify-center"
               }
               title={t("agent.dragWidth")}
             >
               {/* Always-visible grip so the resizable edge is discoverable. */}
-              {sidebar && (
-                <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
-              )}
+              <span className="pointer-events-none h-9 w-[3px] rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
             </div>
             {!sidebar && (
               <div

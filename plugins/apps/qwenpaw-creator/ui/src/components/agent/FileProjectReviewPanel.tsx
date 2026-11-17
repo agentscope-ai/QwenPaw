@@ -427,13 +427,13 @@ function MediaReviewBody({
             <video
               src={mediaUrl}
               controls
-              className="max-h-48 w-full object-contain"
+              className="max-h-[45vh] w-full object-contain"
             />
           ) : (
             <img
               src={mediaUrl}
               alt={mediaLabel(locator)}
-              className="max-h-48 w-full object-contain"
+              className="max-h-[45vh] w-full object-contain"
             />
           )
         ) : (
