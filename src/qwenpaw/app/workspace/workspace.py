@@ -446,6 +446,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
         available = getattr(self._manager, "assert_agent_available", None)
         if available is not None:
             available(self.agent_id)
+        wait_ready = getattr(self._manager, "wait_workspace_ready", None)
+        if wait_ready is not None:
+            await wait_ready(self)
         from ...schemas import AgentRequest
 
         if isinstance(request, dict):
