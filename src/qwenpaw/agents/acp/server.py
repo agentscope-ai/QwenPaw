@@ -1321,7 +1321,8 @@ class QwenPawACPAgent(Agent):
             mcp_servers,
             session_cwd=session_cwd,
         )
-        if not cards and self._workspace is None:
+        # Admission may retain a candidate before its runtime has started.
+        if not cards and not self._workspace_ready:
             return
 
         workspace = await self._ensure_workspace()

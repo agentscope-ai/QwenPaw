@@ -201,6 +201,7 @@ class _TestACPAgent(QwenPawACPAgent):
 
     async def _ensure_workspace(self) -> _FakeWorkspace:
         self._workspace = self._fake_workspace
+        self._workspace_ready = True
         return self._fake_workspace
 
 
