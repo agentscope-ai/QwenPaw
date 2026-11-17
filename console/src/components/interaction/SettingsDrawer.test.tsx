@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { App, ConfigProvider, Form, Grid, Input } from "antd";
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -46,7 +47,14 @@ function Editor({ onSave }: { onSave: () => Promise<void> }) {
   );
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(async () => {
+  vi.restoreAllMocks();
+  // vaul schedules a 500ms post-close timer (TRANSITIONS.DURATION) that can
+  // outlive unmount; drain it while the jsdom window is still alive so the
+  // callback doesn't crash the vitest worker with "window is not defined".
+  cleanup();
+  await new Promise((resolve) => setTimeout(resolve, 600));
+});
 
 beforeEach(() => {
   // jsdom has no pointer capture or scrolling engine used by Vaul.

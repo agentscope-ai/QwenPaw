@@ -46,3 +46,14 @@ it("does not overwrite unreadable stored drafts", () => {
     "broken",
   );
 });
+it("rejects drafts whose githubLink is not a string", () => {
+  // Guard: a corrupt entry must fail the shared invalid_drafts path instead
+  // of throwing a TypeError inside savePostDraft and killing the flow.
+  localStorage.setItem(
+    "qwenpaw.community.drafts.v1:alice",
+    JSON.stringify([
+      { ...content, id: "d1", updatedAt: 1, githubLink: { evil: true } },
+    ]),
+  );
+  expect(() => listPostDrafts("alice")).toThrow("invalid_drafts");
+});
