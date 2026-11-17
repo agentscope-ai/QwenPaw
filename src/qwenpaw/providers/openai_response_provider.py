@@ -92,8 +92,18 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         request_policy: Any = None,
         **kwargs: Any,
     ) -> None:
+        """Store Responses request settings and normalize the off control.
+
+        @param extra_generate_kwargs: Provider-level request options.
+        @param thinking_off_kwargs: Options used when thinking is disabled.
+        @param request_policy: Optional request-preparation callback.
+        @param kwargs: Base Responses model constructor options.
+        @returns None
+        """
         self._extra_generate_kwargs = extra_generate_kwargs or {}
         self._thinking_off_kwargs = dict(thinking_off_kwargs or {})
+        if self._thinking_off_kwargs.pop("disable_thinking", False):
+            self._thinking_off_kwargs["reasoning"] = {"effort": "none"}
         self._request_policy = request_policy
         super().__init__(**kwargs)
 
