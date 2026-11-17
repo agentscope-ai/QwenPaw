@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import { describe, expect, it } from "vitest";
 
 import { normalizeCjkEmphasis } from "./markdownCjk";
+import { lexWithRenderer } from "./markdownRendererTokens";
 
 describe("normalizeCjkEmphasis", () => {
   it("repairs all supported emphasis delimiters", () => {
@@ -338,11 +339,13 @@ describe("normalizeCjkEmphasis nested-container guardrails", () => {
     expect(normalizeCjkEmphasis(source)).toBe(source);
   });
 
-  it("repairs emphasis in a footnote body", () => {
+  it("leaves a link reference definition untouched", () => {
+    // The renderer does not register `marked-footnote`, so `[^1]: ...` is a
+    // link reference definition: `marked` drops it from the token stream and
+    // the line never reaches the reader. Rewriting it would be invisible at
+    // best, and the definition text is also a link target for `[^1]`.
     const source = "ref [^1]\n\n[^1]: **内容。**后\n";
-    expect(normalizeCjkEmphasis(source)).toBe(
-      "ref [^1]\n\n[^1]: **内容**。后\n",
-    );
+    expect(normalizeCjkEmphasis(source)).toBe(source);
   });
 
   it("keeps repairing text after a fence closes with its container", () => {
@@ -408,6 +411,68 @@ describe("normalizeCjkEmphasis dangling-opener scope", () => {
       expect(normalizeCjkEmphasis(source)).toBe(source);
     }
   });
+
+  it("recognises formulas through the renderer lexer", () => {
+    // A formula survives only because the lexer sees an `inlineKatex` token.
+    // While the plugin was registered positionally it was silently dropped, the
+    // `$...$` body came back as plain text, and its `**` delimiters were parsed
+    // as emphasis and became repair candidates.
+    const tokens: string[] = [];
+    const walk = (list: readonly { type?: string }[]) => {
+      for (const token of list) {
+        if (typeof token.type === "string") tokens.push(token.type);
+        const children = (token as { tokens?: { type?: string }[] }).tokens;
+        if (Array.isArray(children) && children.length > 0) walk(children);
+      }
+    };
+    walk(lexWithRenderer("$\\text{**内容。**后}$") as never);
+    expect(tokens).toContain("inlineKatex");
+  });
+
+  it("stays linear across a long run of link openers", () => {
+    // `firstUnclosedLink` called `lastIndexOf` once per `](`, which is
+    // quadratic. 64 KiB took ~750 ms locally; the single-pass scan keeps it
+    // inside a frame budget.
+    const source = "](".repeat(32768) + " **content.** after";
+    const startedAt = performance.now();
+    normalizeCjkEmphasis(source);
+    expect(performance.now() - startedAt).toBeLessThan(200);
+  });
+
+  it("keeps repairing after a bracket that only exists inside code", () => {
+    // A bracket the renderer emitted as a code span is a literal character. It
+    // used to truncate the editable set for every later paragraph.
+    expect(normalizeCjkEmphasis("`code [ inside`\n\n**文本。**后续")).toBe(
+      "`code [ inside`\n\n**文本**。后续",
+    );
+  });
+
+  it("does not let an unclosed bracket stop a later paragraph", () => {
+    // Counterexample 8: an unclosed `[` may not reach past its own paragraph,
+    // so the independent paragraph after the blank line is still repaired.
+    expect(normalizeCjkEmphasis("未闭合 [ 括号\n\n**文本。**后续")).toBe(
+      "未闭合 [ 括号\n\n**文本**。后续",
+    );
+  });
+
+  it("keeps a link destination embedded in emphasis", () => {
+    for (const source of [
+      "**[下载](https://example.com/a)**",
+      "**[https://example.com/**版本。**](https://example.com/)**",
+      "**见 https://example.com/**版本。****",
+    ]) {
+      expect(normalizeCjkEmphasis(source)).toBe(source);
+    }
+  });
+
+  it("never grows the number of empty emphasis nodes", () => {
+    const count = (value: string) =>
+      (value.match(/\*\*\s*[.,。，、；：!?！？…]*\s*\*\*/g) ?? []).length;
+    for (const source of ["**text.** **.**", "**文本。** **.**"]) {
+      const fixed = normalizeCjkEmphasis(source);
+      expect(count(fixed)).toBeLessThanOrEqual(count(source));
+    }
+  });
 });
 
 describe("normalizeCjkEmphasis rendered output", () => {
@@ -434,5 +499,87 @@ describe("normalizeCjkEmphasis rendered output", () => {
     const fixed = normalizeCjkEmphasis(source);
     expect(fixed).toBe(source);
     expect(render(fixed)).toContain("**粗体（说明）**");
+  });
+});
+
+describe("round ten review counterexamples", () => {
+  /**
+   * Every case asserts the repaired text and the idempotency requirement the
+   * review states as `N(N(x)) === N(x)`.
+   */
+  const repair = (source: string, expected: string) => {
+    const once = normalizeCjkEmphasis(source);
+    expect(once).toBe(expected);
+    expect(normalizeCjkEmphasis(once)).toBe(once);
+  };
+
+  it("keeps a link destination while repairing the label", () => {
+    repair(
+      "- **粗体。**后续 [Download](https://example.com/**版本。**x)",
+      "- **粗体**。后续 [Download](https://example.com/**版本。**x)",
+    );
+  });
+
+  it("keeps image attributes while repairing the label", () => {
+    repair(
+      "- **粗体。**后续 ![img](https://example.com/**版本。**.png)",
+      "- **粗体**。后续 ![img](https://example.com/**版本。**.png)",
+    );
+  });
+
+  it("never merges delimiters into a four-marker run", () => {
+    for (const source of [
+      "**内容。** followed by **。**",
+      "**内容。****。**",
+    ]) {
+      const once = normalizeCjkEmphasis(source);
+      expect(once.split("****").length - 1).toBeLessThanOrEqual(
+        source.split("****").length - 1,
+      );
+      expect(normalizeCjkEmphasis(once)).toBe(once);
+    }
+  });
+
+  it("leaves an unclosed link title untouched", () => {
+    repair(
+      '[a](docs "title) **标题。**后续',
+      '[a](docs "title) **标题。**后续',
+    );
+  });
+
+  it("protects every one of several unclosed links", () => {
+    repair(
+      '[a](\n\n[b](docs "**标题。**后续',
+      '[a](\n\n[b](docs "**标题。**后续',
+    );
+  });
+
+  it("excludes a link marker shown as code from the document scan", () => {
+    repair("`[a](` **正文。**后续", "`[a](` **正文**。后续");
+  });
+
+  it("does not let an unclosed bracket stop a later paragraph", () => {
+    repair("[\n\n**正文。**后续", "[\n\n**正文**。后续");
+  });
+
+  it("repairs a paragraph inside a multi-line blockquote", () => {
+    repair("> 第一行\n> **正文。**后续", "> 第一行\n> **正文**。后续");
+  });
+
+  it("repairs a paragraph inside a multi-line list item", () => {
+    repair("- 第一行\n  **正文。**后续", "- 第一行\n  **正文**。后续");
+  });
+
+  it("moves punctuation past a nested closing run", () => {
+    repair("**bold *italic。***", "**bold *italic***。");
+  });
+
+  it("stays linear when the input is a dense run of link markers", () => {
+    for (const size of [200, 1000]) {
+      const body = "[a](".repeat(size) + ")".repeat(size);
+      expect(normalizeCjkEmphasis(body)).toBe(body);
+      const inCode = "`" + body + "`";
+      expect(normalizeCjkEmphasis(inCode)).toBe(inCode);
+    }
   });
 });

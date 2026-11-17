@@ -94,16 +94,31 @@ export function normalizeCjkEmphasis(markdown: string): string {
 
     const punctuationStart = findTrailingPunctuationStart(markdown, index);
     const top = delimiters[delimiters.length - 1];
+    const second = delimiters[delimiters.length - 2];
     const matchingTop =
       top?.character === character && top.length === runLength;
+    // `**bold *italic.***` closes two openers with one run: `**` plus `*` adds
+    // up to `***`, and the review asks for the punctuation to land after the
+    // whole run. Without this the nested case can never pair.
+    const foldsStack =
+      !matchingTop &&
+      top?.character === character &&
+      second?.character === character &&
+      top.length + second.length === runLength;
+    const closesEmphasis = matchingTop || foldsStack;
+    // A closing run at the end of the input has no follower to classify; the
+    // renderer still decides whether moving the punctuation helps, so it is a
+    // candidate. Text that continues in a non-CJK script is left alone.
+    const atEnd = index + runLength >= markdown.length;
     const isRepairCandidate =
       punctuationStart >= 0 &&
-      isCjkAt(markdown, index + runLength) &&
+      (isCjkAt(markdown, index + runLength) || atEnd) &&
       rangeIsUnprotected(protectedText, punctuationStart, index + runLength) &&
       !createsEscapePair(markdown, punctuationStart);
 
-    if (isRepairCandidate && matchingTop) {
+    if (isRepairCandidate && closesEmphasis) {
       delimiters.pop();
+      if (foldsStack) delimiters.pop();
       replacements.push({
         punctuationStart,
         delimiterStart: index,

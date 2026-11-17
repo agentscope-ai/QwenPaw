@@ -1,11 +1,4 @@
-import {
-  Marked,
-  type MarkedExtension,
-  type Token,
-  type Tokens,
-  type TokensList,
-} from "marked";
-import markedFootnote from "marked-footnote";
+import { Marked, type Token, type Tokens, type TokensList } from "marked";
 import Latex from "@ant-design/x-markdown/plugins/Latex";
 
 /**
@@ -13,14 +6,14 @@ import Latex from "@ant-design/x-markdown/plugins/Latex";
  * renders with, not by an approximation of it.
  *
  * The bubble renders through the `Markdown` component of `@agentscope-ai/chat`,
- * which constructs `new Marked()` with GFM on, `breaks` off, and registers the
- * `Latex` plugin together with `marked-footnote`. This module rebuilds exactly
- * that configuration and derives every editable region from its tokens, so the
- * repair pass can only touch source the renderer classified as inline text (or
- * as the delimiter folds of an existing emphasis node).
+ * which builds `new Marked()` with GFM on and `breaks` off, then applies
+ * `use(options.markedConfig || {})`. This module rebuilds that configuration
+ * and derives every editable region from its tokens, so the repair pass can
+ * only touch source the renderer classified as inline text (or the delimiter
+ * folds of an existing emphasis node).
  *
  * Everything else is out of reach: fenced and inline code, HTML, tables, link
- * destinations and titles, LaTeX spans, footnote markers, and any source no
+ * destinations and titles, math spans, footnote markers, and any source no
  * token claims at all. Link reference definitions are protected for exactly
  * that last reason: `marked` drops them from the token stream, so nothing here
  * is allowed to edit them.
@@ -40,8 +33,6 @@ const PAIRED_DELIMITERS: readonly RegExp[] = [
   /\\\[([\s\S]*?)\\\]/g,
 ];
 
-const FOOTNOTE_MARKER = /^\[\^[^\]]+\]:[ \t]*/;
-
 export interface SourceSpan {
   start: number;
   end: number;
@@ -52,12 +43,20 @@ export interface RendererMasks {
   paragraphReset: Uint8Array;
 }
 
+let cachedRendererLexer: Marked | null = null;
+
 export function buildRendererLexer(): Marked {
-  return new Marked(
-    { gfm: true },
-    ...(Latex() as MarkedExtension[]),
-    markedFootnote() as never,
-  );
+  // `Latex()` returns one extension object per maths construct, so it has to go
+  // through `options.extensions`. Passing those objects positionally to the
+  // constructor silently drops them: `use()` only reads a pack's own
+  // `extensions` field, and a bare tokenizer has none.
+  if (cachedRendererLexer === null) {
+    cachedRendererLexer = new Marked({
+      gfm: true,
+      extensions: Latex(),
+    });
+  }
+  return cachedRendererLexer;
 }
 
 export function lexWithRenderer(markdown: string): TokensList {
@@ -99,39 +98,142 @@ function normalizeLineEndings(source: string): NormalizedSource {
   };
 }
 
-function firstUnclosedBracket(text: string): number {
+function truncateAtUnfinishedConstruct(text: string): number {
+  let cut = text.length;
+  for (const pattern of UNFINISHED_CONSTRUCTS) {
+    const match = pattern.exec(text);
+    if (match && match.index < cut) cut = match.index;
+  }
+  const bracket = firstUnclosedBracketInText(text);
+  if (bracket >= 0 && bracket < cut) cut = bracket;
+  return cut;
+}
+
+/**
+ * Bracket balance inside one already-editable `text` token. Code spans, links
+ * and HTML never reach this function, so the only thing left to skip is an
+ * escaped `\[`, which the renderer shows as a literal bracket.
+ */
+function firstUnclosedBracketInText(text: string): number {
   const open: number[] = [];
   for (let index = 0; index < text.length; index++) {
-    if (text[index] === "[") open.push(index);
-    else if (text[index] === "]" && open.length > 0) open.pop();
+    const character = text[index];
+    if (character === "\\") {
+      index++;
+      continue;
+    }
+    if (character === "[") open.push(index);
+    else if (character === "]" && open.length > 0) open.pop();
   }
   return open.length > 0 ? open[0] : -1;
 }
 
 /**
- * A link whose `](` never reaches a closing `)` is still streaming in, so its
- * label and the rest of its paragraph can still change meaning. Balancing `[`
- * against `]` misses this entirely: `[a](` has both brackets. A blank line ends
- * the paragraph, so an unterminated link cannot reach past it.
+ * Locate a token whose `raw` is a normalised copy of the source, which happens
+ * to every container inside a blockquote or a list: `paragraph.raw` drops the
+ * `> ` prefixes and a loose list item pads a blank line the source never had.
+ * Matching verbatim fails there, so fall back to the first and last non-blank
+ * lines, each trimmed the same way the renderer trimmed them. The span still
+ * cannot leave `limit`.
  */
-function firstUnclosedLink(
-  text: string,
-): { start: number; end: number } | null {
-  for (let index = 0; index < text.length - 1; index++) {
-    if (text[index] !== "]" || text[index + 1] !== "(") continue;
-    const bracket = text.lastIndexOf("[", index);
-    if (bracket < 0) continue;
+function locateByLines(
+  raw: string,
+  source: string,
+  position: number,
+  limit: number,
+): SourceSpan | null {
+  const lines = raw
+    .split("\n")
+    .map((line) => line.trimStart())
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) return null;
+  const start = source.indexOf(lines[0], position);
+  if (start < 0 || start >= limit) return null;
+  const last = lines[lines.length - 1];
+  const lastAt = source.indexOf(last, start);
+  if (lastAt < 0) return null;
+  const end = Math.min(lastAt + last.length, limit);
+  return end > start ? { start, end } : null;
+}
+
+/** End of the structural block that starts at or before `from`. */
+function blockEndAt(source: string, from: number): number {
+  for (let index = from; index < source.length; index++) {
+    if (source[index] !== "\n") continue;
+    if (source[index + 1] === "\n") return index;
+    const next = source[index + 1];
+    if (
+      next === "#" ||
+      next === ">" ||
+      next === "|" ||
+      next === "-" ||
+      next === "*" ||
+      next === "+"
+    ) {
+      return index;
+    }
+    if (/[0-9]/.test(next)) {
+      const rest = source.slice(index + 1, index + 4);
+      if (/^[0-9]{1,3}[.)]/.test(rest) || /^[0-9]{1,3} /.test(rest))
+        return index;
+    }
+  }
+  return source.length;
+}
+
+/**
+ * Every `](` that never closes, excluding anything the renderer kept as code.
+ * Quotes keep their `)` literal, a backslash escapes the next character, and
+ * parentheses nest, so a plain "first `)` wins" scan misreads both cases.
+ */
+function unclosedLinkRanges(
+  source: string,
+  isProtected: (index: number) => boolean,
+): SourceSpan[] {
+  const found: SourceSpan[] = [];
+  let bracket = -1;
+  for (let index = 0; index < source.length; index++) {
+    if (isProtected(index)) {
+      bracket = -1;
+      continue;
+    }
+    const character = source[index];
+    if (character === "\\") {
+      index++;
+      continue;
+    }
+    if (character === "[") {
+      bracket = index;
+      continue;
+    }
+    if (character !== "]" || source[index + 1] !== "(" || bracket < 0) continue;
+
     let depth = 0;
+    let quote: string | null = null;
     let closed = false;
-    let blockEnd = text.length;
-    for (let cursor = index + 1; cursor < text.length; cursor++) {
-      const character = text[cursor];
-      if (character === "\n" && text[cursor + 1] === "\n") {
-        blockEnd = cursor;
-        break;
+    let cursor = index + 1;
+    for (; cursor < source.length; cursor++) {
+      const inner = source[cursor];
+      if (inner === "\\") {
+        cursor++;
+        continue;
       }
-      if (character === "(") depth++;
-      else if (character === ")") {
+      if (quote !== null) {
+        if (inner === quote) quote = null;
+        continue;
+      }
+      if (inner === '"' || inner === "'") {
+        quote = inner;
+        continue;
+      }
+      if (inner === "\n") {
+        const next = source[cursor + 1];
+        if (next === "\n" || next === "#" || next === ">" || next === "|") {
+          break;
+        }
+      }
+      if (inner === "(") depth++;
+      else if (inner === ")") {
         depth--;
         if (depth === 0) {
           closed = true;
@@ -139,32 +241,73 @@ function firstUnclosedLink(
         }
       }
     }
-    if (!closed) return { start: bracket, end: blockEnd };
+    if (!closed) {
+      found.push({ start: bracket, end: blockEndAt(source, bracket) });
+      bracket = -1;
+      continue;
+    }
+    bracket = -1;
+    index = cursor;
   }
-  return null;
+  return found;
 }
 
-function truncateAtUnfinishedConstruct(text: string): number {
-  let cut = text.length;
-  for (const pattern of UNFINISHED_CONSTRUCTS) {
-    const match = pattern.exec(text);
-    if (match && match.index < cut) cut = match.index;
+/**
+ * Each unclosed `[`, clipped to the block that contains it: a stray bracket in
+ * one paragraph must not disable repairs in the next one, and it cannot cross a
+ * heading, a list item or a table cell.
+ */
+function unclosedBracketRanges(
+  source: string,
+  isProtected: (index: number) => boolean,
+): SourceSpan[] {
+  const found: SourceSpan[] = [];
+  const open: number[] = [];
+  for (let index = 0; index < source.length; index++) {
+    if (isProtected(index)) {
+      continue;
+    }
+    const character = source[index];
+    if (character === "\\") {
+      index++;
+      continue;
+    }
+    if (character === "\n") {
+      const next = source[index + 1];
+      if (
+        next === undefined ||
+        next === "\n" ||
+        next === "#" ||
+        next === ">" ||
+        next === "|"
+      ) {
+        for (const start of open) {
+          found.push({ start, end: index });
+        }
+        open.length = 0;
+      }
+      continue;
+    }
+    if (character === "[") open.push(index);
+    else if (character === "]" && open.length > 0) open.pop();
   }
-  const bracket = firstUnclosedBracket(text);
-  if (bracket >= 0 && bracket < cut) cut = bracket;
-  return cut;
+  for (const start of open) {
+    found.push({ start, end: source.length });
+  }
+  return found;
 }
 
 /**
  * Collect the normalized-coordinate span of every region the repair may edit:
- * `text` tokens, and the full raw extent of `em`/`strong` nodes so their own
- * delimiter folds stay reachable. Container tokens recurse; every other leaf is
- * skipped.
+ * `text` tokens, plus the delimiter folds of `em`/`strong` nodes. Container
+ * tokens recurse; every other leaf is skipped. `limit` is the end of the
+ * enclosing container, and no token may be located past it.
  */
 function collectEditableSpans(
   tokens: readonly Token[],
   source: string,
   cursor: number,
+  limit: number,
   out: SourceSpan[],
 ): void {
   let position = cursor;
@@ -172,56 +315,145 @@ function collectEditableSpans(
   for (const token of tokens) {
     const generic = token as Tokens.Generic;
 
-    // The `footnotes` container carries a synthetic raw value ("Footnotes") that
-    // never appears in the source, so it must not advance the cursor.
-    if (generic.type === "footnotes") {
-      const items = (
-        generic.tokens?.length ? generic.tokens : generic.items
-      ) as Token[] | undefined;
-      if (items) collectEditableSpans(items, source, position, out);
-      continue;
-    }
-
     const raw = typeof generic.raw === "string" ? generic.raw : "";
     if (raw.length === 0) continue;
 
+    // Tokens are lexed in source order, so a match at the cursor is the normal
+    // case. `indexOf` only recovers whitespace the tokenizer swallowed between
+    // blocks, and it must stop at the enclosing container: searching past it
+    // would let a copy of this token's text inside a later code fence claim the
+    // coordinates, and the fence would come out of the mask editable.
     const start = source.startsWith(raw, position)
       ? position
       : source.indexOf(raw, position);
-    if (start < 0) continue;
-    const end = start + raw.length;
+    // A container's `raw` is a normalised copy of its children: `paragraph.raw`
+    // drops `> ` prefixes and the text wrapper of a list item pads blank lines,
+    // so neither has a position of its own. The children still do and must be
+    // visited - skipping the subtree is exactly what left every blockquote and
+    // list body unrepairable.
+    const located = start >= 0 && start + raw.length <= limit;
+    const end = located ? start + raw.length : position;
+    const children = (generic.tokens ?? generic.items) as Token[] | undefined;
 
-    if (generic.type === "footnote") {
-      // A footnote body is its own pairing domain: a marker opened inside the
-      // body must not consume a delimiter from the surrounding paragraph.
-      const marker = /^\[\^[^\]]+\]:[ \t]*/.exec(raw);
-      const bodyStart = start + (marker ? marker[0].length : 0);
-      const body = source.slice(bodyStart, end);
-      const collected = out.length;
-      collectEditableSpans(lexWithRenderer(body) as Token[], body, 0, out);
-      for (let index = collected; index < out.length; index++) {
-        out[index].start += bodyStart;
-        out[index].end += bodyStart;
+    if (!located) {
+      // Rule 2: a container whose text the renderer normalised still has to be
+      // reached. Locate it by its first and last non-blank line, then descend
+      // with that range so its children map onto the same characters.
+      const fallback = locateByLines(raw, source, position, limit);
+      if (fallback === null) {
+        if (children && children.length > 0) {
+          collectEditableSpans(children, source, cursor, limit, out);
+        }
+        continue;
       }
-    } else if (generic.type === "text") {
-      out.push({ start, end });
+      if (children && children.length > 0) {
+        collectEditableSpans(
+          children,
+          source,
+          fallback.start,
+          fallback.end,
+          out,
+        );
+      } else {
+        out.push(fallback);
+      }
+      position = fallback.end;
+      continue;
+    }
+
+    if (generic.type === "text") {
+      // A `text` token that owns children is a container, not a run of literal
+      // characters: it covers the whole list item, link destinations included.
+      // Marking it editable wholesale is what let a label edit reach an `href`;
+      // only the children decide, and a link or image child stays off limits.
+      if (children && children.length > 0) {
+        collectEditableSpans(children, source, start, end, out);
+      } else {
+        out.push({ start, end });
+      }
     } else if (generic.type === "link" || generic.type === "image") {
       // A link keeps its destination inside `raw`, so moving a character in the
       // label can shift the label/destination boundary and rewrite the href.
       // Images carry a URL as their only meaningful payload. Both stay untouched.
     } else {
-      // Emphasis keeps its delimiter folds editable; anything else only lends
-      // us its children.
+      // Only the delimiter folds of an emphasis node are editable. The interior
+      // is reached through its children; opening the whole node would let a move
+      // jump into a nested link destination or an inline code span.
       if (generic.type === "em" || generic.type === "strong") {
-        out.push({ start, end });
+        const opening = /^[*_]+/.exec(raw)?.[0].length ?? 0;
+        const closing = /[*_]+$/.exec(raw)?.[0].length ?? 0;
+        if (opening > 0) out.push({ start, end: start + opening });
+        if (closing > 0) out.push({ start: end - closing, end });
       }
-      const children = (generic.tokens ?? generic.items) as Token[] | undefined;
       if (children && children.length > 0) {
-        collectEditableSpans(children, source, start, out);
+        collectEditableSpans(children, source, start, end, out);
       }
     }
 
     position = end;
+  }
+}
+
+/**
+ * Rule 1: a region that must stay byte-identical is collected on its own and
+ * subtracted from whatever the editable pass claimed. Ownership therefore runs
+ * downhill - a parent that covers a link can no longer make its `href` editable,
+ * because the link's own span is protected afterwards.
+ *
+ * Link labels are protected together with their destination: moving a character
+ * inside `[label]` shifts the label/destination boundary and can rewrite the
+ * `href`, which the review forbids outright.
+ */
+function collectProtectedSpans(
+  tokens: readonly Token[],
+  source: string,
+  position: number,
+  limit: number,
+  out: SourceSpan[],
+): void {
+  let cursor = position;
+  for (const token of tokens) {
+    const generic = token as Tokens.Generic;
+    const raw = typeof generic.raw === "string" ? generic.raw : "";
+    if (raw.length === 0) continue;
+
+    const start = source.startsWith(raw, cursor)
+      ? cursor
+      : source.indexOf(raw, cursor);
+    const children = (generic.tokens ?? generic.items) as Token[] | undefined;
+    const fallback =
+      start < 0 || start + raw.length > limit
+        ? locateByLines(raw, source, cursor, limit)
+        : null;
+    const span =
+      start >= 0 && start + raw.length <= limit
+        ? { start, end: start + raw.length }
+        : fallback;
+
+    if (span === null) {
+      if (children && children.length > 0) {
+        collectProtectedSpans(children, source, cursor, limit, out);
+      }
+      continue;
+    }
+
+    const atomic =
+      generic.type === "link" ||
+      generic.type === "image" ||
+      generic.type === "code" ||
+      generic.type === "codespan" ||
+      generic.type === "html" ||
+      generic.type === "table";
+    if (atomic) {
+      out.push(span);
+      cursor = span.end;
+      continue;
+    }
+
+    if (children && children.length > 0) {
+      collectProtectedSpans(children, source, span.start, span.end, out);
+    }
+    cursor = span.end;
   }
 }
 
@@ -236,33 +468,49 @@ export function buildRendererMasks(markdown: string): RendererMasks {
   const protectedText = new Uint8Array(length).fill(1);
   const paragraphReset = new Uint8Array(length);
 
+  const tokens = lexWithRenderer(source) as unknown as Token[];
   const spans: SourceSpan[] = [];
-  collectEditableSpans(lexWithRenderer(source), source, 0, spans);
+  collectEditableSpans(tokens, source, 0, source.length, spans);
 
-  // An unclosed `[` or an unterminated `](` means the rest is still arriving: a
-  // link that closes later re-interprets everything after it, so nothing past
-  // that point may be repaired. Scanning per span cannot see this, because
-  // `**content.**` becomes its own `strong` token with no bracket inside it.
-  const bracketLimit = firstUnclosedBracket(source);
-  const limit = bracketLimit < 0 ? source.length : bracketLimit;
-  const unclosedLink = firstUnclosedLink(source);
+  const protectedSpans: SourceSpan[] = [];
+  collectProtectedSpans(tokens, source, 0, source.length, protectedSpans);
+
+  // Rule 4: a construct that is still arriving re-interprets what follows, but
+  // only inside its own block. Code is excluded from the scan entirely, so a
+  // `[a](` shown as code cannot disable the paragraph after it.
+  const protectedMask = new Uint8Array(source.length);
+  for (const span of protectedSpans) {
+    protectedMask.fill(
+      1,
+      Math.max(0, span.start),
+      Math.min(span.end, source.length),
+    );
+  }
+  const isProtected = (index: number) => protectedMask[index] === 1;
+
+  const brackets = unclosedBracketRanges(source, isProtected);
+  const links = unclosedLinkRanges(source, isProtected);
+  const unclosed = [...brackets, ...links];
 
   for (const span of spans) {
     const text = source.slice(span.start, span.end);
-    let cut = Math.min(truncateAtUnfinishedConstruct(text), limit - span.start);
-    // A dangling link owns the text from its `[` to the end of its paragraph;
-    // later blocks stay repairable.
-    if (
-      unclosedLink &&
-      span.start < unclosedLink.end &&
-      span.end > unclosedLink.start
-    ) {
-      cut = Math.min(cut, Math.max(0, unclosedLink.start - span.start));
+    let cut = truncateAtUnfinishedConstruct(text);
+    for (const range of unclosed) {
+      if (span.start < range.end && span.end > range.start) {
+        cut = Math.min(cut, Math.max(0, range.start - span.start));
+      }
     }
     if (cut <= 0) continue;
     const start = normalized.toOriginal(span.start);
     const end = normalized.toOriginal(span.start + cut);
     if (end > start) protectedText.fill(0, start, end);
+  }
+
+  // Rule 1: protection wins over any editable range that contains it.
+  for (const span of protectedSpans) {
+    const start = normalized.toOriginal(span.start);
+    const end = normalized.toOriginal(span.end);
+    if (end > start) protectedText.fill(1, start, end);
   }
 
   // `\(...\)` and `\[...\]` never become LaTeX tokens in this renderer, so their
@@ -289,26 +537,11 @@ export function buildRendererMasks(markdown: string): RendererMasks {
   return { protectedText, paragraphReset };
 }
 
-/**
- * A footnote keeps its body in `raw` instead of child tokens, so it has to be
- * re-lexed for any count to see what the reader actually gets. Skipping this is
- * how a repaired footnote body used to look unchanged.
- */
-function footnoteBody(token: Tokens.Generic): string | null {
-  const raw = typeof token.raw === "string" ? token.raw : "";
-  const marker = FOOTNOTE_MARKER.exec(raw);
-  return marker ? raw.slice(marker[0].length) : null;
-}
-
 function countEmphasis(tokens: readonly Token[]): number {
   let total = 0;
   for (const token of tokens) {
     const generic = token as Tokens.Generic;
     if (generic.type === "em" || generic.type === "strong") total++;
-    if (generic.type === "footnote") {
-      const body = footnoteBody(generic);
-      if (body) total += countEmphasis(lexWithRenderer(body) as Token[]);
-    }
     const children = (generic.tokens ?? generic.items) as Token[] | undefined;
     if (children && children.length > 0) total += countEmphasis(children);
   }
@@ -323,12 +556,6 @@ function countLiteralMarkers(tokens: readonly Token[]): number {
     if (generic.type === "text" && typeof generic.raw === "string") {
       for (const character of generic.raw) {
         if (character === "*" || character === "_") total++;
-      }
-    }
-    if (generic.type === "footnote") {
-      const body = footnoteBody(generic);
-      if (body) {
-        total += countLiteralMarkers(lexWithRenderer(body) as Token[]);
       }
     }
     const children = (generic.tokens ?? generic.items) as Token[] | undefined;
@@ -346,6 +573,10 @@ function countLiteralMarkers(tokens: readonly Token[]): number {
  * literal `*`/`_` that used to reach the reader as text. Candidates whose
  * validity depends on another block therefore stay unchanged.
  *
+ * A rewrite that raises the total by turning punctuation into a node of its own
+ * is rejected separately, because `**.**` renders as bold text with no content
+ * and the count alone cannot tell that apart from a real improvement.
+ *
  * Repairs are idempotent for the same reason. Once a span renders as emphasis it
  * belongs to an `em`/`strong` node whose text no longer holds the punctuation
  * that triggered the move.
@@ -356,8 +587,75 @@ export function rewriteImprovesRendering(
 ): boolean {
   const beforeTokens = lexWithRenderer(normalizeLineEndings(before).text);
   const afterTokens = lexWithRenderer(normalizeLineEndings(after).text);
+
   const beforeEmphasis = countEmphasis(beforeTokens);
   const afterEmphasis = countEmphasis(afterTokens);
-  if (afterEmphasis !== beforeEmphasis) return afterEmphasis > beforeEmphasis;
+
+  // Losing a node means the delimiters stopped pairing, so the asterisks are
+  // now visible to the reader.
+  if (afterEmphasis < beforeEmphasis) return false;
+
+  // A node whose content is nothing but punctuation shows up as a stray `**.**`.
+  // Never let a rewrite manufacture one, no matter what the totals say.
+  if (countEmptyEmphasis(afterTokens) > countEmptyEmphasis(beforeTokens)) {
+    return false;
+  }
+
+  if (afterEmphasis > beforeEmphasis) return true;
+
+  // Same node count, but the punctuation no longer sits inside a node. This is
+  // the improvement the nested counterexample asks for, and it is invisible to
+  // the counts above.
+  if (
+    countPunctuationEndedEmphasis(afterTokens) <
+    countPunctuationEndedEmphasis(beforeTokens)
+  ) {
+    return true;
+  }
+
   return countLiteralMarkers(afterTokens) < countLiteralMarkers(beforeTokens);
+}
+
+/**
+ * Emphasis nodes whose body ends with punctuation, e.g. `<em>italic。</em>`.
+ * Moving that punctuation past the closing run produces the same node count, so
+ * the totals cannot tell the two apart; this counter can, and the review asks
+ * for exactly that move in its nested-delimiter counterexample.
+ */
+function countPunctuationEndedEmphasis(tokens: readonly Token[]): number {
+  let total = 0;
+  for (const token of tokens) {
+    const generic = token as Tokens.Generic;
+    if (generic.type === "em" || generic.type === "strong") {
+      const raw = typeof generic.raw === "string" ? generic.raw : "";
+      const body = raw.replace(/^[*_]+/, "").replace(/[*_]+$/, "");
+      if (body.length > 0 && /\p{P}$/u.test(body)) total++;
+    }
+    const children = (generic.tokens ?? generic.items) as Token[] | undefined;
+    if (children && children.length > 0) {
+      total += countPunctuationEndedEmphasis(children);
+    }
+  }
+  return total;
+}
+
+/**
+ * Emphasis nodes that hold no letter or digit, e.g. `**.**`. They render as a
+ * bold fragment with no text, which is never what a repair is aiming for.
+ */
+function countEmptyEmphasis(tokens: readonly Token[]): number {
+  let total = 0;
+  for (const token of tokens) {
+    const generic = token as Tokens.Generic;
+    if (generic.type === "em" || generic.type === "strong") {
+      const raw = typeof generic.raw === "string" ? generic.raw : "";
+      const body = raw.replace(/^[*_]+/, "").replace(/[*_]+$/, "");
+      if (body.length > 0 && !/[\p{L}\p{N}]/u.test(body)) total++;
+    }
+    const children = (generic.tokens ?? generic.items) as Token[] | undefined;
+    if (children && children.length > 0) {
+      total += countEmptyEmphasis(children);
+    }
+  }
+  return total;
 }
