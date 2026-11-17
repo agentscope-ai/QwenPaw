@@ -19,7 +19,7 @@ import {
 } from "./client";
 import styles from "./platformWeb.module.less";
 
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ className }: { className?: string }) {
   const { t } = useTranslation();
   const { target, targets, update } = useWebWorkspace();
   const switching = useRef(false);
@@ -37,31 +37,48 @@ export function WorkspaceSwitcher() {
   const action = (run: () => Promise<unknown>) => {
     void run().catch((error) => setError(String(error)));
   };
-  const items = (["cloud", "bound"] as const).map((kind) => ({
-    type: "group" as const,
-    key: kind,
-    label: t(kind === "cloud" ? "webApp.cloud" : "webApp.bound"),
-    children: targets
-      .filter((item) => item.kind === kind)
-      .map((item) => ({
-        key: targetKey(item),
-        icon: kind === "cloud" ? <Cloud size={16} /> : <Monitor size={16} />,
-        label: `${item.name}${
-          item.online ? "" : ` · ${t("platformAccess.offline")}`
-        }`,
-        onClick: () => action(() => choose(item)),
-      })),
-  }));
+  const items = (["cloud", "bound"] as const).map((kind) => {
+    const nodes = targets.filter((item) => item.kind === kind);
+    return {
+      type: "group" as const,
+      key: kind,
+      label: t(kind === "cloud" ? "webApp.cloud" : "webApp.bound"),
+      children: nodes.length
+        ? nodes.map((item) => ({
+            key: targetKey(item),
+            icon:
+              kind === "cloud" ? <Cloud size={16} /> : <Monitor size={16} />,
+            label: `${item.name} · ${t(
+              item.online ? "platformAccess.online" : "platformAccess.offline",
+            )}`,
+            onClick: () => action(() => choose(item)),
+          }))
+        : [
+            {
+              key: `empty:${kind}`,
+              label: t(kind === "cloud" ? "webApp.noCloud" : "webApp.noBound"),
+              disabled: true,
+            },
+          ],
+    };
+  });
   return (
     <>
       <Dropdown
         autoFocus
         trigger={["click"]}
         menu={{
+          className: styles.workspaceMenu,
           selectedKeys: target ? [targetKey(target)] : [],
           items: [
             ...items,
             { type: "divider" },
+            {
+              key: "refresh",
+              icon: <RefreshCw size={16} />,
+              label: t("webApp.refresh"),
+              onClick: () => action(() => webRequest("/host/reload", {})),
+            },
             {
               key: "install",
               icon: <Download size={16} />,
@@ -100,19 +117,44 @@ export function WorkspaceSwitcher() {
       >
         <Button
           type="text"
-          className={styles.workspace}
+          className={`${styles.workspace} ${
+            className ? styles.menuWorkspace : ""
+          } ${className ?? ""}`}
           aria-label={`${t("webApp.switchTarget")}: ${
             target?.name ?? ""
           } (Beta)`}
           title={`${target?.name ?? t("webApp.switchTarget")} · Beta`}
-          icon={<FlaskConical size={16} />}
+          icon={
+            <span className={styles.workspaceIcon}>
+              {target?.kind === "cloud" ? (
+                <Cloud size={18} />
+              ) : (
+                <Monitor size={18} />
+              )}
+              <FlaskConical
+                size={10}
+                className={styles.beta}
+                aria-label="Beta"
+              />
+            </span>
+          }
         >
           <span className={styles.workspaceName}>
             {target?.name ?? t("webApp.switchTarget")}
           </span>
-          <ChevronDown size={15} className={styles.workspaceChevron} />
+          <ChevronDown size={15} />
         </Button>
       </Dropdown>
+      {!className && (
+        <Button
+          type="text"
+          className={styles.refresh}
+          icon={<RefreshCw size={18} />}
+          aria-label={t("webApp.refresh")}
+          title={t("webApp.refresh")}
+          onClick={() => action(() => webRequest("/host/reload", {}))}
+        />
+      )}
       <SharedModal
         open={!!error}
         onCancel={() => setError("")}

@@ -1,7 +1,10 @@
 {
   "webApp": {
+    "refresh": "刷新工作区",
     "cloud": "云端",
     "bound": "已绑定",
+    "noCloud": "暂无云端部署",
+    "noBound": "暂无绑定节点",
     "addToHome": "添加到桌面",
     "switchTarget": "切换工作区",
     "signOut": "退出 Web App",

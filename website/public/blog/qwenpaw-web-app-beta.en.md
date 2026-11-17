@@ -39,13 +39,15 @@ Hub users keep their local and cloud accounts separate, and each connection is l
 
 Your phone loads the Console that comes with the workspace you select. The familiar model, thinking intensity, and mode controls are right in the composer; thinking settings are available when the selected model supports them. Conversations and approvals stay with their workspace when you switch.
 
+The workspace menu is available at the top of every page and in Settings. It lists your cloud deployments and connected computers, including their online status. If a page gets stuck, choose **Refresh workspace** to reconnect without signing in again.
+
 When you return to the app, it restores saved conversation state without resending your last message. If a node has been upgraded, reload to use its updated Console. The mobile and desktop experiences share the same UI.
 
 Your local QwenPaw still runs on your computer, so keep it on and connected. Your phone connects through Platform and can use a different network. There is no LAN address to enter.
 
 ## One browser entry across systems
 
-On iPhone and iPad, open Safari's **Share → Add to Home Screen** menu. On Android, use the **Install** button when available or the browser's installation menu. On HarmonyOS, look for an option to add the page to your home screen in the system browser. Availability varies by OS and browser version.
+On iPhone and iPad, open Safari's **⋯** menu if needed, then choose **Share → Add to Home Screen**. On supported Android browsers, **Add to home screen** opens the installation prompt directly; otherwise, use the browser menu. On HarmonyOS, look for an option to add the page to your home screen in the system browser. Availability varies by OS and browser version.
 
 Attachments, files, and terminal access follow the selected node's configuration and permissions. This Beta does not support push notifications or offline execution. Installation, microphone access, and background behavior still need to be checked on individual devices.
 

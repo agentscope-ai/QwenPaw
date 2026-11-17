@@ -1,7 +1,10 @@
 {
   "webApp": {
+    "refresh": "Refresh workspace",
     "cloud": "Cloud",
     "bound": "Connected",
+    "noCloud": "No cloud deployments",
+    "noBound": "No connected nodes",
     "addToHome": "Add to home screen",
     "switchTarget": "Switch workspace",
     "signOut": "Sign out of Web App",

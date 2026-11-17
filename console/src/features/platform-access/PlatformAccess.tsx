@@ -11,9 +11,8 @@ import {
 import { usePlatformAccess } from "./store";
 import styles from "./platformAccess.module.less";
 import { ExperimentalFeature } from "./ExperimentalFeature";
-import { isPlatformWebApp, webRequest } from "../platform-web/client";
+import { isPlatformWebApp } from "../platform-web/client";
 import { WorkspaceSwitcher } from "../platform-web/WorkspaceSwitcher";
-import { useAppMessage } from "../../hooks/useAppMessage";
 
 function failure(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -27,23 +26,8 @@ export function PlatformAccount({
   onSelect: () => void;
 }) {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
   const { connection, open } = usePlatformAccess();
-  if (isPlatformWebApp)
-    return (
-      <button
-        type="button"
-        className={className}
-        onClick={() => {
-          void webRequest("/session/logout", {}).catch((error: unknown) =>
-            message.error(failure(error)),
-          );
-        }}
-      >
-        <LogIn size={18} />
-        <span>{t("webApp.signOut")}</span>
-      </button>
-    );
+  if (isPlatformWebApp) return <WorkspaceSwitcher className={className} />;
   const label = connection?.logged_in
     ? connection.account_name
     : t("platformAccess.signIn");

@@ -32,11 +32,11 @@ If your phone is already signed in to an account with access to that workspace, 
 
 ## Add to your home screen
 
-| System       | Steps                                                                                                                                                 |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| iOS / iPadOS | Open in Safari, then **Share → Add to Home Screen → Add**. The website guides you through this system action.                                         |
-| Android      | Tap **Install** when available, or choose **Install app / Add to Home Screen** from the browser menu.                                                 |
-| HarmonyOS    | Look for **Add to desktop** in the system browser. Availability depends on your OS and browser version; use a bookmark if this option is unavailable. |
+| System       | Steps                                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iOS / iPadOS | In Safari, open the **⋯** menu if needed, then **Share → Add to Home Screen → Add**. If the action is missing, check **Edit Actions** in the share sheet. |
+| Android      | Choose **Add to home screen** and confirm the browser's installation prompt when available, or use **Install app / Add to Home Screen** in its menu.      |
+| HarmonyOS    | Look for **Add to desktop** in the system browser. Availability depends on your OS and browser version; use a bookmark if this option is unavailable.     |
 
 No Android Quick App or HarmonyOS native package is needed. Use an HTTPS address with a trusted certificate. Browsers inside apps such as WeChat and DingTalk show instructions for opening the page in your system browser. The scan page also lets you copy the full link. Opening that link in another browser does not use up the authorization; if it has expired or you have already started sign-in, refresh the QR code on your computer and scan again.
 
@@ -46,7 +46,8 @@ Your home-screen icon uses the QwenPaw logo. Whether the installed app keeps you
 
 ![The shared Console's model and thinking controls (demo environment)](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
-- Open the workspace menu beside the small experiment icon at the top. Choose **Cloud** or **Connected**, then select an agent and conversation.
+- Open the workspace menu at the top or in **Settings**. Choose a **Cloud** or **Connected** workspace, then select an agent and conversation.
+- Use **Refresh workspace** if a page gets stuck. Your account and selected workspace stay in place.
 - Choose a model, thinking intensity, and mode from the composer. Thinking settings depend on the selected model's capabilities.
 - Your phone uses the Console that comes with the selected node. Other pages, attachments, files, and terminal access follow that node's configuration and permissions.
 - Conversations and approvals stay with their workspace when you switch.
@@ -72,5 +73,7 @@ Choose **Disconnect node** in the Console account panel to stop remote access to
 **Asked to sign in after installation:** Your browser session may not carry over to the installed app. Open the app and scan a new QR code from Console. Never put long-lived tokens in a URL.
 
 **No Install button:** Use the browser-menu steps above. A website cannot guarantee that your browser will show an installation prompt.
+
+**Console fails to load:** Choose **Refresh** on the recovery page, or select another workspace. If a loaded Console page fails, use **Refresh workspace** at the top. Refreshing does not resend your last message.
 
 See also [Console](./console), [Hub](./hub), and [Security](./security).
