@@ -661,7 +661,7 @@ The WeChat iLink Bot channel lets you run an AI bot via a **personal WeChat acco
 
 ### How it works
 
-- **Authentication**: On first use, scan a QR code to authorize. The token is automatically persisted to a local file (default `~/.qwenpaw/wechat_bot_token`), so you won't need to scan again on subsequent starts.
+- **Authentication** saves the token to the agent's `agent.json` when you scan through the Console. If both the configured token and the token file are empty, the channel requests a QR code on startup and saves the resulting token to the file.
 - **Receiving messages**: Uses HTTP long-polling (`getupdates`) to continuously fetch new messages. Supports text, images, voice (ASR transcription), files, and videos.
 - **Sending messages**: Replies via `sendmessage`. Currently only text is supported (iLink API limitation).
 
@@ -680,7 +680,7 @@ You can also configure directly in the agent workspace `agent.json` (e.g., `~/.q
 "wechat": {
   "enabled": true,
   "bot_token": "your_bot_token",
-  "bot_token_file": "~/.qwenpaw/wechat_bot_token",
+  "bot_token_file": "",
   "base_url": "",
   "media_dir": "~/.qwenpaw/media",
   "dm_policy": "open",
@@ -690,19 +690,21 @@ You can also configure directly in the agent workspace `agent.json` (e.g., `~/.q
 
 **WeChat Personal-specific fields:**
 
-| Field            | Type   | Default                       | Description                                                                           |
-| ---------------- | ------ | ----------------------------- | ------------------------------------------------------------------------------------- |
-| `bot_token`      | string | `""`                          | Bearer token obtained after QR code login; leave empty to trigger QR login on startup |
-| `bot_token_file` | string | `~/.qwenpaw/wechat_bot_token` | Path to persist the token for future runs                                             |
-| `base_url`       | string | official default              | iLink API base URL; leave empty to use the official default                           |
-| `media_dir`      | string | `~/.qwenpaw/media`            | Directory to save received images and files                                           |
+| Field            | Type   | Default                               | Description                                                                           |
+| ---------------- | ------ | ------------------------------------- | ------------------------------------------------------------------------------------- |
+| `bot_token`      | string | `""`                                  | Bearer token obtained after QR code authorization. The channel uses this value first. |
+| `bot_token_file` | string | `<workspace>/wechat/wechat_bot_token` | File the channel reads when no token is configured and writes after startup QR login. |
+| `base_url`       | string | official default                      | iLink API base URL; leave empty to use the official default                           |
+| `media_dir`      | string | `~/.qwenpaw/media`                    | Directory to save received images and files                                           |
+
+Each agent stores its reply cache in `wechat/wechat_context_tokens.json` in its workspace. If you relied on the old `wechat_bot_token` in the QwenPaw data root, scan again or set `bot_token_file` to the old file's full path for the corresponding agent. Incoming messages rebuild the reply cache.
 
 ### Configure via environment variables
 
 ```bash
 WECHAT_CHANNEL_ENABLED=1
 WECHAT_BOT_TOKEN=your_bot_token
-WECHAT_BOT_TOKEN_FILE=~/.qwenpaw/wechat_bot_token
+WECHAT_BOT_TOKEN_FILE=
 WECHAT_MEDIA_DIR=~/.qwenpaw/media
 WECHAT_DM_POLICY=open
 WECHAT_GROUP_POLICY=open
