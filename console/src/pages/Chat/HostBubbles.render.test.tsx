@@ -141,6 +141,52 @@ afterEach(() => {
 });
 
 describe("merged host bubbles behavior", () => {
+  it.each(["expanded", "result-collapsed", "process-collapsed"] as const)(
+    "keeps a truncation warning visible with %s messages",
+    (preference) => {
+      setAssistantMessageDisplayPreference(preference);
+      const markdown = vi
+        .spyOn(assistantMarkdown, "AssistantMarkdown")
+        .mockImplementation(({ content }) => <p>{content}</p>);
+      try {
+        render(
+          provider(
+            <HostResponseCard
+              id="truncated"
+              data={{
+                id: "response",
+                status: AgentScopeRuntimeRunStatus.Completed,
+                output: [
+                  {
+                    id: "partial",
+                    role: "assistant",
+                    type: AgentScopeRuntimeMessageType.MESSAGE,
+                    status: AgentScopeRuntimeRunStatus.Completed,
+                    content: [{ type: "text", text: "partial answer" }],
+                    metadata: {
+                      metadata: {
+                        qwenpaw_model_completion: {
+                          finish_reason: "length",
+                          truncated: true,
+                        },
+                      },
+                    },
+                  },
+                ],
+              }}
+            />,
+          ),
+        );
+        expect(screen.getByText("partial answer")).toBeInTheDocument();
+        expect(screen.getByRole("status")).toHaveTextContent(
+          "chat.outputTruncated",
+        );
+      } finally {
+        markdown.mockRestore();
+      }
+    },
+  );
+
   it.each([
     [undefined, AgentScopeRuntimeRunStatus.InProgress, true],
     [null, AgentScopeRuntimeRunStatus.InProgress, true],

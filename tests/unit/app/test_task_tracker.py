@@ -559,6 +559,53 @@ async def test_owned_stream_cancellation_never_stops_successor_run(
 
 
 @pytest.mark.asyncio
+async def test_channel_handoff_excludes_only_transferable_runs_from_drain():
+    tracker = TaskTracker()
+    owner, other_owner = object(), object()
+    release = asyncio.Event()
+
+    async def stream(_):
+        await release.wait()
+        yield "data: done\n\n"
+
+    try:
+        for key, run_owner, channel, transferable in (
+            ("cron", owner, "wechat", True),
+            ("inbound", owner, "wechat", False),
+            ("other-owner", other_owner, "wechat", False),
+            ("other-channel", owner, "console", False),
+        ):
+            await tracker.attach_or_start(
+                key,
+                None,
+                stream,
+                owner=run_owner,
+                channel_id=channel,
+                channel_handoff_safe=transferable,
+            )
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+            ),
+        ) == {"cron", "inbound"}
+        assert set(
+            await tracker.snapshot_active_tasks(
+                owner=owner,
+                channel_id="wechat",
+                channel_handoff=True,
+            ),
+        ) == {"inbound"}
+        assert await tracker.get_status("cron") == "running"
+        assert await tracker.request_stop("cron")
+        assert await tracker.get_status("cron") == "idle"
+        assert await tracker.get_status("inbound") == "running"
+    finally:
+        release.set()
+        await tracker.wait_all_done(1)
+
+
+@pytest.mark.asyncio
 async def test_wait_all_done_returns_true_when_idle():
     tracker = TaskTracker()
 
