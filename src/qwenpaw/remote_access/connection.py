@@ -35,6 +35,11 @@ class RelayNodeConnectionService:
         """Report a completed WSS handshake rather than enrollment status."""
         return self._transport.connected
 
+    @property
+    def connected_at(self) -> float:
+        """Return the last successful handshake's monotonic timestamp."""
+        return self._transport.connected_at
+
     async def connect_once(self) -> None:
         """Connect until the WSS closes, persisting each rotated nonce."""
         async with self._lock:
@@ -59,6 +64,7 @@ class RelayNodeConnectionService:
             ticket=ticket.token,
             dpop_nonce=ticket.dpop_nonce,
             key_pair=state.key_pair,
+            node_id=registered.node_id,
         )
 
 
@@ -109,6 +115,7 @@ class RelayNodeSupervisor:
     async def _run(self) -> None:
         delay = 1.0
         while True:
+            attempt_started = asyncio.get_running_loop().time()
             try:
                 self._status = "connecting"
                 self._last_error = None
@@ -122,6 +129,8 @@ class RelayNodeSupervisor:
                     return
                 self._status = "reconnecting"
             except Exception as exc:  # noqa: BLE001 - background boundary
+                if self._connection.connected_at >= attempt_started:
+                    delay = 1.0
                 self._status = "reconnecting"
                 self._last_error = type(exc).__name__
                 close_code = (

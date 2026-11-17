@@ -14,6 +14,7 @@ from .enrollment import RelayEnrollmentService
 from .node_transport import RelayNodeTransport
 from .operation_dispatcher import RelayLocalApi
 from .store import RelayNodeStore
+from .run_state import RelayRuns
 
 
 class PlatformRuntimeConnection:
@@ -29,11 +30,16 @@ class PlatformRuntimeConnection:
     ) -> None:
         self.store = store or RelayNodeStore(secret_dir / "platform-node.json")
         self.account = RelayEnrollmentService(self.store)
+        self.runs = RelayRuns()
         local_api = RelayLocalApi(base_url, headers=headers or self._headers)
+        self._local_api = local_api
         self.supervisor = RelayNodeSupervisor(
             RelayNodeConnectionService(
                 self.store,
-                RelayNodeTransport(local_api.dispatcher()),
+                RelayNodeTransport(
+                    local_api.dispatcher(),
+                    runs=self.runs,
+                ),
             ),
         )
 
@@ -51,6 +57,7 @@ class PlatformRuntimeConnection:
     async def close(self) -> None:
         """Detach streams and close the outbound transport at shutdown."""
         await self.supervisor.stop()
+        await self._local_api.close()
 
     async def mobile_login(self) -> dict:
         """Create an explicit full-account mobile login request."""

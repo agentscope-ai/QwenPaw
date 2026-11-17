@@ -5,14 +5,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import AbstractAsyncContextManager
+from collections.abc import (
+    AsyncGenerator,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Mapping,
+)
+from contextlib import AbstractAsyncContextManager, aclosing
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from websockets.asyncio.client import connect
 
 from .identity import RelayKeyPair
+from .run_state import RelayRuns
 from .protocol import (
     RelayFrame,
     RelayFrameType,
@@ -78,14 +85,17 @@ class RelayNodeTransport:
         *,
         max_request_bytes: int = 16 * 1024 * 1024,
         max_streams: int = 32,
+        runs: RelayRuns | None = None,
     ) -> None:
         self._dispatcher = dispatcher
         self._max_request_bytes = max_request_bytes
         self._max_streams = max_streams
+        self._runs = runs or RelayRuns()
         self._streams: dict[str, _IncomingRequest] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._response_windows: dict[str, asyncio.Queue[None]] = {}
         self.connected = False
+        self.connected_at = 0.0
 
     async def run(
         self,
@@ -94,9 +104,11 @@ class RelayNodeTransport:
         ticket: str,
         dpop_nonce: str,
         key_pair: RelayKeyPair,
+        node_id: str,
     ) -> None:
         """Connect with a one-time ticket and serve fixed operations."""
         _validate_websocket_url(websocket_url)
+        self._runs.select_node(node_id)
         proof = key_pair.create_proof(
             "GET",
             websocket_url,
@@ -113,7 +125,10 @@ class RelayNodeTransport:
             max_size=self._max_request_bytes + 64 * 1024,
             proxy=None,
         ) as socket:
+            await self._report_runs(socket)
             self.connected = True
+            self.connected_at = asyncio.get_running_loop().time()
+            heartbeat = asyncio.create_task(self._heartbeat(socket))
             try:
                 async for wire in socket:
                     if not isinstance(wire, bytes):
@@ -125,6 +140,8 @@ class RelayNodeTransport:
                     await self._receive(socket, decode_frame(wire))
             finally:
                 self.connected = False
+                heartbeat.cancel()
+                await asyncio.gather(heartbeat, return_exceptions=True)
                 tasks = tuple(self._tasks.values())
                 for task in tasks:
                     task.cancel()
@@ -133,7 +150,33 @@ class RelayNodeTransport:
                 self._streams.clear()
                 self._response_windows.clear()
 
+    async def _report_runs(self, socket) -> None:
+        self._runs.changed.clear()
+        await socket.send(
+            encode_frame(
+                RelayFrame(
+                    RelayFrameType.HELLO,
+                    metadata=self._runs.report(),
+                ),
+            ),
+        )
+
+    async def _heartbeat(self, socket) -> None:
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(self._runs.changed.wait(), 5)
+                except asyncio.TimeoutError:
+                    pass
+                await self._report_runs(socket)
+        except Exception:
+            await socket.close()
+            raise
+
     async def _receive(self, socket, frame: RelayFrame) -> None:
+        if frame.frame_type is RelayFrameType.HELLO:
+            self._runs.acknowledge(frame.metadata["finished"])
+            return
         if frame.frame_type is RelayFrameType.WINDOW_UPDATE:
             assert frame.stream_id is not None
             window = self._response_windows.get(frame.stream_id)
@@ -232,18 +275,28 @@ class RelayNodeTransport:
                         ),
                     ),
                 )
-                async for chunk in result.body:
-                    for offset in range(0, len(chunk), 64 * 1024):
-                        await self._response_windows[stream_id].get()
-                        await socket.send(
-                            encode_frame(
-                                RelayFrame(
-                                    RelayFrameType.DATA,
-                                    stream_id=stream_id,
-                                    payload=chunk[offset : offset + 64 * 1024],
+                async with aclosing(
+                    _response_chunks(
+                        result.body,
+                        sse=result.content_type.startswith(
+                            "text/event-stream",
+                        ),
+                    ),
+                ) as chunks:
+                    async for chunk in chunks:
+                        for offset in range(0, len(chunk), 64 * 1024):
+                            await self._response_windows[stream_id].get()
+                            await socket.send(
+                                encode_frame(
+                                    RelayFrame(
+                                        RelayFrameType.DATA,
+                                        stream_id=stream_id,
+                                        payload=chunk[
+                                            offset : offset + 64 * 1024
+                                        ],
+                                    ),
                                 ),
-                            ),
-                        )
+                            )
             await socket.send(
                 encode_frame(
                     RelayFrame(RelayFrameType.END, stream_id=stream_id),
@@ -282,6 +335,70 @@ class RelayNodeTransport:
     @staticmethod
     async def _connection_error(socket, code: str) -> None:
         await RelayNodeTransport._stream_error(socket, "connection", code)
+
+
+async def _response_chunks(
+    body: AsyncIterator[bytes],
+    *,
+    sse: bool,
+) -> AsyncGenerator[bytes, None]:
+    """Coalesce small SSE writes while keeping first output immediate."""
+    if not sse:
+        async for chunk in body:
+            for offset in range(0, len(chunk), 64 * 1024):
+                yield chunk[offset : offset + 64 * 1024]
+        return
+
+    queue: asyncio.Queue[bytes | Exception | None] = asyncio.Queue(maxsize=1)
+
+    async def read() -> None:
+        try:
+            async for chunk in body:
+                for offset in range(0, len(chunk), 4096):
+                    await queue.put(chunk[offset : offset + 4096])
+        except Exception as error:
+            await queue.put(error)
+        else:
+            await queue.put(None)
+
+    reader = asyncio.create_task(read())
+    pending: bytes | None = None
+    first = True
+    try:
+        while True:
+            item = pending if pending is not None else await queue.get()
+            pending = None
+            if item is None:
+                return
+            if isinstance(item, Exception):
+                raise item
+            if first:
+                first = False
+                yield item
+                continue
+            batch = bytearray(item)
+            deadline = asyncio.get_running_loop().time() + 0.05
+            while len(batch) < 4096:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), remaining)
+                except asyncio.TimeoutError:
+                    break
+                if item is None:
+                    yield bytes(batch)
+                    return
+                if isinstance(item, Exception):
+                    raise item
+                if len(batch) + len(item) > 4096:
+                    pending = item
+                    break
+                batch.extend(item)
+            yield bytes(batch)
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
 
 
 def _validate_websocket_url(value: str) -> None:

@@ -8,6 +8,7 @@ client's stream reader completes normally and falls back to loading the
 persisted history. Returning ``None`` produced a JSON ``null`` body,
 which left the chat UI blank until a manual refresh.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -122,11 +123,16 @@ def test_extract_payload_preserves_user_message_metadata():
 async def test_reconnect_with_active_run_replays_buffer_and_marker(
     app,
     console_workspace,
+    tmp_path,
 ):
     from starlette.requests import Request
     from qwenpaw.app.routers.console import post_console_chat
+    from qwenpaw.remote_access.runtime import PlatformRuntimeConnection
 
     tracker = console_workspace.task_tracker
+    platform = PlatformRuntimeConnection(tmp_path, "http://127.0.0.1:19088")
+    app.state.platform_connection = platform
+    run_id = "relay-run"
     release = asyncio.Event()
 
     async def slow_stream(_payload):
@@ -143,7 +149,7 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
             "type": "http",
             "method": "POST",
             "path": "/api/console/chat",
-            "headers": [],
+            "headers": [(b"x-qwenpaw-relay-run", run_id.encode())],
             "app": app,
         },
     )
@@ -157,6 +163,20 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
         request=request,
     )
 
+    iterator = response.body_iterator
+    assert await anext(iterator) == "data: first\n\n"
+    await iterator.aclose()
+    assert platform.runs.report()["runs"] == [run_id]
+    assert await tracker.has_active_tasks()
+    response = await post_console_chat(
+        request_data={
+            "reconnect": True,
+            "session_id": "console:default",
+            "user_id": "default",
+            "channel": "console",
+        },
+        request=request,
+    )
     received: list[str] = []
 
     async def _consume() -> None:
@@ -178,6 +198,10 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
     assert payload == {"type": "replay_end"}
     # No fresh run was started by the reconnect.
     assert console_workspace.console_channel.stream_calls == []
+    await asyncio.sleep(0)
+    assert platform.runs.report()["runs"] == []
+    assert platform.runs.report()["finished"] == [run_id]
+    await platform.close()
 
 
 @pytest.mark.asyncio

@@ -182,6 +182,56 @@ async def test_sse_is_delivered_before_completion_and_cancel_closes_upstream():
             chunk = await anext(result.body)
             assert b"first" in chunk and not complete.is_set()
         assert closed.is_set()
+        closed.clear()
+        frames = []
+        delivered = asyncio.Event()
+        transport = RelayNodeTransport(dispatcher)
+
+        class Socket:
+            async def send(self, wire):
+                frame = decode_frame(wire)
+                frames.append(frame)
+                if frame.frame_type == RelayFrameType.DATA:
+                    delivered.set()
+
+        socket = Socket()
+        await transport._receive(
+            socket,
+            RelayFrame(
+                RelayFrameType.OPEN,
+                stream_id="chat",
+                request_id="chat",
+                metadata={"operation_id": "console.request"},
+            ),
+        )
+        await transport._receive(
+            socket,
+            RelayFrame(
+                RelayFrameType.DATA,
+                stream_id="chat",
+                payload=json.dumps(
+                    {
+                        "method": "POST",
+                        "path": "/console/chat",
+                        "agent_id": "personal",
+                        "body": "",
+                    },
+                ).encode(),
+            ),
+        )
+        await transport._receive(
+            socket,
+            RelayFrame(RelayFrameType.END, stream_id="chat"),
+        )
+        task = transport._tasks["chat"]
+        await asyncio.wait_for(delivered.wait(), timeout=1)
+        assert b"first" in frames[-1].payload and not complete.is_set()
+        await transport._receive(
+            socket,
+            RelayFrame(RelayFrameType.CANCEL, stream_id="chat"),
+        )
+        await asyncio.gather(task, return_exceptions=True)
+        assert closed.is_set()
         for path in (
             "/hub/users",
             "/auth/login",

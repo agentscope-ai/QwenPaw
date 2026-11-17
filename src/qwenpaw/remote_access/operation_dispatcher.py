@@ -86,7 +86,14 @@ class RelayLocalApi:
     ) -> None:
         self._base_url = base_url
         self._client = client
+        self._owns_client = client is None
         self._headers = headers or dict
+
+    async def close(self) -> None:
+        """Close the binding's shared pool after transport shutdown."""
+        if self._owns_client and self._client is not None:
+            await self._client.aclose()
+            self._client = None
 
     def dispatcher(self) -> RelayOperationDispatcher:
         """Expose one transport contract for the existing Console API."""
@@ -115,6 +122,14 @@ class RelayLocalApi:
         if len(content) > 8 * 1024 * 1024:
             raise ValueError("Console request exceeds 8 MiB")
         headers = {**self._headers(), "X-Agent-Id": agent_id}
+        run_id = body.get("run_id")
+        if run_id is not None:
+            if not isinstance(run_id, str) or not re.fullmatch(
+                r"[a-f0-9-]{36}\.[a-f0-9]{64}\.[a-f0-9]{32}",
+                run_id,
+            ):
+                raise ValueError("Invalid Relay run identity")
+            headers["X-QwenPaw-Relay-Run"] = run_id
         for name in (
             "content-type",
             "range",
@@ -142,40 +157,41 @@ class RelayLocalApi:
         headers: dict[str, str],
         content: bytes,
     ) -> AsyncIterator[RelayResponse]:
-        owns_client = self._client is None
-        client = self._client or httpx.AsyncClient(
-            timeout=httpx.Timeout(120.0),
-            follow_redirects=False,
-            trust_env=False,
-        )
+        if self._client is None:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0),
+                follow_redirects=False,
+                trust_env=False,
+                limits=httpx.Limits(
+                    max_connections=32,
+                    max_keepalive_connections=32,
+                ),
+            )
+        client = self._client
         base = self._base_url() if callable(self._base_url) else self._base_url
         url = httpx.URL(base).copy_with(
             path=f"/api{path}",
             query=query.encode("utf-8"),
         )
-        try:
-            async with client.stream(
-                method,
-                url,
-                headers=headers,
-                content=content,
-            ) as response:
-                yield RelayResponse(
-                    status=response.status_code,
-                    content_type=response.headers.get(
-                        "content-type",
-                        "application/octet-stream",
-                    ),
-                    headers={
-                        key: response.headers[key]
-                        for key in RESPONSE_HEADERS
-                        if key in response.headers
-                    },
-                    body=response.aiter_bytes(),
-                )
-        finally:
-            if owns_client:
-                await client.aclose()
+        async with client.stream(
+            method,
+            url,
+            headers=headers,
+            content=content,
+        ) as response:
+            yield RelayResponse(
+                status=response.status_code,
+                content_type=response.headers.get(
+                    "content-type",
+                    "application/octet-stream",
+                ),
+                headers={
+                    key: response.headers[key]
+                    for key in RESPONSE_HEADERS
+                    if key in response.headers
+                },
+                body=response.aiter_bytes(),
+            )
 
 
 def _route(body: Mapping[str, Any]) -> tuple[str, str]:
