@@ -1,9 +1,12 @@
 /**
  * themeTokens.test.ts — the <style> projection of plugin token overrides.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { chatExtensions } from "./registry/chatExtensions";
 import { auditStore } from "./registry/audit";
+import { EXTENDED_THEME_TOKENS, ThemeTokens } from "./registry/slotKeys";
 import {
   THEME_TOKEN_STYLE_ID,
   installThemeTokenSync,
@@ -28,6 +31,20 @@ afterEach(() => {
 });
 
 describe("renderThemeTokensCss", () => {
+  it("exposes only roles that tokens.css actually defines", () => {
+    // import.meta.url is a vite URL here, so resolve from the console root.
+    const css = readFileSync(
+      join(process.cwd(), "src", "styles", "tokens.css"),
+      "utf8",
+    );
+    // A typo here would silently no-op at runtime, so pin the names to the
+    // stylesheet the console really ships.
+    for (const role of Object.values(ThemeTokens)) {
+      expect(css).toContain(`--app-${role}:`);
+    }
+    expect(Object.values(EXTENDED_THEME_TOKENS)).toHaveLength(31);
+  });
+
   it("returns an empty string when nothing is registered", () => {
     expect(renderThemeTokensCss({})).toBe("");
   });
@@ -79,6 +96,26 @@ describe("syncThemeTokens", () => {
     d.dispose();
     syncThemeTokens();
     expect(styleEl()).toBeNull();
+  });
+
+  it("emits the extended semantic roles into their own scheme block", () => {
+    chatExtensions.setThemeTokens("p1", {
+      "surface-subtle": { light: "#fafafa", dark: "#1a1a1a" },
+      "border-strong": { light: "#bbbbbb", dark: "#555555" },
+      "accent-hover": { light: "#ff8800", dark: "#ffaa00" },
+      "warning-border": { light: "#ff55cc", dark: "#77aa55" },
+    });
+    syncThemeTokens();
+    const css = styleEl()!.textContent ?? "";
+    const [rootBlock, darkBlock] = css.split("html.dark-mode");
+    expect(rootBlock).toContain("--app-surface-subtle: #fafafa !important;");
+    expect(rootBlock).toContain("--app-border-strong: #bbbbbb !important;");
+    expect(rootBlock).toContain("--app-accent-hover: #ff8800 !important;");
+    expect(rootBlock).toContain("--app-warning-border: #ff55cc !important;");
+    expect(darkBlock).toContain("--app-surface-subtle: #1a1a1a !important;");
+    expect(darkBlock).toContain("--app-border-strong: #555555 !important;");
+    expect(darkBlock).toContain("--app-accent-hover: #ffaa00 !important;");
+    expect(darkBlock).toContain("--app-warning-border: #77aa55 !important;");
   });
 });
 

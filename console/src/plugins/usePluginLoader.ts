@@ -6,6 +6,7 @@ import { routeRegistry } from "./registry/store";
 import { subscribeToPluginChanges } from "../utils/pluginChangeEvents";
 import { harnessRegistry, refreshHarnessCatalog } from "./harnesses";
 import { loadHostUiDependencies } from "./hostUiDependencies";
+import { replacePluginSdkDeclarations } from "./registry/pluginSdk";
 
 interface FrontendPluginInfo {
   id: string;
@@ -15,6 +16,10 @@ interface FrontendPluginInfo {
   enabled?: boolean;
   status?: string;
   harnesses?: string[];
+  /** SDK version the plugin declared in its manifest. */
+  sdk_version?: string;
+  /** SDK capabilities the plugin declared in its manifest. */
+  sdk_capabilities?: string[];
 }
 
 export interface PluginLoadSummary {
@@ -72,7 +77,17 @@ async function fetchFrontendPlugins(): Promise<FrontendPluginInfo[]> {
   if (!response.ok) {
     throw new Error(`Failed to list frontend plugins (${response.status})`);
   }
-  return response.json();
+  const plugins: FrontendPluginInfo[] = await response.json();
+  // Theme-role checks need each plugin's declared SDK surface, so keep the
+  // registry in step with the list we just fetched.
+  replacePluginSdkDeclarations(
+    plugins.map((plugin) => ({
+      id: plugin.id,
+      sdkVersion: plugin.sdk_version,
+      sdkCapabilities: plugin.sdk_capabilities,
+    })),
+  );
+  return plugins;
 }
 
 function canExecute(plugin: FrontendPluginInfo): boolean {

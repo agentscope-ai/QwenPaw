@@ -221,7 +221,7 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.1.0"
+    sdk_version: str = "1.2.0"
     rules_version: str = "1.0.0"
     checked_at: str = ""
     plugin_id: str = ""
