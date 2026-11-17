@@ -1225,9 +1225,10 @@ class IsolatedChannelProxy(BaseChannel):
         *,
         strip_text=False,
     ):
+        configured_prefix = self.bot_prefix if policy.configured_prefix else ""
         if entry == "direct":
             prefix = (
-                (meta.get("bot_prefix") or self.bot_prefix)
+                (meta.get("bot_prefix") or configured_prefix)
                 if policy.direct_prefix
                 else ""
             )
@@ -1235,7 +1236,7 @@ class IsolatedChannelProxy(BaseChannel):
         else:
             prefix = (
                 meta.get("bot_prefix") if policy.parts_metadata_prefix else ""
-            ) or (self.bot_prefix if policy.parts_configured_prefix else "")
+            ) or (configured_prefix if policy.parts_configured_prefix else "")
             separator = "  "
         prefixed = []
         for part in fields["content_parts"]:
@@ -2057,9 +2058,11 @@ class IsolatedChannelProxy(BaseChannel):
     def _stream_text(self, stream_type, text, meta, send_format=None):
         if stream_type == "reasoning" and text:
             text = "💭 " + text
+        policy = send_format or SendFormatPolicy()
+        configured_prefix = self.bot_prefix if policy.configured_prefix else ""
         prefix = (
-            meta.get("bot_prefix") or self.bot_prefix
-            if (send_format or SendFormatPolicy()).stream_prefix
+            meta.get("bot_prefix") or configured_prefix
+            if policy.stream_prefix
             else ""
         )
         return prefix + "  " + text if prefix and text else text

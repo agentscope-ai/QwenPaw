@@ -266,6 +266,12 @@ class APIExport:
 
 
 _MEMBER_VERSIONS = {
+    "qwenpaw.plugins.channel_workers.ChannelDriver": (
+        ("response_policy_for", "1.2.0"),
+    ),
+    "qwenpaw.plugins.channel_workers.ResponsePolicy": (
+        ("configured_prefix", "1.2.0"),
+    ),
     "qwenpaw.plugins.channels.ChannelMessage": (
         ("sender_name", "1.2.0"),
         ("thread_id", "1.2.0"),

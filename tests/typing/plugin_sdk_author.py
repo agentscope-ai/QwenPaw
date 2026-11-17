@@ -26,6 +26,7 @@ async def channel_worker_contract() -> None:
         ChannelReceiveResult,
         ChannelApprovalAction,
         ResponsePolicy,
+        ReplyTarget,
     )
     from qwenpaw.plugins.channels import ChannelMessage, ChannelRunEvent
     from qwenpaw.plugins.channel_ingress import (
@@ -39,6 +40,12 @@ async def channel_worker_contract() -> None:
     )
 
     class Driver(ChannelDriver):
+        def response_policy_for(self, target: ReplyTarget) -> ResponsePolicy:
+            return ResponsePolicy(
+                streaming=not bool(target.metadata.get("thread_id")),
+                configured_prefix=False,
+            )
+
         async def on_run(
             self,
             ch: ChannelWorkerContext,
@@ -120,6 +127,7 @@ async def channel_worker_contract() -> None:
     assert_type(policy.text_merge_delay_ms, int | None)
     assert_type(policy.continue_on_delivery_error, bool)
     assert_type(policy.content_source, Literal["rendered", "semantic"])
+    assert_type(policy.configured_prefix, bool)
 
 
 def workflow_contract(plugin: PluginContext) -> None:

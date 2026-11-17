@@ -62,6 +62,7 @@ class Registration:
         )
         self._lock = asyncio.Lock()
         self.closed = False
+        self._cleanup_error: dict[str, str] | None = None
 
     async def _release_async(self, result=None):
         token = _storage_cleanup.set(
@@ -88,10 +89,19 @@ class Registration:
         async with self._lock:
             if self.closed:
                 return
-            if self._closer is not None:
-                await self._closer()
-            else:
-                await self._release_async()
+            try:
+                if self._closer is not None:
+                    await self._closer()
+                else:
+                    await self._release_async()
+            except (Exception, asyncio.CancelledError) as exc:
+                self._cleanup_error = {
+                    "description": self.description,
+                    "error_type": type(exc).__name__,
+                    "message": str(exc),
+                }
+                raise
+            self._cleanup_error = None
             self.closed = True
 
     async def __aenter__(self) -> Registration:
@@ -450,6 +460,12 @@ class ResourceScope:  # pylint: disable=protected-access
             self._parent_registration = None
 
     def snapshot(self) -> dict[str, Any]:
+        """Describe ownership, background errors and pending cleanup failures.
+
+        cleanup_errors contains the latest failed close attempt for each
+        still-open registration. Successful retry removes that entry; it does
+        not retry the business operation or imply its side effects failed.
+        """
         return {
             "owner": self.owner,
             "closed": self.closed,
@@ -457,4 +473,9 @@ class ResourceScope:  # pylint: disable=protected-access
                 h.description for h in self._handles if not h.closed
             ),
             "errors": tuple(self._errors),
+            "cleanup_errors": tuple(
+                dict(handle._cleanup_error)
+                for handle in self._handles
+                if not handle.closed and handle._cleanup_error is not None
+            ),
         }

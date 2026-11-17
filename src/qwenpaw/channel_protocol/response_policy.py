@@ -16,6 +16,7 @@ class SendFormatPolicy:
     stream_prefix: bool = True
     parts_strip_text: bool = True
     parts_preserve_order: bool = False
+    configured_prefix: bool = True
 
     def __post_init__(self):
         if any(

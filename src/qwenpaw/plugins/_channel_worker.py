@@ -13,7 +13,10 @@ from types import SimpleNamespace
 
 from ..channel_protocol.models import InboundEvent
 from ..channel_protocol.response_lifecycle import ResponseResourceRef
-from ..channel_protocol.response_policy import ResponsePolicy as NativePolicy
+from ..channel_protocol.response_policy import (
+    ResponsePolicy as NativePolicy,
+    SendFormatPolicy,
+)
 from ..channel_protocol.shared_response_driver import SharedResponseDriver
 from ..channel_protocol.targets import decode_reply_target
 from ._events import freeze
@@ -41,6 +44,35 @@ from .messages import Attachment, ContentBlock
 from .resources import ResourceOwner, ResourceScope
 from .storage import PluginStorage, MediaStore
 from .logging import PluginLogger
+
+
+def _native_policy(policy, capabilities):
+    if not isinstance(policy, ResponsePolicy):
+        if inspect.iscoroutine(policy):
+            policy.close()
+        raise ValueError("Channel response policy must be ResponsePolicy")
+    values = asdict(policy)
+    if not values.pop("configured_prefix"):
+        values["send_format"] = SendFormatPolicy(configured_prefix=False)
+    result = NativePolicy(**values)
+    _validate_policy(result, capabilities)
+    return result
+
+
+def _validate_policy(policy, capabilities):
+    if capabilities is None:
+        return
+    for enabled, capability in (
+        (policy.streaming, "streaming"),
+        (policy.prepare, "response.prepare"),
+        (policy.completion_reaction, "reaction"),
+        (policy.text_merge_delay_ms is not None, "channel.text_merge.v1"),
+        (policy.content_source == "semantic", "send.structured_parts.v1"),
+    ):
+        if enabled and capability not in capabilities:
+            raise ValueError(
+                f"Channel capability was not declared: {capability}",
+            )
 
 
 def prepare_driver(driver_class, packet, *, capabilities=None):
@@ -99,18 +131,18 @@ def prepare_driver(driver_class, packet, *, capabilities=None):
         raise ValueError(
             "ChannelDriver.response_policy must be ResponsePolicy",
         )
+    policy_method = driver_class.response_policy_for
+    parameters = tuple(inspect.signature(policy_method).parameters.values())
     if (
-        capabilities is not None
-        and driver_class.response_policy.text_merge_delay_ms is not None
-        and "channel.text_merge.v1" not in capabilities
+        inspect.iscoroutinefunction(policy_method)
+        or len(parameters) != 2
+        or any(
+            p.kind not in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+            for p in parameters
+        )
     ):
-        raise ValueError("Text merge capability was not declared")
-    if (
-        capabilities is not None
-        and driver_class.response_policy.content_source == "semantic"
-        and "send.structured_parts.v1" not in capabilities
-    ):
-        raise ValueError("Structured content capability was not declared")
+        raise ValueError("Invalid ChannelDriver.response_policy_for signature")
+    _native_policy(driver_class.response_policy, capabilities)
     if packet.get("mode", "run") != "probe" and any(
         not isinstance(packet.get(key), str) or not packet[key]
         for key in ("plugin_id", "workspace_id")
@@ -235,6 +267,7 @@ class WorkerAdapter(SharedResponseDriver):
         self.ch = None
         self._ingress = set()
         self._stop_lock = asyncio.Lock()
+        self._target_lock = asyncio.Lock()
         self._started = False
         self._driver_stopped = False
         self.delivery = DeliveryBridge(self)
@@ -370,33 +403,45 @@ class WorkerAdapter(SharedResponseDriver):
             await self._context.set_platform_state("disconnected")
 
     def response_policy(self, response_handle):
-        if (
-            self.driver.response_policy.text_merge_delay_ms is not None
-            and "channel.text_merge.v1" not in self._context.capabilities
-        ):
-            raise ValueError("Text merge capability was not declared")
-        if (
-            self.driver.response_policy.content_source == "semantic"
-            and "send.structured_parts.v1" not in self._context.capabilities
-        ):
-            raise ValueError("Structured content capability was not declared")
-        return NativePolicy(**asdict(self.driver.response_policy))
+        saved = self._route_attrs(response_handle).get("policy")
+        if saved is None:
+            return self.response_open_policy()
+        policy = NativePolicy.from_mapping(json.loads(saved))
+        _validate_policy(policy, self._context.capabilities)
+        return policy
 
     def response_open_policy(self):
-        return self.response_policy("")
+        return _native_policy(
+            self.driver.response_policy,
+            self._context.capabilities,
+        )
 
     async def _persist_target(self, handle, target, *, owner):
-        await self._persist_route(
-            handle,
-            {
+        async with self._target_lock:
+            attributes = {
                 "target": json.dumps(
                     _target_data(target),
                     ensure_ascii=False,
                     separators=(",", ":"),
                 ),
                 "owner": json.dumps(owner, separators=(",", ":")),
-            },
-        )
+            }
+            if self._routes.snapshot(handle) is not None:
+                saved = self._route_attrs(handle).get("policy")
+                if saved is not None:
+                    attributes["policy"] = saved
+            else:
+                # Validate the public target before invoking author code.
+                resolved = self._decode_target(attributes)
+                policy = _native_policy(
+                    self.driver.response_policy_for(resolved),
+                    self._context.capabilities,
+                )
+                attributes["policy"] = json.dumps(
+                    policy.to_mapping(),
+                    separators=(",", ":"),
+                )
+            await self._persist_route(handle, attributes)
 
     def _target(self, handle):
         return self._decode_target(self._route_attrs(handle))

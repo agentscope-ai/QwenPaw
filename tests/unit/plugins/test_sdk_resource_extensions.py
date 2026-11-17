@@ -30,8 +30,66 @@ async def test_run_sync_releases_finished_work_before_scope_closes():
             "closed": False,
             "resources": (),
             "errors": (),
+            "cleanup_errors": (),
         }
         assert resources._handles == []
+
+
+async def test_cleanup_diagnostics_retain_each_failure_until_success():
+    resources = scope()
+    attempts = []
+    blocked = True
+
+    async def close_first():
+        attempts.append("first")
+        if blocked:
+            raise ValueError("first still writing")
+
+    async def close_second():
+        attempts.append("second")
+        if blocked:
+            raise RuntimeError("second still connected")
+
+    first = resources.defer(close_first, "first")
+    resources.defer(close_second, "second")
+    try:
+        with pytest.raises(ValueError, match="first still writing"):
+            await first.close()
+        with pytest.raises(ResourceError):
+            await resources.close()
+        expected = {
+            "owner": resources.owner,
+            "closed": False,
+            "resources": ("first", "second"),
+            "errors": (),
+            "cleanup_errors": (
+                {
+                    "description": "first",
+                    "error_type": "ValueError",
+                    "message": "first still writing",
+                },
+                {
+                    "description": "second",
+                    "error_type": "RuntimeError",
+                    "message": "second still connected",
+                },
+            ),
+        }
+        assert resources.snapshot() == expected
+        detached = resources.snapshot()
+        detached["cleanup_errors"][0]["message"] = "modified by caller"
+        assert resources.snapshot() == expected
+    finally:
+        blocked = False
+        await resources.close()
+    assert attempts == ["first", "second", "first", "second", "first"]
+    assert resources.snapshot() == {
+        "owner": resources.owner,
+        "closed": True,
+        "resources": (),
+        "errors": (),
+        "cleanup_errors": (),
+    }
 
 
 async def test_cancelled_run_sync_releases_after_worker_exits():

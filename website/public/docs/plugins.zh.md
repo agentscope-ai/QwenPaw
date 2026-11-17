@@ -214,6 +214,36 @@ asyncio.run(main())
 导出，再从该目录安装 npm 包 `@qwenpaw/plugin-sdk`。包提供运行入口和类型声明；
 不要复制宿主内部类型。使用后端任务等可选能力前先查询能力，不能仅凭前端包版本假定宿主支持。
 
+## SDK 1.2 上下文与渠道契约
+
+上下文暴露服务不代表每个调用都满足使用条件。宿主始终在执行时检查身份、作用域和权限；能力预检不能替代这些检查。
+
+| 上下文 | 适用范围与前置条件 |
+| --- | --- |
+| `PluginContext` | 注册声明、插件根存储、激活后的托管后台工作；不带具体用户会话身份。 |
+| Tool、Command、Hook 等调用 | 使用本次绑定身份；运行信息、保存状态取决于所处阶段。普通工具只能预览 checkpoint 恢复。 |
+| `AppContext` | 本用户、渠道及应用的会话、任务和审批；通过 `for_workspace()` 受控委托。主聊天读取需要宿主绑定所选会话。 |
+| App 后台工作 | 由插件托管，进入新的 `for_workspace()` 调用；不直接复用已结束的请求作用域，不伪造执行者。 |
+| `WorkflowContext` | 工作区服务任务，没有用户或会话身份，不能用作任意用户历史或审批入口。 |
+| `ChannelWorkerContext` | 常驻 worker 服务；发送预算和 `delivery` 仅在对应回调中有效，`on_run` 不绑定投递事务。 |
+| `ChannelManagementRequest` | 临时管理 worker 的独立资源与预算，不等同于常驻消息上下文。 |
+
+### 选择渠道接入方式
+
+新进程型平台渠道使用 `qwenpaw.plugins.channel_workers.ChannelDriver`。普通渠道先实现连接、接收、发送、健康状态与停止，再按需要启用流式、审批和投递步骤。`ChannelBackend/ChannelContext` 保留为宿主内渠道接入方式；它的 `receive()` 返回 `None`，进程型 `await ch.receive()` 返回入队结果。两套签名不能混用，独立进程本身也不是不可信代码沙箱。
+
+`ChannelDriver.response_policy_for(target)` 是可选同步方法，默认返回静态 `response_policy`。它在目标解析后为新路由选择策略，必须返回 `ResponsePolicy`，不得做 I/O 或启动任务。宿主校验声明能力并将策略与目标一起保存；重复入站及 worker 重启继续使用保存的策略，不能通过修改 Driver 共享字段改变另一个在途回复。升级前未保存策略的旧路由保持静态策略行为，不追溯调用回调。
+
+`ResponsePolicy.configured_prefix` 默认 `True`。设置 `False` 时，直接、内容块及流式发送不添加渠道配置中的 `bot_prefix`，但保留显式消息 metadata 的前缀。普通会话流式、线程会话非流式可以在目标策略中按 `target.metadata["thread_id"]` 选择；描述符仍必须声明 `streaming`。
+
+### 执行失败与清理失败
+
+业务操作失败、外部结果未知和资源清理失败是不同事实。异常不表示副作用没有发生；清理重试也不能重新执行业务操作。渠道继续使用 `ChannelDeliveryError.side_effect_possible`、`retryable` 与未知回执，不能对所有异常自动重发。
+
+`ResourceScope.snapshot()` 保留 `owner/closed/resources/errors`，并增加 `cleanup_errors` 元组。每项包含 `description`、`error_type`、`message`，描述尚未关闭的 Registration 最近一次清理失败；快照可独立读取，修改它不会改变宿主状态。清理成功重试后，该项消失。`errors` 仍记录后台任务失败，不与清理状态混用。诊断不证明业务成功或失败，也不保证整个资源树已停止；未结束资源继续由原 owner 持有。
+
+这几项能力从 SDK 1.2.0 提供。维持现有异常类型，不要求插件采用新的通用 Result 包装；依赖新字段或方法的插件应声明相应最低版本。
+
 ## 安装与验收范围
 
 ```bash

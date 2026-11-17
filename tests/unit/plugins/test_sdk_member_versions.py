@@ -103,6 +103,10 @@ def package(tmp_path, source, version):
         ),
         "from qwenpaw.plugins.channel_workers import ChannelDefinition\n",
         (
+            "from qwenpaw.plugins.channel_workers import ResponsePolicy\n"
+            "policy = ResponsePolicy(configured_prefix=False)\n"
+        ),
+        (
             "from qwenpaw.plugins.channel_workers import ChannelContent, "
             "ResponsePolicy\n"
             "block = ChannelContent(role='refusal')\n"

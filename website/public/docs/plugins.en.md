@@ -236,6 +236,65 @@ then install the local `@qwenpaw/plugin-sdk` npm package. It includes runtime en
 and type declarations; do not copy internal host types. Query optional backend capabilities
 before using features such as tasks rather than assuming support from the frontend version.
 
+## SDK 1.2 context and channel contracts
+
+A service appearing on a context does not mean every call can use it. The host
+checks identity, scope and permissions at execution time; capability preflight
+does not replace those checks.
+
+| Context | Scope and prerequisites |
+| --- | --- |
+| `PluginContext` | Declarations, plugin storage and managed background work after activation; no specific user's conversation identity. |
+| Tool, Command and Hook calls | The bound request identity; run information and save status depend on the phase. Ordinary tools can only preview checkpoint restoration. |
+| `AppContext` | This user/channel/app's sessions, tasks and approvals, with controlled `for_workspace()` delegation. Main-chat reads require a host-bound selected conversation. |
+| App background work | Plugin-owned work entering a new `for_workspace()` call; do not reuse a finished request scope or impersonate an executor. |
+| `WorkflowContext` | Workspace service work without a user or conversation; not an arbitrary user's history or approval entry point. |
+| `ChannelWorkerContext` | Worker services; send budgets and `delivery` are callback-local. `on_run` has no delivery transaction. |
+| `ChannelManagementRequest` | A temporary management worker's separate resources and budget, not the persistent transport context. |
+
+### Choose a channel entry point
+
+Use `qwenpaw.plugins.channel_workers.ChannelDriver` for new process-backed platform
+channels. Start with connection, receive, send, health and stop; opt into streaming,
+approvals and delivery steps as needed. `ChannelBackend/ChannelContext` remains the
+in-host channel entry point. Its `receive()` returns `None`, while process-backed
+`await ch.receive()` returns admission status. Do not mix their signatures. A
+separate process alone is not a sandbox for untrusted plugin code.
+
+The optional synchronous `ChannelDriver.response_policy_for(target)` defaults to
+the static `response_policy`. It selects a new route's policy after target
+resolution and must return `ResponsePolicy`, without I/O or background work.
+The host validates declared capabilities and persists the policy with the target.
+Repeated ingress and worker restarts reuse it; mutating a shared Driver field must
+not change another in-flight response. Legacy routes without a saved policy keep
+the static-policy behavior and do not retroactively invoke the callback.
+
+`ResponsePolicy.configured_prefix` defaults to `True`. Set it to `False` to omit
+the channel-configured `bot_prefix` from direct, content-part and streaming sends,
+while retaining explicit per-message metadata prefixes. Target policies can select
+streaming for ordinary chats and non-streaming delivery for threads using
+`target.metadata["thread_id"]`; the descriptor must still declare `streaming`.
+
+### Execution failures and cleanup failures
+
+An operation failure, an unknown external outcome and a cleanup failure are
+different facts. An exception does not prove there were no side effects, and
+retrying cleanup must not rerun the operation. Channels retain
+`ChannelDeliveryError.side_effect_possible`, `retryable` and unknown receipts;
+never blindly resend after every exception.
+
+`ResourceScope.snapshot()` retains `owner/closed/resources/errors` and adds a
+`cleanup_errors` tuple. Each entry contains `description`, `error_type` and
+`message` for the latest failed close attempt of a still-open Registration.
+Snapshots are detached: modifying one does not alter host state. A successful
+cleanup retry removes its entry. `errors` continues to record background task
+failures. These diagnostics do not establish business success or failure, or prove
+that the entire resource tree stopped; incomplete resources retain their owner.
+
+These additions require SDK 1.2.0. Existing exception types remain; no universal
+Result wrapper is required. Plugins using new fields or methods must declare the
+corresponding minimum version.
+
 ## Install and validate your supported platforms
 
 ```bash

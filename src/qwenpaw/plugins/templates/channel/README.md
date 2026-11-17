@@ -19,6 +19,22 @@ python -m qwenpaw.plugins.check ./my-channel --runtime
 
 模板未演示平台验签、审批、扫码授权、HTTP 转发或独占账户；这些不能因模板可运行就认定验收通过。
 
+### 目标策略与前缀
+
+SDK 1.2.0 保留类属性 `response_policy = ResponsePolicy(...)` 作为默认值。需要按目标选择行为时，实现同步的 `response_policy_for(target: ReplyTarget) -> ResponsePolicy`，例如普通会话流式、线程会话非流式：
+
+```python
+def response_policy_for(self, target):
+    return ResponsePolicy(
+        streaming=not bool(target.metadata.get("thread_id")),
+        configured_prefix=False,
+    )
+```
+
+宿主在 `resolve_target()` 完成后、首次持久化路由前调用它。回调不做 I/O、不启动后台工作；不能启用描述符未声明的能力。策略随路由保存，重复入站和 worker 重启不会重新选择。已有但未保存策略的旧路由继续使用当前驱动的静态策略，不追溯调用新回调。新回复才采用新的目标策略。
+
+`configured_prefix` 默认 `True`。设为 `False` 时，直接发送、内容块发送和流式发送都不添加渠道配置中的 `bot_prefix`；显式消息 metadata 中的 `bot_prefix` 仍然有效。这个选项不移除正文中的文字，不修改媒体或平台卡片排版，也不开放内部 `SendFormatPolicy`。它覆盖 MQTT 这类渠道不希望配置前缀进入 payload 的场景；旧驱动对显式 metadata 前缀有不同规则时仍需单独迁移验证。
+
 `ResponsePolicy.text_merge_delay_ms`（1.2.0）复用宿主文本合并机制：`None` 关闭合并，`0` 在回复结束时统一发送，正整数还会在连续空闲指定毫秒后发送。启用时必须声明 `channel.text_merge.v1`。用户取消会丢弃尚未发送的缓冲文本；已经开始的平台请求不能因此撤回。
 
 `ResponsePolicy.continue_on_delivery_error`（1.2.0，默认 `False`）决定一次发送失败后是否继续消费模型事件，不代表重试或忽略失败。最终回复仍标记失败；结果未知时仍禁止同一回复继续产生副作用。平台格式、卡片内容和业务规则留在驱动。

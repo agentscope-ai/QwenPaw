@@ -410,6 +410,10 @@ class ResponsePolicy:
     ``continue_on_delivery_error`` keeps consuming model events after a failed
     send. It does not retry a send or change the failed response outcome;
     an uncertain delivery still fences further effects on that response.
+
+    ``configured_prefix=False`` omits the channel's configured bot prefix
+    from direct, content-part and streaming sends. An explicit per-message
+    metadata prefix remains effective; platform formatting stays in the driver.
     """
 
     streaming: bool = False
@@ -418,6 +422,7 @@ class ResponsePolicy:
     text_merge_delay_ms: int | None = None
     continue_on_delivery_error: bool = False
     content_source: Literal["rendered", "semantic"] = "rendered"
+    configured_prefix: bool = True
 
     def __post_init__(self) -> None:
         if self.content_source not in {"rendered", "semantic"}:
@@ -429,6 +434,7 @@ class ResponsePolicy:
                 "prepare",
                 "completion_reaction",
                 "continue_on_delivery_error",
+                "configured_prefix",
             )
         ):
             raise ValueError("Response policy fields must be booleans")
@@ -537,6 +543,16 @@ class ChannelDriver:
     """
 
     response_policy = ResponsePolicy()
+
+    def response_policy_for(self, target: ReplyTarget) -> ResponsePolicy:
+        """Choose a policy synchronously after resolving a new reply target.
+
+        The host validates and persists this policy with the route. Retries
+        and worker restarts reuse it without calling this method again.
+        Do not perform I/O or start work here. Existing routes without a
+        saved policy retain the driver's static response_policy behavior.
+        """
+        return self.response_policy
 
     @staticmethod
     async def manage(
