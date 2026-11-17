@@ -135,6 +135,27 @@ def decode_folder(raw: str | bytes) -> str:
     return imap_utf7.utf7_decode(raw)
 
 
+def _extract_appenduid(data: Any) -> str | None:
+    """Parse the UID from an IMAP APPEND response.
+
+    The server replies e.g. ``OK [APPENDUID 38505 3955] APPEND completed``.
+    The UID is the last numeric token of the bracketed APPENDUID tag.
+    """
+    items = data if isinstance(data, (list, tuple)) else (data,)
+    for item in items:
+        if not isinstance(item, (bytes, str)):
+            continue
+        text = (
+            item.decode("utf-8", errors="replace")
+            if isinstance(item, bytes)
+            else item
+        )
+        match = re.search(r"\[APPENDUID\s+\S+\s+(\S+)\]", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
 # Layered, provider-agnostic SMTP error classification: rules are matched in
 # order. Provider-specific diagnostic prefixes (NetEase MI:STC etc.) come
 # first, then standard SMTP reply-code rules (QQ Mail and other providers).
@@ -949,6 +970,59 @@ class MailClient:
             "message_id": msg["Message-ID"],
         }
 
+    def save_draft(
+        self,
+        to: list[str],
+        subject: str,
+        body: str,
+        cc: list[str] | None = None,
+        folder: str | None = None,
+    ) -> dict[str, Any]:
+        """Save a draft into the Drafts folder without sending.
+
+        Appends the constructed message via IMAP APPEND with the ``\\Draft``
+        flag, so it shows up in the user's mailbox Drafts folder for later
+        manual review/sending from webmail or a mail client. Never transmits
+        via SMTP.
+        """
+        msg = self._build_message(to, subject, body, cc=cc)
+        target = folder or self._drafts_folder()
+        with self._imap() as conn:
+            typ, data = conn.append(
+                encode_folder(target),
+                "\\Draft",
+                None,
+                msg.as_bytes(),
+            )
+        if typ != "OK":
+            raise MailError(
+                f"Cannot append draft to folder {target!r}: {typ} {data}",
+            )
+        uid = _extract_appenduid(data)
+        result: dict[str, Any] = {
+            "saved": True,
+            "folder": target,
+            "to": to,
+            "cc": cc or [],
+            "subject": subject,
+        }
+        if uid:
+            result["uid"] = uid
+        return result
+
+    def _drafts_folder(self) -> str:
+        """Find the folder flagged ``\\Drafts``; fall back to Drafts/草稿箱."""
+        for folder in self.list_folders():
+            if "\\Drafts" in (folder.get("flags") or []):
+                return folder["name"]
+        for folder in self.list_folders():
+            if folder["name"].lower() in ("drafts", "草稿箱"):
+                return folder["name"]
+        raise MailError(
+            "Cannot find a Drafts folder in this mailbox; pass 'folder' "
+            "explicitly or use list_folders to see available folders.",
+        )
+
     # -- flags / move / delete ---------------------------------------------
 
     _MARKS = {
@@ -1020,9 +1094,9 @@ class MailClient:
                         "or another client."
                     )
                 else:
-                    result[
-                        "note"
-                    ] = "marked \\Deleted; UID EXPUNGE did not complete"
+                    result["note"] = (
+                        "marked \\Deleted; UID EXPUNGE did not complete"
+                    )
                     if expunge.detail:
                         result["expunge_error"] = expunge.detail
             return result
