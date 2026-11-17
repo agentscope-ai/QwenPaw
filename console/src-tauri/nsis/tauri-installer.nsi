@@ -652,6 +652,7 @@ Section Install
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
   !insertmacro QWENPAW_INSTALL_ACTION BeginInstall
+  !insertmacro QWENPAW_INSTALL_ACTION ClearRuntime
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
@@ -807,6 +808,7 @@ Section Uninstall
   Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-maintenance"
   Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-new"
   Delete "$INSTDIR\binaries\qwenpaw-backend\qwenpaw.exe.qwenpaw-installing"
+  Delete "$INSTDIR\.qwenpaw-installing"
   {{#each binaries}}
     Delete "$INSTDIR\\{{this}}"
   {{/each}}

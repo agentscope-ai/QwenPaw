@@ -339,7 +339,7 @@ def test_nsis_cli_gate_recovers_at_the_correct_install_phase(
     cli, launcher, run = nsis_cli_install
     staged = cli.with_name(cli.name + ".qwenpaw-new")
     backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
-    marker = cli.with_name(cli.name + ".qwenpaw-installing")
+    marker = cli.parents[2] / ".qwenpaw-installing"
 
     run("Prepare")
     assert not cli.exists()
@@ -347,11 +347,12 @@ def test_nsis_cli_gate_recovers_at_the_correct_install_phase(
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
     if phase != "prepare":
         staged.write_bytes(b"stale staged CLI")
-        run("BeginInstall")
+        run("BeginInstall", "ClearRuntime")
         assert marker.exists()
         assert not staged.exists()
         assert not cli.exists()
     if phase == "complete":
+        cli.parent.mkdir(parents=True)
         staged.write_bytes(b"new CLI")
         run("CompleteInstall")
         assert cli.read_bytes() == b"new CLI"
@@ -363,7 +364,8 @@ def test_nsis_cli_gate_recovers_at_the_correct_install_phase(
         assert "Run the installer again" in output
         assert not cli.exists()
         # A subsequent attempt can finish without restoring the old entry.
-        run("Prepare", "BeginInstall")
+        run("Prepare", "BeginInstall", "ClearRuntime")
+        cli.parent.mkdir(parents=True)
         staged.write_bytes(b"retried CLI")
         run("CompleteInstall")
         assert cli.read_bytes() == b"retried CLI"
@@ -381,9 +383,17 @@ def test_nsis_fresh_install_requires_a_new_cli(nsis_cli_install):
     launcher.unlink()
     (root / "qwenpaw-desktop.exe").unlink()
     (cli.parent / "qwenpaw-backend.exe").unlink()
-    run("Prepare", "BeginInstall")
+    run("Prepare", "BeginInstall", "ClearRuntime")
     run("CompleteInstall", expected=1)
     assert not cli.exists()
+    cli.parent.mkdir(parents=True)
+    # With all original binaries gone, the root marker still identifies a
+    # partial installation and prevents its CLI from being left runnable.
+    cli.write_bytes(b"partial CLI")
+    run("Prepare")
+    assert not cli.exists()
+    run("BeginInstall", "ClearRuntime")
+    cli.parent.mkdir(parents=True)
     cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
     run("CompleteInstall", "CompleteInstall")
     assert cli.read_bytes() == b"new CLI"
@@ -402,6 +412,11 @@ def test_nsis_previous_uninstall_uses_the_new_installer_guard():
     )[1].split("${EndIf}", 1)[0]
     assert "!insertmacro QWENPAW_UNINSTALL_PREVIOUS" in nsis_uninstall
     assert "ExecWait" not in nsis_uninstall
+    install = template.split("Section Install\n", 1)[1]
+    assert install.index("BeginInstall") < install.index("ClearRuntime")
+    assert install.index("ClearRuntime") < install.index(
+        'File "${MAINBINARYSRCPATH}"',
+    )
 
 
 @pytest.mark.parametrize("phase", ["cancelled", "partial", "complete"])
@@ -414,7 +429,7 @@ def test_nsis_cli_gate_covers_uninstall_before_install(
     root = cli.parents[2]
     completed = phase == "complete"
     backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
-    marker = cli.with_name(cli.name + ".qwenpaw-installing")
+    marker = root / ".qwenpaw-installing"
     run("Prepare", "BeginInstall")
     assert not cli.exists()
 
@@ -437,8 +452,9 @@ def test_nsis_cli_gate_covers_uninstall_before_install(
         assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
 
     # Both successful removal and an interrupted uninstall can be repaired.
-    run("Prepare", "BeginInstall")
+    run("Prepare", "BeginInstall", "ClearRuntime")
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
+    cli.parent.mkdir(parents=True)
     cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
     run("CompleteInstall")
     assert cli.read_bytes() == b"new CLI"
@@ -482,7 +498,7 @@ def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
         run("Prepare")
         assert blocked.wait(5)
         assert not cli.exists()
-        run("BeginInstall")
+        run("BeginInstall", "ClearRuntime")
         count = len(children)
         time.sleep(0.2)
         assert len(children) == count
@@ -494,6 +510,103 @@ def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
             if child.poll() is None:
                 child.kill()
             child.wait(timeout=5)
+
+
+def test_nsis_runtime_cleanup_stops_on_locked_files_and_can_retry(
+    nsis_cli_install,
+):
+    """Partial deletion stays gated; retry removes only the bundled trees."""
+    cli, launcher, run = nsis_cli_install
+    root = cli.parents[2]
+    config = json.loads(
+        (REPO_ROOT / "console/src-tauri/tauri.conf.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    runtimes = [root / path for path in config["bundle"]["resources"]]
+    for directory in runtimes:
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "obsolete.pyd").write_bytes(b"old runtime")
+    user_data = launcher.parent.parent / "history.db"
+    user_data.write_bytes(b"user history")
+    unrelated = root / "binaries" / "custom"
+    unrelated.mkdir()
+    (unrelated / "keep.txt").write_bytes(b"keep")
+    run("Prepare", "BeginInstall")
+    with (root / "binaries/python-runtime/obsolete.pyd").open("rb"):
+        run("ClearRuntime", expected=1)
+    assert any(not directory.exists() for directory in runtimes)
+    assert not cli.exists()
+    assert (root / ".qwenpaw-installing").exists()
+    run("AbortInstall", expected=1)
+    assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
+    run("Prepare", "BeginInstall", "ClearRuntime", "ClearRuntime")
+    assert all(not directory.exists() for directory in runtimes)
+    assert user_data.read_bytes() == b"user history"
+    assert (unrelated / "keep.txt").read_bytes() == b"keep"
+    cli.parent.mkdir(parents=True)
+    cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
+    run("CompleteInstall")
+    assert cli.read_bytes() == b"new CLI"
+    assert not (root / ".qwenpaw-installing").exists()
+
+
+@pytest.mark.parametrize(
+    ("relative", "dangling"),
+    [
+        ("binaries", False),
+        ("binaries/node-runtime", False),
+        ("binaries/node-runtime/nested", False),
+        ("binaries/node-runtime", True),
+    ],
+)
+def test_nsis_runtime_cleanup_refuses_junctions(
+    nsis_cli_install,
+    relative,
+    dangling,
+):
+    """Validate all trees before deletion, including nested directory links."""
+    cli, _, run = nsis_cli_install
+    root = cli.parents[2]
+    outside = root.parent / "outside"
+    outside.mkdir()
+    sentinel = outside / "keep.txt"
+    sentinel.write_bytes(b"keep")
+    run("Prepare", "BeginInstall")
+    junction = root / relative
+    if relative == "binaries":
+        junction.rename(root / "saved-binaries")
+    junction.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["cmd.exe", "/c", "mklink", "/J", str(junction), str(outside)],
+        check=True,
+        capture_output=True,
+    )
+    try:
+        if dangling:
+            moved = outside.with_name("moved-outside")
+            outside.rename(moved)
+            sentinel = moved / sentinel.name
+        run("ClearRuntime", expected=1)
+        assert sentinel.read_bytes() == b"keep"
+        backend = root / (
+            "saved-binaries" if relative == "binaries" else "binaries"
+        )
+        assert (backend / "qwenpaw-backend/qwenpaw-backend.exe").exists()
+    finally:
+        junction.rmdir()
+
+
+def test_nsis_abort_preserves_an_older_installation_marker(nsis_cli_install):
+    """Packages with the previous marker location remain safe to repair."""
+    cli, _, run = nsis_cli_install
+    run("Prepare")
+    cli.with_name(cli.name + ".qwenpaw-installing").write_text("incomplete")
+    run("AbortInstall", expected=1)
+    assert not cli.exists()
+    run("BeginInstall", "ClearRuntime")
+    assert (cli.parents[2] / ".qwenpaw-installing").exists()
+    assert not cli.parent.exists()
 
 
 def test_shared_daemon_keeps_channel_runtime_environment() -> None:
