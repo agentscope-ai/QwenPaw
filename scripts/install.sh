@@ -153,7 +153,7 @@ else
     info "Creating Python $PYTHON_VERSION environment..."
 fi
 
-uv venv "$QWENPAW_VENV" --python "$PYTHON_VERSION" --quiet --seed
+uv venv "$QWENPAW_VENV" --python "$PYTHON_VERSION" --quiet --seed --index-url "$PYPI_MIRROR"
 
 # Verify the venv was created
 [ -x "$QWENPAW_VENV/bin/python" ] || die "Failed to create virtual environment"

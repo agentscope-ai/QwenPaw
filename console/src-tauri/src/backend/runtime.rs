@@ -129,18 +129,39 @@ pub(crate) fn directory() -> Result<PathBuf, String> {
                 home.join(".qwenpaw")
             }
         });
-    std::fs::create_dir_all(&working).map_err(|err| err.to_string())?;
+    std::fs::create_dir_all(&working).map_err(|err| {
+        format!(
+            "Cannot create working directory {}: {err}",
+            working.display()
+        )
+    })?;
     let directory = working
         .canonicalize()
-        .map_err(|err| err.to_string())?
+        .map_err(|err| {
+            format!(
+                "Cannot resolve working directory {}: {err}",
+                working.display()
+            )
+        })?
         .join("runtime")
         .join("shared");
-    std::fs::create_dir_all(&directory).map_err(|err| err.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|err| {
+        format!(
+            "Cannot create shared runtime directory {}: {err}",
+            directory.display()
+        )
+    })?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
-            .map_err(|err| err.to_string())?;
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).map_err(
+            |err| {
+                format!(
+                    "Cannot set shared runtime permissions {}: {err}",
+                    directory.display()
+                )
+            },
+        )?;
     }
     Ok(directory)
 }

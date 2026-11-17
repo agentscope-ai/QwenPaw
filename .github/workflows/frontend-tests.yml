@@ -87,6 +87,9 @@ jobs:
       - name: Run unit tests with coverage (ratchet blocks PR on regression)
         run: npm run test:coverage
 
+      - name: Build production Console and enforce initial bundle budgets
+        run: npm run build:prod
+
       - name: Verify standalone Plugin SDK types and behavior
         run: >-
           python3 ../scripts/check_plugin_sdk_frontend.py

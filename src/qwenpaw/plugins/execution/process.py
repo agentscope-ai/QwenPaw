@@ -671,12 +671,24 @@ class PluginProcess:
                 "TMP",
                 "TMPDIR",
                 "SSL_CERT_FILE",
+                "SSL_CERT_DIR",
                 "QWENPAW_DEPENDENCY_MAINTENANCE",
             }
             or name in NETWORK_PROXY_ENVIRONMENT
         }
-        if ca_file := environment.get("SSL_CERT_FILE"):
-            environment["SSL_CERT_FILE"] = str(Path(ca_file).absolute())
+        for name in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            # Only freeze inherited relative paths before the worker changes
+            # cwd. Absolute strings and later private_env overrides retain
+            # their spelling and existing interpretation.
+            value = environment.get(name)
+            if value and not Path(value).is_absolute():
+                absolute = Path(value).absolute()
+                if not absolute.is_absolute():
+                    raise BootstrapError(
+                        "LAUNCH_ENVIRONMENT_INVALID",
+                        "Inherited CA path could not be made absolute",
+                    )
+                environment[name] = str(absolute)
         if os.name == "nt":
             environment["USERPROFILE"] = str(Path.home().resolve())
         from ..dependency_maintenance import (

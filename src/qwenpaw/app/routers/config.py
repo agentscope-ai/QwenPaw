@@ -877,7 +877,6 @@ async def put_channel(
                 scope.workspace_id,
                 apply_channel,
             )
-            schedule_agent_reload(request, scope.workspace_id)
             return saved.channels.model_dump(mode="json")[channel_name]
 
         try:
@@ -886,6 +885,10 @@ async def put_channel(
                 token,
                 channel_config,
                 persist,
+                on_saved=lambda: schedule_agent_reload(
+                    request,
+                    scope.workspace_id,
+                ),
             )
         except ManagementError as error:
             raise _management_http_error(error) from None

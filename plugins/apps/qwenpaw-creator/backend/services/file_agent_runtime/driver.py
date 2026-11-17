@@ -104,6 +104,7 @@ from services.runtime_files.models import (
     ChangeOrigin,
     CreatorMessageRecord,
     MessageChannel,
+    MessageContentPart,
     ReviewPolicy,
 )
 from services.runtime_files.execution_models import (
@@ -171,6 +172,7 @@ from utils.paths import media_task_scope
 from utils.paths import media_url_for
 from utils.paths import unique_task_work_path
 
+from . import media_vault
 from .checkpoints import (
     CHECKPOINT_PROVIDER,
     checkpoint_authorization_id,
@@ -190,6 +192,7 @@ from .model_client import (
     AgentStreamCallbackPassthrough,
     AgentModelTurn,
     DEFAULT_MODEL_TURN_TIMEOUT_SECONDS as _DEFAULT_MODEL_TURN_TIMEOUT_SECONDS,
+    ModelContextUnfitError,
     RateLimitExhaustedError,
     RateLimitRetryNotice,
     AgentScopeAgentChatClient,
@@ -219,7 +222,37 @@ from .production_status import (
 )
 from .run_store import AgentRunStateConflict, CreatorAgentRunStore
 from .work_graph import WorkNodeStatus, derive_work_graph
-from .model_context import compact_conversation_history
+from .model_context import (
+    MEDIA_OBSERVATION_SOURCE,
+    MEDIA_RECALL_SOURCE,
+    compact_conversation_history,
+    continuation_summary_enabled,
+    estimate_input_tokens,
+    plan_history_compaction,
+    render_archived_evidence,
+)
+
+try:  # pragma: no cover - the plugin runs inside the host install
+    # The platform scroll already knows how to ask a model for a plain-Markdown
+    # continuation summary and how to validate the answer locally, failing
+    # closed. Reusing that library keeps Creator's archived-state shape
+    # identical to the host's instead of inventing a parallel prompt.
+    from qwenpaw.agents.context.scroll.continuation_summary import (
+        build_update_prompt as _host_build_update_prompt,
+    )
+    from qwenpaw.agents.context.scroll.continuation_summary import (
+        parse_plain_markdown as _host_parse_plain_markdown,
+    )
+    from qwenpaw.agents.context.scroll.continuation_summary import (
+        validate_summary_quality as _host_validate_summary_quality,
+    )
+
+    _HOST_CONTINUATION_SUMMARY_AVAILABLE = True
+except ImportError:  # pragma: no cover - standalone plugin installs
+    _host_build_update_prompt = None
+    _host_parse_plain_markdown = None
+    _host_validate_summary_quality = None
+    _HOST_CONTINUATION_SUMMARY_AVAILABLE = False
 from .workgraph_execution import (
     REQUEST_WORKGRAPH_EXECUTION,
     parse_request_targets,
@@ -289,7 +322,9 @@ def _remove_live_operation_scratch(
     resolved_cleanup = cleanup_path.resolve(strict=False)
     if (
         resolved_cleanup == scratch_root
-        or not resolved_cleanup.is_relative_to(scratch_root)
+        or not resolved_cleanup.is_relative_to(
+            scratch_root,
+        )
     ):
         logger.error(
             "refusing live-operation cleanup outside scratch root: %s",
@@ -317,9 +352,25 @@ _BILLING_SENSITIVE_ARGUMENTS = ("durationSeconds", "resolution", "mode")
 
 GROUND_PROMPT_CONTEXT_TOOL_NAME = "ground_prompt_context"
 OBJECT_GROUNDING_TOOL_NAME = "ground_image_objects"
+RECALL_MEDIA_TOOL_NAME = "recall_media"
+RECALL_HISTORY_TOOL_NAME = "recall_history"
 BROWSER_USE_TOOL_NAME = "browser_use"
 COMPUTER_USE_TOOL_NAME = "computer_use"
 GROUNDING_VISUAL_MAX_BYTES = 16 * 1024 * 1024
+# Restoring a block larger than this would only trade one budget failure for
+# another, and the pointer already records what the bytes were.
+MAX_RECALL_MEDIA_BYTES = 16 * 1024 * 1024
+MAX_RECALL_MEDIA_HANDLES = 4
+# A recall must not hand back more than the window it was squeezed from, or
+# the very next turn refuses again. Bound the recovered text and the seq span
+# a single expand may cross; search reports matches within the same ceiling.
+MAX_RECALL_HISTORY_BYTES = 64 * 1024
+MAX_RECALL_HISTORY_SPAN = 200
+# A keyword search has no seq span to bound it, so cap the hit count and charge
+# the whole serialized entry (metadata included) against the byte ceiling:
+# appending empty matches once the budget is spent lets plain metadata
+# re-inflate the very window recall is meant to stay inside.
+MAX_RECALL_HISTORY_SEARCH_HITS = 200
 MAX_MALFORMED_JQ_PROJECT_RETRIES = 2
 MAX_REPEATED_DETERMINISTIC_TOOL_FAILURES = 2
 # Planning turns that emit a full Element structure in one response can
@@ -953,6 +1004,102 @@ def _object_grounding_tool_manifest() -> dict[str, Any]:
     }
 
 
+def _recall_media_tool_manifest() -> dict[str, Any]:
+    """Describe the pointer the context guard leaves behind can be answered.
+
+    The guard promises a demoted block stays readable; this tool is that
+    promise, so a model that needs to look again asks for the handle instead
+    of guessing at what the screenshot showed.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": RECALL_MEDIA_TOOL_NAME,
+            "description": (
+                "取回被上下文预算移出本次请求的内联媒体原件。媒体块被降级时，"
+                "原位置留下一条指针说明，形如 "
+                "[inline media left this context: image/jpeg, ... "
+                "handle=sha256:<64位摘要>]；确认现在仍需要看到它时，把该句柄"
+                "传进来（带或不带 sha256: 前缀都可以，一次最多 4 个），原件会"
+                "作为原生媒体重新送达本轮。指针说明已随所在消息一并被压缩掉时"
+                "无法召回，请重新运行产出该媒体的工具。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "projectId": {"type": "string", "minLength": 1},
+                    "handles": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": MAX_RECALL_MEDIA_HANDLES,
+                        "description": "指针说明中的 sha256 句柄。",
+                        "items": {
+                            "type": "string",
+                            "minLength": 8,
+                            "maxLength": 80,
+                        },
+                    },
+                },
+                "required": ["projectId", "handles"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def _recall_history_tool_manifest() -> dict[str, Any]:
+    """Answer the promise the text-history map leaves behind can be kept.
+
+    When the budget squeezes older turns out of the live window, the
+    compaction no longer drops a bare count: it lists the turns by
+    ``messageSeq``. This tool is how the model reads one back — a fetch over
+    its own durable conversation, not a guess at what was said.
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": RECALL_HISTORY_TOOL_NAME,
+            "description": (
+                "按 messageSeq 取回被上下文预算移出本次请求的历史轮次原件。"
+                "上下文压缩时会在 [context compressed] 地图里列出被省略轮的 "
+                "seq 与标题；需要回顾早期目标、约束或决策时调用本工具。"
+                'op="expand" 传 lo/hi 读取该 seq 区间的原文，'
+                'op="search" 传 query 在当前会话历史里按关键词找 seq。'
+                "只能回读本会话持久化的轮次，早于归档起点则取不回。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "projectId": {"type": "string", "minLength": 1},
+                    "op": {
+                        "type": "string",
+                        "enum": ["expand", "search"],
+                        "description": "取回方式。",
+                    },
+                    "lo": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "expand 起始 messageSeq（含）。",
+                    },
+                    "hi": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "expand 结束 messageSeq（含）。",
+                    },
+                    "query": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200,
+                        "description": "search 关键词。",
+                    },
+                },
+                "required": ["projectId", "op"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
 def _browser_use_tool_manifest() -> dict[str, Any]:
     """Describe the live-operation tool the way the host browser tool does.
 
@@ -1062,6 +1209,12 @@ def _creator_agent_tool_manifest(
     if get_web_grounding_enabled():
         manifest.append(_ground_prompt_context_tool_manifest())
     manifest.append(_object_grounding_tool_manifest())
+    # Every turn that demotes media leaves pointers behind; the model needs the
+    # way back on any turn, so this one is never behind a feature switch.
+    manifest.append(_recall_media_tool_manifest())
+    # Text history is now archived-and-summarized-by-seq rather than cut, so
+    # the elision map's recall handle needs a live tool on every turn too.
+    manifest.append(_recall_history_tool_manifest())
     if get_live_operation_enabled():
         manifest.append(_browser_use_tool_manifest())
     if get_computer_use_enabled():
@@ -1506,11 +1659,22 @@ class _SpecialistHandle:
     cancel_reason: str | None = None
     task: asyncio.Task[None] | None = None
 
-    def cancel(self, reason: str) -> None:
-        if self.cancel_reason is None:
-            self.cancel_reason = reason
+    def cancel(self, reason: str) -> bool:
+        """Revoke this run once; report whether this call owns the cleanup.
+
+        A repeated signal must not cancel the task again. The first
+        cancellation's cleanup is what persists the terminal status and
+        emits the terminal lifecycle event; interrupting that coroutine
+        would leave the run RUNNING_MODEL with a dead worker and no
+        terminal event forever.
+        """
+
+        if self.cancel_reason is not None:
+            return False
+        self.cancel_reason = reason
         if self.task is not None and not self.task.done():
             self.task.cancel()
+        return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -1603,6 +1767,10 @@ class FileCreatorAgentRuntime:
         # Detached (asynchronous) specialist runs by project; cancelled
         # by interrupt/stop/project-delete, never by a new mainline run.
         self._specialist_tasks: dict[str, dict[str, _SpecialistHandle]] = {}
+        # Cancellation finalizers that must survive their worker being
+        # cancelled again (kept referenced so they are not garbage
+        # collected mid-await, mirroring _interrupt_cleanup_tasks).
+        self._specialist_cleanup_tasks: set[asyncio.Task[Any]] = set()
         self._interrupt_cleanup_tasks: set[asyncio.Task[Any]] = set()
         self._blocked_heads: dict[str, int] = {}
         # Durable-interrupt stall tracking: project -> (run_id, first seen
@@ -1660,7 +1828,7 @@ class FileCreatorAgentRuntime:
         """Bound one provider turn; max_model_turns cannot stop a hung turn."""
 
         try:
-            return await asyncio.wait_for(
+            turn = await asyncio.wait_for(
                 client.complete(
                     messages=messages,
                     tools=tools,
@@ -1676,6 +1844,100 @@ class FileCreatorAgentRuntime:
                 f"{label} model turn exceeded "
                 f"{self.model_turn_timeout_seconds:g} seconds",
             ) from exc
+        sent = getattr(turn, "sent_messages", None)
+        if isinstance(sent, list) and sent:
+            # Adopt the shape this turn actually sent, in place, so the next
+            # turn of the same run cannot put back the media the demotion
+            # ladder already moved out and re-prove the refusal with another
+            # burned call. The durable records are untouched: this list is the
+            # ephemeral wire context, and the model has already answered it.
+            messages[:] = sent
+        return turn
+
+    async def _plan_continuation_summary(
+        self,
+        prior_context: list[CreatorMessageRecord],
+    ) -> str:
+        """Ask the model for one prose state cache over the turns compaction
+        is about to archive.
+
+        This mirrors the platform scroll's continuation summary — a bounded,
+        plain-Markdown snapshot of what the archived middle decided and still
+        owes, so the model reads coherent state rather than only a seq map. It
+        is regenerated from durable history on every compaction (Creator keeps
+        no cross-run summary) and is strictly fail-closed: a missing host
+        library, a turned-off knob, nothing actually archived, an empty or
+        invalid reply, or any provider error leaves the recall map alone.
+        """
+        if (
+            not prior_context
+            or not _HOST_CONTINUATION_SUMMARY_AVAILABLE
+            or not continuation_summary_enabled()
+        ):
+            return ""
+        try:
+            _compacted, archived = plan_history_compaction(
+                _build_continuation_history(prior_context),
+            )
+            if not archived:
+                return ""
+            evidence, (lo, hi) = render_archived_evidence(archived)
+            if not evidence or lo is None or hi is None:
+                return ""
+            prompt = _host_build_update_prompt(
+                mode="initial",
+                previous=None,
+                archived_context=evidence,
+                covered_seq=(lo, hi),
+                language="zh",
+            )
+            turn = await self._complete_model_turn(
+                self.model_client,
+                label="Creator Continuation Summary",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "你负责更新一份紧凑的 continuation summary。严格遵"
+                            "循指定的 Markdown headings，并使用中文填写自然语"
+                            "言内容。"
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                tools=[],
+                on_text_delta=None,
+                on_thinking_delta=None,
+                on_tool_call_delta=None,
+            )
+            parsed = _host_parse_plain_markdown(
+                turn.content or "",
+                covered_seq=(lo, hi),
+            )
+            if parsed is None:
+                return ""
+            existing_seqs = {
+                int(item["seq"])
+                for item in archived
+                if isinstance(item.get("seq"), int)
+            }
+            if _host_validate_summary_quality(
+                parsed,
+                evidence_text=evidence,
+                existing_seqs=existing_seqs,
+            ):
+                # Fails closed: an unsupported identifier or a dangling
+                # pointer means the summary cannot be trusted, so fall back to
+                # the recall map instead of injecting a plausible fabrication.
+                return ""
+            return _creator_summary_recall_wording(
+                parsed.render_background(include_envelope=False),
+                lo,
+                hi,
+            )
+        except Exception:  # pylint: disable=broad-except
+            # The summary is pure relief — it may never break or block a run.
+            return ""
 
     @property
     def started(self) -> bool:
@@ -2067,9 +2329,18 @@ class FileCreatorAgentRuntime:
             await asyncio.gather(dispatcher, return_exceptions=True)
         if cleanup_tasks:
             await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        # A revoked specialist settles itself in a shielded cleanup task, and
+        # the tasks above can spawn one on their way out. Shutdown must let
+        # those writes finish: cancelling them would leave the durable record
+        # in RUNNING_MODEL with no in-process owner and no terminal event,
+        # which is exactly the state a restart would have to guess about.
+        settlement_tasks = list(self._specialist_cleanup_tasks)
+        if settlement_tasks:
+            await asyncio.gather(*settlement_tasks, return_exceptions=True)
         self._active.clear()
         self._specialist_tasks.clear()
         self._interrupt_cleanup_tasks.clear()
+        self._specialist_cleanup_tasks.clear()
         self._loop = None
 
     def notify(self, project_id: str) -> None:
@@ -2205,6 +2476,65 @@ class FileCreatorAgentRuntime:
             self._specialist_tasks.get(project_id, {}).values(),
         ):
             handle.cancel(reason)
+
+    def cancel_specialist_run(
+        self,
+        project_id: str,
+        specialist_run_id: str,
+        *,
+        reason: str,
+    ) -> bool:
+        """Revoke a single detached specialist run by id.
+
+        Returns True when an in-process worker owns the run and was
+        signalled to cancel. That worker persists the CANCELLED status and
+        emits the ``subagent.failed{cancelled}`` terminal lifecycle event
+        itself, so the caller must NOT also transition the durable record:
+        a pre-emptive CAS would let the worker observe an already-terminal
+        status and skip its terminal event, leaving the Agent status bar
+        stuck on the run's activity (e.g. "素材理解中") forever.
+
+        A handle whose task has not been spawned yet still counts as an
+        in-process owner: admission registered the run and settles the
+        revocation itself at its next await, so a concurrent durable CAS
+        here would only race it.
+
+        Returns False when no live worker owns the run in this process (an
+        orphan after restart, or a durable-only media-execution run); the
+        caller then settles the durable record on its own.
+
+        A run that is already being cancelled still reports True: the
+        in-process cleanup owns the terminal status and its lifecycle event,
+        so a concurrent durable CAS would only race it and could steal the
+        event that disarms the Agent status bar. The repeated signal itself
+        never re-cancels the task (see ``_SpecialistHandle.cancel``).
+        """
+
+        handle = self._specialist_tasks.get(project_id, {}).get(
+            specialist_run_id,
+        )
+        if handle is None:
+            return False
+        if handle.task is not None and handle.task.done():
+            # The worker already terminalized itself and its registration
+            # is being discarded; nothing here can still emit the event.
+            return False
+        handle.cancel(reason)
+        return True
+
+    def _discard_specialist_handle(
+        self,
+        project_id: str,
+        specialist_run_id: str,
+    ) -> None:
+        """Drop one detached specialist registration for this Project."""
+
+        handles = self._specialist_tasks.get(project_id)
+        if handles is None:
+            return
+        handles.pop(specialist_run_id, None)
+        if not handles:
+            self._specialist_tasks.pop(project_id, None)
 
     async def _reclaim_specialist_orphans(self, project_id: str) -> None:
         """Fail over detached specialist runs stranded by an unclean exit.
@@ -3038,6 +3368,28 @@ class FileCreatorAgentRuntime:
                 retryable=False,
             )
             self._blocked_heads[project_id] = message.message_seq
+        except ModelContextUnfitError as exc:
+            # The client already proved no smaller version of this request
+            # exists, so an automatic resume would re-send the same bytes and
+            # pay for another model call to reproduce one error message. The
+            # run waits here until a shorter input arrives.
+            logger.error(
+                "Agent run %s failed — input too large with nothing left to "
+                "give up: %s",
+                run_id,
+                exc,
+            )
+            await self._fail_run(
+                project_id,
+                session.session_id,
+                goal.goal_id,
+                run_id,
+                message,
+                code="MODEL_CONTEXT_UNFIT",
+                message_text=str(exc),
+                retryable=False,
+            )
+            self._blocked_heads[project_id] = message.message_seq
         except RateLimitExhaustedError as exc:
             logger.error(
                 "Agent run %s failed — model rate limit exhausted after "
@@ -3281,6 +3633,13 @@ class FileCreatorAgentRuntime:
             snapshot_project: Project | None = snapshot.project
         except Exception:  # pylint: disable=broad-except
             snapshot_project = None
+        # Ask for a continuation summary over the turns about to be archived
+        # before the history view is serialized. Fail-closed and off the
+        # critical contract path: it returns "" unless compaction actually
+        # drops turns, so short histories never pay the extra model turn.
+        continuation_summary = await self._plan_continuation_summary(
+            prior_context,
+        )
         messages: list[dict[str, Any]] = [
             {
                 "role": "system",
@@ -3289,6 +3648,13 @@ class FileCreatorAgentRuntime:
                     workspace_schema=tools.schema_prompt.text,
                     external_skills=render_external_skills_context(
                         external_skills,
+                    ),
+                    # Same source as the caption renderer: the delegator
+                    # describes the style the final cut will actually draw.
+                    subtitle_settings=(
+                        snapshot_project.settings
+                        if snapshot_project is not None
+                        else None
                     ),
                 ),
             },
@@ -3304,6 +3670,7 @@ class FileCreatorAgentRuntime:
                         else None
                     ),
                     batch_tail=batch_tail,
+                    continuation_summary=continuation_summary,
                 ),
             },
         ]
@@ -3651,6 +4018,7 @@ class FileCreatorAgentRuntime:
                     consumed_message_seq=input_cursor,
                 )
 
+            recalled_parts: list[dict[str, Any]] = []
             for call in turn.tool_calls:
                 tool_call_count += 1
                 if call.name == REQUEST_WORKGRAPH_EXECUTION:
@@ -3790,6 +4158,17 @@ class FileCreatorAgentRuntime:
                             request=request,
                             arguments=call.arguments,
                         )
+                    elif call.name == RECALL_MEDIA_TOOL_NAME:
+                        result = await self._run_recall_media(
+                            arguments=call.arguments,
+                        )
+                    elif call.name == RECALL_HISTORY_TOOL_NAME:
+                        result = await self._run_recall_history(
+                            project_id=project_id,
+                            session_id=session_id,
+                            conversation_id=request.conversation_id,
+                            arguments=call.arguments,
+                        )
                     elif call.name == BROWSER_USE_TOOL_NAME:
                         result = await self._run_browser_use(
                             request=request,
@@ -3918,6 +4297,20 @@ class FileCreatorAgentRuntime:
                         "failed": tool_failed,
                     },
                 )
+                if call.name == RECALL_MEDIA_TOOL_NAME and not tool_failed:
+                    # The tool result is JSON text, which no provider reads as
+                    # an image. The recalled bytes have to arrive the same way
+                    # any other media does: native parts on a user turn. That
+                    # turn is held until every tool result of this assistant
+                    # turn has been appended, because a user row wedged between
+                    # two tool results splits the group: the provider sees an
+                    # unanswered tool_calls message, and compaction can never
+                    # pair the group up to drop it again.
+                    recalled_parts.extend(
+                        await self._recalled_media_content(
+                            result=result,
+                        ),
+                    )
                 if (
                     call.name == REQUEST_WORKGRAPH_EXECUTION
                     and not tool_failed
@@ -3974,6 +4367,14 @@ class FileCreatorAgentRuntime:
                         "arguments; the run stopped instead of starting "
                         "another model turn",
                     )
+            if recalled_parts:
+                messages.append(
+                    {
+                        "role": "user",
+                        "source": MEDIA_RECALL_SOURCE,
+                        "content": recalled_parts,
+                    },
+                )
             if (
                 turn_number == effective_max_turns
                 and not finalization_turn_added
@@ -4780,6 +5181,268 @@ class FileCreatorAgentRuntime:
             )
         return response
 
+    async def _run_recall_media(
+        self,
+        *,
+        arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Look one pointer up in the media vault, by its content digest.
+
+        A fetch, not a search: the handle already names the exact bytes, so
+        Creator adds no retrieval index of its own over them. A handle nobody
+        stored is reported as missing rather than guessed at, because a
+        confidently wrong image costs the run more than the pointer it
+        replaced.
+        """
+        raw = arguments.get("handles")
+        if (
+            not isinstance(raw, list)
+            or not 1 <= len(raw) <= MAX_RECALL_MEDIA_HANDLES
+        ):
+            raise FileAgentRuntimeError(
+                "recall_media requires 1 to "
+                f"{MAX_RECALL_MEDIA_HANDLES} handles",
+            )
+        recalled: list[dict[str, Any]] = []
+        missing: list[str] = []
+        too_large: list[str] = []
+        for value in raw:
+            handle = media_vault.normalize_handle(str(value or ""))
+            if not media_vault.looks_like_digest(handle):
+                missing.append(str(value or ""))
+                continue
+            loaded = await asyncio.to_thread(
+                media_vault.load_by_handle,
+                handle,
+            )
+            if loaded is None:
+                missing.append(handle)
+                continue
+            url, decoded_bytes = loaded
+            if decoded_bytes > MAX_RECALL_MEDIA_BYTES:
+                too_large.append(handle)
+                continue
+            recalled.append(
+                {
+                    "handle": handle,
+                    "mime": url[5:].partition(";")[0],
+                    "decodedBytes": decoded_bytes,
+                    "estimatedTokens": estimate_input_tokens(url),
+                },
+            )
+        if not recalled:
+            raise FileAgentRuntimeError(
+                "recall_media found no restorable bytes for these handles; "
+                "their pointer may predate the vault. Re-run the tool that "
+                "produced the media to observe it again.",
+            )
+        response: dict[str, Any] = {
+            "ok": True,
+            "status": "success",
+            "recalled": recalled,
+            "note": "原件已作为原生媒体随本工具结果后的用户消息送达。",
+        }
+        if missing:
+            response["missing"] = missing
+        if too_large:
+            response["tooLarge"] = too_large
+        return response
+
+    async def _run_recall_history(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        conversation_id: str,
+        arguments: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Read durable conversation turns back by ``messageSeq`` or keyword.
+
+        A fetch over the session store, not a search index Creator builds of
+        its own: the compaction map already named the seq, and the original
+        rows never left the durable store, so recall only re-reads what was
+        already persisted. Byte and span caps keep the recovered text from
+        re-inflating the very window it was squeezed out of.
+        """
+        if arguments.get("projectId") != project_id:
+            raise FileAgentRuntimeError(
+                "recall_history cannot read another Project",
+            )
+        op = str(arguments.get("op") or "").strip().lower()
+        if op not in {"expand", "search"}:
+            raise FileAgentRuntimeError(
+                'recall_history op must be "expand" or "search"',
+            )
+        records = await asyncio.to_thread(
+            self.sessions.list_messages,
+            project_id,
+            session_id,
+            after_seq=0,
+            limit=None,
+        )
+        turns = [
+            item for item in records if item.conversation_id == conversation_id
+        ]
+        rendered: list[tuple[int, str, str, str]] = []
+        for item in turns:
+            rendered.append(
+                (
+                    item.message_seq,
+                    item.role,
+                    item.source,
+                    # Media parts render as pointers, never as a Base64 dump:
+                    # recall must hand back readable history, not bytes that
+                    # fill the ceiling and crowd out the text.
+                    _message_text(item, media_as_pointer=True),
+                ),
+            )
+        truncated = False
+        entries: list[dict[str, Any]] = []
+        used = 0
+        if op == "expand":
+            lo = _coerce_recall_seq(arguments.get("lo"), "lo")
+            hi = _coerce_recall_seq(arguments.get("hi"), "hi")
+            if lo is None or hi is None:
+                raise FileAgentRuntimeError(
+                    "recall_history expand requires positive lo and hi",
+                )
+            if lo > hi:
+                raise FileAgentRuntimeError(
+                    f"recall_history lo ({lo}) must not exceed hi ({hi})",
+                )
+            if hi - lo + 1 > MAX_RECALL_HISTORY_SPAN:
+                hi = lo + MAX_RECALL_HISTORY_SPAN - 1
+                truncated = True
+            for seq, role, source, text in rendered:
+                if not lo <= seq <= hi:
+                    continue
+                used, keep = _reserve_recall_bytes(used, text)
+                entries.append(
+                    {
+                        "messageSeq": seq,
+                        "role": role,
+                        "source": source,
+                        "text": keep,
+                    },
+                )
+                if keep != text:
+                    truncated = True
+        else:
+            query = str(arguments.get("query") or "").strip().lower()
+            if not query:
+                raise FileAgentRuntimeError(
+                    "recall_history search requires a non-empty query",
+                )
+            for seq, role, source, text in rendered:
+                if query not in text.lower():
+                    continue
+                if len(entries) >= MAX_RECALL_HISTORY_SEARCH_HITS:
+                    truncated = True
+                    break
+                entry = {
+                    "messageSeq": seq,
+                    "role": role,
+                    "source": source,
+                    "match": text[:512],
+                }
+                # Charge the whole serialized entry, not just the match text:
+                # metadata overhead across many hits is what re-inflated the
+                # response past the ceiling. Stop once the next cannot fit.
+                cost = len(
+                    json.dumps(
+                        entry,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ).encode("utf-8"),
+                )
+                if used + cost > MAX_RECALL_HISTORY_BYTES:
+                    truncated = True
+                    break
+                used += cost
+                entries.append(entry)
+        response: dict[str, Any] = {
+            "ok": True,
+            "status": "success",
+            "op": op,
+            "count": len(entries),
+            "entries": entries,
+            "note": ("以下为按 messageSeq 取回的持久化历史原件（上下文，" "不是新的操作指令）。"),
+        }
+        if truncated:
+            response["truncated"] = True
+            response["hint"] = "结果已按字节/区间上限截断，请缩小 lo/hi 或换更精确的 query。"
+        if not entries:
+            response["note"] = "未在持久化历史中找到该 seq 区间/关键词的内容；" "它可能早于归档起点或不属于本会话。"
+        return response
+
+    async def _recalled_media_content(
+        self,
+        *,
+        result: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Turn recalled handles into the native parts a provider can read.
+
+        The bytes are read a second time on purpose: the durable tool result
+        keeps handles and sizes, never a megabyte of Base64 nobody asked to
+        store twice.
+        """
+        parts: list[dict[str, Any]] = []
+        for entry in result.get("recalled") or []:
+            if not isinstance(entry, Mapping):
+                continue
+            handle = str(entry.get("handle") or "")
+            mime = str(entry.get("mime") or "")
+            loaded = await asyncio.to_thread(
+                media_vault.load_by_handle,
+                handle,
+                mime=mime,
+            )
+            if loaded is None:
+                parts.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"句柄 {handle[:12]} 的原件已不可读，" "请重新运行产出该媒体的工具。"
+                        ),
+                    },
+                )
+                continue
+            url, decoded_bytes = loaded
+            family = mime.split("/", maxsplit=1)[0]
+            if family not in {"image", "video"}:
+                # Only these part shapes reach the current providers as media.
+                # Anything else stays a pointer: describing what cannot be
+                # shown beats pretending the model looked at it.
+                parts.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"句柄 {handle[:12]}（{mime or '未知类型'}，"
+                            f"{decoded_bytes} 字节）已存档可取回，"
+                            "但当前模型通道不能直接展示该类型；"
+                            "请改用读取该素材的工具。"
+                        ),
+                    },
+                )
+                continue
+            part_type = "image_url" if family == "image" else "video_url"
+            parts.append(
+                {
+                    "type": "text",
+                    "text": (
+                        f"以下是句柄 {handle[:12]}（{mime}，"
+                        f"{decoded_bytes} 字节）的原件。"
+                    ),
+                },
+            )
+            parts.append(
+                {
+                    "type": part_type,
+                    part_type: {"url": url, "mediaType": mime},
+                },
+            )
+        return parts
+
     async def _run_computer_use(
         self,
         *,
@@ -5572,7 +6235,6 @@ class FileCreatorAgentRuntime:
             review_policy=tools.context.review_policy,
             metadata=record_metadata,
         )
-        await asyncio.to_thread(self.executions.create_specialist_run, record)
         common = {
             "parentActionId": parent_action_id,
             "parentRunId": parent_run_id,
@@ -5581,73 +6243,164 @@ class FileCreatorAgentRuntime:
             "displayName": role_name,
             "targetRefs": list(delegated.target_refs),
         }
-        await self._event(
-            project_id,
-            session_id,
-            "subagent.accepted",
-            parent_run_id,
-            request,
-            {**common, "task": delegated.task},
-        )
-        await asyncio.to_thread(
-            self.executions.transition_specialist_run,
-            project_id,
-            specialist_run_id,
-            expected_status=SpecialistRunStatus.QUEUED,
-            status=SpecialistRunStatus.RUNNING_MODEL,
-        )
-        await self._event(
-            project_id,
-            session_id,
-            "subagent.started",
-            parent_run_id,
-            request,
-            common,
-        )
-
         handle = _SpecialistHandle(
             project_id=project_id,
             specialist_run_id=specialist_run_id,
             role=role_name,
             target_refs=tuple(delegated.target_refs),
         )
-        # The detached specialist owns its tools: commits go through a
-        # token fence, so a later mainline run (which increments the
-        # project epoch) can never invalidate this run's publications.
-        specialist_tools = AgentProjectTools(
-            self.services.projects,
-            context=tools.context,
-            transformer=self.services.jq,
-            commits=_FencedCommitBoundary(
-                self,
-                _TokenFence(handle),
-                ProjectCommitBoundary(self.services.projects),
-            ),
-        )
-        drive = asyncio.create_task(
-            self._drive_subagent(
-                project_id=project_id,
-                session_id=session_id,
-                parent_run_id=parent_run_id,
-                parent_action_id=parent_action_id,
-                request=request,
-                tools=specialist_tools,
-                delegated=delegated,
-                role=role,
-                snapshot=snapshot,
-                prompt=prompt,
-                specialist_run_id=specialist_run_id,
-                round_id=round_id,
-                common=common,
-                record_metadata=record_metadata,
-                handle=handle,
-            ),
-            name=f"creator-specialist:{project_id}:{specialist_run_id}",
-        )
-        handle.task = drive
+        # Register the in-process owner BEFORE the durable record exists.
+        # A DELETE (or a stop) landing inside the awaits below would
+        # otherwise find no handle and settle the run through the durable
+        # CAS, after which admission would still go on spawning a worker
+        # that pays the model for work nobody wants any more.
         self._specialist_tasks.setdefault(project_id, {})[
             specialist_run_id
         ] = handle
+        spawned = False
+
+        async def _settle_revoked(*, announce: bool) -> dict[str, Any]:
+            """Admission was revoked before the worker could start."""
+
+            await self._finalize_specialist_cancellation(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
+                announce=announce,
+            )
+            return {
+                "ok": True,
+                "status": "CANCELLED",
+                "runId": specialist_run_id,
+                "role": role_name,
+                "targetRefs": list(delegated.target_refs),
+            }
+
+        try:
+            await asyncio.to_thread(
+                self.executions.create_specialist_run,
+                record,
+            )
+            if handle.cancel_reason is not None:
+                return await _settle_revoked(announce=False)
+            await self._event(
+                project_id,
+                session_id,
+                "subagent.accepted",
+                parent_run_id,
+                request,
+                {**common, "task": delegated.task},
+            )
+            if handle.cancel_reason is not None:
+                return await _settle_revoked(announce=True)
+            await asyncio.to_thread(
+                self.executions.transition_specialist_run,
+                project_id,
+                specialist_run_id,
+                expected_status=SpecialistRunStatus.QUEUED,
+                status=SpecialistRunStatus.RUNNING_MODEL,
+            )
+            if handle.cancel_reason is not None:
+                return await _settle_revoked(announce=True)
+            await self._event(
+                project_id,
+                session_id,
+                "subagent.started",
+                parent_run_id,
+                request,
+                common,
+            )
+            if handle.cancel_reason is not None:
+                # Nothing between here and the spawn yields, so this is the
+                # last place that can still refuse the model turn.
+                return await _settle_revoked(announce=True)
+            # The detached specialist owns its tools: commits go through a
+            # token fence, so a later mainline run (which increments the
+            # project epoch) can never invalidate this run's publications.
+            specialist_tools = AgentProjectTools(
+                self.services.projects,
+                context=tools.context,
+                transformer=self.services.jq,
+                commits=_FencedCommitBoundary(
+                    self,
+                    _TokenFence(handle),
+                    ProjectCommitBoundary(self.services.projects),
+                ),
+            )
+            drive = asyncio.create_task(
+                self._drive_subagent(
+                    project_id=project_id,
+                    session_id=session_id,
+                    parent_run_id=parent_run_id,
+                    parent_action_id=parent_action_id,
+                    request=request,
+                    tools=specialist_tools,
+                    delegated=delegated,
+                    role=role,
+                    snapshot=snapshot,
+                    prompt=prompt,
+                    specialist_run_id=specialist_run_id,
+                    round_id=round_id,
+                    common=common,
+                    record_metadata=record_metadata,
+                    handle=handle,
+                ),
+                name=f"creator-specialist:{project_id}:{specialist_run_id}",
+            )
+            handle.task = drive
+            spawned = True
+        except (asyncio.CancelledError, StaleAgentRun):
+            # A stop, an interrupt or an asset DELETE took the run away while
+            # admission still owned it. The registration is dropped below, so
+            # this is the last place that can settle the record: the DELETE
+            # deferred its durable fallback to this in-process owner, and an
+            # unhandled exit would strand the run in QUEUED/RUNNING_MODEL with
+            # nobody left to terminalize it.
+            await self._settle_cancellation_shielded(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
+            )
+            raise
+        except Exception as error:  # pylint: disable=broad-except
+            # Admission broke after its first durable write. A revocation that
+            # is already in force owns the outcome, so the run settles as
+            # CANCELLED through the same shielded finalizer: reporting a
+            # business failure for work a human deleted would chase the stop
+            # with a spurious [FAILED] notification. Without a revocation the
+            # record must still close, so a broken admission turns FAILED.
+            if handle.cancel_reason is not None:
+                await self._settle_cancellation_shielded(
+                    project_id=project_id,
+                    session_id=session_id,
+                    specialist_run_id=specialist_run_id,
+                    parent_run_id=parent_run_id,
+                    request=request,
+                    common=common,
+                )
+            else:
+                await self._fail_specialist_admission(
+                    project_id=project_id,
+                    session_id=session_id,
+                    specialist_run_id=specialist_run_id,
+                    parent_run_id=parent_run_id,
+                    request=request,
+                    common=common,
+                    error=error,
+                )
+            raise
+        finally:
+            if not spawned:
+                # Nobody will run this in-process any more: drop the
+                # registration so cancel_specialist_run tells callers the
+                # truth and they settle the durable record themselves.
+                self._discard_specialist_handle(project_id, specialist_run_id)
 
         def _discard(
             done: asyncio.Task[Any],
@@ -5655,11 +6408,7 @@ class FileCreatorAgentRuntime:
             owner: str = project_id,
             run: str = specialist_run_id,
         ) -> None:
-            handles = self._specialist_tasks.get(owner)
-            if handles is not None:
-                handles.pop(run, None)
-                if not handles:
-                    self._specialist_tasks.pop(owner, None)
+            self._discard_specialist_handle(owner, run)
             if not done.cancelled() and done.exception() is not None:
                 logger.error(
                     "specialist run crashed: project=%s run=%s",
@@ -5704,6 +6453,21 @@ class FileCreatorAgentRuntime:
         through a tool result.
         """
 
+        if handle.cancel_reason is not None:
+            # Revoked before the worker got a chance to run (a stop or an
+            # asset DELETE that landed while admission was still handing
+            # over): starting paid model turns for work a human already
+            # cancelled is never acceptable, and the run must still reach a
+            # terminal state so the Agent status bar disarms.
+            await self._finalize_specialist_cancellation(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
+            )
+            return
         try:
             result = await self._drive_subagent_inner(
                 project_id=project_id,
@@ -5724,7 +6488,21 @@ class FileCreatorAgentRuntime:
             )
         except (asyncio.CancelledError, StaleAgentRun):
             # Revoked by interrupt/stop/project-delete: a human took over,
-            # so no notification chases the cancelled work.
+            # so no notification chases the cancelled work. Finalizing in a
+            # separate task is what makes this boundary reliable: this
+            # coroutine is already being cancelled, and a second signal
+            # (stop + delete interleaved, or a re-issued interrupt) must not
+            # abort the cleanup that owns the terminal status and the
+            # terminal lifecycle event. Init/material-preparation failures
+            # land here too because this try covers the whole inner run.
+            await self._settle_cancellation_shielded(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
+            )
             raise
         except Exception as exc:  # pylint: disable=broad-except
             await self._notify_specialist_terminal(
@@ -5746,6 +6524,245 @@ class FileCreatorAgentRuntime:
             generation=result.get("generation"),
             review_id=result.get("reviewId"),
         )
+
+    async def _finalize_specialist_cancellation(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        specialist_run_id: str,
+        parent_run_id: str,
+        request: CreatorMessageRecord,
+        common: Mapping[str, Any],
+        announce: bool = True,
+    ) -> str:
+        """Settle one revoked specialist run, at most once.
+
+        Every cancellation path funnels through here (worker model loop,
+        init/material preparation, admission hand-over, and the asset
+        DELETE route). The durable CAS decides the single owner: the winner
+        persists CANCELLED and emits the ``subagent.failed{cancelled}``
+        event the frontend needs to disarm the activity, everyone else
+        leaves the outcome and the event alone.
+
+        Returns ``"claimed"`` when this call moved the record to CANCELLED,
+        ``"preserved"`` when a terminal outcome was already in place (or
+        there is no record to settle), and ``"lost"`` when the CAS hit a
+        concurrent terminal transition.
+        """
+
+        if not self.services.projects.project_path(project_id).is_file():
+            # Project DELETE is already the terminal authority; do not let
+            # specialist cleanup recreate Runtime directories below the
+            # removed id.
+            return "preserved"
+        try:
+            current = await asyncio.to_thread(
+                self.executions.get_specialist_run,
+                project_id,
+                specialist_run_id,
+            )
+        except RecordNotFoundError:
+            # Revoked before admission persisted the record: nothing was
+            # announced and no run exists to settle.
+            return "preserved"
+        if current.status in TERMINAL_SPECIALIST_STATUSES:
+            # The stop may land after the terminal status already persisted
+            # (the finalizer was still awaiting its terminal event): keep
+            # the durable outcome and propagate the cancellation — a CAS
+            # conflict here must never masquerade as a business failure
+            # that would chase a hard stop with a spurious [FAILED]
+            # notification.
+            return "preserved"
+        try:
+            await asyncio.to_thread(
+                self.executions.transition_specialist_run,
+                project_id,
+                specialist_run_id,
+                expected_status=current.status,
+                status=SpecialistRunStatus.CANCELLED,
+                updates={"final_marker": "CANCELLED"},
+            )
+        except ExecutionStateConflict:
+            # The run reached a terminal state concurrently; whoever moved
+            # it owns the outcome.
+            return "lost"
+        if announce:
+            # Emit subagent.failed so the frontend can disarm.
+            try:
+                await self._event(
+                    project_id,
+                    session_id,
+                    "subagent.failed",
+                    parent_run_id,
+                    request,
+                    {
+                        **common,
+                        "cancelled": True,
+                        "error": "specialist run cancelled",
+                    },
+                )
+            except Exception:  # noqa: BLE001 - status already terminal
+                logger.exception(
+                    "specialist cancellation event failed: project=%s run=%s",
+                    project_id,
+                    specialist_run_id,
+                )
+        return "claimed"
+
+    async def _settle_cancellation_shielded(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        specialist_run_id: str,
+        parent_run_id: str,
+        request: CreatorMessageRecord,
+        common: Mapping[str, Any],
+    ) -> None:
+        """Finalize a revoked run in a task the caller cannot be cancelled in.
+
+        Every exit that abandons in-process ownership funnels through here —
+        the worker's own loop and the admission hand-over alike. The calling
+        coroutine is already being cancelled, so awaiting the finalizer inline
+        would let a second stop/delete/interrupt signal abort the one cleanup
+        that owns the terminal status and the ``subagent.failed{cancelled}``
+        event the frontend needs to disarm the activity.
+        """
+
+        finalize = asyncio.create_task(
+            self._finalize_specialist_cancellation(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
+            ),
+            name=(
+                f"creator-specialist-cancelled:{project_id}:"
+                f"{specialist_run_id}"
+            ),
+        )
+        self._specialist_cleanup_tasks.add(finalize)
+        finalize.add_done_callback(
+            self._specialist_cleanup_tasks.discard,
+        )
+        # Python 3.11+: catching CancelledError does not reset the
+        # cancellation flag — the next await (even inside asyncio.shield)
+        # immediately re-raises it.  Uncancel here so that shield can
+        # establish the connection and wait for the finalizer to complete.
+        # A second cancellation that arrives during the await is still
+        # correctly handled: shield protects finalize, and the suppress
+        # below lets the second signal pass through without aborting the
+        # one cleanup that owns the terminal status.
+        current = asyncio.current_task()
+        if current is not None:
+            current.uncancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            # Cancelled again: the shielded finalizer keeps going on
+            # its own, which is exactly the point.
+            await asyncio.shield(finalize)
+
+    async def _fail_specialist_admission(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        specialist_run_id: str,
+        parent_run_id: str,
+        request: CreatorMessageRecord,
+        common: Mapping[str, Any],
+        error: BaseException,
+    ) -> None:
+        """Close a specialist run whose admission broke before the hand-over.
+
+        The durable record exists from admission's first write, so an exception
+        there would otherwise leave a QUEUED/RUNNING_MODEL run with no owner at
+        all: the worker was never spawned, and a DELETE that found the
+        registration had already deferred the terminal outcome to it.
+
+        A DELETE's interrupt/stop can cancel the admission while it is inside
+        this cleanup.  Without ``uncancel`` + ``asyncio.shield`` the terminal
+        writes could be aborted, stranding the record in RUNNING_MODEL after
+        the registration is already discarded — the same pattern as
+        ``_settle_cancellation_shielded``.
+        """
+
+        if not self.services.projects.project_path(project_id).is_file():
+            # Project DELETE is already the terminal authority; nothing below
+            # a removed id may be recreated by this cleanup.
+            return
+        try:
+            current = await asyncio.to_thread(
+                self.executions.get_specialist_run,
+                project_id,
+                specialist_run_id,
+            )
+        except RecordNotFoundError:
+            # Broke before the record was ever persisted.
+            return
+        if current.status in TERMINAL_SPECIALIST_STATUSES:
+            # The worker or another path already terminalized the run; its
+            # outcome and event stay untouched.
+            return
+        summary = f"{type(error).__name__}: {error}"
+
+        async def _settle() -> None:
+            try:
+                await asyncio.to_thread(
+                    self.executions.transition_specialist_run,
+                    project_id,
+                    specialist_run_id,
+                    expected_status=current.status,
+                    status=SpecialistRunStatus.FAILED,
+                    updates={
+                        "final_marker": "FAILED",
+                        "final_summary_text": summary,
+                    },
+                )
+            except ExecutionStateConflict:
+                # Whoever moved it to a terminal state concurrently owns the
+                # outcome and the event.
+                return
+            try:
+                await self._event(
+                    project_id,
+                    session_id,
+                    "subagent.failed",
+                    parent_run_id,
+                    request,
+                    {**common, "error": summary},
+                )
+            except Exception:  # noqa: BLE001 - status already terminal
+                logger.exception(
+                    "specialist admission failure event failed: project=%s run=%s",
+                    project_id,
+                    specialist_run_id,
+                )
+
+        settle = asyncio.create_task(
+            _settle(),
+            name=(
+                "creator-specialist-failed:"
+                f"{project_id}:{specialist_run_id}"
+            ),
+        )
+        self._specialist_cleanup_tasks.add(settle)
+        settle.add_done_callback(
+            self._specialist_cleanup_tasks.discard,
+        )
+        # Python 3.11+: catching CancelledError does not reset the
+        # cancellation flag — the next await (even inside asyncio.shield)
+        # immediately re-raises it.  Uncancel here so that shield can
+        # establish the connection and wait for the finalizer to complete.
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            current_task.uncancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            # Cancelled again: the shielded finalizer keeps going on
+            # its own, which is exactly the point.
+            await asyncio.shield(settle)
 
     async def _notify_specialist_terminal(
         self,
@@ -5954,7 +6971,14 @@ class FileCreatorAgentRuntime:
         )
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": prompt},
-            {"role": "user", "content": user_content},
+            {
+                "role": "user",
+                # The native parts here are the Project's own files, which any
+                # reader tool can show again: a runtime observation, not an
+                # upload, so the first rung of the demotion ladder may trade it.
+                "source": MEDIA_OBSERVATION_SOURCE,
+                "content": user_content,
+            },
         ]
         tool_manifest = list(
             self.specialist_tools.manifest_for(
@@ -5963,6 +6987,17 @@ class FileCreatorAgentRuntime:
                 include_project_readers=include_project_readers,
             ),
         )
+        # The demotion ladder runs inside ``source_model_client.complete``
+        # below, so specialist turns can leave ``Call recall_media with
+        # that handle`` pointers even when the role never sees the main
+        # manifest. Expose the tool unconditionally; without it a demoted
+        # frame is unrecoverable and the model continues on a caption
+        # instead of the image.
+        tool_manifest.append(_recall_media_tool_manifest())
+        # The main history map recallable by seq is worth keeping reachable to
+        # specialists too: a long production's earlier turns stay durable even
+        # when they leave this delegate's window.
+        tool_manifest.append(_recall_history_tool_manifest())
         tool_call_count = 0
         review_ids: list[str] = []
         malformed_jq_attempts = 0
@@ -6403,24 +7438,50 @@ class FileCreatorAgentRuntime:
                         raise FileAgentRuntimeError(
                             "specialist tool call attempted another Project",
                         )
-                    result = await self._invoke_specialist_tool(
-                        project_id=project_id,
-                        session_id=session_id,
-                        parent_run_id=parent_run_id,
-                        specialist_run_id=specialist_run_id,
-                        round_id=round_id,
-                        role=role,
-                        admitted_target_refs=delegated.target_refs,
-                        fence=fence,
-                        request=request,
-                        common=common,
-                        call_id=call.call_id,
-                        assistant_message_id=message_id,
-                        provider_message_id=turn.provider_message_id,
-                        name=call.name,
-                        arguments=call.arguments,
-                        tools=tools,
-                    )
+                    if call.name == RECALL_MEDIA_TOOL_NAME:
+                        # The demotion ladder inside
+                        # ``source_model_client.complete`` hands the
+                        # specialist a pointer whose promise is only
+                        # kept by the driver's own vault lookup; the
+                        # role-scoped registry has no such tool and
+                        # would raise ValidationError. Route the call
+                        # directly to the shared handler so the same
+                        # handle semantics and byte cap apply to
+                        # specialists and the main agent.
+                        result = await self._run_recall_media(
+                            arguments=call.arguments,
+                        )
+                    elif call.name == RECALL_HISTORY_TOOL_NAME:
+                        # Durable conversation recall is a read over the
+                        # session store, not a role-scoped registry tool, so
+                        # it is routed to the shared handler the same way
+                        # recall_media is; the same conversation and byte
+                        # bounds apply to specialists and the main agent.
+                        result = await self._run_recall_history(
+                            project_id=project_id,
+                            session_id=session_id,
+                            conversation_id=request.conversation_id,
+                            arguments=call.arguments,
+                        )
+                    else:
+                        result = await self._invoke_specialist_tool(
+                            project_id=project_id,
+                            session_id=session_id,
+                            parent_run_id=parent_run_id,
+                            specialist_run_id=specialist_run_id,
+                            round_id=round_id,
+                            role=role,
+                            admitted_target_refs=delegated.target_refs,
+                            fence=fence,
+                            request=request,
+                            common=common,
+                            call_id=call.call_id,
+                            assistant_message_id=message_id,
+                            provider_message_id=turn.provider_message_id,
+                            name=call.name,
+                            arguments=call.arguments,
+                            tools=tools,
+                        )
                     review_id = result.get("reviewId")
                     if (
                         isinstance(review_id, str)
@@ -6574,6 +7635,45 @@ class FileCreatorAgentRuntime:
                         "failed": failed,
                     },
                 )
+                if call.name == RECALL_MEDIA_TOOL_NAME and not failed:
+                    # A JSON text tool result is invisible to the model
+                    # as media. The recalled bytes have to arrive the
+                    # same way any other native observation does — as a
+                    # user turn carrying image/video parts. Held until
+                    # after the tool result row is appended so the
+                    # assistant/tool group never splits.
+                    recall_parts = await self._recalled_media_content(
+                        result=result,
+                    )
+                    if recall_parts:
+                        recall_content = [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "以下是 recall_media 取回的原生媒体，" "内容与降级前一致。"
+                                ),
+                            },
+                            *recall_parts,
+                        ]
+                        await asyncio.to_thread(
+                            self.executions.append_specialist_message,
+                            project_id,
+                            specialist_run_id,
+                            message_id=(f"specialist-message-{uuid4().hex}"),
+                            role="user",
+                            content_parts=recall_content,
+                            metadata={
+                                "parentActionId": parent_action_id,
+                                "recalledMediaForToolCallId": call.call_id,
+                            },
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "source": MEDIA_OBSERVATION_SOURCE,
+                                "content": recall_content,
+                            },
+                        )
                 if (
                     call.name in _VIDEO_FRAME_TOOL_NAMES
                     and not failed
@@ -6638,7 +7738,11 @@ class FileCreatorAgentRuntime:
                             },
                         )
                         messages.append(
-                            {"role": "user", "content": frame_content},
+                            {
+                                "role": "user",
+                                "source": MEDIA_OBSERVATION_SOURCE,
+                                "content": frame_content,
+                            },
                         )
                 if call.name == "read_document" and not failed:
                     # Rendered pages enter the VLM context as native images
@@ -6684,7 +7788,11 @@ class FileCreatorAgentRuntime:
                             },
                         )
                         messages.append(
-                            {"role": "user", "content": page_content},
+                            {
+                                "role": "user",
+                                "source": MEDIA_OBSERVATION_SOURCE,
+                                "content": page_content,
+                            },
                         )
                 if waiting_review is not None:
                     target_ref = str(
@@ -6777,56 +7885,25 @@ class FileCreatorAgentRuntime:
                 f"{role_name} exceeded "
                 f"{self.specialist_max_model_turns} model turns",
             )
-        except (asyncio.CancelledError, StaleAgentRun):
+        except (asyncio.CancelledError, StaleAgentRun) as error:
             logger.warning(
                 "Specialist run %s (%s) cancelled",
                 specialist_run_id,
                 role.value,
             )
-            if not self.services.projects.project_path(project_id).is_file():
-                # Project DELETE is already the terminal authority; do not let
-                # specialist cleanup recreate Runtime directories below the
-                # removed id.
-                raise
-            # The stop may land after the terminal status already persisted
-            # (the finalizer was still awaiting its terminal event): keep
-            # the durable outcome and propagate the cancellation — a CAS
-            # conflict here must never masquerade as a business failure
-            # that would chase a hard stop with a spurious [FAILED]
-            # notification.
-            current = await asyncio.to_thread(
-                self.executions.get_specialist_run,
-                project_id,
-                specialist_run_id,
+            outcome = await self._finalize_specialist_cancellation(
+                project_id=project_id,
+                session_id=session_id,
+                specialist_run_id=specialist_run_id,
+                parent_run_id=parent_run_id,
+                request=request,
+                common=common,
             )
-            if current.status in TERMINAL_SPECIALIST_STATUSES:
-                raise
-            try:
-                await asyncio.to_thread(
-                    self.executions.transition_specialist_run,
-                    project_id,
-                    specialist_run_id,
-                    expected_status=current.status,
-                    status=SpecialistRunStatus.CANCELLED,
-                    updates={"final_marker": "CANCELLED"},
-                )
-            except ExecutionStateConflict:
-                # The run reached a terminal state concurrently; whoever
-                # moved it owns the outcome.
+            if outcome == "lost" and not isinstance(
+                error,
+                asyncio.CancelledError,
+            ):
                 raise asyncio.CancelledError() from None
-            # Emit subagent.failed so the frontend can disarm.
-            await self._event(
-                project_id,
-                session_id,
-                "subagent.failed",
-                parent_run_id,
-                request,
-                {
-                    **common,
-                    "cancelled": True,
-                    "error": "specialist run cancelled",
-                },
-            )
             raise
         except Exception as exc:
             logger.error(
@@ -9457,16 +10534,129 @@ def _running_message_text(
     )
 
 
+def _coerce_recall_seq(value: object, name: str) -> int | None:
+    """Normalize one recall seq argument to a positive int.
+
+    Some models serialize a JSON integer as a decimal string; accept that,
+    but reject anything whose coercion could silently change the requested
+    span. ``None`` means the argument was simply absent.
+    """
+    if value is None:
+        return None
+    if type(value) is int:
+        normalized = value
+    elif isinstance(value, str) and value.isascii() and value.isdecimal():
+        normalized = int(value)
+    else:
+        raise FileAgentRuntimeError(
+            f"recall_history {name} must be a positive integer",
+        )
+    if normalized <= 0:
+        raise FileAgentRuntimeError(
+            f"recall_history {name} must be greater than zero",
+        )
+    return normalized
+
+
+def _reserve_recall_bytes(used: int, text: str) -> tuple[int, str]:
+    """Carve ``text`` out of the remaining recall byte ceiling.
+
+    Returns the new running total and the kept prefix; an empty kept string
+    once the ceiling is spent tells the caller the result was truncated.
+    """
+    remaining = MAX_RECALL_HISTORY_BYTES - used
+    if remaining <= 0:
+        return used, ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= remaining:
+        return used + len(encoded), text
+    kept = encoded[:remaining].decode("utf-8", errors="ignore")
+    return MAX_RECALL_HISTORY_BYTES, kept
+
+
+_HOST_SUMMARY_RECALL_SENTENCE = (
+    "Exact archived content remains in conversation_history for\n"
+    "sequence range {lo}–{hi}. Recall that range only when exact\n"
+    "wording or evidence is needed."
+)
+
+
+def _creator_summary_recall_wording(text: str, lo: int, hi: int) -> str:
+    """Swap the host summary's ``conversation_history`` line for Creator's.
+
+    ``render_background`` hard-codes a recall sentence naming
+    ``conversation_history`` — a store a Creator session does not have. The
+    archived map already slices the host preamble off for the same reason;
+    the summary needs it too, so the model is not pointed at a table that
+    does not exist while the system prompt teaches ``recall_history``.
+    """
+    host = _HOST_SUMMARY_RECALL_SENTENCE.format(lo=lo, hi=hi)
+    creator = (
+        f"Exact archived content stays durable by messageSeq {lo}–{hi}; "
+        f'read it back with recall_history(op="expand", lo={lo}, hi={hi}) '
+        "only when exact wording or evidence is needed."
+    )
+    if host in text:
+        return text.replace(host, creator)
+    # Resilient fallback: never let the non-existent table name leak even if
+    # the host rewords the sentence around it.
+    return text.replace(
+        "conversation_history",
+        "the durable conversation store",
+    )
+
+
+def _recall_media_pointer(part: MessageContentPart) -> str:
+    """Describe a media part for recall without dumping its bytes.
+
+    ``recall_history`` re-reads durable turns; a ``data:`` URL part would
+    pour its whole Base64 payload into the recall text, filling the byte
+    ceiling with bytes the model cannot read and crowding out the history
+    that was asked for (and letting a keyword search match Base64
+    substrings). Media stays a compact pointer — type, mime, approximate
+    size — consistent with the demotion ladder; the original bytes remain
+    recallable via ``recall_media`` or by re-running the producing tool.
+    """
+    url_obj = part.image_url or part.video_url or {}
+    url = str(url_obj.get("url") or "")
+    mime = str(url_obj.get("mediaType") or "")
+    if not url and isinstance(part.attachment, Mapping):
+        url = str(
+            part.attachment.get("url") or part.attachment.get("data") or "",
+        )
+        mime = mime or str(
+            part.attachment.get("mediaType")
+            or part.attachment.get("mime")
+            or "",
+        )
+    if url.startswith("data:"):
+        head, _, payload = url.partition(",")
+        if not mime and head.startswith("data:"):
+            mime = head[len("data:") :].split(";", 1)[0]
+        approx_bytes = len(payload) * 3 // 4
+        return (
+            f"[{part.type} 内联媒体 {mime or '未知类型'} "
+            f"约 {approx_bytes} 字节，已省略 Base64；"
+            "用 recall_media 或重新运行产出工具查看原件]"
+        )
+    if url:
+        return f"[{part.type} 媒体 {mime or '未知类型'} url={url[:120]}]"
+    return f"[{part.type} 媒体部件，已省略二进制内容]"
+
+
 def _message_text(
     message: CreatorMessageRecord,
     *,
     project: Project | None = None,
     project_root: Path | None = None,
+    media_as_pointer: bool = False,
 ) -> str:
     chunks: list[str] = []
     for part in message.content_parts:
         if part.type == "text" and part.text:
             chunks.append(part.text)
+        elif media_as_pointer:
+            chunks.append(_recall_media_pointer(part))
         else:
             chunks.append(
                 json.dumps(
@@ -9771,45 +10961,18 @@ def _compact_wire_project_snapshots(messages: list[dict[str, Any]]) -> None:
         message["content"] = updated_content
 
 
-def _continuation_message_text(
-    request: CreatorMessageRecord,
+def _build_continuation_history(
     prior_context: list[CreatorMessageRecord],
-    *,
-    project: Project | None = None,
-    project_root: Path | None = None,
-    batch_tail: list[CreatorMessageRecord] | None = None,
-) -> str:
-    """Carry one durable AgentDock Conversation into the next Agent run."""
+) -> list[dict[str, Any]]:
+    """Materialize durable prior turns into the compaction input shape.
 
-    current = _message_text(
-        request,
-        project=project,
-        project_root=project_root,
-    )
-    if batch_tail:
-        batch_payload = [
-            {
-                "messageSeq": item.message_seq,
-                "source": item.source,
-                "text": _message_text(item),
-                "metadata": dict(item.metadata),
-            }
-            for item in batch_tail
-        ]
-        current += (
-            "\n\n以下 RUNTIME_NOTIFICATIONS_BATCH 是与本请求一并送达的后续"
-            "Runtime 自动消息（已合并进本回合，处理完本回合即视为处理完毕）：\n"
-            "RUNTIME_NOTIFICATIONS_BATCH="
-            + json.dumps(
-                batch_payload,
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-        )
-    if not prior_context:
-        return current
+    Pulled out of ``_continuation_message_text`` so the async summary planner
+    can walk the very same view the serialized history uses: if the two ever
+    disagreed about what a turn looked like, the summary would describe turns
+    the model never receives.
+    """
     snapshot_receipts = _elide_stale_snapshots(prior_context)
-    history = [
+    return [
         {
             "messageSeq": item.message_seq,
             "role": item.role,
@@ -9846,7 +11009,51 @@ def _continuation_message_text(
         }
         for item in prior_context
     ]
-    history = compact_conversation_history(history)
+
+
+def _continuation_message_text(
+    request: CreatorMessageRecord,
+    prior_context: list[CreatorMessageRecord],
+    *,
+    project: Project | None = None,
+    project_root: Path | None = None,
+    batch_tail: list[CreatorMessageRecord] | None = None,
+    continuation_summary: str = "",
+) -> str:
+    """Carry one durable AgentDock Conversation into the next Agent run."""
+
+    current = _message_text(
+        request,
+        project=project,
+        project_root=project_root,
+    )
+    if batch_tail:
+        batch_payload = [
+            {
+                "messageSeq": item.message_seq,
+                "source": item.source,
+                "text": _message_text(item),
+                "metadata": dict(item.metadata),
+            }
+            for item in batch_tail
+        ]
+        current += (
+            "\n\n以下 RUNTIME_NOTIFICATIONS_BATCH 是与本请求一并送达的后续"
+            "Runtime 自动消息（已合并进本回合，处理完本回合即视为处理完毕）：\n"
+            "RUNTIME_NOTIFICATIONS_BATCH="
+            + json.dumps(
+                batch_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+    if not prior_context:
+        return current
+    history = _build_continuation_history(prior_context)
+    history = compact_conversation_history(
+        history,
+        continuation_summary=continuation_summary,
+    )
     return (
         "以下 CONVERSATION_HISTORY_JSON 是同一 AgentDock Conversation 在本轮之前"
         "持久化上下文的有界视图，早期回执可能省略，项目历史按需读取。请继承用户目标与约束；"

@@ -172,6 +172,86 @@ describe("bounded frontend caches", () => {
     expect(testEventSources()[0].url).toContain("events?after=7");
   });
 
+  it("replays the whole durable log on first entry even for a terminal project", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "IDLE",
+        },
+      }),
+    );
+    await store().bootstrap("p1");
+    // The snapshot holds no terminal projection, so an idle mainline must not
+    // clip the replay: the old 400-event window rebuilt an accepted-then-failed
+    // delegation as a success (CR #7).
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("replays the whole durable log when the session is still working", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "RUNNING",
+        },
+      }),
+    );
+    await store().bootstrap("p1");
+    // In-flight work: streaming-text prefixes and subagent card metadata live
+    // on the events a window would drop.
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("keeps the full replay when a terminal session still has a running task", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 10_000,
+          status: "IDLE",
+        },
+        runningTaskCount: 1,
+      }),
+    );
+    await store().bootstrap("p1");
+    // Terminal mainline but a detached specialist is still running: its card is
+    // rebuilt only from the lifecycle events themselves.
+    expect(testEventSources()[0].url).toContain("events?after=0");
+  });
+
+  it("resumes a same-project reconnect at the local cursor, ignoring the window", async () => {
+    installMockFetch(
+      bootstrapRoutes({
+        session: {
+          lastMessageSeq: 1,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 20_000,
+          status: "IDLE",
+        },
+      }),
+    );
+    seed({
+      session: sessionView({
+        lastMessageSeq: 1,
+        lastConsumedMessageSeq: 1,
+        lastEventSeq: 20_000,
+        status: "IDLE",
+      }),
+      activeConversationId: "c1",
+      messages: [msg({ messageId: "m1", messageSeq: 1 })],
+      lastEventSeq: 20_000,
+    });
+    await store().bootstrap("p1");
+    // Same-project: continue from the local cursor rather than re-clipping it.
+    expect(testEventSources()[0].url).toContain("events?after=20000");
+  });
+
   it("folds a large durable SSE replay into one bounded store update", async () => {
     installMockFetch(bootstrapRoutes({ session: { lastEventSeq: 307 } }));
     await store().bootstrap("p1");
