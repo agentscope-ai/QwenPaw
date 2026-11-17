@@ -2,6 +2,7 @@
 """Convert MCP wire values to finite public SDK results."""
 
 from collections.abc import Mapping
+import json
 
 from qwenpaw.plugins.drivers import DriverCallResult
 from qwenpaw.plugins.messages import Attachment, ContentBlock
@@ -17,6 +18,17 @@ def plain(value):
     return value
 
 
+def _resource_text(resource):
+    reference = {
+        key: resource[key]
+        for key in ("type", "uri", "name", "description", "mimeType")
+        if key in resource
+    }
+    body = str(resource.get("text") or "")
+    text = json.dumps(reference, ensure_ascii=False)
+    return f"{body}\n{text}" if body else text
+
+
 def content_block(value):
     raw = plain(value)
     kind = raw.get("type", "text")
@@ -30,15 +42,20 @@ def content_block(value):
             attachment=Attachment(f"data:{mime};base64,{raw['data']}", mime),
             metadata=metadata,
         )
-    resource = raw.get("resource", raw)
+    resource = raw["resource"] if kind == "resource" else raw
+    text = _resource_text(resource)
+    # Resource identifiers belong to the MCP server, not the host filesystem.
+    if kind != "resource" or resource.get("blob") is None:
+        return ContentBlock(text=text, metadata=metadata)
     mime = str(resource.get("mimeType") or "application/octet-stream")
-    uri = str(resource.get("uri") or "")
-    if resource.get("blob") is not None:
-        uri = f"data:{mime};base64,{resource['blob']}"
     return ContentBlock(
         type="file",
-        text=str(resource.get("text") or ""),
-        attachment=Attachment(uri, mime, str(resource.get("name") or "")),
+        text=text,
+        attachment=Attachment(
+            f"data:{mime};base64,{resource['blob']}",
+            mime,
+            str(resource.get("name") or ""),
+        ),
         metadata=metadata,
     )
 
