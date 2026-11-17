@@ -67,6 +67,7 @@ class _RunState:
     finish_time: Optional[datetime] = None
     owner: object | None = None
     channel_id: str | None = None
+    channel_handoff_safe: bool = False
 
 
 class TaskTracker:
@@ -159,8 +160,13 @@ class TaskTracker:
         self,
         owner: object | None = None,
         channel_id: str | None = None,
+        *,
+        channel_handoff: bool = False,
     ) -> dict[str, asyncio.Future]:
-        """Return the currently active tasks without tracking later runs."""
+        """Snapshot active tasks; handoff omits only dynamically routed runs.
+
+        The omission affects this drain snapshot, never tracking or stopping.
+        """
         async with self._lock:
             return {
                 run_key: state.task
@@ -168,6 +174,7 @@ class TaskTracker:
                 if not state.task.done()
                 and (owner is None or state.owner is owner)
                 and (channel_id is None or state.channel_id == channel_id)
+                and not (channel_handoff and state.channel_handoff_safe)
             }
 
     async def wait_tasks_done(
@@ -290,6 +297,8 @@ class TaskTracker:
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
         channel_id: str | None = None,
+        *,
+        channel_handoff_safe: bool = False,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
@@ -313,6 +322,7 @@ class TaskTracker:
                 buffer=[],
                 owner=owner,
                 channel_id=channel_id,
+                channel_handoff_safe=channel_handoff_safe,
             )
 
             tracker_ref = weakref.ref(self)

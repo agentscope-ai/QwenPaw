@@ -1025,11 +1025,15 @@ class MultiAgentManager:
             )
             await handoff.enter_async_context(delivery_lock)
             if old_manager is not None:
-                if not await old_manager.quiesce():
+                # The delivery lock drains sends already using the old owner.
+                # Dynamically routed cron runs wait on it and resume against
+                # the committed (or restored) owner; waiting for them here
+                # would deadlock. All fixed-owner channel work still drains.
+                if not await old_manager.quiesce(channel_handoff=True):
                     raise QuiescenceError("CHANNEL_DRAIN_TIMEOUT")
                 # Rollback must also recover a partially stopped set.
                 old_channels_stopped = True
-                await old_manager.stop_all()
+                await old_manager.stop_all(channel_handoff=True)
             new_instance._defer_channel_start = False
             new_manager = getattr(new_instance, "channel_manager", None)
             if new_manager is not None:
