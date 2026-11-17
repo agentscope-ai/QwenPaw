@@ -189,6 +189,18 @@ def build_mcp_driver_card(
             kind=CREDENTIAL_KIND_STATIC,
             ref=env_ref(var),
         )
+    # An explicit manual Authorization replaces OAuth, unless another
+    # endpoint binding still uses it. Auxiliary static headers do not.
+    if any(
+        name.lower() == "authorization" for name in endpoint.get("headers", {})
+    ) and not any(
+        isinstance(spec, dict)
+        and spec.get("source") == "credential"
+        and spec.get("credential") == OAUTH_CREDENTIAL_ALIAS
+        for section in ("headers", "env")
+        for spec in endpoint.get(section, {}).values()
+    ):
+        credentials.pop(OAUTH_CREDENTIAL_ALIAS, None)
     # Generic DriverPolicy defaults to deny as the low-level safe fallback.
     # Console-created MCP clients default to ask so a newly added external
     # server requires human approval instead of failing silently before the
@@ -284,7 +296,11 @@ def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
     )
     endpoint = dict(card.endpoint)
     if str(endpoint.get("transport") or "stdio") != "stdio":
-        headers = dict(endpoint.get("headers") or {})
+        headers = {
+            name: spec
+            for name, spec in (endpoint.get("headers") or {}).items()
+            if name.lower() != "authorization"
+        }
         headers["Authorization"] = {
             "source": "credential",
             "credential": OAUTH_CREDENTIAL_ALIAS,
@@ -395,12 +411,19 @@ def _preserve_oauth_authorization_binding(
     if OAUTH_CREDENTIAL_ALIAS not in _credential_refs_from_existing(existing):
         return
     headers = dict(endpoint.get("headers") or {})
-    if "Authorization" in headers:
+    if any(name.lower() == "authorization" for name in headers):
         return
     existing_headers = existing.endpoint.get("headers")
     if not isinstance(existing_headers, dict):
         return
-    existing_auth = existing_headers.get("Authorization")
+    existing_auth = next(
+        (
+            spec
+            for name, spec in existing_headers.items()
+            if name.lower() == "authorization"
+        ),
+        None,
+    )
     if (
         isinstance(existing_auth, dict)
         and existing_auth.get("source") == "credential"
