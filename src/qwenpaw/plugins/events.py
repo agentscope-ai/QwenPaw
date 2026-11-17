@@ -61,6 +61,7 @@ class ApprovalDisplay:
     exact_target: str = ""
     similar_target: str = ""
     is_generalized: bool = False
+    approval_behavior: str = f"unknown"
 
 
 @dataclass(frozen=True)

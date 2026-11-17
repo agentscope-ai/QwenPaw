@@ -109,9 +109,10 @@ def test_is_generalized_falsy_values():
 
 def test_approval_behavior_defaults_to_unknown():
     """Legacy approvals must not be presented as one-time permissions."""
-    assert approval_display_fields(_FakePending({}))[
-        f"approval_behavior"
-    ] == f"unknown"
+    assert (
+        approval_display_fields(_FakePending({}))[f"approval_behavior"]
+        == f"unknown"
+    )
 
 
 def test_approval_behavior_is_forwarded():
@@ -120,6 +121,6 @@ def test_approval_behavior_is_forwarded():
         pending = _FakePending(
             {f"display": {f"approval_behavior": behavior}},
         )
-        assert approval_display_fields(pending)[
-            f"approval_behavior"
-        ] == behavior
+        assert (
+            approval_display_fields(pending)[f"approval_behavior"] == behavior
+        )
