@@ -271,9 +271,41 @@ async def test_falls_back_when_primary_quota_returns_http_400() -> None:
             "from_model_id": "primary",
             "to_provider_id": "fallback-provider",
             "to_model_id": "fallback",
-            "reason_kind": "rate_limited",
+            "reason_kind": "quota_exceeded",
         },
     ]
+
+
+async def test_quota_400_falls_back_without_retrying_primary() -> None:
+    _limiters.clear()
+    try:
+        primary = FakeModel("primary", HttpError(400, "quota exceeded"))
+        retried_primary = RetryChatModel(
+            primary,
+            retry_config=RetryConfig(
+                enabled=True,
+                max_retries=3,
+                backoff_base=0.1,
+                backoff_cap=0.1,
+            ),
+            rate_limit_config=RateLimitConfig(
+                max_concurrent=1,
+                max_qpm=0,
+                pause_seconds=1.0,
+                jitter_range=0.0,
+                acquire_timeout=10.0,
+            ),
+        )
+        fallback = FakeModel("fallback", lambda: _response("fallback-ok"))
+        model = FallbackChatModel([retried_primary, fallback])
+
+        response = await model(messages=[], tools=[])
+
+        assert response.content[0]["text"] == "fallback-ok"
+        assert primary.calls == 1
+        assert fallback.calls == 1
+    finally:
+        _limiters.clear()
 
 
 @pytest.mark.parametrize(

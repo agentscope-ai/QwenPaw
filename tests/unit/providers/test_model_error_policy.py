@@ -59,7 +59,22 @@ def test_permanent_http_errors_do_not_fallback(status: int) -> None:
 
 @pytest.mark.parametrize(
     "message",
-    ["quota exceeded", "rate limit reached", "too many requests"],
+    ["quota exceeded", "insufficient quota", "insufficient_quota"],
+)
+def test_client_quota_errors_fallback_without_retry(message: str) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["rate limit exceeded", "rate_limit_exceeded", "too many requests"],
 )
 def test_client_rate_limit_messages_allow_retry_and_fallback(
     message: str,
@@ -72,6 +87,56 @@ def test_client_rate_limit_messages_allow_retry_and_fallback(
         "retryable": True,
         "fallback_eligible": True,
     }
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Invalid request: quota must be a positive integer",
+        "Invalid parameter: rate limit is not supported",
+    ],
+)
+def test_unrelated_client_messages_remain_bad_request(message: str) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "bad_request",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": False,
+    }
+
+
+def test_structured_quota_code_fallbacks_without_retry() -> None:
+    request = httpx.Request("POST", "https://example.invalid")
+    response = httpx.Response(400, request=request)
+    error = openai.BadRequestError(
+        "Error code: 400",
+        response=response,
+        body={
+            "error": {
+                "code": "insufficient_quota",
+                "type": "invalid_request_error",
+            },
+        },
+    )
+
+    decision = classify_model_error(error)
+
+    assert asdict(decision) == {
+        "kind": "quota_exceeded",
+        "status_code": 400,
+        "retryable": False,
+        "fallback_eligible": True,
+    }
+
+
+def test_http_429_quota_remains_retryable() -> None:
+    decision = classify_model_error(HttpError(429, "quota exceeded"))
+
+    assert decision.kind == "rate_limited"
+    assert decision.retryable is True
+    assert decision.fallback_eligible is True
 
 
 def test_model_not_found_allows_fallback_without_retry() -> None:
