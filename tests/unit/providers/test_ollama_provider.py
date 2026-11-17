@@ -57,7 +57,7 @@ async def test_summary_uses_declared_disable_thinking_wire(
 
 
 @pytest.mark.parametrize(
-    ("base_url", "expected_base_url"),
+    ("provider_url", "expected_base_url"),
     [
         ("http://localhost:11434", "http://localhost:11434"),
         ("http://localhost:11434/", "http://localhost:11434"),
@@ -66,10 +66,10 @@ async def test_summary_uses_declared_disable_thinking_wire(
     ],
 )
 def test_base_url_is_normalized_on_init(
-    base_url: str,
+    provider_url: str,
     expected_base_url: str,
 ) -> None:
-    provider = _make_provider(base_url=base_url)
+    provider = _make_provider(base_url=provider_url)
 
     assert provider.base_url == expected_base_url
 
@@ -111,7 +111,7 @@ def test_update_config_normalizes_base_url() -> None:
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    "provider_url",
     [
         "http://localhost:11434",
         "http://localhost:11434/",
@@ -119,7 +119,7 @@ def test_update_config_normalizes_base_url() -> None:
         "http://localhost:11434/v1/",
     ],
 )
-def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
+def test_client_uses_single_v1_suffix(monkeypatch, provider_url: str) -> None:
     captured: dict[str, object] = {}
 
     class FakeAsyncOpenAI:
@@ -133,7 +133,7 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
         FakeAsyncOpenAI,
     )
 
-    provider = _make_provider(base_url=base_url)
+    provider = _make_provider(base_url=provider_url)
     getattr(provider, "_client")(timeout=7)
 
     assert captured == {
@@ -144,7 +144,7 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    "provider_url",
     [
         "http://localhost:11434",
         "http://localhost:11434/",
@@ -154,7 +154,7 @@ def test_client_uses_single_v1_suffix(monkeypatch, base_url: str) -> None:
 )
 def test_get_chat_model_instance_uses_single_v1_suffix(
     monkeypatch,
-    base_url: str,
+    provider_url: str,
 ) -> None:
     captured: list[dict] = []
 
@@ -167,7 +167,7 @@ def test_get_chat_model_instance_uses_single_v1_suffix(
         FakeCompat,
     )
 
-    provider = _make_provider(base_url=base_url)
+    provider = _make_provider(base_url=provider_url)
     provider.get_chat_model_instance("llama3.1")
 
     assert captured[0]["model"] == "llama3.1"

@@ -12,7 +12,7 @@ Coverage strategy (happy path first):
     (POST schedules an async agent reload, so GET is polled).
   - fork: POST fork of a non-git workspace returns a fork_session_id and
     empty worktree fields; a seeded parent session is inherited into the
-    fork session file (verified on disk).
+    fork session database (verified on disk).
   - agent-status: idle values on a fresh agent; disabled status after
     toggling the agent off.
 
@@ -29,10 +29,15 @@ No LLM / external deps required.
 from __future__ import annotations
 
 import json
+import sqlite3
 import time
 from pathlib import Path
 
 import pytest
+
+from qwenpaw.app.chats.transcript_catalog import (
+    resolve_session_database_path,
+)
 
 from helpers import (
     create_agent,
@@ -74,6 +79,31 @@ def _poll_coding_mode(app_server, expected_enabled, *, timeout=6.0):
 
 def _sessions_dir(app_server, agent_id) -> Path:
     return app_server.working_dir / "workspaces" / agent_id / "sessions"
+
+
+def _runtime_state(app_server, agent_id, session_id):
+    """Read the committed state without opening a writable catalog."""
+    workspace = app_server.working_dir / "workspaces" / agent_id
+    path = resolve_session_database_path(
+        workspace,
+        session_id=session_id,
+        user_id="",
+        channel="",
+    )
+    assert path is not None, app_server.logs_tail()
+    connection = sqlite3.connect(
+        f"{path.resolve().as_uri()}?mode=ro",
+        uri=True,
+    )
+    try:
+        row = connection.execute(
+            "SELECT state_json FROM session_runtime WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        assert row is not None, session_id
+        return json.loads(row[0])
+    finally:
+        connection.close()
 
 
 # ================================================================== #
@@ -204,7 +234,7 @@ def test_fork_agent_non_git_returns_empty_worktree(app_server) -> None:
     2. POST /api/fork/agent with a parent_session_id.
     3. Assert fork_session_id starts with 'sub-' and worktree fields
        are empty (no git repo → in-place fork).
-    4. Assert the fork session file was written on disk.
+    4. Assert the empty fork runtime was committed to its database.
 
     API endpoints:
     - POST /api/agents
@@ -229,14 +259,13 @@ def test_fork_agent_non_git_returns_empty_worktree(app_server) -> None:
         assert body["worktree_path"] == "", body
         assert body["worktree_branch"] == "", body
 
-        # The fork session file should exist on disk.
-        fork_file = (
-            _sessions_dir(app_server, agent_id)
-            / f"{body['fork_session_id']}.json"
-        )
-        assert fork_file.exists(), (
-            f"fork session file missing: {fork_file} / "
-            f"{app_server.logs_tail()[-1500:]}"
+        assert (
+            _runtime_state(
+                app_server,
+                agent_id,
+                body["fork_session_id"],
+            )
+            == {}
         )
     finally:
         delete_agent_quietly(app_server, agent_id)
@@ -245,13 +274,13 @@ def test_fork_agent_non_git_returns_empty_worktree(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_fork_agent_inherits_parent_session_state(app_server) -> None:
-    """Fork inherits the parent session state into the fork session file.
+    """Fork imports a legacy parent and inherits its database state.
 
     Test flow:
     1. Create an agent.
     2. Seed a parent session file with a known state dict.
     3. POST /api/fork/agent with the parent_session_id.
-    4. Read the fork session file → contains the inherited state.
+    4. Read the fork database and fork again; both inherit the state.
 
     API endpoints:
     - POST /api/agents
@@ -282,12 +311,27 @@ def test_fork_agent_inherits_parent_session_state(app_server) -> None:
         assert resp.status_code == 200, app_server.logs_tail()
         fork_sid = resp.json()["fork_session_id"]
 
-        fork_file = sessions / f"{fork_sid}.json"
-        assert fork_file.exists(), app_server.logs_tail()
-        forked = json.loads(fork_file.read_text(encoding="utf-8"))
-        assert forked.get("agent", {}).get("marker") == (
-            "integ-inherited-state"
-        ), forked
+        assert _runtime_state(app_server, agent_id, fork_sid) == parent_state
+        assert _runtime_state(app_server, agent_id, parent_sid) == parent_state
+        again = app_server.api_request(
+            "POST",
+            "/api/fork/agent",
+            json={
+                "agent_id": agent_id,
+                "parent_session_id": fork_sid,
+            },
+            timeout=_HTTP_TIMEOUT,
+        )
+        assert again.status_code == 200, app_server.logs_tail()
+        assert (
+            _runtime_state(
+                app_server,
+                agent_id,
+                again.json()["fork_session_id"],
+            )
+            == parent_state
+        )
+        assert _runtime_state(app_server, agent_id, fork_sid) == parent_state
     finally:
         delete_agent_quietly(app_server, agent_id)
 

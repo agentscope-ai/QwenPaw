@@ -904,7 +904,8 @@ def read_last_api() -> Optional[Tuple[str, int]]:
 
     Priority:
     1. In-process runtime cache (set by ``write_last_api`` in this process)
-    2. Persisted value from config.json on disk
+    2. Server address inherited by a reload child
+    3. Persisted value from config.json on disk
     """
     if _runtime_last_api is not None:
         logger.debug(
@@ -913,6 +914,16 @@ def read_last_api() -> Optional[Tuple[str, int]]:
             _runtime_last_api[1],
         )
         return _runtime_last_api
+
+    # Reload serving processes do not inherit the parent's Python cache.
+    # A second server may have overwritten the shared last_api on disk.
+    host = os.environ.get("QWENPAW_INTERNAL_HOST_API_HOST")
+    try:
+        port = int(os.environ.get("QWENPAW_INTERNAL_HOST_API_PORT", ""))
+    except ValueError:
+        port = 0
+    if host and 1 <= port <= 65535:
+        return host, port
 
     config = load_config()
     host = config.last_api.host

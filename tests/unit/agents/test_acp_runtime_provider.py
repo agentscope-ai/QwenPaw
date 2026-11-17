@@ -85,18 +85,18 @@ def test_runtime_provider_requires_complete_environment():
 
 
 @pytest.mark.parametrize(
-    "base_url",
+    "provider_url",
     [
         "policy.example.test/v1",
         "file:///tmp/policy.sock",
         "",
     ],
 )
-def test_runtime_provider_rejects_invalid_base_url(base_url):
+def test_runtime_provider_rejects_invalid_base_url(provider_url):
     with pytest.raises(ValueError):
         OpenAIRuntimeProviderConfig.from_env(
             {
-                "OPENAI_BASE_URL": base_url,
+                "OPENAI_BASE_URL": provider_url,
                 "OPENAI_API_KEY": "execution-secret",
                 "OPENAI_MODEL": "policy",
             },

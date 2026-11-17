@@ -271,6 +271,7 @@
 
 /* Chat messages scrollable area */
 .chatMessagesArea {
+  position: relative;
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -290,6 +291,9 @@
    * gutter shown by Spark Chat. The percentage responds to side panels too. */
   &.wideMode {
     --chat-wide-gutter: clamp(20px, 2%, 32px);
+    --chat-history-max-width: none;
+    --chat-history-padding: var(--chat-wide-gutter);
+    --chat-history-navigation-right: 12px;
 
     :global {
       .qwenpaw-bubble-list,
@@ -338,6 +342,26 @@
   /* Firefox scrollbar */
   scrollbar-width: thin;
   scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
+
+.historyNotice {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  left: 0;
+  z-index: 4;
+}
+
+.historyMode :global {
+  .qwenpaw-chat-anywhere-layout-right {
+    background: transparent;
+  }
+
+  .qwenpaw-chat-anywhere-message-list-bubble-wrapper,
+  .qwenpaw-chat-anywhere-message-list-anchors {
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 
 .headerSpacer {

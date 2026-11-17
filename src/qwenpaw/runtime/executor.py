@@ -8,6 +8,7 @@ and delegates each ``EventType`` event to ``Envelope.translate_event()``.
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime
 from typing import Any, AsyncGenerator
 
@@ -45,15 +46,24 @@ class AgentExecutor:
         envelopes instead of letting the connection drop.
         """
         agent_iter = self._agent.reply_stream(inputs=msgs).__aiter__()
+        last_activity = time.monotonic()
         async for event in _iter_with_heartbeat(
             agent_iter,
-            HEARTBEAT_INTERVAL_SECONDS,
+            min(1.0, HEARTBEAT_INTERVAL_SECONDS),
         ):
             if event is _HEARTBEAT_TICK:
-                async for obj in self._envelope.heartbeat():
+                async for obj in self._envelope.flush_tool_snapshots():
                     yield obj
+                if (
+                    time.monotonic() - last_activity
+                    >= HEARTBEAT_INTERVAL_SECONDS
+                ):
+                    async for obj in self._envelope.heartbeat():
+                        yield obj
+                    last_activity = time.monotonic()
                 continue
 
+            last_activity = time.monotonic()
             self._maybe_stamp_finished_at(event)
 
             async for obj in self._envelope.translate_event(event):

@@ -10,8 +10,10 @@ fakes for the agent and envelope.
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
+import pytest
 from agentscope.message import (
     Msg,
     TextBlock,
@@ -20,8 +22,11 @@ from agentscope.message import (
     ToolResultBlock,
     ToolResultState,
 )
+from agentscope.state import AgentState
 
+from qwenpaw.runtime.hooks import HookRegistry
 from qwenpaw.runtime.runtime import Runtime
+from qwenpaw.schemas import AgentRequest, AgentResponse, RunStatus
 
 
 def _runtime(workspace_agent_id="ws-agent"):
@@ -55,6 +60,101 @@ def _agent(name="TestAgent", context=None):
     return agent
 
 
+@pytest.mark.asyncio
+async def test_cancel_save_failure_propagates() -> None:
+    class BrokenSession:
+        async def save_session_state(self, **_kwargs) -> None:
+            raise RuntimeError("cancel save failed")
+
+    request = SimpleNamespace(
+        request_context={},
+        user_id="user",
+        channel="console",
+    )
+    agent = _agent(context=[])
+    agent.state_dict = lambda: {"state": {"context": []}}
+    ctx = SimpleNamespace(
+        request=request,
+        error=asyncio.CancelledError(),
+        agent=agent,
+        workspace=SimpleNamespace(session=BrokenSession()),
+        session_id="session",
+        extras={},
+    )
+    runtime = Runtime(workspace=ctx.workspace, app_services=None)
+
+    with pytest.raises(RuntimeError, match="cancel save failed"):
+        await runtime._try_save_on_cancel(ctx)
+
+
+@pytest.mark.asyncio
+async def test_completed_close_does_not_run_cancel_save(monkeypatch) -> None:
+    class Session:
+        def __init__(self) -> None:
+            self.save_count = 0
+
+        async def save_session_state(self, **_kwargs) -> None:
+            self.save_count += 1
+
+    session = Session()
+    hooks = HookRegistry()
+
+    async def dispatch(_text, _ctx):
+        return None
+
+    workspace = SimpleNamespace(
+        agent_id="agent",
+        workspace_dir="/tmp/workspace",
+        session=session,
+        plugins=SimpleNamespace(
+            hook_registry=hooks,
+            modes=[],
+            slash_command_registry=SimpleNamespace(dispatch=dispatch),
+        ),
+    )
+
+    class Agent:
+        name = "agent"
+        model = None
+
+        def __init__(self) -> None:
+            self.state = AgentState(context=[])
+
+        def state_dict(self):
+            return {"state": self.state.model_dump(mode="json")}
+
+    class Builder:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def build(self, _ctx):
+            return Agent()
+
+    class Executor:
+        def __init__(self, _agent, _envelope) -> None:
+            pass
+
+        async def run(self, _inputs):
+            if False:  # pylint: disable=using-constant-test
+                yield
+
+    monkeypatch.setattr("qwenpaw.runtime.runtime.AgentBuilder", Builder)
+    monkeypatch.setattr("qwenpaw.runtime.runtime.AgentExecutor", Executor)
+    runtime = Runtime(workspace=workspace, app_services=None)
+    stream = runtime.run(AgentRequest(session_id="session"))
+
+    while True:
+        item = await anext(stream)
+        if (
+            isinstance(item, AgentResponse)
+            and item.status == RunStatus.Completed
+        ):
+            break
+    await stream.aclose()
+
+    assert session.save_count == 0
+
+
 # ---------------------------------------------------------------------------
 # _normalize
 # ---------------------------------------------------------------------------
@@ -62,7 +162,9 @@ def _agent(name="TestAgent", context=None):
 
 class TestNormalize:
     def test_dict_coerced_to_agent_request(self):
-        request = Runtime._normalize({"session_id": "s1", "user_id": "u1"})
+        request = Runtime.normalize_request(
+            {"session_id": "s1", "user_id": "u1"},
+        )
         from qwenpaw.schemas import AgentRequest
 
         assert isinstance(request, AgentRequest)
@@ -70,7 +172,7 @@ class TestNormalize:
         assert request.user_id == "u1"
 
     def test_missing_session_id_generated(self):
-        request = Runtime._normalize({"input": []})
+        request = Runtime.normalize_request({"input": []})
         assert request.session_id
         # user_id falls back to session_id
         assert request.user_id == request.session_id
@@ -79,7 +181,7 @@ class TestNormalize:
         from qwenpaw.schemas import AgentRequest
 
         original = AgentRequest(session_id="fixed", user_id="bob")
-        result = Runtime._normalize(original)
+        result = Runtime.normalize_request(original)
         assert result is original
         assert result.session_id == "fixed"
 
@@ -93,7 +195,7 @@ class TestBuildContext:
     def test_request_agent_id_wins(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
 
-        request = Runtime._normalize(
+        request = Runtime.normalize_request(
             {"session_id": "s1", "agent_id": "body-agent"},
         )
         ctx = runtime._build_context(request)
@@ -101,19 +203,19 @@ class TestBuildContext:
 
     def test_workspace_agent_id_fallback(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.agent_id == "ws-agent"
 
     def test_default_when_no_agent_id(self):
         runtime = _runtime(workspace_agent_id=None)
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.agent_id == "default"
 
     def test_root_ids_fall_back_to_session_and_agent(self):
         runtime = _runtime(workspace_agent_id="ws-agent")
-        request = Runtime._normalize({"session_id": "s1"})
+        request = Runtime.normalize_request({"session_id": "s1"})
         ctx = runtime._build_context(request)
         assert ctx.root_session_id == "s1"
         assert ctx.root_agent_id == "ws-agent"

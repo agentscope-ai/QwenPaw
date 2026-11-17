@@ -1246,9 +1246,9 @@ class ScrollContextConfig(BaseModel):
     """Scroll (retrieval-driven) context manager configuration.
 
     Only consulted when ``LightContextConfig.strategy == "scroll"``. The
-    durable history uses ``db_filename`` (relative to the workspace unless
-    absolute). Evicted turns fold into an in-context eviction index,
-    recallable from the sandboxed ``recall_history_python`` REPL.
+    durable recall projection lives in each conversation database. Evicted
+    turns fold into an in-context eviction index, recallable from the
+    sandboxed ``recall_history_python`` REPL.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -1256,7 +1256,7 @@ class ScrollContextConfig(BaseModel):
     db_filename: str = Field(
         default="history.db",
         description=(
-            f"SQLite history path, absolute or relative to the workspace."
+            "Legacy history SQLite path used only as a migration source."
         ),
     )
 
@@ -1323,11 +1323,11 @@ class ScrollContextConfig(BaseModel):
         default=False,
         description=(
             "Also archive evicted turns to legacy ``dialog/{date}.jsonl`` "
-            "files. Off by default: under scroll the durable ``history.db`` "
-            "is already the full record, so dialog files are a redundant "
-            "opt-in for external consumers (analytics, backup). When on, "
-            "dialog is written on every eviction AND on /clear, /new, "
-            "/compact; when off, scroll never writes dialog anywhere."
+            "files. Off by default: the conversation database is already "
+            "the full record, so dialog files are a redundant opt-in for "
+            "external consumers. When on, dialog is written on every "
+            "eviction AND on /clear, /new, /compact; when off, scroll never "
+            "writes dialog anywhere."
         ),
     )
 
@@ -1375,8 +1375,8 @@ class LightContextConfig(BaseModel):
         default="scroll",
         description=(
             "Context management strategy. 'native' = AgentScope compression; "
-            "'scroll' = retrieval-driven history.db + eviction index with a "
-            "sandboxed recall_history_python recall REPL (the default)."
+            "'scroll' = retrieval-driven per-conversation recall projection "
+            "plus an eviction index and sandboxed recall REPL (the default)."
         ),
     )
 

@@ -322,6 +322,16 @@ class AgentStateError(AgentRuntimeErrorException):
         super().__init__("AGENT_STATE_ERROR", message, details)
 
 
+class LegacyMigrationError(AgentStateError):
+    """Legacy session data could not be migrated before agent execution."""
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(
+            session_id=session_id,
+            message=f"Failed to migrate legacy session {session_id}",
+        )
+
+
 class SkillsError(AgentRuntimeErrorException):
     """Exception raised for skills management errors."""
 

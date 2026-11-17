@@ -32,6 +32,7 @@ class Plugin:
                     reasoning_stream=True,
                     tool_stream=True,
                     session_resume=True,
+                    fork_mode="turn",
                     attachments=True,
                     qwenpaw_skills_projection=True,
                     qwenpaw_mcp_projection=True,

@@ -18,6 +18,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agentscope.state import AgentState
+
+from ..._session_signals import (
+    TRANSCRIPT_RECORDING_READY_KEY,
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+)
 from ...plugins.errors import SDKError, StaleContextError
 from ...plugins.activity import PluginBusyError
 from ...plugins.harnesses import (
@@ -37,7 +43,6 @@ from ...schemas import AgentResponse, ContentType, MessageType, RunStatus
 from ...utils.io_utils import run_async_to_completion, run_sync_io
 from .session import HarnessSessionBridge
 from .streaming import TextStream, ToolStream
-
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,7 @@ class BackendExecution:
         self._registry = registry
         self._workspace_dir = Path(workspace_dir)
         self._workspace = workspace
+        self._store = getattr(workspace, "transcript_store", None)
         self._agent_id = agent_id
         self._instances = {}
         self._lock = asyncio.Lock()
@@ -358,6 +364,8 @@ class BackendExecution:
             "history",
             "reset_session",
             "run_command",
+            "fork_session",
+            "turn_history",
         }:
             raise HarnessOperationNotSupportedError(
                 f"Unsupported harness operation {operation!r}",
@@ -367,6 +375,8 @@ class BackendExecution:
             and not session_id
         ):
             raise SDKError(f"{operation} requires a session ID")
+        if settings is None and self._workspace is not None:
+            settings = dict(self._workspace.config.backend_settings)
         entry = self._entry(backend_id)
         async with self._invocation(
             entry,
@@ -375,6 +385,24 @@ class BackendExecution:
             user_id=user_id,
             channel=channel,
         ) as (backend, context):
+            if (
+                operation == "history"
+                and self._store is not None
+                and entry.spec.capabilities.fork_mode != "none"
+            ):
+                saved = await run_sync_io(
+                    self._store.read_provider_state,
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                )
+                binding = saved["binding"]
+                if not binding or binding["provider"] != backend_id:
+                    return ()
+                await backend.bind_session(
+                    context,
+                    binding["external_session_id"],
+                )
             callback = getattr(backend, operation, None)
             if not callable(callback):
                 raise HarnessOperationNotSupportedError(
@@ -502,6 +530,13 @@ class BackendExecution:
             text_stream, tool_stream = TextStream(response), ToolStream(
                 response,
             )
+            identity = dict(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+            )
+            request_context = getattr(request, "request_context", None) or {}
+            turn_id = request_context.get(TRANSCRIPT_TURN_ID_CONTEXT_KEY)
             event_stream = None
             interrupted = None
             error_text, cancelled = "", False
@@ -510,8 +545,62 @@ class BackendExecution:
                 yield tagged(response.model_copy(deep=True))
                 response.status = RunStatus.InProgress
                 yield tagged(response.model_copy(deep=True))
+                if (
+                    self._store is not None
+                    and entry.spec.capabilities.fork_mode != "none"
+                ):
+                    if not turn_id or not request_context.get(
+                        TRANSCRIPT_RECORDING_READY_KEY,
+                    ):
+                        raise ValueError(
+                            "Conversation recording is unavailable; cannot "
+                            "start a native turn without durable identity.",
+                        )
+                    saved = await run_sync_io(
+                        self._store.read_provider_state,
+                        **identity,
+                    )
+                    binding = saved["binding"]
+                    if binding and binding["provider"] != entry.spec.id:
+                        raise ValueError(
+                            "Conversation backend binding changed",
+                        )
+                    if (
+                        not binding
+                        and saved["has_history"]
+                        and command not in {"new", "clear"}
+                    ):
+                        raise ValueError(
+                            "External session binding is missing; refusing to "
+                            "start an empty provider conversation.",
+                        )
+                    await backend.bind_session(
+                        context,
+                        (
+                            binding.get("external_session_id")
+                            if binding
+                            else None
+                        ),
+                    )
                 if command in {"new", "clear"}:
                     await backend.reset_session(context)
+                    if self._store is not None:
+                        await run_sync_io(
+                            self._store.write_runtime_state,
+                            **identity,
+                            turn_id=turn_id,
+                            state={
+                                "agent": {
+                                    "state": AgentState().model_dump(
+                                        mode="json",
+                                    ),
+                                },
+                            },
+                            reset_context=True,
+                            reset_provider=entry.spec.id,
+                        )
+                    elif self._session_bridge is not None:
+                        await self._session_bridge.clear(**identity)
                     event_stream = self._iter_events(
                         (
                             HarnessEvent(
@@ -542,6 +631,19 @@ class BackendExecution:
                     )
                 async for event in event_stream:
                     if event.kind in {
+                        HarnessEventKind.SESSION_BOUND,
+                        HarnessEventKind.TURN_BOUNDARY,
+                    }:
+                        if self._store is not None:
+                            await run_sync_io(
+                                self._store.record_provider_fact,
+                                **identity,
+                                kind=event.kind.value,
+                                turn_id=turn_id,
+                                data={"provider": entry.spec.id, **event.data},
+                            )
+                        items = []
+                    elif event.kind in {
                         HarnessEventKind.TEXT_DELTA,
                         HarnessEventKind.REASONING_DELTA,
                     }:
@@ -605,26 +707,25 @@ class BackendExecution:
                 response.completed_at = datetime.now(timezone.utc).isoformat(
                     timespec="seconds",
                 )
-                if command in {"new", "clear"} and response.output:
+                reset_context = command in {"new", "clear"}
+                if (
+                    reset_context
+                    and not error_text
+                    and not cancelled
+                    and response.output
+                ):
                     response.output[-1].metadata = {
                         **dict(response.output[-1].metadata or {}),
-                        "clear_history": True,
+                        "context_reset": True,
                     }
-                if self._session_bridge is not None:
-                    operation = (
-                        self._session_bridge.clear(
-                            session_id=session_id,
-                            user_id=user_id,
-                            channel=channel,
-                        )
-                        if command in {"new", "clear"}
-                        else self._session_bridge.append_turn(
+                if self._session_bridge is not None and not reset_context:
+                    await run_async_to_completion(
+                        self._session_bridge.append_turn(
                             request=request,
                             response=response,
                             backend=entry.spec.id,
-                        )
+                        ),
                     )
-                    await run_async_to_completion(operation)
             if interrupted is not None:
                 raise interrupted
             for item in final_items:

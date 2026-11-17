@@ -45,6 +45,8 @@ from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
 from ..chats.models import ChatUpdate
 from ..chats.title_generator import generate_and_update_title
+from ..replay_snapshot import ReplayPrefix
+from ..task_tracker import REPLAY_END_SSE, RunUnavailableError
 from ..notification_store import snapshot as notification_snapshot
 from ..utils import check_upload_size
 
@@ -377,6 +379,22 @@ def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
     return getattr(request_data, "reconnect", None) is True
 
 
+async def _attach_reconnect(
+    tracker: Any,
+    chat_id: str,
+    _materialized: bool,
+) -> tuple[list[str] | ReplayPrefix, asyncio.Queue | None]:
+    """Attach with standard envelope events, including durable replay."""
+    # Both client versions understand response/message envelopes. FIFO
+    # recovery must not depend on the optional materialization flag.
+    attached = await tracker.attach_materialized(chat_id)
+    if attached is None:
+        return [], None
+    replay_prefix, queue = attached
+    replay_prefix.append(REPLAY_END_SSE)
+    return replay_prefix, queue
+
+
 def _chat_registration_fields(native_payload: dict[str, Any]) -> dict:
     """Return first-class subagent fields from an internal request."""
     request_context = native_payload["meta"].get("request_context")
@@ -484,8 +502,16 @@ async def post_console_chat(
     tracker = workspace.task_tracker
     is_reconnect = _is_reconnect_request(request_data)
 
+    replay_prefix: list[str] | ReplayPrefix = []
     if is_reconnect:
-        queue = await tracker.attach(chat.id)
+        materialized_replay = (
+            request.query_params.get("materialized_replay") == "1"
+        )
+        replay_prefix, queue = await _attach_reconnect(
+            tracker,
+            chat.id,
+            materialized_replay,
+        )
         if queue is None:
             # The run finished (or never existed): reply with an
             # immediately-terminated SSE stream so the client's reader
@@ -517,13 +543,19 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
-        queue, is_new_run = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
-            on_finished=workspace.chat_manager.mark_chat_finished,
-        )
+        try:
+            queue, is_new_run = await tracker.attach_or_start(
+                chat.id,
+                native_payload,
+                console_channel.stream_one,
+                owner=workspace,
+                on_finished=workspace.chat_manager.mark_chat_finished,
+                can_start=lambda: workspace.chat_manager.can_start_run(
+                    chat.id,
+                ),
+            )
+        except RunUnavailableError as exc:
+            raise HTTPException(409, str(exc)) from exc
         if not is_new_run:
             await tracker.detach_subscriber(chat.id, queue)
             raise HTTPException(
@@ -549,9 +581,19 @@ async def post_console_chat(
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
         # finally (detach_subscriber) on client abort / generator teardown.
-        stream_it = tracker.stream_from_queue(queue, chat.id)
+        stream_it = tracker.stream_from_queue(
+            queue,
+            chat.id,
+            recover_overflow=True,
+        )
         try:
             try:
+                if hasattr(replay_prefix, "__aiter__"):
+                    async for event_data in replay_prefix:
+                        yield event_data
+                else:
+                    for event_data in replay_prefix:
+                        yield event_data
                 async for event_data in stream_it:
                     yield event_data
             except Exception as e:
@@ -559,6 +601,8 @@ async def post_console_chat(
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
         finally:
             await stream_it.aclose()
+            # Prefix reads can fail before stream_it starts its own finally.
+            await tracker.detach_subscriber(chat.id, queue)
 
     return StreamingResponse(
         event_generator(),
@@ -1174,13 +1218,19 @@ async def post_console_chat_task(
             producer_error = exc
             raise
 
-    queue, is_new_run = await tracker.attach_or_start(
-        chat.id,
-        native_payload,
-        _tracked_stream,
-        owner=workspace,
-        on_finished=workspace.chat_manager.mark_chat_finished,
-    )
+    try:
+        queue, is_new_run = await tracker.attach_or_start(
+            chat.id,
+            native_payload,
+            _tracked_stream,
+            owner=workspace,
+            on_finished=workspace.chat_manager.mark_chat_finished,
+            can_start=lambda: workspace.chat_manager.can_start_run(
+                chat.id,
+            ),
+        )
+    except RunUnavailableError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if not is_new_run:
         await tracker.detach_subscriber(chat.id, queue)
         raise HTTPException(
