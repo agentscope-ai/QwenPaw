@@ -2,7 +2,7 @@
 
 ## MCP 可选运行时
 
-官方插件 ID 为 `qwenpaw-mcp`，协议名为 `mcp`。本次交付 MCP 可选插件与公开 SDK 1.1
+官方插件 ID 为 `qwenpaw-mcp`，协议名为 `mcp`。本次交付 MCP 可选插件与公开 SDK 1.2
 Driver 支持，不包含 Agent Mail 或 ACP 插件化。
 
 - **新用户或未使用 MCP 的用户：**不创建插件安装目录、加载记录、MCP 连接、DriverManager
@@ -38,3 +38,7 @@ wheel、sdist 与桌面包使用同一份 `plugins/protocol/mcp` 资源，包括
 针对项目可选运行时，不承诺环境中完全没有 `mcp.*` 导入。
 
 作者 SDK：[DriverProtocolSpec](../../../website/public/docs/plugins.zh.md).
+
+### 插件版本与更新
+
+MCP 页面显示已安装的插件版本，内置资源有新版时提供显式更新；官方插件页提供协议分类的线上版本。两种入口均复用普通安装事务，保留配置与启用意图。访问页面不会安装或联网检查。MCP 1.0.0 要求 SDK 1.2.0，以及携带该 SDK 的 QwenPaw 2.3.1 或更高版本；先发布兼容宿主，再发布插件。

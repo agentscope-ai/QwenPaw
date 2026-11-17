@@ -1060,7 +1060,14 @@
     },
     "local": "ローカル",
     "remote": "リモート",
-    "invalidJson": "MCP サーバーを少なくとも 1 つ含む有効な JSON を入力してください。"
+    "invalidJson": "MCP サーバーを少なくとも 1 つ含む有効な JSON を入力してください。",
+    "plugin": {
+      "version": "MCP プラグインのバージョン: {{version}}",
+      "updateAvailable": "MCP プラグイン {{version}} を利用できます",
+      "update": "プラグインを更新",
+      "versionCheckUnavailable": "バージョンを確認できません。MCP は引き続き利用できます。",
+      "frontendRefreshFailed": "プラグインは更新されましたが画面を更新できません。ページを再読み込みしてください。"
+    }
   },
   "heartbeat": {
     "title": "ハートビート",
@@ -4708,7 +4715,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "プロトコル"
   },
   "approvalNotifications": {
     "settingTitle": "承認のデスクトップ通知",

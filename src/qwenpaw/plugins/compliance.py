@@ -10,6 +10,8 @@ from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 
+from .sdk_version import SDK_VERSION
+
 PUBLIC_API = MappingProxyType(
     {
         "qwenpaw.plugins": (
@@ -209,9 +211,10 @@ API_EXPORTS = tuple(
     APIExport(
         module,
         symbol,
-        since="1.1.0"
-        if module in {"qwenpaw.plugins.drivers", "qwenpaw.plugins.harnesses"}
-        else "1.0.0",
+        since={
+            "qwenpaw.plugins.drivers": "1.2.0",
+            "qwenpaw.plugins.harnesses": "1.1.0",
+        }.get(module, "1.0.0"),
         stability="compatibility" if module == "qwenpaw.pawapp" else "stable",
     )
     for module, symbols in PUBLIC_API.items()
@@ -235,7 +238,7 @@ class CheckReport:
     uncovered: tuple[str, ...]
     runtime_checked: bool = False
     package_hash: str = ""
-    sdk_version: str = "1.1.0"
+    sdk_version: str = SDK_VERSION
     rules_version: str = "1.0.0"
     checked_at: str = ""
     plugin_id: str = ""
@@ -575,8 +578,6 @@ def check_plugin(directory: str | Path) -> CheckReport:
                                 "Private context member: "
                                 f"{node.args[1].value}",
                             )
-    from .sdk_version import SDK_VERSION
-
     return CheckReport(
         tuple(findings),
         tuple(sorted(dependencies)),

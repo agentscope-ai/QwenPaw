@@ -18,7 +18,7 @@ import zipfile
 
 from packaging.version import Version
 
-from generate_plugin_metadata import content_digest, _format_size
+from generate_plugin_metadata import KIND_DIRS, content_digest, _format_size
 
 
 def _packing(root):
@@ -67,6 +67,28 @@ def _archive_identity(payload, kind):
         return record
 
 
+def _mcp_wheel_payload(wheel):
+    """Use the same identity for the market ZIP and the inert wheel resource."""
+    prefix = "qwenpaw/plugins/bundled/optional/mcp/"
+    files = [
+        name
+        for name in wheel.namelist()
+        if name.startswith(prefix) and not name.endswith("/")
+    ]
+    if not files:
+        return None
+    manifest = json.loads(wheel.read(prefix + "plugin.json"))
+    if manifest.get("id") != "qwenpaw-mcp":
+        raise ValueError("Invalid optional MCP wheel identity")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for name in files:
+            archive.writestr(
+                "qwenpaw-mcp/" + name[len(prefix) :], wheel.read(name)
+            )
+    return buffer.getvalue()
+
+
 def _release_candidates(root, project_root):
     candidates = []
     legacy_host = False
@@ -77,18 +99,13 @@ def _release_candidates(root, project_root):
     if root.is_dir():
         for path in sorted(root.rglob("*.zip")):
             kind = path.parent.parent.name
-            if kind in {
-                "bundle",
-                "tool",
-                "memory",
-                "apps",
-                "channel",
-                "hub",
-                "harness",
-            }:
+            if kind in KIND_DIRS:
                 add(path.read_bytes(), kind, path)
         for path in sorted(root.rglob("*.whl")):
             with zipfile.ZipFile(path) as wheel:
+                mcp = _mcp_wheel_payload(wheel)
+                if mcp is not None:
+                    add(mcp, "protocol")
                 index_name = "qwenpaw/official_channels/index.json"
                 if index_name not in wheel.namelist():
                     metadata_names = [

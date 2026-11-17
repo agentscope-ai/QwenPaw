@@ -3,7 +3,7 @@
 ## MCP optional runtime
 
 The official plugin ID is `qwenpaw-mcp`; the protocol is `mcp`. This release adds
-MCP as an optional plugin and public SDK 1.1 driver support. Agent Mail and ACP
+MCP as an optional plugin and public SDK 1.2 driver support. Agent Mail and ACP
 are outside this migration.
 
 - **New or unused installations:** no plugin directory, load record, MCP connection,
@@ -51,3 +51,7 @@ The Python environment may still contain upstream `mcp` packages for shared cons
 the guarantee concerns the optional project runtime, not removal of all `mcp.*` imports.
 
 Author SDK: [DriverProtocolSpec](../../../website/public/docs/plugins.en.md).
+
+### Plugin versions and updates
+
+The MCP page displays the installed plugin version and offers an explicit update when the bundled version is newer. Official Plugins provides online releases under the protocol category. Both paths preserve configuration and enabled intent through the normal installation transaction. Opening the page never installs or checks the network. MCP 1.0.0 requires SDK 1.2.0 and QwenPaw 2.3.1 or later with that SDK; publish the compatible host before the plugin.

@@ -2875,7 +2875,14 @@
     },
     "local": "Lokal",
     "remote": "Jarak jauh",
-    "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP."
+    "invalidJson": "Masukkan JSON yang valid dengan setidaknya satu server MCP.",
+    "plugin": {
+      "version": "Versi plugin MCP: {{version}}",
+      "updateAvailable": "Plugin MCP {{version}} tersedia",
+      "update": "Perbarui plugin",
+      "versionCheckUnavailable": "Versi plugin tidak dapat diperiksa. MCP tetap dapat digunakan.",
+      "frontendRefreshFailed": "Plugin diperbarui, tetapi antarmuka gagal dimuat ulang. Muat ulang halaman."
+    }
   },
   "preview": {
     "unavailable": "Pratinjau tidak tersedia",
@@ -2970,7 +2977,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Protokol"
   },
   "debug": {
     "title": "Debug",

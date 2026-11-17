@@ -100,6 +100,7 @@ function MCPPage({
   const { t } = useTranslation();
   const plugin = useMCPPlugin(managementMounted);
   const readOnly =
+    plugin.busy ||
     !managementAvailable ||
     plugin.state?.status !== "active" ||
     plugin.state.workspace?.eligible === false;
@@ -350,6 +351,34 @@ function MCPPage({
           ) : undefined
         }
       />
+
+      {plugin.state?.version && (
+        <div>{t("mcp.plugin.version", { version: plugin.state.version })}</div>
+      )}
+      {plugin.state?.update && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("mcp.plugin.updateAvailable", {
+            version: plugin.state.update.version,
+          })}
+          action={
+            <Button loading={plugin.busy} onClick={() => void plugin.update()}>
+              {t("mcp.plugin.update")}
+            </Button>
+          }
+        />
+      )}
+      {plugin.state?.update_diagnostics?.length ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={t("mcp.plugin.versionCheckUnavailable")}
+        />
+      ) : null}
+      {!readOnly && plugin.error && (
+        <Alert type="error" showIcon message={plugin.error} />
+      )}
 
       {recoveryCodes.length > 0 && (
         <Alert

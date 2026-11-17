@@ -2145,7 +2145,14 @@
     "toolSchema": "Mô tả & Tham số",
     "local": "Cục bộ",
     "remote": "Từ xa",
-    "invalidJson": "Nhập JSON hợp lệ có chứa ít nhất một máy chủ MCP."
+    "invalidJson": "Nhập JSON hợp lệ có chứa ít nhất một máy chủ MCP.",
+    "plugin": {
+      "version": "Phiên bản plugin MCP: {{version}}",
+      "updateAvailable": "Có plugin MCP {{version}}",
+      "update": "Cập nhật plugin",
+      "versionCheckUnavailable": "Không thể kiểm tra phiên bản. MCP vẫn có thể hoạt động.",
+      "frontendRefreshFailed": "Plugin đã cập nhật nhưng giao diện chưa tải lại. Hãy tải lại trang."
+    }
   },
   "market": {
     "searchPlaceholder": "Tìm kiếm kỹ năng trên các nền tảng",
@@ -2371,7 +2378,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Giao thức"
   },
   "codingMode": {
     "title": "Chế độ Lập trình",

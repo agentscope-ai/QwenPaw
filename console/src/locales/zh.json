@@ -1588,7 +1588,14 @@
     },
     "local": "本地",
     "remote": "远程",
-    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。"
+    "invalidJson": "请输入有效的 JSON，且至少包含一个 MCP 服务。",
+    "plugin": {
+      "version": "MCP 插件版本：{{version}}",
+      "updateAvailable": "MCP 插件 {{version}} 可更新",
+      "update": "更新插件",
+      "versionCheckUnavailable": "暂时无法检查插件版本，MCP 可继续使用。",
+      "frontendRefreshFailed": "插件已更新，但界面刷新失败，请刷新页面。"
+    }
   },
   "heartbeat": {
     "customInterval": "自定义间隔",
@@ -5589,7 +5596,8 @@
     "enableSuccess": "插件已激活。",
     "enableFailed": "插件激活失败。请检查依赖与应用日志后重试。",
     "disableSuccess": "插件已停用",
-    "disableFailed": "无法完成插件停用，请查看诊断信息"
+    "disableFailed": "无法完成插件停用，请查看诊断信息",
+    "kindProtocol": "协议"
   },
   "codingMode": {
     "toolPresentationHelp": "开启后，智能体只使用一个代码工具。搜索、文件处理等操作，统一通过编写并执行 Python 代码完成。",

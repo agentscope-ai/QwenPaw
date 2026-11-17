@@ -1299,7 +1299,14 @@
     },
     "local": "Local",
     "remote": "Remoto",
-    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP."
+    "invalidJson": "Insira um JSON válido com pelo menos um servidor MCP.",
+    "plugin": {
+      "version": "Versão do plugin MCP: {{version}}",
+      "updateAvailable": "O plugin MCP {{version}} está disponível",
+      "update": "Atualizar plugin",
+      "versionCheckUnavailable": "Não foi possível verificar a versão. O MCP pode continuar funcionando.",
+      "frontendRefreshFailed": "O plugin foi atualizado, mas a interface não foi recarregada. Recarregue a página."
+    }
   },
   "heartbeat": {
     "title": "Batimento",
@@ -4760,7 +4767,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Protocolo"
   },
   "approvalNotifications": {
     "settingTitle": "Notificações de aprovação na área de trabalho",

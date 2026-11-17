@@ -195,13 +195,9 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
 
 def get_optional_mcp_plugin_dir():
     """Locate inert package data without adding it to plugin discovery."""
-    package = Path(__file__).resolve().parents[1]
-    bundled = package / "plugins/bundled/optional/mcp"
-    return (
-        bundled
-        if bundled.is_dir()
-        else package.parent.parent / "plugins/protocol/mcp"
-    )
+    from ..plugins.optional_mcp import get_optional_mcp_plugin_dir as locate
+
+    return locate()
 
 
 @dataclass(frozen=True)

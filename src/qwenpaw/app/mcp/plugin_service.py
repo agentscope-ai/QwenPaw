@@ -77,6 +77,8 @@ def require_runtime(request):
 
 async def plugin_state(request):
     from .feature_gate import is_mcp_ready, OFFICIAL_PLUGIN_PATH
+    from ...plugins.optional_mcp import mcp_plugin_versions
+    from ...utils.io_utils import run_sync_io
 
     loader = getattr(request.app.state, "plugin_loader", None)
     record = loader.get_loaded_plugin(PLUGIN_ID) if loader else None
@@ -151,6 +153,7 @@ async def plugin_state(request):
         if workspace is not None
         else is_mcp_ready(loader) and workspace_status != "needs_review",
         "official_plugins_path": OFFICIAL_PLUGIN_PATH,
+        **await run_sync_io(mcp_plugin_versions, directory),
         **recovery,
     }
 

@@ -533,6 +533,24 @@ async def install_plugin_source(
 
     normalized = str(source or "").strip()
     temp_dir: Optional[Path] = None
+    if normalized == "bundled:qwenpaw-mcp":
+        from ...plugins.optional_mcp import (
+            get_optional_mcp_plugin_dir,
+            read_mcp_manifest,
+        )
+
+        source_path = await run_sync_io(get_optional_mcp_plugin_dir)
+        await run_sync_io(read_mcp_manifest, source_path)
+        return await _load_plugin_with_optional_force_reinstall(
+            loader,
+            request,
+            source_path,
+            force=force,
+            **_interrupt_options(interrupt_tasks),
+            reload_agents=reload_agents,
+            pawport_owner=pawport_owner,
+            recover_incomplete=recover_incomplete,
+        )
     if normalized.startswith("bundled:"):
         from ...plugins.official_channels import async_bundled_channel_source
 

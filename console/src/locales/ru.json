@@ -1062,7 +1062,14 @@
     },
     "local": "Локальный",
     "remote": "Удалённый",
-    "invalidJson": "Введите корректный JSON хотя бы с одним сервером MCP."
+    "invalidJson": "Введите корректный JSON хотя бы с одним сервером MCP.",
+    "plugin": {
+      "version": "Версия плагина MCP: {{version}}",
+      "updateAvailable": "Доступен плагин MCP {{version}}",
+      "update": "Обновить плагин",
+      "versionCheckUnavailable": "Не удалось проверить версию. MCP может продолжать работу.",
+      "frontendRefreshFailed": "Плагин обновлён, но интерфейс не обновился. Перезагрузите страницу."
+    }
   },
   "heartbeat": {
     "title": "Пульс",
@@ -4725,7 +4732,8 @@
         "confirm": "Interrupt and disable",
         "cancel": "Keep enabled"
       }
-    }
+    },
+    "kindProtocol": "Протокол"
   },
   "approvalNotifications": {
     "settingTitle": "Уведомления о подтверждениях на компьютере",

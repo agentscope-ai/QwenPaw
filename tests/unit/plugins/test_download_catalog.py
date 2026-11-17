@@ -136,6 +136,9 @@ def test_bundled_hubs_remain_installable_when_cdn_is_unavailable() -> None:
         result = catalog()
 
     hubs = {entry["plugin_id"]: entry for entry in result["plugins"]}
+    mcp = hubs.pop("qwenpaw-mcp")
+    assert mcp["kind"] == "protocol"
+    assert mcp["install_url"] == "bundled:qwenpaw-mcp"
     assert set(hubs) == {
         "qwenpaw-hub",
         "clawhub-hub",

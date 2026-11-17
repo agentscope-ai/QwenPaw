@@ -34,7 +34,7 @@ plugin = Plugin()
 """
 
 
-def driver_plugin(tmp_path, plugin_id, source=EMPTY_PLUGIN, *, version="1.1"):
+def driver_plugin(tmp_path, plugin_id, source=EMPTY_PLUGIN, *, version="1.2"):
     parent = tmp_path / plugin_id
     parent.mkdir()
     root = make_plugin(parent, source, ["drivers"])
@@ -73,12 +73,12 @@ def test_driver_public_imports_and_versioned_exports(tmp_path):
 
     module = importlib.import_module("qwenpaw.plugins.drivers")
     assert all(getattr(module, name) is not None for name in DRIVER_TYPES)
-    assert SDK_VERSION == "1.1.0"
+    assert SDK_VERSION == "1.2.0"
     assert "drivers" in SDK_CAPABILITIES
     assert set(DRIVER_TYPES) <= set(PUBLIC_API[module.__name__])
     exports = {(row.module, row.symbol): row for row in API_EXPORTS}
     for name in DRIVER_TYPES:
-        assert exports[(module.__name__, name)].since == "1.1.0"
+        assert exports[(module.__name__, name)].since == "1.2.0"
     assert exports[("qwenpaw.plugins.tools", "ToolSpec")].since == "1.0.0"
     source = (
         "from qwenpaw.plugins.drivers import (" + ",".join(DRIVER_TYPES) + ")"

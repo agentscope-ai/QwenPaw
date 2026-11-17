@@ -1753,7 +1753,14 @@
     },
     "local": "Local",
     "remote": "Remote",
-    "invalidJson": "Enter valid JSON containing at least one MCP server."
+    "invalidJson": "Enter valid JSON containing at least one MCP server.",
+    "plugin": {
+      "version": "MCP plugin version: {{version}}",
+      "updateAvailable": "MCP plugin {{version}} is available",
+      "update": "Update plugin",
+      "versionCheckUnavailable": "Plugin version check is unavailable. MCP can continue running.",
+      "frontendRefreshFailed": "The plugin was updated, but its interface could not refresh. Reload the page."
+    }
   },
   "heartbeat": {
     "customInterval": "Custom interval",
@@ -5573,7 +5580,8 @@
     "enableSuccess": "Plugin activated.",
     "enableFailed": "Plugin activation failed. Check its dependencies and application logs, then retry.",
     "disableSuccess": "Plugin disabled",
-    "disableFailed": "Could not finish disabling the plugin; check its diagnostics"
+    "disableFailed": "Could not finish disabling the plugin; check its diagnostics",
+    "kindProtocol": "Protocol"
   },
   "codingMode": {
     "toolPresentationHelp": "When enabled, the agent uses a single code tool. It searches, processes files, and performs other tool operations by writing and running Python code.",

@@ -197,7 +197,7 @@ def driver_plugin(tmp_path):
     manifest = root / "plugin.json"
     data = json.loads(manifest.read_text())
     data["id"] = PLUGIN_ID
-    data["sdk"]["version"] = "1.1"
+    data["sdk"]["version"] = "1.2"
     manifest.write_text(json.dumps(data))
     return root
 
