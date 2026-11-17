@@ -4,6 +4,7 @@
 
 import argparse
 import configparser
+import gzip
 import hashlib
 import json
 import os
@@ -50,6 +51,18 @@ def identity():
         key: CONFIG[key]
         for key in ("release", "upstream_commit", "patch_sha256")
     } | {"capabilities": ["chat", "piccolo"]}
+
+
+def _read_metadata(url, timeout=30):
+    """Read metadata bytes, accepting plain and gzip-encoded responses."""
+    with urllib.request.urlopen(url, timeout=timeout) as response:
+        data = response.read()
+        if (
+            response.headers.get("Content-Encoding") == "gzip"
+            or data[:2] == b"\x1f\x8b"
+        ):
+            data = gzip.decompress(data)
+        return data
 
 
 def prepare(work):
@@ -104,11 +117,9 @@ def prepare(work):
 def install_cuda(version, directory):
     """Install NVIDIA's pinned redistributable toolkit without a driver."""
     base = "https://developer.download.nvidia.com/compute/cuda/redist/"
-    with urllib.request.urlopen(
-        base + f"redistrib_{version}.json",
-        timeout=60,
-    ) as response:
-        manifest = json.load(response)
+    manifest = json.loads(
+        _read_metadata(base + f"redistrib_{version}.json", timeout=60),
+    )
     directory.mkdir(parents=True, exist_ok=True)
     components = [
         "cuda_cudart",
@@ -359,11 +370,7 @@ def verify_public(base_url=None, download_dir=None):
     base = (
         (base_url or CONFIG["base_url"]).rstrip("/") + "/" + CONFIG["release"]
     )
-    with urllib.request.urlopen(
-        base + "/runtime-release.json",
-        timeout=30,
-    ) as response:
-        manifest = json.load(response)
+    manifest = json.loads(_read_metadata(base + "/runtime-release.json"))
     if any(manifest.get(key) != value for key, value in identity().items()):
         raise ValueError(
             "Published runtime does not match this source revision",
@@ -371,12 +378,11 @@ def verify_public(base_url=None, download_dir=None):
     for target in CONFIG["targets"]:
         name = archive_name(target["id"])
         expected = manifest["artifacts"][name]
-        with urllib.request.urlopen(
-            base + "/" + name + ".sha256",
-            timeout=30,
-        ) as response:
-            if response.read().decode().split()[0] != expected["sha256"]:
-                raise ValueError(f"Published checksum mismatch: {name}")
+        checksum = (
+            _read_metadata(base + "/" + name + ".sha256").decode().split()
+        )
+        if not checksum or checksum[0] != expected["sha256"]:
+            raise ValueError(f"Published checksum mismatch: {name}")
         request = urllib.request.Request(base + "/" + name, method="HEAD")
         with urllib.request.urlopen(request, timeout=30) as response:
             if int(response.headers["Content-Length"]) != expected["size"]:
