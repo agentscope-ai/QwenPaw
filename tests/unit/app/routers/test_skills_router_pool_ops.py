@@ -1765,7 +1765,6 @@ class TestDownloadOneOrRaise:
         result = skills_module._download_one_or_raise(
             service,
             plan,
-            [plan],
             skill_name="demo",
             overwrite=True,
         )
@@ -1788,37 +1787,26 @@ class TestDownloadOneOrRaise:
         result = skills_module._download_one_or_raise(
             service,
             plan,
-            [plan],
             skill_name="demo",
             overwrite=False,
         )
         assert result["workspace_name"] == ""
 
-    def test_conflict_rolls_back_in_reverse_then_409(self, tmp_path: Path):
+    def test_conflict_raises_409_with_the_conflict_payload(self):
         service = MagicMock(name="ServiceStub")
         service.download_to_workspace.return_value = {
             "success": False,
             "reason": "conflict",
             "skill_name": "demo",
         }
-        first = self._plan("a", tmp_path)
-        second = self._plan("b", tmp_path)
-        restored: list[str] = []
-        with patch.object(
-            skills_module,
-            "_restore_workspace_skill",
-            side_effect=lambda snapshot: restored.append(
-                str(snapshot["workspace_dir"].name),
-            ),
-        ):
-            with pytest.raises(HTTPException) as excinfo:
-                skills_module._download_one_or_raise(
-                    service,
-                    second,
-                    [first, second],
-                    skill_name="demo",
-                    overwrite=False,
-                )
+        plan = {"workspace_id": "b", "workspace_dir": Path("/tmp/b")}
+        with pytest.raises(HTTPException) as excinfo:
+            skills_module._download_one_or_raise(
+                service,
+                plan,
+                skill_name="demo",
+                overwrite=False,
+            )
 
         assert excinfo.value.status_code == 409
         assert excinfo.value.detail == {
@@ -1827,10 +1815,57 @@ class TestDownloadOneOrRaise:
                 {"success": False, "reason": "conflict", "skill_name": "demo"},
             ],
         }
-        # the newest workspace is rolled back first
-        assert restored == ["b", "a"]
 
-    def test_missing_pool_skill_rolls_back_then_404(self, tmp_path: Path):
+    def test_missing_pool_skill_raises_404(self, tmp_path: Path):
+        service = MagicMock(name="ServiceStub")
+        service.download_to_workspace.return_value = {
+            "success": False,
+            "reason": "not_found",
+        }
+        plan = self._plan("a", tmp_path)
+        with pytest.raises(HTTPException) as excinfo:
+            skills_module._download_one_or_raise(
+                service,
+                plan,
+                skill_name="ghost",
+                overwrite=False,
+            )
+        assert excinfo.value.status_code == 404
+
+    def test_restore_tries_every_target_and_reports_what_remains(
+        self,
+        tmp_path: Path,
+    ):
+        """A stuck target must not abandon the ones still to be undone."""
+        first = self._plan("a", tmp_path)
+        second = self._plan("b", tmp_path)
+        third = self._plan("c", tmp_path)
+        attempts: list[str] = []
+
+        def flaky(snapshot):
+            attempts.append(snapshot["workspace_dir"].name)
+            if snapshot["workspace_dir"].name == "b":
+                raise OSError("b is stuck")
+
+        with patch.object(
+            skills_module,
+            "_restore_workspace_skill",
+            side_effect=flaky,
+        ):
+            failures = skills_module._restore_workspace_skills(
+                [first, second, third],
+            )
+
+        # newest first, and a failure does not stop the rest
+        assert attempts == ["c", "b", "a"]
+        assert second["snapshot"]["restore_failed"] is True
+        assert "restore_failed" not in first["snapshot"]
+        assert "restore_failed" not in third["snapshot"]
+        assert [failure["workspace_id"] for failure in failures] == ["b"]
+        assert failures[0]["step"] == "files"
+
+    def test_the_download_error_is_the_one_reported(self, tmp_path: Path):
+        """A rollback that also fails must not replace the download error."""
         service = MagicMock(name="ServiceStub")
         service.download_to_workspace.return_value = {
             "success": False,
@@ -1840,17 +1875,35 @@ class TestDownloadOneOrRaise:
         with patch.object(
             skills_module,
             "_restore_workspace_skill",
-        ) as restore_mock:
+            side_effect=OSError("rollback is stuck"),
+        ), patch.object(
+            skills_module,
+            "_build_download_plan",
+            return_value=[plan],
+        ), patch.object(
+            skills_module,
+            "_preflight_download",
+            return_value=service,
+        ):
             with pytest.raises(HTTPException) as excinfo:
-                skills_module._download_one_or_raise(
-                    service,
-                    plan,
-                    [plan],
-                    skill_name="ghost",
-                    overwrite=False,
+                skills_module._download_pool_skill_locked(
+                    SimpleNamespace(
+                        skill_name="ghost",
+                        overwrite=False,
+                        preview_only=False,
+                    ),
+                    [
+                        SimpleNamespace(
+                            workspace_id="a",
+                            workspace_dir=tmp_path / "a",
+                        ),
+                    ],
                 )
+
         assert excinfo.value.status_code == 404
-        restore_mock.assert_called_once_with(plan["snapshot"])
+        assert (
+            excinfo.value.detail["restore_failures"][0]["workspace_id"] == "a"
+        )
 
 
 class TestDownloadPoolSkillRoute:
@@ -1859,7 +1912,11 @@ class TestDownloadPoolSkillRoute:
         return {
             "workspace_id": "default",
             "workspace_dir": tmp_path,
-            "snapshot": {"backup_dir": backup_dir},
+            "snapshot": {
+                "workspace_dir": tmp_path,
+                "skill_name": "demo",
+                "backup_dir": backup_dir,
+            },
         }
 
     def _patched(self, tmp_path: Path, download_side_effect: Any):
@@ -1959,6 +2016,49 @@ class TestDownloadPoolSkillRoute:
         assert response.json()["detail"] == "gone"
         assert not backup_root.exists()
 
+    def test_failed_restore_keeps_its_backup(self, client, tmp_path: Path):
+        """After a failed restore, the backup is the last copy of the old
+        version, so cleanup must leave it in place."""
+        backup_root = tmp_path / "rollback"
+        backup_dir = backup_root / "demo"
+        backup_dir.mkdir(parents=True)
+        plan = self._plan(tmp_path, backup_dir=backup_dir)
+
+        def failing_download(*_args, **_kwargs):
+            raise HTTPException(status_code=409, detail="conflict")
+
+        with patch.object(
+            skills_module,
+            "_resolve_download_targets",
+            return_value=[_target("default")],
+        ), patch.object(
+            skills_module,
+            "_preflight_download",
+            return_value=MagicMock(name="ServiceStub"),
+        ), patch.object(
+            skills_module,
+            "_build_download_plan",
+            return_value=[plan],
+        ), patch.object(
+            skills_module,
+            "_download_one_or_raise",
+            side_effect=failing_download,
+        ), patch.object(
+            skills_module,
+            "_restore_workspace_skill",
+            side_effect=OSError("cannot restore"),
+        ):
+            response = client.post(
+                "/api/skills/pool/download",
+                json={
+                    "skill_name": "demo",
+                    "targets": [{"workspace_id": "default"}],
+                },
+            )
+
+        assert response.status_code == 409
+        assert backup_dir.exists()
+
     def test_scan_error_rolls_back_and_returns_422(
         self,
         client,
@@ -2026,11 +2126,20 @@ class TestDownloadPoolSkillRoute:
             "success": True,
         }
         seen_during_download: list[list[str]] = []
+        seen_in_root: list[list[str]] = []
 
         def _observing_download(**_kwargs: Any) -> dict[str, Any]:
             # captured inside the loop: after the plan snapshot was taken
             # and before the finally leg cleaned it up
             seen_during_download.append(
+                sorted(
+                    path.name
+                    for path in (workspace_dir / "skills").glob(
+                        ".qwenpaw_skill_rollback_*",
+                    )
+                ),
+            )
+            seen_in_root.append(
                 sorted(
                     path.name
                     for path in workspace_dir.glob(
@@ -2072,7 +2181,15 @@ class TestDownloadPoolSkillRoute:
         assert seen_during_download[0][0].startswith(
             ".qwenpaw_skill_rollback_demo_",
         )
+        # the backup sits beside the skill, never in the workspace root
+        assert seen_in_root == [[]]
         assert list(workspace_dir.glob(".qwenpaw_skill_rollback_*")) == []
+        assert (
+            list(
+                (workspace_dir / "skills").glob(".qwenpaw_skill_rollback_*"),
+            )
+            == []
+        )
         # the backup stayed on the workspace volume: system temp is untouched
         assert list(temp_root.iterdir()) == []
 
@@ -2109,7 +2226,151 @@ class TestDownloadPoolSkillRoute:
 
         skills_module._restore_workspace_skill(snapshot)
         assert (workspace_dir / "skills" / "demo" / "SKILL.md").is_file()
-        assert list(temp_root.iterdir()) == []
+        # Releasing the backup belongs to the batch cleanup, not to a single
+        # restore, so the temp root is still there for the caller's finally.
+        assert list(temp_root.iterdir()) != []
+
+    def test_a_later_install_leaves_earlier_backups_alone(
+        self,
+        workspace_agent,
+        monkeypatch,
+    ):
+        """A backup left behind by a killed run is not ours to delete.
+
+        The marker is written after a restore fails, so a process killed in
+        between leaves an unmarked root behind. Reclaiming unmarked roots on
+        the next install is what turns that window into data loss.
+        """
+        skills_dir = workspace_agent / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        earlier = skills_dir / ".qwenpaw_skill_rollback_demo_deadrun"
+        earlier.mkdir()
+        (earlier / "demo").mkdir()
+        (earlier / "demo" / "SKILL.md").write_text("old", encoding="utf-8")
+
+        targets = [
+            SimpleNamespace(
+                workspace_id="default",
+                workspace_dir=workspace_agent,
+            ),
+        ]
+        body = SimpleNamespace(
+            skill_name="demo",
+            overwrite=True,
+            preview_only=False,
+        )
+        monkeypatch.setattr(
+            skills_module,
+            "_preflight_download",
+            lambda *_args, **_kwargs: MagicMock(name="ServiceStub"),
+        )
+        monkeypatch.setattr(
+            skills_module,
+            "_build_download_plan",
+            lambda *_args, **_kwargs: [],
+        )
+
+        skills_module._download_pool_skill_locked(body, targets)
+
+        assert earlier.is_dir()
+        assert (earlier / "demo" / "SKILL.md").read_text(
+            encoding="utf-8",
+        ) == "old"
+
+    def test_a_manifest_failure_is_retried_once(
+        self,
+        workspace_agent,
+        monkeypatch,
+    ):
+        """A restored target only retries its manifest, not its files."""
+        workspace_dir = workspace_agent
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+        _write_workspace_manifest(workspace_dir, {"demo": {"enabled": True}})
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+
+        real_mutate = skills_module.mutate_json
+        real_copy = skills_module.rename_or_copy_directory
+        manifest_calls: list[int] = []
+        copy_calls: list[int] = []
+
+        def _flaky_mutate(*args, **kwargs):
+            manifest_calls.append(1)
+            if len(manifest_calls) == 1:
+                raise OSError("manifest is busy")
+            return real_mutate(*args, **kwargs)
+
+        def _counting_copy(*args, **kwargs):
+            copy_calls.append(1)
+            return real_copy(*args, **kwargs)
+
+        monkeypatch.setattr(skills_module, "mutate_json", _flaky_mutate)
+        monkeypatch.setattr(
+            skills_module,
+            "rename_or_copy_directory",
+            _counting_copy,
+        )
+
+        failures = skills_module._restore_workspace_skills(
+            [{"workspace_id": "default", "snapshot": snapshot}],
+        )
+
+        assert failures == []
+        assert len(manifest_calls) == 2
+        assert len(copy_calls) == 1
+
+    def test_a_manifest_that_keeps_failing_names_the_workspace(
+        self,
+        workspace_agent,
+        monkeypatch,
+    ):
+        """The user must learn which workspace still needs attention."""
+        workspace_dir = workspace_agent
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+        _write_workspace_manifest(workspace_dir, {"demo": {"enabled": True}})
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+
+        def _boom(*_args, **_kwargs):
+            raise OSError("manifest is busy")
+
+        monkeypatch.setattr(skills_module, "mutate_json", _boom)
+
+        failures = skills_module._restore_workspace_skills(
+            [{"workspace_id": "default", "snapshot": snapshot}],
+        )
+
+        assert len(failures) == 1
+        assert failures[0]["workspace_id"] == "default"
+        assert failures[0]["step"] == "manifest"
+
+    def test_retained_backup_marker_is_written_for_a_failed_restore(
+        self,
+        workspace_agent,
+    ):
+        """A failed restore marks its backup so the copy is recognisable."""
+        _write_skill(workspace_agent / "skills" / "demo", "demo")
+        _write_workspace_manifest(
+            workspace_agent,
+            {"demo": {"enabled": True}},
+        )
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_agent,
+            "demo",
+        )
+        snapshot["restore_failed"] = True
+
+        skills_module._mark_retained_backup(snapshot)
+
+        backup_dir = Path(snapshot["backup_dir"])
+        assert (backup_dir.parent / ".restore_failed").is_file()
+        assert backup_dir.is_dir()
 
     def test_second_rollback_keeps_the_restored_files(self, workspace_agent):
         """A retried rollback must not delete what the first pass restored.
@@ -2949,3 +3210,95 @@ def test_pool_download_serializes_overlapping_requests(monkeypatch):
         "first": {"downloaded": []},
         "second": {"downloaded": []},
     }
+
+
+class TestRollbackBackupRetention:
+    def test_a_missing_backup_is_not_reported_as_restored(
+        self,
+        workspace_agent,
+    ):
+        """Nothing proves the files are back once the backup is gone.
+
+        The presence of the target directory used to count as proof, so a
+        workspace still holding the new version was reported as a successful
+        rollback. Keep it as it is and report the files step as failed.
+        """
+        workspace_dir = workspace_agent
+        skill_dir = workspace_dir / "skills" / "demo"
+        _write_skill(skill_dir, "demo")
+        _write_workspace_manifest(workspace_dir, {"demo": {"enabled": True}})
+        snapshot = skills_module._snapshot_workspace_skill(
+            workspace_dir,
+            "demo",
+        )
+        # The overwrite replaced the files, then the backup disappeared.
+        (skill_dir / "SKILL.md").write_text("staged", encoding="utf-8")
+        shutil.rmtree(Path(snapshot["backup_dir"]).parent)
+        assert not snapshot.get("files_restored")
+
+        failures = skills_module._restore_workspace_skills(
+            [{"workspace_id": "default", "snapshot": snapshot}],
+        )
+
+        assert len(failures) == 1
+        assert failures[0]["workspace_id"] == "default"
+        assert failures[0]["step"] == "files"
+        assert (skill_dir / "SKILL.md").read_text(
+            encoding="utf-8",
+        ) == "staged"
+        assert snapshot["restore_failed"] is True
+
+    def test_batch_cleanup_skips_a_target_without_a_backup(
+        self,
+        workspace_agent,
+        monkeypatch,
+    ):
+        """A first-time install has neither a backup to keep nor to mark."""
+        marked: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            skills_module,
+            "_mark_retained_backup",
+            lambda snapshot: marked.append(snapshot),
+        )
+        targets = [
+            SimpleNamespace(
+                workspace_id="default",
+                workspace_dir=workspace_agent,
+            ),
+        ]
+        body = SimpleNamespace(
+            skill_name="demo",
+            overwrite=False,
+            preview_only=False,
+        )
+        plan = [
+            {
+                "workspace_id": "default",
+                "workspace_dir": workspace_agent,
+                "snapshot": {
+                    "workspace_dir": workspace_agent,
+                    "skill_name": "demo",
+                    "entry": None,
+                    "backup_dir": None,
+                },
+            },
+        ]
+        monkeypatch.setattr(
+            skills_module,
+            "_preflight_download",
+            lambda *_args, **_kwargs: MagicMock(name="ServiceStub"),
+        )
+        monkeypatch.setattr(
+            skills_module,
+            "_build_download_plan",
+            lambda *_args, **_kwargs: plan,
+        )
+        monkeypatch.setattr(
+            skills_module,
+            "_download_one_or_raise",
+            lambda *_args, **_kwargs: {"skill_name": "demo"},
+        )
+
+        skills_module._download_pool_skill_locked(body, targets)
+
+        assert marked == []
