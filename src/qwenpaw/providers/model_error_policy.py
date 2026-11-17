@@ -108,6 +108,19 @@ def classify_model_error(exc: Exception) -> ModelErrorDecision:
         )
     ):
         kind = "content_safety"
+    elif (
+        status is not None
+        and 400 <= status < 500
+        and any(
+            marker in message
+            for marker in (
+                "quota",
+                "rate limit",
+                "too many requests",
+            )
+        )
+    ):
+        kind = "rate_limited"
     elif status is not None and 400 <= status < 500:
         kind = "bad_request"
     else:

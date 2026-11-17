@@ -108,8 +108,8 @@ class FormattingFakeModel(FakeModel):
 class HttpError(Exception):
     """Exception carrying an HTTP status."""
 
-    def __init__(self, status_code: int) -> None:
-        super().__init__(f"HTTP {status_code}")
+    def __init__(self, status_code: int, message: str | None = None) -> None:
+        super().__init__(message or f"HTTP {status_code}")
         self.status_code = status_code
 
 
@@ -242,6 +242,36 @@ async def test_falls_back_when_primary_model_is_not_found() -> None:
             "to_provider_id": "fallback-provider",
             "to_model_id": "fallback",
             "reason_kind": "model_not_found",
+        },
+    ]
+
+
+async def test_falls_back_when_primary_quota_returns_http_400() -> None:
+    primary = FakeModel(
+        "primary",
+        HttpError(400, "quota exceeded"),
+        provider_id="primary-provider",
+    )
+    fallback = FakeModel(
+        "fallback",
+        lambda: _response("fallback-ok"),
+        provider_id="fallback-provider",
+    )
+    model = FallbackChatModel([primary, fallback])
+
+    response = await model(messages=[], tools=[])
+
+    assert response.content[0]["text"] == "fallback-ok"
+    assert primary.calls == 1
+    assert fallback.calls == 1
+    assert response.metadata["qwenpaw_model_fallbacks"] == [
+        {
+            "type": "model_fallback",
+            "from_provider_id": "primary-provider",
+            "from_model_id": "primary",
+            "to_provider_id": "fallback-provider",
+            "to_model_id": "fallback",
+            "reason_kind": "rate_limited",
         },
     ]
 

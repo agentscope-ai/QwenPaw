@@ -57,6 +57,23 @@ def test_permanent_http_errors_do_not_fallback(status: int) -> None:
     assert decision.fallback_eligible is False
 
 
+@pytest.mark.parametrize(
+    "message",
+    ["quota exceeded", "rate limit reached", "too many requests"],
+)
+def test_client_rate_limit_messages_allow_retry_and_fallback(
+    message: str,
+) -> None:
+    decision = classify_model_error(HttpError(400, message))
+
+    assert asdict(decision) == {
+        "kind": "rate_limited",
+        "status_code": 400,
+        "retryable": True,
+        "fallback_eligible": True,
+    }
+
+
 def test_model_not_found_allows_fallback_without_retry() -> None:
     decision = classify_model_error(HttpError(404))
 
