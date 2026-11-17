@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 
 import pytest
 
@@ -59,7 +60,10 @@ def test_synthesize_uses_system_voice_and_flash_model(monkeypatch) -> None:
     result = asyncio.run(tts_model.synthesize("你好世界", voice="Serena"))
     assert "multimodal-generation/generation" in captured["url"]
     assert captured["payload"]["model"] == model_config.get_tts_model_name()
-    assert captured["payload"]["input"] == {"text": "你好世界", "voice": "Serena"}
+    assert captured["payload"]["input"] == {
+        "text": "你好世界",
+        "voice": "Serena",
+    }
     assert result.audio_bytes == b"RIFFxxxx"
     assert result.characters == 4
 
@@ -74,7 +78,7 @@ def test_missing_key_gates_configuration_and_synthesis(monkeypatch) -> None:
 
 
 def test_synthesize_rejects_unknown_system_voice(monkeypatch) -> None:
-    """A made-up voice must fail before reaching the provider."""
+    """A voice named by the caller must fail before reaching the provider."""
 
     async def fail_post_json(url, *, api_key, payload, timeout_seconds):
         raise AssertionError("provider must not be called")
@@ -82,8 +86,56 @@ def test_synthesize_rejects_unknown_system_voice(monkeypatch) -> None:
     monkeypatch.setenv("TTS_API_KEY", "sk-test")
     monkeypatch.setattr(tts_model, "_post_json", fail_post_json)
 
-    with pytest.raises(ValueError, match="available system voices"):
+    with pytest.raises(ValueError, match="unknown voice"):
         asyncio.run(tts_model.synthesize("你好", voice="zh-CN-YunxiNeural"))
+
+
+def test_configured_default_voice_falls_back_to_one_the_model_offers(
+    monkeypatch,
+) -> None:
+    """One default voice is configured across every model while each model
+    publishes its own list, so switching the model outside the dialog must
+    narrate with the model's first system voice, not go silent."""
+
+    captured: dict = {}
+
+    def fake_ws(*, model, voice, text, api_key, speech_rate=1.0):
+        captured.update(model=model, voice=voice)
+        return b"MP3xxxx", "audio/mpeg"
+
+    async def fail_post_json(url, **kwargs):
+        raise AssertionError("HTTP path must not be used for a ws model")
+
+    monkeypatch.setenv("TTS_API_KEY", "sk-test")
+    monkeypatch.setenv("TTS_MODEL_NAME", "qwen-audio-3.1-tts-flash")
+    monkeypatch.setenv("TTS_VOICE", "Cherry")
+    monkeypatch.setattr(tts_model, "_synthesize_over_websocket", fake_ws)
+    monkeypatch.setattr(tts_model, "_post_json", fail_post_json)
+
+    result = asyncio.run(tts_model.synthesize("你好世界"))
+    assert captured["model"] == "qwen-audio-3.1-tts-flash"
+    assert (
+        captured["voice"]
+        == capability_for(
+            "qwen-audio-3.1-tts-flash",
+        ).system_voices[0]
+    )
+    assert result.media_type == "audio/mpeg"
+
+
+def test_unknown_voice_error_previews_instead_of_dumping_the_list(
+    monkeypatch,
+) -> None:
+    """One model publishes 88 system voices and this message lands in the
+    agent transcript, so it names a few and states the total."""
+
+    monkeypatch.setenv("TTS_API_KEY", "sk-test")
+    monkeypatch.setenv("TTS_MODEL_NAME", "qwen-audio-3.1-tts-flash")
+    with pytest.raises(ValueError, match=r"\(88 in total\)") as raised:
+        asyncio.run(tts_model.synthesize("你好世界", voice="Cherry"))
+    # The ninth name is the first one the preview drops; naming a voice that
+    # no model publishes at all would pass the same assertion vacuously.
+    assert "wenhuaiqing_v3.1" not in str(raised.value)
 
 
 def test_enroll_voice_builds_enrollment_payload(monkeypatch) -> None:
@@ -359,6 +411,24 @@ def test_every_supported_model_declares_a_usable_voice_source() -> None:
         assert capability.transport in {"http", "websocket"}
 
 
+def test_labels_do_not_quote_a_stale_voice_count() -> None:
+    """The configuration page takes each label verbatim, and a published voice
+    list changes without telling the copy that counts it."""
+
+    for capability in supported_models():
+        stated = re.findall(r"(\d+)\s*个系统音色", capability.label)
+        for count in stated:
+            assert int(count) == len(capability.system_voices), (
+                f"{capability.model} label says {count} voices, "
+                f"the table registers {len(capability.system_voices)}"
+            )
+        if capability.model.startswith("qwen-audio"):
+            # Pin the convention instead of only checking it when it is
+            # honoured: a Qwen-Audio label that dropped its count would pass
+            # the loop above, silently and green.
+            assert len(stated) == 1, f"{capability.model} states no count"
+
+
 def test_unknown_model_falls_back_to_the_default() -> None:
     assert capability_for("no-such-tts-model") is None
     assert require_capability("no-such-tts-model").model == DEFAULT_TTS_MODEL
@@ -452,3 +522,159 @@ def test_deletion_is_routed_by_the_bound_model(
         assert payload["input"]["action"] == "delete_voice"
     else:
         assert payload["input"]["action"] == "delete"
+
+
+def _endpoint_recorder(recorded: list):
+    """A fake SDK synthesizer that records the endpoint bound to each call.
+
+    The real ``SpeechSynthesizer`` falls back to the process-global
+    ``dashscope.base_websocket_api_url`` when no ``url`` is passed, so the
+    recorded value is exactly the endpoint this call would connect to.
+    """
+
+    class _Recorder(_FakeSynthesizerBase):
+        def __init__(self, *, callback, url=None, **kwargs) -> None:
+            super().__init__(callback=callback, **kwargs)
+            recorded.append(url)
+
+    return _Recorder
+
+
+_PLAN_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+_PLAN_WS = "wss://token-plan.cn-beijing.maas.aliyuncs.com/api-ws/v1/inference"
+_DEFAULT_WS = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+
+
+def test_websocket_synthesis_binds_the_token_plan_endpoint_per_call(
+    monkeypatch,
+) -> None:
+    """Token Plan keys are rejected by the public dashscope websocket host
+    (measured 401), so the plan's own endpoint has to reach this call - bound
+    to the instance, not written into the SDK global that every other section
+    reads at construction time."""
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(
+        tts_model.config,
+        "get_tts_base_url",
+        lambda: _PLAN_BASE,
+    )
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="qwen-audio-3.0-tts-plus",
+            voice="longanhuan_v3.6",
+            text="\u4f60\u597d",
+            api_key="sk-sp-test",
+        )
+
+    assert recorded == [_PLAN_WS]
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS
+
+
+def test_a_failed_plan_probe_leaves_the_saved_bailian_endpoint_alone(
+    monkeypatch,
+) -> None:
+    """Regression: the endpoint used to be written into the SDK global, so a
+    failed ``/models/test`` probe against a Token Plan address - never saved -
+    left every later synthesis pointed at that host. The next Bailian call then
+    carried its saved key and script to the probe endpoint. Plain serial calls
+    reproduce it; no concurrency needed."""
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+
+    # 1. an unsaved probe against the plan, which fails
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="qwen-audio-3.0-tts-plus",
+            voice="longanhuan_v3.6",
+            text="\u55e8",
+            api_key="sk-sp-probe",
+            base_url=_PLAN_BASE,
+        )
+
+    # 2. the saved Bailian configuration synthesizes exactly as before
+    monkeypatch.setattr(
+        tts_model.config,
+        "get_tts_base_url",
+        lambda: "https://dashscope.aliyuncs.com/api/v1",
+    )
+    with pytest.raises(ModelError):
+        tts_model._synthesize_over_websocket(
+            model="cosyvoice-v3.5-plus",
+            voice="longxiaochun",
+            text="\u4f60\u597d",
+            api_key="sk-saved-bailian",
+        )
+
+    assert recorded == [_PLAN_WS, _DEFAULT_WS]
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS
+
+
+def test_concurrent_synthesis_keeps_its_endpoints_isolated(
+    monkeypatch,
+) -> None:
+    """Two calls in flight against different bases must not see each other's
+    endpoint. Nothing mutable is shared now, and this pins that: a global
+    write would let one call's host answer the other's key."""
+    import threading
+
+    import dashscope
+    from dashscope.audio import tts_v2
+    from utils.exceptions import ModelError
+
+    recorded: list = []
+    monkeypatch.setattr(
+        tts_v2,
+        "SpeechSynthesizer",
+        _endpoint_recorder(recorded),
+    )
+    monkeypatch.setattr(tts_model.config, "get_tts_timeout_seconds", lambda: 0)
+    monkeypatch.setattr(dashscope, "base_websocket_api_url", _DEFAULT_WS)
+    barrier = threading.Barrier(2, timeout=5)
+
+    def synthesize(base_url: str, key: str) -> None:
+        barrier.wait()
+        with pytest.raises(ModelError):
+            tts_model._synthesize_over_websocket(
+                model="cosyvoice-v3.5-plus",
+                voice="longxiaochun",
+                text="\u4f60\u597d",
+                api_key=key,
+                base_url=base_url,
+            )
+
+    threads = [
+        threading.Thread(target=synthesize, args=(_PLAN_BASE, "sk-sp-a")),
+        threading.Thread(
+            target=synthesize,
+            args=("https://dashscope.aliyuncs.com/api/v1", "sk-bailian-b"),
+        ),
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert sorted(recorded) == sorted([_PLAN_WS, _DEFAULT_WS])
+    assert dashscope.base_websocket_api_url == _DEFAULT_WS
