@@ -25,6 +25,8 @@ The mobile entry is [platform.agentscope.io/m](https://platform.agentscope.io/m)
 
 Click the phone icon at the top right of your local Console. If needed, sign in to your cloud account from that dialog; the QR code appears there once the connection completes. Scan it, compare the digits on both devices, and confirm the phone on your computer. Follow the phone's instructions to add the app to your home screen.
 
+Use any QR scanner. Recognized in-app browsers, including WeChat and DingTalk, first guide you to Safari or your system browser and let you copy the complete link. Switch browsers before continuing authorization. The phone page and home-screen icon use the QwenPaw logo. On iOS, adding the app still uses Safari's Share menu.
+
 The phone signs in to your full Platform account, including all its cloud and connected targets. The QR code contains only a short-lived, single-use authorization. Long-lived credentials never appear in the QR code or URL.
 
 Hub users see both their local and cloud identities. Each remote binding points to that user's personal Runtime. Standalone users sign in to Platform directly, without creating a new local account. One cloud account can connect multiple local accounts or devices within its node quota.

@@ -21,7 +21,7 @@ One cloud account can connect multiple local accounts or devices, with separate 
 ![Platform account panel in Console](/images/mobile/console-account.jpg)
 
 1. Click the phone icon, **Add to phone (Beta)**, at the top right of Console.
-2. Scan the QR code and open it in your system browser.
+2. Scan with any phone scanner. If prompted, open the page in Safari (iOS) or your system browser, or copy the complete link there. Switch browsers before continuing sign-in.
 3. Tap **Continue sign-in** and compare the digits on both devices.
 4. On your computer, choose **Confirm this phone**.
 5. Once your workspace opens on the phone, follow the home-screen instructions.
@@ -38,7 +38,7 @@ A phone already signed in to an account that owns the scanned target opens that 
 | Android      | Tap **Install** when supported, or find **Install app / Add to Home Screen** in the browser menu.                                     |
 | HarmonyOS    | Look for **Add to desktop** in the system browser. Availability depends on the OS and browser version; use a bookmark if unavailable. |
 
-No Android Quick App or HarmonyOS native package is required. Use trusted HTTPS. If an in-app browser lacks installation controls, open the page in your system browser. Systems that transfer cookies during installation can restore your session; otherwise scan again from Console after launching the installed app.
+No Android Quick App or HarmonyOS native package is required. Use trusted HTTPS. Recognized in-app browsers such as WeChat and DingTalk show external-browser instructions first. The scan page also provides browser help and a complete link to copy. Switching browsers does not consume the scan authorization. Refresh the QR code on your computer if it expires or authorization has already started. The installed icon uses the QwenPaw logo. Systems that transfer cookies during installation can restore your session; otherwise scan again from Console after launching the installed app.
 
 ## Use and recovery
 
