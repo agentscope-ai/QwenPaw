@@ -11,7 +11,24 @@ from __future__ import annotations
 
 # pylint: disable=protected-access
 
-from qwenpaw.governance.policy import ToolCallSpec
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import FunctionTool, ToolChunk
+
+from qwenpaw.app import approvals as approvals_mod
+from qwenpaw.config import context as config_context
+from qwenpaw.governance import generalize as generalize_mod, tool_adapter
+from qwenpaw.governance.detectors import GuardFinding
+from qwenpaw.governance.policy import (
+    GovernanceAction,
+    GovernancePolicy,
+    GovernanceRule,
+    ToolCallSpec,
+)
+from qwenpaw.governance.resource_governor import ResourceGovernor
 from qwenpaw.security.tool_guard.approval import (
     ApprovalDecision,
     ApprovalScope,
@@ -210,22 +227,142 @@ class TestApprovalScopeConsumer:
         """Decision-model approvals must not advertise saved rules."""
         for source in (f"jev", f"decision_model"):
             _, pending = await _run_approval(
-                ApprovalScope.EXACT, monkeypatch, source=source,
+                ApprovalScope.EXACT,
+                monkeypatch,
+                source=source,
             )
             assert pending.extra[f"display"][f"approval_behavior"] == f"once"
 
     async def test_once_metadata_for_builtin_ask(self, monkeypatch):
         """Builtin ASK approvals must not advertise session grants."""
         _, pending = await _run_approval(
-            ApprovalScope.EXACT, monkeypatch, builtin=True,
+            ApprovalScope.EXACT,
+            monkeypatch,
+            builtin=True,
         )
         assert pending.extra[f"display"][f"approval_behavior"] == f"once"
 
     async def test_strict_metadata_preserves_repeated_confirmation(
-        self, monkeypatch,
+        self,
+        monkeypatch,
     ):
         """Strict mode must not promise that later calls skip approval."""
         _, pending = await _run_approval(
-            ApprovalScope.EXACT, monkeypatch, source=f"STRICT mode",
+            ApprovalScope.EXACT,
+            monkeypatch,
+            source=f"STRICT mode",
         )
         assert pending.extra[f"display"][f"approval_behavior"] == f"strict"
+
+
+@pytest.mark.parametrize(
+    (f"policy_level", f"session_level", f"f1_active"),
+    [
+        (f"strict", None, False),
+        (f"smart", f"strict", False),
+        (f"off", f"off", True),
+    ],
+)
+@pytest.mark.parametrize(
+    f"source",
+    [f"fallback", f"detection_rules", f"user_rules"],
+)
+@pytest.mark.parametrize(f"sandbox_retry", [False, True])
+async def test_strict_metadata_uses_evaluated_level(
+    monkeypatch,
+    tmp_path,
+    policy_level,
+    session_level,
+    f1_active,
+    source,
+    sandbox_retry,
+):
+    """Real policy sources must preserve strict and temporary F1 levels."""
+    policy = GovernancePolicy(execution_level=policy_level)
+    spec = ToolCallSpec(
+        f"Read",
+        f"report.txt",
+        f"agent-1",
+        f"session-1",
+    )
+    findings = []
+    if source == f"detection_rules":
+        findings.append(
+            GuardFinding(
+                id=f"strict-finding",
+                rule_id=f"STRICT_TEST",
+                category=f"resource_abuse",
+                severity=f"INFO",
+                title=f"Review file access",
+                description=f"File access requires confirmation",
+                tool_name=spec.tool_name,
+                detector=f"pattern_detector",
+            ),
+        )
+    elif source == f"user_rules":
+        policy.add_rule(
+            GovernanceRule(
+                match=f"Read(*)",
+                action=GovernanceAction.ASK,
+            ),
+        )
+    monkeypatch.setattr(policy, f"_deep_security_scan", lambda *_: findings)
+    governor = ResourceGovernor(
+        str(tmp_path),
+        governance_dir=str(tmp_path / f"governance"),
+    )
+    governor._policy = policy
+    monkeypatch.setattr(governor, f"audit", lambda *_: None)
+    monkeypatch.setattr(governor, f"add_rule", policy.add_rule)
+    service = _FakeApprovalService(ApprovalScope.EXACT)
+    monkeypatch.setattr(
+        approvals_mod,
+        f"get_approval_service",
+        lambda: service,
+    )
+    monkeypatch.setattr(
+        generalize_mod,
+        f"generalize_target_for_approval",
+        AsyncMock(return_value=f"*.txt"),
+    )
+    monkeypatch.setattr(
+        config_context,
+        f"is_f1_active_for_session",
+        lambda session_id: f1_active and session_id == spec.session_id,
+    )
+    request_context = {f"session_id": spec.session_id}
+    if session_level is not None:
+        request_context[f"approval_level"] = session_level
+    tool = SimpleNamespace(
+        _qp_governor=governor,
+        _qp_request_context=request_context,
+        _build_tc_spec=lambda: spec,
+    )
+
+    decision = await tool_adapter._policy_tool_check_permissions(tool, {})
+
+    assert decision.behavior.value == f"allow"
+    if sandbox_retry:
+        denied = ToolChunk(
+            is_last=True,
+            state=ToolResultState.DENIED,
+            content=[
+                TextBlock(
+                    type=f"text",
+                    text=f"Sandbox violation: file access",
+                ),
+            ],
+        )
+        monkeypatch.setattr(
+            FunctionTool,
+            f"__call__",
+            AsyncMock(side_effect=[denied, f"retried"]),
+        )
+        assert await tool_adapter._policy_tool_call(tool) == f"retried"
+
+    display = service._pending.extra[f"display"]
+    assert display[f"tool_source"] == source
+    assert display[f"approval_behavior"] == f"strict"
+    assert display[f"is_generalized"] is True
+    expected_level = policy_level if f1_active else f"strict"
+    assert governor.policy.execution_level == expected_level
