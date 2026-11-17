@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, App, Avatar, Button, Empty, Image, Input, Spin } from "antd";
-import type { TextAreaRef } from "antd/es/input/TextArea";
+import { Alert, App, Avatar, Button, Empty, Image, Spin } from "antd";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -12,6 +11,9 @@ import { communityErrorKey } from "@/utils/communityError";
 import { communityPostsApi, type Comment } from "./api";
 import AuthorBadges from "./AuthorBadges";
 import CommentEmojiPicker from "./CommentEmojiPicker";
+import CommentRichInput, {
+  type CommentRichInputHandle,
+} from "./CommentRichInput";
 import CommentImageAttachments, {
   commentMediaIds,
   type CommentImageAttachment,
@@ -21,8 +23,22 @@ import MarkdownComposer, {
 } from "./MarkdownComposer";
 import { CommunityAnchor } from "./PostBody";
 import { mediaUrl } from "./media";
-import { isCustomEmoji, markdownWithCustomEmoji } from "./customEmoji";
+import {
+  customEmojiSrc,
+  isAnimatedEmoji,
+  isCustomEmoji,
+  markdownWithCustomEmoji,
+} from "./customEmoji";
 import styles from "./index.module.less";
+
+/**
+ * Size class for a custom emoji image: animated GIFs render larger (150px),
+ * static stickers stay 66px. Returns undefined for non-emoji images.
+ */
+const customEmojiClass = (src: string | undefined): string | undefined => {
+  if (!src || !isCustomEmoji(src)) return undefined;
+  return isAnimatedEmoji(src) ? styles.customAnimatedEmoji : styles.customEmoji;
+};
 
 /** Mirrors agentscope-platform-front: descendants collapse into one level. */
 function flattenDescendants(nodes: Comment[] | undefined): Comment[] {
@@ -102,13 +118,14 @@ function CommentBody({
       return;
     }
     const emoji = /^\[emoji:([^\]\n]+)\]$/.exec(part);
-    if (emoji && isCustomEmoji(emoji[1])) {
+    const emojiSrc = emoji ? customEmojiSrc(emoji[1]) : null;
+    if (emojiSrc) {
       emojiRow.push(
         <img
           key={index}
-          src={emoji[1]}
+          src={emojiSrc}
           alt="emoji"
-          className={styles.customEmoji}
+          className={customEmojiClass(emojiSrc)}
           loading="lazy"
           referrerPolicy="no-referrer"
         />,
@@ -279,6 +296,9 @@ function CommentRow({
   postId,
   accountId,
   isReply = false,
+  replyOpenId,
+  onToggleReply,
+  onCloseReply,
   onReplied,
   onRequireLogin,
 }: {
@@ -286,6 +306,9 @@ function CommentRow({
   postId: string;
   accountId?: string;
   isReply?: boolean;
+  replyOpenId: string | null;
+  onToggleReply: (id: string) => void;
+  onCloseReply: (id: string) => void;
   onReplied: (parentId: string, reply: Comment) => void;
   onRequireLogin: () => void;
 }) {
@@ -293,13 +316,13 @@ function CommentRow({
   const [liked, setLiked] = useState(Boolean(comment.liked));
   const [count, setCount] = useState(comment.like_count || 0);
   const [busy, setBusy] = useState(false);
-  const [replyOpen, setReplyOpen] = useState(false);
+  const replyOpen = replyOpenId === comment.id;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const [images, setImages] = useState<CommentImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const replyEditor = useRef<TextAreaRef>(null);
+  const replyEditor = useRef<CommentRichInputHandle | null>(null);
   useEffect(() => {
     setLiked(Boolean(comment.liked));
     setCount(comment.like_count || 0);
@@ -346,7 +369,9 @@ function CommentRow({
       onReplied(comment.id, created);
       setDraft("");
       setImages([]);
-      setReplyOpen(false);
+      // Close only if this reply box is still the active composer; the user
+      // may have switched to another input while the request was in flight.
+      onCloseReply(comment.id);
     } catch (err) {
       setError(communityErrorKey(err));
     } finally {
@@ -398,7 +423,7 @@ function CommentRow({
               type="button"
               className={styles.likeBtn}
               onClick={() => {
-                setReplyOpen((value) => !value);
+                onToggleReply(comment.id);
                 setError(undefined);
               }}
             >
@@ -408,30 +433,27 @@ function CommentRow({
           {error && <Alert type="error" message={t(error)} />}
           {replyOpen && (
             <div className={styles.inlineComposer}>
-              <Input.TextArea
+              <CommentRichInput
                 ref={replyEditor}
-                aria-label={t("communityPage.replyTo", {
+                ariaLabel={t("communityPage.replyTo", {
                   name: comment.author_name,
                 })}
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                autoSize={{ minRows: 2, maxRows: 8 }}
+                onChange={setDraft}
+                rows={2}
+                maxRows={8}
                 maxLength={65536}
                 placeholder={t("communityPage.commentPlaceholder")}
                 disabled={sending}
-                variant="borderless"
               />
               <div className={styles.composerFooter}>
                 <div className={styles.composerTools}>
                   {accountId ? (
                     <>
                       <CommentEmojiPicker
-                        getEditor={() =>
-                          replyEditor.current?.resizableTextArea?.textArea ??
-                          null
-                        }
-                        onChange={setDraft}
+                        getEditor={() => replyEditor.current}
                         disabled={sending || uploading}
+                        showQuick
                       />
                       <CommentImageAttachments
                         accountId={accountId}
@@ -447,7 +469,7 @@ function CommentRow({
                   <Button
                     size="small"
                     onClick={() => {
-                      setReplyOpen(false);
+                      onToggleReply(comment.id);
                       setDraft("");
                       setImages([]);
                       setError(undefined);
@@ -479,6 +501,9 @@ function CommentRow({
               postId={postId}
               accountId={accountId}
               isReply
+              replyOpenId={replyOpenId}
+              onToggleReply={onToggleReply}
+              onCloseReply={onCloseReply}
               onReplied={onReplied}
               onRequireLogin={onRequireLogin}
             />
@@ -493,12 +518,18 @@ function ThreadList({
   items,
   postId,
   accountId,
+  replyOpenId,
+  onToggleReply,
+  onCloseReply,
   onReplied,
   onRequireLogin,
 }: {
   items: Comment[];
   postId: string;
   accountId?: string;
+  replyOpenId: string | null;
+  onToggleReply: (id: string) => void;
+  onCloseReply: (id: string) => void;
   onReplied: (parentId: string, reply: Comment) => void;
   onRequireLogin: () => void;
 }) {
@@ -510,6 +541,9 @@ function ThreadList({
           comment={comment}
           postId={postId}
           accountId={accountId}
+          replyOpenId={replyOpenId}
+          onToggleReply={onToggleReply}
+          onCloseReply={onCloseReply}
           onReplied={onReplied}
           onRequireLogin={onRequireLogin}
         />
@@ -533,30 +567,67 @@ function accountOf(connection?: CommunityConnectionStatus) {
     : undefined;
 }
 
+/** Sentinel ids in the page-level single-open composer state (PostDetail). */
+export const QUESTION_COMPOSE_ID = "__question_compose__";
+export const ANSWER_COMPOSE_ID = "__answer_compose__";
+
 /** Article detail: title + always-on composer + flat comment list. */
 export function ArticleComments({
   id,
   connection,
   focusRequest = 0,
+  openComposerId,
+  onOpenComposer,
 }: {
   id: string;
   connection?: CommunityConnectionStatus;
   focusRequest?: number;
+  openComposerId: string | null;
+  onOpenComposer: (
+    value: string | null | ((prev: string | null) => string | null),
+  ) => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const list = useCommentList(id);
   const accountId = accountOf(connection);
+  // One composer per page: any open reply hides the always-on main box.
+  const replyOpenId = openComposerId;
+  const toggleReply = (id: string) =>
+    onOpenComposer(openComposerId === id ? null : id);
+  // Functional update: after an awaited submit, only close if this reply is
+  // still the active composer (the user may have opened another one since).
+  const closeReply = (id: string) =>
+    onOpenComposer((prev) => (prev === id ? null : prev));
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const [images, setImages] = useState<CommentImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const editor = useRef<TextAreaRef>(null);
+  const editor = useRef<CommentRichInputHandle | null>(null);
+  // Anchor for the logged-out fallback scroll: the small composer/hint area,
+  // not the whole (often viewport-tall) section.
+  const composerAnchor = useRef<HTMLDivElement | null>(null);
+  // focusRequest never resets, so consume each request exactly once; otherwise
+  // every later composer close (openComposerId -> null) would re-steal focus.
+  const pendingFocus = useRef(false);
   useEffect(() => {
     if (!focusRequest) return;
-    editor.current?.focus();
-  }, [focusRequest]);
+    pendingFocus.current = true;
+    onOpenComposer(null);
+  }, [focusRequest, onOpenComposer]);
+  useEffect(() => {
+    if (!pendingFocus.current || openComposerId !== null) return;
+    pendingFocus.current = false;
+    // The main box may have just remounted; focus after the next paint.
+    // Logged-out visitors get no editor: center the connect-account hint in
+    // the viewport instead of swallowing the click or jumping to the top.
+    const raf = window.requestAnimationFrame(() => {
+      if (editor.current) editor.current.focus();
+      else composerAnchor.current?.scrollIntoView?.({ block: "center" });
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [focusRequest, openComposerId]);
   const submit = async () => {
     if (!accountId || !draft.trim() || sending || uploading) return;
     setSending(true);
@@ -593,57 +664,58 @@ export function ArticleComments({
         {t("communityPage.comments")}
         <span className={styles.sectionCount}>{list.total}</span>
       </h2>
-      {accountId ? (
-        <div className={styles.composerBox}>
-          <Input.TextArea
-            ref={editor}
-            aria-label={t("communityPage.writeComment")}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            autoSize={{ minRows: 3, maxRows: 12 }}
-            maxLength={65536}
-            placeholder={t("communityPage.commentPlaceholder")}
-            disabled={sending}
-            variant="borderless"
-          />
-          {error && (
-            <Alert
-              type="error"
-              message={t("communityPage.sendError")}
-              description={t(error)}
-            />
-          )}
-          <div className={styles.composerFooter}>
-            <div className={styles.composerTools}>
-              <CommentEmojiPicker
-                getEditor={() =>
-                  editor.current?.resizableTextArea?.textArea ?? null
-                }
+      {openComposerId === null && (
+        <div ref={composerAnchor}>
+          {accountId ? (
+            <div className={styles.composerBox}>
+              <CommentRichInput
+                ref={editor}
+                ariaLabel={t("communityPage.writeComment")}
+                value={draft}
                 onChange={setDraft}
-                disabled={sending || uploading}
-              />
-              <CommentImageAttachments
-                accountId={accountId}
-                value={images}
-                onChange={setImages}
-                onUploadingChange={setUploading}
+                rows={3}
+                maxLength={65536}
+                placeholder={t("communityPage.commentPlaceholder")}
                 disabled={sending}
               />
+              {error && (
+                <Alert
+                  type="error"
+                  message={t("communityPage.sendError")}
+                  description={t(error)}
+                />
+              )}
+              <div className={styles.composerFooter}>
+                <div className={styles.composerTools}>
+                  <CommentEmojiPicker
+                    getEditor={() => editor.current}
+                    disabled={sending || uploading}
+                    showQuick
+                  />
+                  <CommentImageAttachments
+                    accountId={accountId}
+                    value={images}
+                    onChange={setImages}
+                    onUploadingChange={setUploading}
+                    disabled={sending}
+                  />
+                </div>
+                <div className={styles.composerActions}>
+                  <Button
+                    type="primary"
+                    loading={sending}
+                    disabled={!draft.trim() || uploading}
+                    onClick={() => void submit()}
+                  >
+                    {t("communityPage.send")}
+                  </Button>
+                </div>
+              </div>
             </div>
-            <div className={styles.composerActions}>
-              <Button
-                type="primary"
-                loading={sending}
-                disabled={!draft.trim() || uploading}
-                onClick={() => void submit()}
-              >
-                {t("communityPage.send")}
-              </Button>
-            </div>
-          </div>
+          ) : (
+            <LoginHint />
+          )}
         </div>
-      ) : (
-        <LoginHint />
       )}
       {list.loading ? (
         <div className={styles.threadSpin}>
@@ -667,6 +739,9 @@ export function ArticleComments({
           items={list.items}
           postId={id}
           accountId={accountId}
+          replyOpenId={replyOpenId}
+          onToggleReply={toggleReply}
+          onCloseReply={closeReply}
           onReplied={onReplied}
           onRequireLogin={() => navigate("/settings/community")}
         />
@@ -686,29 +761,46 @@ export function QuestionComments({
   id,
   connection,
   composeRequest = 0,
+  openComposerId,
+  onOpenComposer,
 }: {
   id: string;
   connection?: CommunityConnectionStatus;
   composeRequest?: number;
+  openComposerId: string | null;
+  onOpenComposer: (
+    value: string | null | ((prev: string | null) => string | null),
+  ) => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const list = useCommentList(id, "comment");
   const accountId = accountOf(connection);
-  const [composeOpen, setComposeOpen] = useState(false);
+  // One composer per page: the compose box yields to any open reply.
+  const replyOpenId = openComposerId;
+  const toggleReply = (id: string) =>
+    onOpenComposer(openComposerId === id ? null : id);
+  const closeReply = (id: string) =>
+    onOpenComposer((prev) => (prev === id ? null : prev));
+  const composeOpen = openComposerId === QUESTION_COMPOSE_ID;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const [images, setImages] = useState<CommentImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const section = useRef<HTMLDivElement>(null);
-  const editor = useRef<TextAreaRef>(null);
+  const editor = useRef<CommentRichInputHandle | null>(null);
   useEffect(() => {
     if (!composeRequest) return;
-    setComposeOpen(true);
+    onOpenComposer(QUESTION_COMPOSE_ID);
     section.current?.scrollIntoView?.({ block: "nearest" });
-    editor.current?.focus();
-  }, [composeRequest]);
+  }, [composeRequest, onOpenComposer]);
+  useEffect(() => {
+    if (!composeRequest || !composeOpen) return;
+    // The composer may have just mounted; focus after the next paint.
+    const raf = window.requestAnimationFrame(() => editor.current?.focus());
+    return () => window.cancelAnimationFrame(raf);
+  }, [composeRequest, composeOpen]);
   const submit = async () => {
     if (!accountId || !draft.trim() || sending || uploading) return;
     setSending(true);
@@ -741,16 +833,15 @@ export function QuestionComments({
       {composeOpen &&
         (accountId ? (
           <div className={styles.inlineComposer}>
-            <Input.TextArea
+            <CommentRichInput
               ref={editor}
-              aria-label={t("communityPage.writeComment")}
+              ariaLabel={t("communityPage.writeComment")}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              autoSize={{ minRows: 3, maxRows: 12 }}
+              onChange={setDraft}
+              rows={3}
               maxLength={65536}
               placeholder={t("communityPage.commentPlaceholder")}
               disabled={sending}
-              variant="borderless"
             />
             {error && (
               <Alert
@@ -762,11 +853,9 @@ export function QuestionComments({
             <div className={styles.composerFooter}>
               <div className={styles.composerTools}>
                 <CommentEmojiPicker
-                  getEditor={() =>
-                    editor.current?.resizableTextArea?.textArea ?? null
-                  }
-                  onChange={setDraft}
+                  getEditor={() => editor.current}
                   disabled={sending || uploading}
+                  showQuick
                 />
                 <CommentImageAttachments
                   accountId={accountId}
@@ -780,7 +869,7 @@ export function QuestionComments({
                 <Button
                   size="small"
                   onClick={() => {
-                    setComposeOpen(false);
+                    onOpenComposer(null);
                     setDraft("");
                     setImages([]);
                     setError(undefined);
@@ -820,6 +909,9 @@ export function QuestionComments({
           items={list.items}
           postId={id}
           accountId={accountId}
+          replyOpenId={replyOpenId}
+          onToggleReply={toggleReply}
+          onCloseReply={closeReply}
           onReplied={onReplied}
           onRequireLogin={() => navigate("/settings/community")}
         />
@@ -840,6 +932,9 @@ function AnswerCard({
   accountId,
   isAuthor,
   acceptedIds,
+  openId,
+  onToggleOpen,
+  onCloseOpen,
   onAccepted,
   onReplied,
   onRequireLogin,
@@ -849,6 +944,9 @@ function AnswerCard({
   accountId?: string;
   isAuthor: boolean;
   acceptedIds: string[];
+  openId: string | null;
+  onToggleOpen: (id: string) => void;
+  onCloseOpen: (id: string) => void;
   onAccepted: (detail: Partial<import("./api").Post>) => void;
   onReplied: (parentId: string, reply: Comment) => void;
   onRequireLogin: () => void;
@@ -860,13 +958,13 @@ function AnswerCard({
   const [busy, setBusy] = useState(false);
   const [acceptBusy, setAcceptBusy] = useState(false);
   const [acceptError, setAcceptError] = useState<string>();
-  const [composeOpen, setComposeOpen] = useState(false);
+  const composeOpen = openId === answer.id;
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const [images, setImages] = useState<CommentImageAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
-  const answerEditor = useRef<TextAreaRef>(null);
+  const answerEditor = useRef<CommentRichInputHandle | null>(null);
   useEffect(() => {
     setLiked(Boolean(answer.liked));
     setCount(answer.like_count || 0);
@@ -934,7 +1032,9 @@ function AnswerCard({
       onReplied(answer.id, created);
       setDraft("");
       setImages([]);
-      setComposeOpen(false);
+      // Close only if this reply box is still the active composer (see
+      // onCloseReply in CommentRow).
+      onCloseOpen(answer.id);
     } catch (err) {
       setError(communityErrorKey(err));
     } finally {
@@ -967,7 +1067,7 @@ function AnswerCard({
               <img
                 src={mediaUrl(src)}
                 alt={alt || ""}
-                className={isCustomEmoji(src) ? styles.customEmoji : undefined}
+                className={customEmojiClass(src)}
                 loading="lazy"
                 referrerPolicy="no-referrer"
               />
@@ -1011,7 +1111,7 @@ function AnswerCard({
         <Button
           type="text"
           size="small"
-          onClick={() => setComposeOpen((v) => !v)}
+          onClick={() => onToggleOpen(answer.id)}
         >
           {t("communityPage.commentAction")}
         </Button>
@@ -1023,27 +1123,24 @@ function AnswerCard({
           {composeOpen &&
             (accountId ? (
               <div className={styles.inlineComposer}>
-                <Input.TextArea
+                <CommentRichInput
                   ref={answerEditor}
-                  aria-label={t("communityPage.writeComment")}
+                  ariaLabel={t("communityPage.writeComment")}
                   value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  autoSize={{ minRows: 2, maxRows: 8 }}
+                  onChange={setDraft}
+                  rows={2}
+                  maxRows={8}
                   maxLength={65536}
                   placeholder={t("communityPage.commentPlaceholder")}
                   disabled={sending}
-                  variant="borderless"
                 />
                 {error && <Alert type="error" message={t(error)} />}
                 <div className={styles.composerFooter}>
                   <div className={styles.composerTools}>
                     <CommentEmojiPicker
-                      getEditor={() =>
-                        answerEditor.current?.resizableTextArea?.textArea ??
-                        null
-                      }
-                      onChange={setDraft}
+                      getEditor={() => answerEditor.current}
                       disabled={sending || uploading}
+                      showQuick
                     />
                     <CommentImageAttachments
                       accountId={accountId}
@@ -1057,7 +1154,7 @@ function AnswerCard({
                     <Button
                       size="small"
                       onClick={() => {
-                        setComposeOpen(false);
+                        onToggleOpen(answer.id);
                         setDraft("");
                         setImages([]);
                         setError(undefined);
@@ -1089,6 +1186,9 @@ function AnswerCard({
                   postId={postId}
                   accountId={accountId}
                   isReply
+                  replyOpenId={openId}
+                  onToggleReply={onToggleOpen}
+                  onCloseReply={onCloseOpen}
                   onReplied={onReplied}
                   onRequireLogin={onRequireLogin}
                 />
@@ -1109,6 +1209,8 @@ export function AnswersSection({
   acceptedIds = [],
   onAccepted,
   focusRequest = 0,
+  openComposerId,
+  onOpenComposer,
 }: {
   id: string;
   connection?: CommunityConnectionStatus;
@@ -1116,21 +1218,32 @@ export function AnswersSection({
   acceptedIds?: string[];
   onAccepted: (detail: Partial<import("./api").Post>) => void;
   focusRequest?: number;
+  openComposerId: string | null;
+  onOpenComposer: (
+    value: string | null | ((prev: string | null) => string | null),
+  ) => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const list = useCommentList(id, "answer");
   const accountId = accountOf(connection);
+  // One open composer across the whole page, shared with PostDetail.
+  const openId = openComposerId;
+  const toggleOpen = (id: string) =>
+    onOpenComposer(openComposerId === id ? null : id);
+  // Functional close-if-match for the awaited submit path (see closeReply).
+  const closeOpen = (id: string) =>
+    onOpenComposer((prev) => (prev === id ? null : prev));
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
-  const [composeOpen, setComposeOpen] = useState(false);
+  const composeOpen = openComposerId === ANSWER_COMPOSE_ID;
   const card = useRef<HTMLDivElement>(null);
   const editor = useRef<MarkdownComposerHandle>(null);
   useEffect(() => {
     if (!focusRequest) return;
-    setComposeOpen(true);
-  }, [focusRequest]);
+    onOpenComposer(ANSWER_COMPOSE_ID);
+  }, [focusRequest, onOpenComposer]);
   useEffect(() => {
     if (!focusRequest || !composeOpen) return;
     card.current?.scrollIntoView?.({ block: "start" });
@@ -1192,7 +1305,7 @@ export function AnswersSection({
               <div className={styles.composerActions}>
                 <Button
                   onClick={() => {
-                    setComposeOpen(false);
+                    onOpenComposer(null);
                     setDraft("");
                     setError(undefined);
                   }}
@@ -1237,6 +1350,9 @@ export function AnswersSection({
             accountId={accountId}
             isAuthor={isAuthor}
             acceptedIds={acceptedIds}
+            openId={openId}
+            onToggleOpen={toggleOpen}
+            onCloseOpen={closeOpen}
             onAccepted={onAccepted}
             onReplied={onReplied}
             onRequireLogin={onRequireLogin}
