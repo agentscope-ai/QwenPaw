@@ -13,6 +13,8 @@ import logging
 from pathlib import Path
 import time
 
+import httpx
+
 from qwenpaw.app.channels.utils import (
     file_url_to_local_path,
     materialize_data_url,
@@ -339,12 +341,28 @@ class WeChatPlatform:
                 kind = part.get("type")
                 if kind in ("text", "refusal"):
                     text = part.get("text") or part.get("refusal") or ""
-                    for chunk in split_text(text):
-                        response = await self._client.send_text(
-                            user,
-                            chunk,
-                            context,
-                        )
+                    for index, chunk in enumerate(split_text(text)):
+                        try:
+                            response = await self._client.send_text(
+                                user,
+                                chunk,
+                                context,
+                            )
+                        except (
+                            httpx.ConnectError,
+                            httpx.ConnectTimeout,
+                        ) as exc:
+                            logger.warning(
+                                "iLink text connection failed: chunk=%s "
+                                "prior_effect=%s error_type=%s",
+                                index + 1,
+                                sent,
+                                type(exc).__name__,
+                            )
+                            raise WeChatDeliveryError(
+                                "PLATFORM_CONNECT_FAILED",
+                                side_effect_possible=sent,
+                            ) from exc
                         self._check_result(response, sent)
                         sent = True
                 elif kind in ("image", "file", "video", "audio"):

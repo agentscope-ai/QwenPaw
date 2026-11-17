@@ -424,6 +424,11 @@ class UnifiedQueueManager:
                 await asyncio.gather(*(queue.join() for queue in queues))
             return True
         except TimeoutError:
+            logger.warning(
+                "Channel queue drain timeout: channel=%s stage=queue pending=%s",
+                channel_id,
+                sum(queue.unfinished for queue in queues),
+            )
             return False
 
     async def stop_all(self) -> None:
