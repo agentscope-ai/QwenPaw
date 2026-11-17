@@ -1365,7 +1365,9 @@ class DependencyUpgradeManager:
 
         requirements = [*requirements, CERTIFI_REQUIREMENT]
         immutable = (
-            context.immutable_providers() if context is not None else {}
+            context.immutable_providers(requirements, snapshot)
+            if context is not None
+            else {}
         )
         protected = _protected_providers(
             snapshot,
@@ -1467,7 +1469,16 @@ class DependencyUpgradeManager:
 
         requirements = [*requirements, CERTIFI_REQUIREMENT]
         immutable = (
-            context.immutable_providers() if context is not None else {}
+            context.immutable_providers(
+                requirements,
+                snapshot,
+                resolved=(
+                    str(parse_wheel_filename(path.name)[0])
+                    for path in (directory / "wheels").glob("*.whl")
+                ),
+            )
+            if context is not None
+            else {}
         )
         from .execution.dependencies import _installed_metadata
 

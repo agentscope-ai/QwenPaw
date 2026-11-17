@@ -702,7 +702,7 @@ async def test_certifi_floor_refuses_old_immutable_provider_before_download(
         side_effect=RuntimeError("protected certifi needs desktop update"),
     )
     context = SimpleNamespace(
-        immutable_providers=lambda: {"certifi": certifi},
+        immutable_providers=lambda *_args, **_kwargs: {"certifi": certifi},
         refuse_immutable_provider=refuse,
     )
     resolver, guard = Mock(), Mock()
@@ -739,7 +739,7 @@ async def test_immutable_installer_without_pip_never_runs_ensurepip(
     resolver = Mock()
     guard = Mock(return_value=False)
     context = SimpleNamespace(
-        immutable_providers=lambda: {},
+        immutable_providers=lambda *_args, **_kwargs: {},
         runtime_identity={"protocol": 1},
     )
     monkeypatch.setattr(loader, "_run_subprocess_with_streaming_log", resolver)
@@ -1541,6 +1541,80 @@ async def test_host_dependency_observation_recovers_concurrent_imports(
         for name in names:
             sys.modules.pop(name, None)
         importlib.invalidate_caches()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unrelated",
+        "required",
+        "transitive",
+        "also_installed",
+        "versionless_egg",
+        "ambiguous_name",
+    ],
+)
+@pytest.mark.parametrize("parser", ["stdlib", "backport"])
+def test_missing_metadata_preserves_audit_boundaries(
+    tmp_path,
+    monkeypatch,
+    case,
+    parser,
+):
+    from importlib import metadata
+    from qwenpaw.plugins.execution import dependencies as deps
+
+    site, source = tmp_path / "site", tmp_path / "plugin"
+    source.mkdir()
+    broken = site / {
+        "versionless_egg": "qoder_agent_sdk.egg-info",
+        "ambiguous_name": "qoder-agent-sdk-1.0.9.dist-info",
+    }.get(case, "qoder_agent_sdk-1.0.9.dist-info")
+    (broken / "licenses").mkdir(parents=True)
+    healthy = site / "torch-2.0.dist-info"
+    healthy.mkdir()
+    (healthy / "METADATA").write_text(
+        "Name: torch\nVersion: 2.0\n"
+        + ("Requires-Dist: qoder-agent-sdk\n" if case == "transitive" else ""),
+    )
+    distributions = [
+        metadata.PathDistribution(healthy),
+        metadata.PathDistribution(broken)
+        if parser == "stdlib"
+        else SimpleNamespace(_path=broken, metadata=None),
+    ]
+    if case == "also_installed":
+        installed = site / "qoder_agent_sdk-2.0.dist-info"
+        installed.mkdir()
+        (installed / "METADATA").write_text(
+            "Name: qoder-agent-sdk\nVersion: 2.0\n",
+        )
+        distributions.append(metadata.PathDistribution(installed))
+    monkeypatch.setattr(
+        deps.metadata,
+        "distributions",
+        lambda **kwargs: iter(distributions),
+    )
+    packet = {
+        "code_root": source,
+        "_audit_sites": (site,),
+        "_requirements": [
+            "torch"
+            if case in {"unrelated", "transitive", "ambiguous_name"}
+            else "qoder-agent-sdk",
+        ],
+    }
+    if case != "unrelated":
+        with pytest.raises(
+            deps.ProtocolValidationError,
+            match="DEPENDENCY_METADATA_INVALID",
+        ):
+            deps.observe_dependencies(packet)
+    else:
+        snapshot = deps.observe_dependencies(packet)
+        assert snapshot.distributions["torch"]["version"] == "2.0"
+        assert "qoder-agent-sdk" not in snapshot.distributions
+    assert (broken / "licenses").is_dir()
 
 
 @pytest.mark.asyncio

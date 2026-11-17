@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import logging
 from dataclasses import dataclass, replace
+from email.message import Message
 from importlib import metadata
 from importlib.machinery import EXTENSION_SUFFIXES
 from importlib.util import source_from_cache
@@ -665,9 +666,20 @@ def _read_installed_metadata(
             if type(distribution) is metadata.PathDistribution
             else distribution
         ).metadata
+        inferred_name, separator, inferred_version = origin.stem.partition("-")
+        if installed_metadata is None or not installed_metadata.get("Name"):
+            # Missing headers can be attributed only to an identifiable package.
+            try:
+                canonicalize_name(inferred_name, validate=True)
+                if separator:
+                    Version(inferred_version)
+            except ValueError:
+                raise dependency_error() from None
+            if installed_metadata is None:
+                installed_metadata = Message()
         name = installed_metadata.get("Name")
         version = installed_metadata.get("Version")
-        key = str(canonicalize_name(name or origin.name.split("-", 1)[0]))
+        key = str(canonicalize_name(name or inferred_name))
         if not valid_metadata_headers(
             installed_metadata,
             ("Name", "Version"),

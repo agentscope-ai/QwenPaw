@@ -1467,25 +1467,31 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     DependencyEnvironmentContext.from_runtime,
                     runtime,
                 )
+            from .dependency_gate import parse_requirements_file
+
+            parsed = await run_sync_io(
+                parse_requirements_file,
+                requirements_file,
+            )
+            requirements = [
+                *(str(item) for item in parsed.requirements),
+                CERTIFI_REQUIREMENT,
+            ]
             usage = self.registry.dependency_usage
             immutable = (
-                await run_sync_io(dependency_context.immutable_providers)
+                await run_sync_io(
+                    dependency_context.immutable_providers,
+                    requirements,
+                    snapshot,
+                )
                 if dependency_context is not None
                 else {}
             )
             if immutable:
-                from .dependency_gate import parse_requirements_file
                 from .execution.dependencies import _dependency_closure
 
-                parsed = await run_sync_io(
-                    parse_requirements_file,
-                    requirements_file,
-                )
                 for name, requirement in _dependency_closure(
-                    [
-                        *(str(item) for item in parsed.requirements),
-                        CERTIFI_REQUIREMENT,
-                    ],
+                    requirements,
                     {**immutable, **snapshot.distributions},
                     snapshot.marker_environment,
                 ):
@@ -1577,14 +1583,9 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                     dependency_upgrades,
                     resolution_constraints,
                 )
-                from .dependency_gate import parse_requirements_file
                 from .execution.dependencies import DependencySnapshot
                 from .dependency_context import DependencyEnvironmentContext
 
-                parsed = await run_sync_io(
-                    parse_requirements_file,
-                    requirements_file,
-                )
                 requirements = _resolution_requirements(
                     snapshot,
                     tuple(map(str, parsed.requirements)),
@@ -1688,6 +1689,17 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                             False,
                             reason="Plugin requirements cannot be resolved for the selected Python environment.",
                             reason_code="DEPENDENCY_CONFLICT",
+                        ),
+                    )
+                if dependency_context is not None:
+                    immutable = await run_sync_io(
+                        lambda: dependency_context.immutable_providers(
+                            requirements,
+                            snapshot,
+                            resolved=(
+                                str(parse_wheel_filename(path.name)[0])
+                                for path in staging.glob("*.whl")
+                            ),
                         ),
                     )
                 replacements = await run_sync_io(
