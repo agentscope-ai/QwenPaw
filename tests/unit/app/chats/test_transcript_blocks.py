@@ -38,7 +38,7 @@ def _blocks(store):
         ).fetchall()
 
 
-def test_blocks_reader_closes_connection(store, monkeypatch):
+def test_bodies_have_one_source_and_stable_versions(store, monkeypatch):
     connect = sqlite3.connect
     connections = []
 
@@ -48,17 +48,6 @@ def test_blocks_reader_closes_connection(store, monkeypatch):
         return connection
 
     monkeypatch.setattr(sqlite3, "connect", track_connect)
-    try:
-        assert _blocks(store) == []
-        assert len(connections) == 1
-        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
-            connections[0].execute("SELECT 1")
-    finally:
-        for connection in connections:
-            connection.close()
-
-
-def test_bodies_have_one_source_and_stable_versions(store):
     message = Message(
         id="message",
         role="user",
@@ -95,6 +84,10 @@ def test_bodies_have_one_source_and_stable_versions(store):
     _save(store, message.model_copy(update={"content": []}))
     assert _blocks(store) == []
     assert store.get_page(**IDENTITY).messages[0].content == []
+    assert connections
+    for connection in connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")
 
 
 def test_block_failure_rolls_back_message_envelope(store):

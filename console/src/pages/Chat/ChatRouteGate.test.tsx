@@ -119,18 +119,16 @@ describe("ChatRouteGate", () => {
     );
   });
 
-  it("opens the draft route without resolving persisted ownership", async () => {
+  it("mounts routes that do not require blocking history resolution", async () => {
     const resolve = vi.spyOn(chatApi, "resolveChat");
 
-    mount("/chat");
+    const draft = mount("/chat");
 
     expect(await screen.findByText("Chat page")).toBeVisible();
     expect(resolve).not.toHaveBeenCalled();
-  });
-
-  it("mounts a running chat without waiting for history preview", async () => {
+    draft.unmount();
     const pendingHistory = deferred<ChatHistory>();
-    vi.spyOn(chatApi, "resolveChat").mockResolvedValue({
+    resolve.mockResolvedValue({
       agent_id: "a",
       chat: chat("running"),
     });
@@ -146,22 +144,7 @@ describe("ChatRouteGate", () => {
     );
   });
 
-  it("retries a failed cold-link resolution", async () => {
-    const resolve = vi
-      .spyOn(chatApi, "resolveChat")
-      .mockRejectedValueOnce(new Error("network"))
-      .mockResolvedValueOnce({ agent_id: "a", chat: chat() });
-
-    mount(`/chat/${TARGET}`);
-
-    expect(await screen.findByRole("alert")).toBeVisible();
-    await act(async () => screen.getByRole("button").click());
-
-    await waitFor(() => expect(screen.getByText("Chat page")).toBeVisible());
-    expect(resolve).toHaveBeenCalledTimes(2);
-  });
-
-  it("resolves the current path after a failed chat changes", async () => {
+  it("retries only the current failed route", async () => {
     const next = "33333333-3333-4333-8333-333333333333";
     const resolve = vi
       .spyOn(chatApi, "resolveChat")

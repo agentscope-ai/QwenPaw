@@ -192,10 +192,13 @@ class TranscriptCatalog:
                 create=False,
             )
             try:
-                if not store.has_session(
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel=channel,
+                if not (
+                    store.has_session(
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel=channel,
+                    )
+                    or store.is_pristine()
                 ):
                     raise ValueError("chat database identity mismatch")
             finally:
@@ -289,10 +292,13 @@ class TranscriptCatalog:
             if target.exists():
                 store = TranscriptStore(target, storage_id=storage_id)
                 try:
-                    if not store.has_session(
-                        session_id=session_id,
-                        user_id=user_id,
-                        channel=channel,
+                    if not (
+                        store.has_session(
+                            session_id=session_id,
+                            user_id=user_id,
+                            channel=channel,
+                        )
+                        or store.is_pristine()
                     ):
                         raise ValueError("orphan transcript identity mismatch")
                 finally:

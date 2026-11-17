@@ -164,7 +164,7 @@ async def test_json_migration_imports_recall_once(
 
 
 @pytest.mark.asyncio
-async def test_database_session_imports_json_once_and_resets_context(
+async def test_database_session_imports_legacy_state_once_and_preserves_updates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -240,6 +240,26 @@ async def test_database_session_imports_json_once_and_resets_context(
     assert legacy_state == {"agent": state["agent"]}
     await session.get_session_state_dict("session-1", "u", "console")
     assert import_count == 1
+    await session.update_session_state(
+        session_id="session-1",
+        user_id="u",
+        channel="console",
+        key="new_setting",
+        value="new",
+    )
+    updated = await session.get_session_state_dict(
+        "session-1",
+        "u",
+        "console",
+    )
+    assert updated["new_setting"] == "new"
+    assert import_count == 1
+    assert (
+        await SafeJSONSession(
+            save_dir=str(legacy_dir),
+        ).get_session_state_dict("session-1", "u")
+        == legacy_state
+    )
     _, migrated_usage = await session.get_current_usage(
         session_id="session-1",
         user_id="u",
@@ -410,38 +430,6 @@ async def test_load_missing_session_allow_not_exist(session):
         allow_not_exist=True,
     )
     assert state.state_dict() == {"untouched": True}
-
-
-@pytest.mark.asyncio
-async def test_database_session_imports_legacy_before_partial_update(
-    tmp_path: Path,
-) -> None:
-    legacy_dir = tmp_path / "sessions"
-    legacy_dir.mkdir()
-    legacy_path = legacy_dir / session_filename("pawapp--example", "")
-    legacy_path.write_text(
-        json.dumps({"existing_setting": "must survive"}),
-        encoding="utf-8",
-    )
-    catalog = TranscriptCatalog(tmp_path)
-    session = DatabaseSession(
-        catalog=catalog,
-        legacy_save_dir=str(legacy_dir),
-    )
-
-    await session.update_session_state(
-        session_id="pawapp--example",
-        key="new_setting",
-        value="new",
-    )
-
-    state = await session.get_session_state_dict("pawapp--example")
-    assert state["existing_setting"] == "must survive"
-    assert state["new_setting"] == "new"
-    assert json.loads(legacy_path.read_text(encoding="utf-8")) == {
-        "existing_setting": "must survive",
-    }
-    catalog.close()
 
 
 @pytest.mark.asyncio

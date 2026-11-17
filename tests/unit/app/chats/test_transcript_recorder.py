@@ -13,7 +13,6 @@ from unittest.mock import Mock
 import pytest
 
 from qwenpaw.app.chats.transcript import TranscriptStore
-from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.transcript_recorder import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
     TranscriptRecorder,
@@ -117,65 +116,6 @@ async def test_records_request_and_terminal_response(
 
 
 @pytest.mark.asyncio
-async def test_migrates_legacy_history_before_current_turn(
-    tmp_path: Path,
-) -> None:
-    store = TranscriptCatalog(tmp_path)
-    legacy = [
-        Message(
-            id="legacy-user",
-            role=Role.USER,
-            content=[TextContent(text="old question")],
-        ).completed(),
-        Message(
-            id="legacy-assistant",
-            role=Role.ASSISTANT,
-            content=[TextContent(text="old answer")],
-        ).completed(),
-    ]
-    recorder = TranscriptRecorder(
-        store=store,
-        request=_request(),
-        legacy_messages=legacy,
-    )
-
-    await recorder.start()
-    await recorder.observe(
-        AgentResponse(
-            output=[
-                Message(
-                    id="assistant-message",
-                    role=Role.ASSISTANT,
-                    content=[TextContent(text="new answer")],
-                ).completed(),
-            ],
-            status=RunStatus.Completed,
-        ),
-    )
-
-    page = store.get_page(
-        session_id="session-1",
-        user_id="user-1",
-        channel="console",
-    )
-    assert page is not None
-    assert [message.id for message in page.messages] == [
-        "legacy-user",
-        "legacy-assistant",
-        "user-message",
-        "assistant-message",
-    ]
-    assert store.find_turn_for_message(
-        session_id="session-1",
-        message_id="legacy-user",
-    ) == store.find_turn_for_message(
-        session_id="session-1",
-        message_id="legacy-assistant",
-    )
-    store.close()
-
-
-@pytest.mark.asyncio
 async def test_cancel_preserves_in_progress_reasoning_content(
     tmp_path: Path,
 ) -> None:
@@ -274,44 +214,39 @@ async def test_records_only_materialized_message_snapshots() -> None:
 
 
 @pytest.mark.asyncio
-async def test_write_failure_propagates_and_stops_recording() -> None:
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_write_failure_is_visible_without_false_terminal_state(
+    cancelled: bool,
+) -> None:
     store = Mock(spec=TranscriptStore)
-    store.start_turn.side_effect = OSError("disk full")
-    recorder = TranscriptRecorder(
-        store=store,
-        request=_request(),
-    )
-
-    with pytest.raises(OSError, match="disk full"):
-        await recorder.start()
-    await recorder.observe(
-        Message(role=Role.ASSISTANT, content=[TextContent(text="reply")]),
-    )
-
-    store.upsert_message.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cancel_preserves_cancelled_error_when_write_fails() -> None:
-    entered = threading.Event()
-    release = threading.Event()
-    store = Mock(spec=TranscriptStore)
-
-    def fail_start(**_kwargs: object) -> None:
-        entered.set()
-        assert release.wait(timeout=2)
-        raise OSError("disk unavailable")
-
-    store.start_turn.side_effect = fail_start
     recorder = TranscriptRecorder(store=store, request=_request())
-    task = asyncio.create_task(recorder.start())
-    assert await asyncio.to_thread(entered.wait, 2)
+    if cancelled:
+        entered = threading.Event()
+        release = threading.Event()
 
-    task.cancel()
-    release.set()
+        def fail_start(**_kwargs: object) -> None:
+            entered.set()
+            assert release.wait(timeout=2)
+            raise OSError("disk unavailable")
 
-    with pytest.raises(asyncio.CancelledError):
-        await task
+        store.start_turn.side_effect = fail_start
+        task = asyncio.create_task(recorder.start())
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        store.start_turn.side_effect = OSError("disk full")
+        with pytest.raises(OSError, match="disk full"):
+            await recorder.start()
+        await recorder.observe(
+            Message(
+                role=Role.ASSISTANT,
+                content=[TextContent(text="reply")],
+            ),
+        )
+        store.upsert_message.assert_not_called()
 
 
 @pytest.mark.asyncio

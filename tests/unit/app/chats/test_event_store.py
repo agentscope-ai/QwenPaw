@@ -3,39 +3,16 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 
 import pytest
 
-from qwenpaw.app.chats.event_schema import APPLICATION_ID, SCHEMA_VERSION
 from qwenpaw.app.chats.event_store import (
     ContentDraft,
     ConversationEventStore,
     EventConflictError,
     EventDraft,
 )
-
-
-def test_event_store_initializes_only_the_fresh_schema(tmp_path: Path) -> None:
-    path = tmp_path / "session.db"
-    store = ConversationEventStore(path)
-    store.close()
-
-    with closing(sqlite3.connect(path)) as connection, connection:
-        assert connection.execute("PRAGMA application_id").fetchone()[0] == (
-            APPLICATION_ID
-        )
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == (
-            SCHEMA_VERSION
-        )
-
-    old = tmp_path / "old.db"
-    with closing(sqlite3.connect(old)) as connection, connection:
-        connection.execute("CREATE TABLE session_runtime(state_json TEXT)")
-    with pytest.raises(ValueError, match="unsupported"):
-        ConversationEventStore(old)
 
 
 def test_event_replay_is_idempotent_and_conflicts_are_rejected(

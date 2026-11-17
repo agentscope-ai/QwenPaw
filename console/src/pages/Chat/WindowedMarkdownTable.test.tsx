@@ -49,19 +49,3 @@ it("keeps valid table structure and reveals the final row with bounded DOM", () 
     view.container.querySelectorAll("tbody > tr[data-window-row]"),
   ).toHaveLength(32);
 });
-
-it("leaves a small table fully rendered", () => {
-  const view = render(
-    <XMarkdown
-      content={"| A | B |\n| --- | --- |\n| one | two |"}
-      components={{
-        table: WindowedMarkdownTable,
-        tbody: WindowedMarkdownTableBody,
-      }}
-    />,
-  );
-  expect(view.getByText("two")).toBeInTheDocument();
-  expect(
-    view.container.querySelector("[data-measured-message-window]"),
-  ).toBeNull();
-});

@@ -77,95 +77,74 @@ def _fold(*events: str) -> list[str]:
     return list(store.replay())
 
 
-def test_real_schema_field_order_keeps_content_foldable() -> None:
-    """Schema fields needed for folding precede the unbounded text."""
-    first = TextContent(
-        type=ContentType.TEXT,
-        text="a" * 300,
-        delta=True,
-        index=0,
-        msg_id="message-a",
-    )
-    second = TextContent(
-        type=ContentType.TEXT,
-        text="b",
-        delta=True,
-        index=0,
-        msg_id="message-a",
-    )
-
-    folded = _fold(
-        f"data: {first.model_dump_json()}\n\n",
-        f"data: {second.model_dump_json()}\n\n",
-    )
-
-    assert len(folded) == 1
-    assert _decode(folded[0])["text"] == f"{'a' * 300}b"
-
-
-@pytest.mark.parametrize("spaced", [False, True])
-def test_text_deltas_merge_by_key(spaced: bool) -> None:
-    """Text fragments merge without crossing message boundaries."""
-    folded = _fold(
-        _content("message-a", "hello ", spaced=spaced),
-        _content("message-b", "other", spaced=spaced),
-        _content(
-            "message-a",
-            "world",
-            sequence_number=7,
-            spaced=spaced,
-        ),
-    )
-
-    decoded = [_decode(event) for event in folded]
-    assert [(item["msg_id"], item["text"]) for item in decoded] == [
-        ("message-b", "other"),
-        ("message-a", "hello world"),
-    ]
-    assert decoded[-1]["sequence_number"] == 7
-
-
-def test_data_arguments_keep_fields_from_the_first_fragment() -> None:
-    """Merged tool arguments retain call identity from the first delta."""
-    first = _sse(
-        {
+@pytest.mark.parametrize("case", ["schema", "text", "data"])
+def test_supported_deltas_fold_without_losing_canonical_fields(case) -> None:
+    """Supported fragments fold while retaining identity fields."""
+    if case == "schema":
+        contents = [
+            TextContent(
+                type=ContentType.TEXT,
+                text=text,
+                delta=True,
+                index=0,
+                msg_id="message-a",
+            )
+            for text in ("a" * 300, "b")
+        ]
+        events = [
+            f"data: {content.model_dump_json()}\n\n" for content in contents
+        ]
+        expected = f"{'a' * 300}b"
+    elif case == "text":
+        events = [
+            _content("message-a", "hello ", spaced=True),
+            _content("message-b", "other", spaced=True),
+            _content("message-a", "world", sequence_number=7, spaced=True),
+        ]
+        expected = "hello world"
+    else:
+        common = {
             "type": "data",
             "delta": True,
             "index": 0,
             "status": "in_progress",
             "object": "content",
             "msg_id": "message-a",
-            "data": {
-                "call_id": "call-a",
-                "name": "shell",
-                "arguments": '{"command":',
-            },
-        },
-    )
-    second = _sse(
-        {
-            "type": "data",
-            "delta": True,
-            "index": 0,
-            "status": "in_progress",
-            "object": "content",
-            "msg_id": "message-a",
-            "data": {"arguments": '"pwd"}'},
-        },
-    )
+        }
+        events = [
+            _sse(
+                {
+                    **common,
+                    "data": {
+                        "call_id": "call-a",
+                        "name": "shell",
+                        "arguments": '{"command":',
+                    },
+                },
+            ),
+            _sse({**common, "data": {"arguments": '"pwd"}'}}),
+        ]
+        expected = '{"command":"pwd"}'
 
-    folded = _fold(first, second)
+    decoded = [_decode(event) for event in _fold(*events)]
+    if case == "text":
+        assert [(item["msg_id"], item.get("text")) for item in decoded] == [
+            ("message-b", "other"),
+            ("message-a", expected),
+        ]
+        assert decoded[-1]["sequence_number"] == 7
+    elif case == "data":
+        assert decoded[0]["data"] == {
+            "call_id": "call-a",
+            "name": "shell",
+            "arguments": expected,
+        }
+    else:
+        assert decoded[0]["text"] == expected
 
-    assert len(folded) == 1
-    assert _decode(folded[0])["data"] == {
-        "call_id": "call-a",
-        "name": "shell",
-        "arguments": '{"command":"pwd"}',
-    }
 
-
-def test_latest_snapshot_replaces_and_reorders_its_slot() -> None:
-    """A replacement keeps the latest value at its latest position."""
+def test_snapshot_replaces_its_slot_and_later_delta_opens_a_new_slot() -> None:
+    """Snapshots replace their slot while later deltas remain separate."""
     first_a = _message("message-a", [])
     message_b = _message("message-b", [])
     latest_a = _message(
@@ -181,10 +160,6 @@ def test_latest_snapshot_replaces_and_reorders_its_slot() -> None:
         "message-a",
     ]
     assert folded[-1] == latest_a
-
-
-def test_delta_after_snapshot_opens_a_new_slot() -> None:
-    """A delta after a snapshot remains a separate content item."""
     snapshot = _content("message-a", "snapshot", delta=False)
 
     folded = _fold(
@@ -197,61 +172,53 @@ def test_delta_after_snapshot_opens_a_new_slot() -> None:
     assert _decode(folded[1])["text"] == "ab"
 
 
-def test_control_and_invalid_events_pass_through_verbatim() -> None:
-    """Events outside the fold contract retain their bytes and order."""
-    control = 'data: {"type": "turn_usage", "tokens": 3}\n\n'
-    invalid = "data: not-json\n\n"
-
-    folded = _fold(
-        _content("message-a", "a"),
-        control,
-        invalid,
-        _content("message-a", "b"),
-    )
-
-    assert folded[:2] == [control, invalid]
-    assert _decode(folded[-1])["text"] == "ab"
-
-
-def test_null_message_id_is_dropped_without_affecting_real_key() -> None:
-    """An unowned terminal snapshot cannot evict real message content."""
-    unowned = _sse(
-        {
-            "type": "data",
-            "delta": False,
-            "index": 0,
-            "status": "completed",
-            "object": "content",
-            "msg_id": None,
-            "data": {"output": "ignored"},
-        },
-    )
-
-    folded = _fold(
-        _content("message-a", "hello "),
-        unowned,
-        _content("message-a", "world"),
-    )
-
-    assert len(folded) == 1
-    assert _decode(folded[0])["text"] == "hello world"
-
-
-def test_unsupported_delta_is_retained_instead_of_lost() -> None:
-    """A classified delta with no appendable field stays verbatim."""
-    unsupported = _sse(
-        {
-            "type": "data",
-            "delta": True,
-            "index": 0,
-            "status": "in_progress",
-            "object": "content",
-            "msg_id": "message-a",
-            "data": {"value": 1},
-        },
-    )
-
-    assert _fold(unsupported) == [unsupported]
+@pytest.mark.parametrize("case", ["control", "null-id", "unsupported"])
+def test_unfoldable_events_are_preserved_or_explicitly_dropped(case) -> None:
+    """Unfoldable inputs follow their documented preserve/drop behavior."""
+    if case == "control":
+        control = 'data: {"type": "turn_usage", "tokens": 3}\n\n'
+        invalid = "data: not-json\n\n"
+        folded = _fold(
+            _content("message-a", "a"),
+            control,
+            invalid,
+            _content("message-a", "b"),
+        )
+        assert folded[:2] == [control, invalid]
+        assert _decode(folded[-1])["text"] == "ab"
+    elif case == "null-id":
+        unowned = _sse(
+            {
+                "type": "data",
+                "delta": False,
+                "index": 0,
+                "status": "completed",
+                "object": "content",
+                "msg_id": None,
+                "data": {"output": "ignored"},
+            },
+        )
+        folded = _fold(
+            _content("message-a", "hello "),
+            unowned,
+            _content("message-a", "world"),
+        )
+        assert [_decode(event)["text"] for event in folded] == [
+            "hello world",
+        ]
+    else:
+        unsupported = _sse(
+            {
+                "type": "data",
+                "delta": True,
+                "index": 0,
+                "status": "in_progress",
+                "object": "content",
+                "msg_id": "message-a",
+                "data": {"value": 1},
+            },
+        )
+        assert _fold(unsupported) == [unsupported]
 
 
 def test_replay_is_repeatable() -> None:

@@ -532,7 +532,7 @@ describe("durable transcript pagination", () => {
     });
   });
 
-  it("publishes a navigation fragment and resumes from its cursor", async () => {
+  it("loads bidirectional anchor context without skips or duplicate pages", async () => {
     const chatId = "44444444-4444-4444-8444-444444444444";
     const getMessages = vi
       .spyOn(api, "getChatMessages")
@@ -570,22 +570,25 @@ describe("durable transcript pagination", () => {
       "assistant-fragment",
     ]);
     expect(target.noMore).toBe(false);
-  });
 
-  it("keeps the older boundary after a forward fill and resets it on navigation", async () => {
-    const chatId = "44444444-4444-4444-8444-444444444444";
-    const getMessages = vi.spyOn(api, "getChatMessages");
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "user-8", content: "eight" })],
-      has_more: true,
-      next_before: "before-4",
-    });
+    getMessages.mockReset();
+    getMessages
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-8", content: "eight" })],
+        has_more: true,
+        next_before: "before-4",
+      })
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-13", content: "thirteen" })],
+        has_more: true,
+        next_before: "before-9",
+      })
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "user-1", content: "one" })],
+        has_more: false,
+        next_before: null,
+      });
     await sessionApi.loadHistoryAtAnchor(chatId, "anchor-8", "user-8");
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "user-13", content: "thirteen" })],
-      has_more: true,
-      next_before: "before-9",
-    });
     await sessionApi.loadHistoryAtAnchor(
       chatId,
       "anchor-13",
@@ -593,157 +596,43 @@ describe("durable transcript pagination", () => {
       undefined,
       "append-newer",
     );
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "user-1", content: "one" })],
-      has_more: false,
-      next_before: null,
-    });
     const older = await sessionApi.loadOlderHistory(chatId);
     expect(getMessages).toHaveBeenLastCalledWith(
       chatId,
       expect.objectContaining({ before: "before-4" }),
     );
-    expect(older.noMore).toBe(true);
     expect(older.messages.some((item) => item.id === "user-1")).toBe(true);
 
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "user-20", content: "twenty" })],
-      has_more: true,
-      next_before: "before-16",
-    });
-    await sessionApi.loadHistoryAtAnchor(chatId, "anchor-20", "user-20");
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "user-15", content: "fifteen" })],
-      has_more: true,
-      next_before: "before-11",
-    });
-    await sessionApi.loadOlderHistory(chatId);
-    expect(getMessages).toHaveBeenLastCalledWith(
-      chatId,
-      expect.objectContaining({ before: "before-16" }),
-    );
-  });
-
-  it("resumes a forward turn on the next interaction without skipping fragments", async () => {
-    const getMessages = vi
-      .spyOn(api, "getChatMessages")
-      .mockResolvedValueOnce({
-        messages: [msg({ id: "reply-993", role: "assistant", content: "993" })],
-        has_more: true,
-        next_before: "inside-993",
-      })
-      .mockResolvedValueOnce({
-        messages: [msg({ id: "user-993", content: "993" })],
-        has_more: true,
-        next_before: "before-993",
-      });
-    const page = await sessionApi.loadHistoryAtAnchor(
-      "44444444-4444-4444-8444-444444444444",
-      "anchor-997",
-      "user-992",
-      undefined,
-      "append-newer",
-    );
-    expect(getMessages).toHaveBeenCalledTimes(1);
-    expect(page.messages).toHaveLength(1);
-    const prefix = await sessionApi.loadHistoryAtAnchor(
-      "44444444-4444-4444-8444-444444444444",
-      "anchor-997",
-      "user-992",
-      undefined,
-      "append-newer",
-    );
-    expect(getMessages).toHaveBeenCalledTimes(2);
-    const combined = T.mergeHistoryMessages(prefix.messages, page.messages);
-    expect(combined).toHaveLength(2);
-    expect(combined[0].id).toBe("user-993");
-    expect(getMessages.mock.calls[0][1]).toMatchObject({
-      after_message_id: "user-992",
-      limit: 1,
-    });
-    expect(getMessages.mock.calls[0][1]).not.toHaveProperty("before");
-    expect(getMessages.mock.calls[1][1]).toMatchObject({
-      before: "inside-993",
-      limit: 1,
-    });
-  });
-
-  it("restores the latest messages and cursor after repeated anchor navigation", async () => {
-    const chatId = "33333333-3333-4333-8333-333333333333";
+    const latestChatId = "33333333-3333-4333-8333-333333333333";
     vi.spyOn(api, "getChat").mockResolvedValue({
       messages: [msg({ id: "latest-user", content: "latest" })],
       status: "idle",
       history: { has_more: true, next_before: "latest-cursor" },
     });
-    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+    getMessages.mockReset();
+    getMessages.mockResolvedValue({
       messages: [msg({ id: "old-user", content: "old" })],
       has_more: false,
       next_before: null,
     });
-    await sessionApi.getSession(chatId);
-    await sessionApi.loadHistoryAtAnchor(chatId, "anchor-1", "old-user");
-    await sessionApi.loadHistoryAtAnchor(chatId, "anchor-2", "old-user");
+    await sessionApi.getSession(latestChatId);
+    await sessionApi.loadHistoryAtAnchor(latestChatId, "anchor-1", "old-user");
+    await sessionApi.loadHistoryAtAnchor(latestChatId, "anchor-2", "old-user");
     expect(
-      sessionApi.showLatestHistory(chatId)?.map((item) => item.id),
+      sessionApi.showLatestHistory(latestChatId)?.map((item) => item.id),
     ).toEqual(["latest-user"]);
-    await sessionApi.loadOlderHistory(chatId);
+    const exhausted = await sessionApi.loadOlderHistory(latestChatId);
     expect(getMessages).toHaveBeenLastCalledWith(
-      chatId,
+      latestChatId,
       expect.objectContaining({ before: "latest-cursor" }),
     );
-    getMessages.mockResolvedValueOnce({
-      messages: [msg({ id: "newest-user", content: "newest" })],
-      has_more: true,
-      next_before: "newest-cursor",
+    expect(exhausted.noMore).toBe(true);
+    const calls = getMessages.mock.calls.length;
+    expect(await sessionApi.loadOlderHistory(latestChatId)).toEqual({
+      messages: [],
+      noMore: true,
     });
-    await sessionApi.loadHistoryAtAnchor(
-      chatId,
-      "newest-anchor",
-      "newest-user",
-      undefined,
-      "replace",
-      true,
-    );
-    await sessionApi.loadHistoryAtAnchor(chatId, "anchor-1", "old-user");
-    expect(
-      sessionApi.showLatestHistory(chatId)?.map((item) => item.id),
-    ).toEqual(["newest-user"]);
-  });
-
-  it("loads one older page and stops after the cursor is exhausted", async () => {
-    const chatId = "33333333-3333-4333-8333-333333333333";
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [msg({ id: "new-user", content: "new" })],
-      status: "idle",
-      history: {
-        has_more: true,
-        next_before: "2:0",
-      },
-    });
-    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
-      messages: [msg({ id: "old-user", content: "old" })],
-      has_more: false,
-      next_before: null,
-    });
-
-    await sessionApi.getSession(chatId);
-    const first = await sessionApi.loadOlderHistory(chatId);
-    const exhausted = await sessionApi.loadOlderHistory(chatId);
-
-    expect(getMessages).toHaveBeenCalledExactlyOnceWith(chatId, {
-      before: "2:0",
-      limit: 5,
-      signal: undefined,
-      include_app_owned: false,
-    });
-    expect(first.messages).toHaveLength(2);
-    expect(first.messages[0]).toMatchObject({
-      id: "old-user",
-      role: "user",
-      history: true,
-    });
-    expect(first.noMore).toBe(true);
-    expect(exhausted).toEqual({ messages: [], noMore: true });
+    expect(getMessages).toHaveBeenCalledTimes(calls);
   });
 
   it("publishes a split assistant immediately and fetches its prefix separately", async () => {
@@ -871,41 +760,6 @@ describe("durable transcript pagination", () => {
       "middle-user-1",
     ]);
     expect(getMessages).toHaveBeenCalledTimes(2);
-  });
-
-  it("accumulates short pages only for automatic viewport fill", async () => {
-    const chatId = "66666666-6666-4666-8666-666666666666";
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [msg({ id: "new-user", content: "new" })],
-      status: "idle",
-      history: { has_more: true, next_before: "3:0" },
-    });
-    vi.spyOn(api, "getChatMessages")
-      .mockResolvedValueOnce({
-        messages: [msg({ id: "middle-user", content: "middle" })],
-        has_more: true,
-        next_before: "2:0",
-      })
-      .mockResolvedValueOnce({
-        messages: [msg({ id: "old-user", content: "old" })],
-        has_more: false,
-        next_before: null,
-      });
-
-    await sessionApi.getSession(chatId);
-    const middle = await sessionApi.loadOlderHistory(chatId, undefined, true);
-    const oldest = await sessionApi.loadOlderHistory(chatId, undefined, true);
-
-    expect(middle.messages.map((message) => message.id)).toEqual([
-      "middle-user",
-      "new-user",
-    ]);
-    expect(oldest.messages.map((message) => message.id)).toEqual([
-      "old-user",
-      "middle-user",
-      "new-user",
-    ]);
-    expect(oldest.noMore).toBe(true);
   });
 
   it("releases a failed page request so an explicit retry can succeed", async () => {

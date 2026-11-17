@@ -41,7 +41,7 @@ it("skips empty inputs and retries a failed full-text read", async () => {
   expect(await recall.move(true)).toBe("first");
 });
 
-it("always reads original text and reuses its cache", async () => {
+it("caches original text with a twenty-entry bound", async () => {
   const text = vi.fn(async (id: string) => `original ${id}\nwith spacing`);
   const recall = new InputMessageRecall(
     async () => ({ items: [item(1), item(2)] }),
@@ -51,17 +51,15 @@ it("always reads original text and reuses its cache", async () => {
   expect(await recall.move(true)).toBe("original 1\nwith spacing");
   expect(await recall.move(false)).toBe("original 2\nwith spacing");
   expect(text.mock.calls.map(([id]) => id)).toEqual(["2", "1"]);
-});
-
-it("evicts old full texts after twenty entries", async () => {
-  const text = vi.fn(async (id: string) => id);
-  const recall = new InputMessageRecall(
+  const boundedText = vi.fn(async (id: string) => id);
+  const boundedRecall = new InputMessageRecall(
     async () => ({ items: Array.from({ length: 21 }, (_, i) => item(i + 1)) }),
-    text,
+    boundedText,
   );
-  for (let i = 21; i >= 1; i--) expect(await recall.move(true)).toBe(String(i));
+  for (let i = 21; i >= 1; i--)
+    expect(await boundedRecall.move(true)).toBe(String(i));
   for (let i = 2; i <= 21; i++)
-    expect(await recall.move(false)).toBe(String(i));
-  expect(text).toHaveBeenCalledTimes(22);
-  expect(text.mock.calls.filter(([id]) => id === "21")).toHaveLength(2);
+    expect(await boundedRecall.move(false)).toBe(String(i));
+  expect(boundedText).toHaveBeenCalledTimes(22);
+  expect(boundedText.mock.calls.filter(([id]) => id === "21")).toHaveLength(2);
 });

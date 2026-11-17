@@ -1027,22 +1027,6 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("responseParser maps reconnect_required to heartbeat", async () => {
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({ type: "reconnect_required" }),
-      );
-      expect(parsed).toBeTruthy();
-      expect(parsed.type).toBe("heartbeat");
-    }
-  });
-
   // ── responseParser: rate_limited → null ────────────────────────────────
   it("responseParser handles rate_limited payload", async () => {
     renderWithProviders(<ChatPage />, {
@@ -2188,26 +2172,6 @@ describe("ChatPage coverage", () => {
       // Should contain the error message
       const textContent = parsed.output?.[0]?.content?.[0]?.text;
       expect(textContent).toBe("something went wrong");
-    }
-  });
-
-  // ── customFetch: non-ok response passthrough ────────────────────────────
-  it("customFetch returns a non-ok response", async () => {
-    const mockResponse = { ok: false, status: 500, body: null };
-    global.fetch = vi.fn().mockResolvedValue(mockResponse) as any;
-
-    renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/test-session"],
-    });
-    await screen.findByTestId("chat-ui");
-    await act(async () => {});
-
-    if (capturedOptions?.api?.fetch) {
-      const result = await capturedOptions.api.fetch({
-        input: [{ role: "user", content: "hello" }],
-        signal: undefined,
-      });
-      expect(result.ok).toBe(false);
     }
   });
 

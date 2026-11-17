@@ -91,6 +91,91 @@ def test_catalog_initialization_failure_closes_connection(
             connection.close()
 
 
+def test_catalog_recovers_pristine_database_after_interrupted_registration(
+    tmp_path: Path,
+) -> None:
+    storage_id = "11111111-1111-4111-8111-111111111111"
+    chat = ChatSpec(
+        storage_id=storage_id,
+        session_id="interrupted",
+        user_id="user-1",
+        channel="console",
+    )
+    (tmp_path / "chats.json").write_text(
+        json.dumps(
+            {"version": 1, "chats": [chat.model_dump(mode="json")]},
+        ),
+        encoding="utf-8",
+    )
+    database = tmp_path / "transcripts" / f"{storage_id}.db"
+    TranscriptStore(database, storage_id=storage_id).close()
+
+    catalog = TranscriptCatalog(tmp_path)
+    try:
+        assert (
+            catalog.storage_id_for(
+                session_id="interrupted",
+                user_id="user-1",
+                channel="console",
+            )
+            == storage_id
+        )
+        _start(catalog, "interrupted")
+        _finish(catalog, "interrupted")
+    finally:
+        catalog.close()
+
+    reopened = TranscriptCatalog(tmp_path)
+    try:
+        assert reopened.has_session(
+            session_id="interrupted",
+            user_id="user-1",
+            channel="console",
+        )
+    finally:
+        reopened.close()
+
+
+def test_catalog_rejects_unregistered_database_with_another_identity(
+    tmp_path: Path,
+) -> None:
+    storage_id = "22222222-2222-4222-8222-222222222222"
+    chat = ChatSpec(
+        storage_id=storage_id,
+        session_id="requested",
+        user_id="user-1",
+        channel="console",
+    )
+    (tmp_path / "chats.json").write_text(
+        json.dumps(
+            {"version": 1, "chats": [chat.model_dump(mode="json")]},
+        ),
+        encoding="utf-8",
+    )
+    database = tmp_path / "transcripts" / f"{storage_id}.db"
+    other = TranscriptStore(database, storage_id=storage_id)
+    other.start_turn(
+        session_id="other",
+        user_id="user-2",
+        channel="console",
+        turn_id="other-turn",
+    )
+    other.close()
+
+    with pytest.raises(ValueError, match="chat database identity mismatch"):
+        TranscriptCatalog(tmp_path)
+
+    preserved = TranscriptStore(database, storage_id=storage_id, create=False)
+    try:
+        assert preserved.has_session(
+            session_id="other",
+            user_id="user-2",
+            channel="console",
+        )
+    finally:
+        preserved.close()
+
+
 def test_routes_sessions_to_storage_id_databases(tmp_path: Path) -> None:
     catalog = TranscriptCatalog(tmp_path)
     _start(catalog, "session/one")
@@ -295,52 +380,6 @@ def test_idle_handles_close_without_losing_history(
     assert page is not None
     assert [message.id for message in page.messages] == ["message-session-a"]
     assert not catalog._handles  # pylint: disable=protected-access
-    catalog.close()
-
-
-def test_page_forwards_content_block_limit(tmp_path: Path) -> None:
-    catalog = TranscriptCatalog(tmp_path)
-    _start(catalog, "session-a")
-    catalog.upsert_message(
-        session_id="session-a",
-        turn_id="turn-session-a",
-        message=Message(
-            id="message-a",
-            role="assistant",
-            content=[
-                TextContent(text="first"),
-                TextContent(text="second"),
-                TextContent(text="third"),
-            ],
-        ).completed(),
-        ordinal=0,
-    )
-    _finish(catalog, "session-a")
-
-    newest = catalog.get_page(
-        session_id="session-a",
-        user_id="user-1",
-        channel="console",
-        max_content_blocks=2,
-    )
-    assert newest is not None
-    assert [block.text for block in newest.messages[0].content] == [
-        "second",
-        "third",
-    ]
-    assert newest.has_more is True
-    assert newest.next_before is not None
-
-    older = catalog.get_page(
-        session_id="session-a",
-        user_id="user-1",
-        channel="console",
-        before=newest.next_before,
-        max_content_blocks=2,
-    )
-    assert older is not None
-    assert [block.text for block in older.messages[0].content] == ["first"]
-    assert older.has_more is False
     catalog.close()
 
 

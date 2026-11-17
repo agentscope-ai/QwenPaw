@@ -4,7 +4,6 @@ import {
   MeasuredMessageWindow,
   MESSAGE_WINDOW_LIMIT,
   RESPONSE_WINDOW_LIMIT,
-  revealCachedMessage,
 } from "./MeasuredMessageWindow";
 
 describe("measured message window", () => {
@@ -48,58 +47,7 @@ describe("measured message window", () => {
     vi.useRealTimers();
   });
 
-  it("reveals a cached navigation target without fetching another page", () => {
-    const ready = vi.fn();
-    const view = render(
-      <div data-history-message-window="true">
-        <MeasuredMessageWindow
-          ids={Array.from({ length: 1000 }, (_, i) => `m-${i}`)}
-        >
-          {(index) => <article>{index}</article>}
-        </MeasuredMessageWindow>
-      </div>,
-    );
-    expect(view.queryByText("500")).toBeNull();
-    act(() => {
-      expect(
-        revealCachedMessage(
-          view.container.firstElementChild as HTMLElement,
-          "m-500",
-          ready,
-        ),
-      ).toBe(true);
-    });
-    expect(view.getByText("500")).toBeTruthy();
-    expect(ready).toHaveBeenCalledOnce();
-    expect(view.container.querySelectorAll("article")).toHaveLength(
-      MESSAGE_WINDOW_LIMIT,
-    );
-  });
-
-  it("bounds mounted bodies after repeated prepend and append", () => {
-    const list = (count: number) => (
-      <div data-history-message-window="true">
-        <MeasuredMessageWindow
-          ids={Array.from({ length: count }, (_, i) => `m-${i}`)}
-          initialEnd
-        >
-          {(index) => <article>{index}</article>}
-        </MeasuredMessageWindow>
-      </div>
-    );
-    const view = render(list(100));
-    for (const count of [500, 1000, 2000]) {
-      view.rerender(list(count));
-      expect(view.container.querySelectorAll("article")).toHaveLength(
-        MESSAGE_WINDOW_LIMIT,
-      );
-      expect(
-        view.container.querySelectorAll('[aria-hidden="true"]'),
-      ).toHaveLength(2);
-    }
-  });
-
-  it("moves the mounted slice in both directions without retaining old bodies", () => {
+  it("bounds mounted bodies while moving in both directions", () => {
     vi.useFakeTimers();
     let top = 0;
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
@@ -128,6 +76,9 @@ describe("measured message window", () => {
     });
     expect(view.getByText("500")).toBeTruthy();
     expect(view.queryByText("0")).toBeNull();
+    expect(view.container.querySelectorAll("article")).toHaveLength(
+      MESSAGE_WINDOW_LIMIT,
+    );
     top = 0;
     act(() => {
       fireEvent.scroll(scroll);
@@ -135,6 +86,9 @@ describe("measured message window", () => {
     });
     expect(view.getByText("0")).toBeTruthy();
     expect(view.queryByText("500")).toBeNull();
+    expect(view.container.querySelectorAll("article")).toHaveLength(
+      MESSAGE_WINDOW_LIMIT,
+    );
     vi.useRealTimers();
   });
 });

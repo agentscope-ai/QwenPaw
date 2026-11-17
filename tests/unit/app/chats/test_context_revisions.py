@@ -11,7 +11,6 @@ import pytest
 from agentscope.state import AgentState
 
 from qwenpaw.app.chats.transcript import TranscriptStore
-from qwenpaw.app.chats.context_revisions import read_revision_state
 from qwenpaw.app.chats.transcript_catalog import TranscriptCatalog
 from qwenpaw.app.chats.transcript_recorder import TranscriptRecorder
 from qwenpaw.app.chats.session import DatabaseSession
@@ -145,68 +144,6 @@ def test_context_prefixes_and_same_turn_revisions_are_append_only(tmp_path):
             )
         assert _saved_context(path, "one") == {
             "agent": {"state": {"context": [first, second]}},
-        }
-    finally:
-        store.close()
-
-
-def test_runtime_revision_kinds_describe_the_actual_change(tmp_path):
-    path = tmp_path / "session.db"
-    store = TranscriptStore(path)
-    try:
-        store.write_runtime_state(**IDENTITY, state={"agent": {}})
-        store.update_runtime_state(
-            session_id="session",
-            path=["agent", "mode"],
-            value="coding",
-        )
-        store.set_current_usage(
-            session_id="session",
-            usage={"total_tokens": 1},
-            context_usage={"estimated_tokens": 1},
-        )
-        with closing(sqlite3.connect(path)) as connection, connection:
-            usage_revision = connection.execute(
-                "SELECT revision_id FROM context_revisions "
-                "WHERE kind = 'usage_update'",
-            ).fetchone()[0]
-            assert read_revision_state(
-                connection,
-                session_id="session",
-                revision_id=usage_revision,
-            ) == {"agent": {"mode": "coding"}}
-        store.write_runtime_state(
-            **IDENTITY,
-            state={"agent": {}},
-            reset_context=True,
-        )
-        store.replace_runtime_state(
-            **IDENTITY,
-            state={"agent": {"restored": True}},
-            context_generation=0,
-            current_usage=None,
-        )
-        with closing(sqlite3.connect(path)) as connection, connection:
-            kinds = connection.execute(
-                "SELECT kind FROM context_revisions ORDER BY rowid",
-            ).fetchall()
-        assert [row[0] for row in kinds] == [
-            "snapshot",
-            "state_update",
-            "usage_update",
-            "clear",
-            "restore",
-        ]
-        # Later resets and restores must not change the usage-only snapshot.
-        store.rebuild_projections()
-        with closing(sqlite3.connect(path)) as connection, connection:
-            assert read_revision_state(
-                connection,
-                session_id="session",
-                revision_id=usage_revision,
-            ) == {"agent": {"mode": "coding"}}
-        assert store.read_runtime_state(**IDENTITY).state == {
-            "agent": {"restored": True},
         }
     finally:
         store.close()

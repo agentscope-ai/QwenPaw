@@ -15,7 +15,15 @@ const entry = (messageId: string, clientMessageId?: string) => ({
 });
 
 describe("Chat user directory", () => {
-  it("selects the final loaded user at the bottom of a long assistant reply", () => {
+  it("selects the containing turn in both directions and long tails", () => {
+    const users = [
+      { id: "second", top: 300 },
+      { id: "first", top: -100 },
+    ];
+    expect(activeUserAtScrollPosition(users, 70, false)).toBe("first");
+    expect(activeUserAtScrollPosition(users, 324, false)).toBe("second");
+    expect(activeUserAtScrollPosition(users, 70, false)).toBe("first");
+    expect(activeUserAtScrollPosition([], 70, true)).toBeUndefined();
     expect(
       activeUserAtScrollPosition(
         [
@@ -28,38 +36,20 @@ describe("Chat user directory", () => {
     ).toBe("last");
   });
 
-  it("tracks the containing turn in both directions, not the next input", () => {
-    const users = [
-      { id: "second", top: 300 },
-      { id: "first", top: -100 },
-    ];
-    expect(activeUserAtScrollPosition(users, 70, false)).toBe("first");
-    expect(activeUserAtScrollPosition(users, 324, false)).toBe("second");
-    expect(activeUserAtScrollPosition(users, 70, false)).toBe("first");
-    expect(activeUserAtScrollPosition([], 70, true)).toBeUndefined();
-  });
-
-  it("keeps all persisted users when only the latest page is visible", () => {
+  it("merges persisted and optimistic user identities exactly once", () => {
     const persisted = Array.from({ length: 49 }, (_, i) => entry(`user-${i}`));
     expect(mergeNavigationUsers(persisted, persisted.slice(-5))).toEqual(
       persisted,
     );
-  });
-
-  it("adds an optimistic input immediately and counts it once after persistence", () => {
     const live = entry("client-2");
     expect(mergeNavigationUsers([entry("user-1")], [live])).toHaveLength(2);
-    const persisted = [entry("user-1"), entry("server-2", "client-2")];
-    expect(mergeNavigationUsers(persisted, [live])).toEqual(persisted);
-  });
-
-  it("deduplicates client metadata aliases but not repeated text", () => {
-    const persisted = [entry("server-1", "client-1")];
+    const resolved = [entry("user-1"), entry("server-2", "client-2")];
+    expect(mergeNavigationUsers(resolved, [live])).toEqual(resolved);
     expect(
-      mergeNavigationUsers(persisted, [
-        entry("sdk-1", "client-1"),
-        entry("sdk-2"),
-      ]),
+      mergeNavigationUsers(
+        [entry("server-1", "client-1")],
+        [entry("sdk-1", "client-1"), entry("sdk-2")],
+      ),
     ).toHaveLength(2);
   });
 

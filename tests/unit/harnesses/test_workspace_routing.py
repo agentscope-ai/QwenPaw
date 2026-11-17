@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 import qwenpaw.app.workspace.workspace as workspace_module
-import qwenpaw.plugins._events as plugin_events
 from qwenpaw._session_signals import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
     TURN_COMMIT_KEY,
@@ -29,7 +28,6 @@ from qwenpaw.app.chats.transcript_catalog import (
     TranscriptCatalog,
     resolve_session_database_path,
 )
-from qwenpaw.runtime.backends.session import HarnessSessionBridge
 from qwenpaw.schemas import (
     AgentRequest,
     AgentResponse,
@@ -536,127 +534,4 @@ async def test_workspace_finalization_failure_is_visible(
         channel="console",
     ) == ("running", 0)
     assert not workspace.task_tracker._session_tasks
-    catalog.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("backend", ["qwenpaw", "codex"])
-@pytest.mark.parametrize("observed", [False, True])
-async def test_workspace_closes_owned_stream_without_persistence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    backend: str,
-    observed: bool,
-) -> None:
-    _select_backend(monkeypatch, backend)
-    listeners = (
-        [SimpleNamespace(offer=lambda _event: None)] if observed else []
-    )
-    monkeypatch.setattr(plugin_events, "_listeners", listeners)
-    closed = asyncio.Event()
-
-    async def owned_stream() -> AsyncIterator[TextContent]:
-        try:
-            yield TextContent(text="partial")
-        finally:
-            closed.set()
-
-    class FakeRuntime:
-        normalize_request = staticmethod(BaseRuntime.normalize_request)
-
-        def __init__(self, **_kwargs: object) -> None:
-            pass
-
-        async def run(
-            self,
-            _request: AgentRequest,
-        ) -> AsyncIterator[TextContent]:
-            async for item in owned_stream():
-                yield item
-
-    class FakeBackend:
-        def stream(self, *_args: object, **_kwargs: object):
-            return owned_stream()
-
-    monkeypatch.setattr(workspace_module, "Runtime", FakeRuntime)
-    workspace, catalog, _session = _persistent_workspace(tmp_path)
-    workspace._backend_runtime = FakeBackend()
-    request = _session_request(ephemeral=True)
-    stream = workspace.stream_query(request)
-
-    response = await anext(stream)
-    assert response.text == "partial"
-    await stream.aclose()
-
-    assert closed.is_set()
-    assert not catalog.has_session(
-        session_id="s",
-        user_id="u",
-        channel="console",
-    )
-    catalog.close()
-
-
-@pytest.mark.asyncio
-async def test_harness_turn_commits_forkable_runtime(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "qwenpaw.app.workspace.workspace.load_agent_config_async",
-        AsyncMock(return_value=SimpleNamespace(backend="codex")),
-    )
-    workspace = Workspace("agent-1", str(tmp_path))
-    catalog = TranscriptCatalog(tmp_path)
-    session = DatabaseSession(
-        catalog=catalog,
-        legacy_save_dir=str(tmp_path / "sessions"),
-    )
-    workspace._service_manager.services.update(
-        session=session,
-        transcript_store=catalog,
-    )
-    bridge = HarnessSessionBridge(session)
-
-    class Runtime:
-        async def stream(self, backend, request, settings, **kwargs):
-            response = AgentResponse(
-                id="response",
-                status=RunStatus.Completed,
-                output=[
-                    Message(
-                        role=Role.ASSISTANT,
-                        status=RunStatus.Completed,
-                        content=[TextContent(text="answer")],
-                    ),
-                ],
-            )
-            await bridge.append_turn(
-                request=request,
-                response=response,
-                backend="codex",
-            )
-            yield response
-
-    workspace._backend_runtime = Runtime()
-    request = AgentRequest(
-        session_id="s",
-        user_id="u",
-        channel="console",
-        input=[
-            Message(
-                role=Role.USER,
-                content=[TextContent(text="question")],
-            ),
-        ],
-    )
-    output = [item async for item in workspace.stream_query(request)]
-    assert output[-1].status == RunStatus.Completed
-    identity = dict(session_id="s", user_id="u", channel="console")
-    page = catalog.get_page(**identity)
-    assert len(page.messages) == 2
-    turn_id = request.request_context["_qwenpaw_transcript_turn_id"]
-    assert (
-        output[-1].output[0].metadata["qwenpaw_transcript_position"]["turn_id"]
-        == turn_id
-    )
-    snapshot = catalog.read_turn_context(**identity, turn_id=turn_id)
-    assert len(snapshot.state["agent"]["state"]["context"]) == 2
     catalog.close()

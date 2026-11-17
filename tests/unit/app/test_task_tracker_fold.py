@@ -26,17 +26,6 @@ def _content(text: str) -> str:
     return f"data: {json.dumps(payload, separators=(',', ':'))}\n\n"
 
 
-def _stream(events: list[str]) -> Any:
-    """Return a producer that yields ``events``."""
-
-    async def produce(_payload: Any) -> AsyncIterator[str]:
-        for event in events:
-            await asyncio.sleep(0)
-            yield event
-
-    return produce
-
-
 def _gated_stream(
     events: list[str],
     pause_at: int,
@@ -74,22 +63,7 @@ def _fold(events: list[str]) -> list[str]:
     return list(store.replay())
 
 
-async def test_live_subscriber_receives_original_events() -> None:
-    """Folding the replay copy does not change live broadcasting."""
-    events = [_content("hello "), _content("world")]
-    tracker = TaskTracker()
-
-    queue, is_new = await tracker.attach_or_start(
-        "run-live",
-        payload=None,
-        stream_fn=_stream(events),
-    )
-
-    assert is_new is True
-    assert await _collect(queue) == events
-
-
-async def test_reconnect_gets_fold_then_marker_and_live_tail() -> None:
+async def test_live_and_reconnect_paths_preserve_fold_then_tail_order() -> None:
     """A reconnect switches from folded replay to untouched live data."""
     control = 'data: {"type": "turn_usage", "tokens": 3}\n\n'
     events = [

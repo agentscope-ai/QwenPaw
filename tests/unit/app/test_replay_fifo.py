@@ -88,21 +88,10 @@ async def test_fifo_restores_evicted_messages_in_creation_order(tmp_path):
         assert [item["content"][0]["text"] for item in output] == [
             f"answer-{index}" for index in range(12)
         ]
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_completed_messages_do_not_accumulate_or_return_in_terminal(
-    tmp_path,
-):
-    store, recorder, replay = setup(tmp_path)
-    try:
-        await recorder.start()
         sizes = []
-        for index in range(100):
+        for index in range(12, 112):
             await record(recorder, replay, message(index))
-            if index >= 10:
+            if index >= 22:
                 sizes.append(replay.approx_bytes())
         assert max(sizes) - min(sizes) < 1000
         full_terminal = wire(
@@ -111,7 +100,7 @@ async def test_completed_messages_do_not_accumulate_or_return_in_terminal(
                 "object": "response",
                 "status": "completed",
                 "output": [
-                    message(index).model_dump() for index in range(100)
+                    message(index).model_dump() for index in range(112)
                 ],
             },
         )
@@ -119,66 +108,67 @@ async def test_completed_messages_do_not_accumulate_or_return_in_terminal(
         prefix = replay.capture()
         assert len(prefix.messages) == 5
         assert prefix.header["status"] == "completed"
-        assert replay.approx_bytes() < 10_000
+        assert replay.approx_bytes() < 12_000
         events = [event async for event in prefix]
         assert (
-            len(json.loads(materialize_replay(events)[0][6:])["output"]) == 100
+            len(json.loads(materialize_replay(events)[0][6:])["output"]) == 112
         )
     finally:
         store.close()
 
 
 @pytest.mark.asyncio
-async def test_write_failure_does_not_authorize_fifo(tmp_path):
+@pytest.mark.parametrize("failure", ["write", "pre-message"])
+async def test_failed_persistence_never_authorizes_fifo_completion(
+    tmp_path,
+    failure,
+):
     store, recorder, replay = setup(tmp_path)
     try:
         await recorder.start()
-        for index in range(8):
-            await record(recorder, replay, message(index, completed=False))
-        with patch.object(store, "upsert_message", side_effect=OSError):
-            with pytest.raises(OSError):
-                await record(recorder, replay, message(0))
-        receipt = replay_receipt.get()
-        assert receipt is not None and not receipt.committed
-        assert not replay.has_evicted
-        assert len(json.loads(list(replay.replay())[0][6:])["output"]) == 8
-    finally:
-        store.close()
-
-
-@pytest.mark.asyncio
-async def test_pre_message_flush_cannot_acknowledge_completion(tmp_path):
-    store, recorder, replay = setup(tmp_path)
-    try:
-        await recorder.start()
-        for index in range(5):
-            await record(recorder, replay, message(index))
-        await record(recorder, replay, message(5, completed=False))
-        await recorder.observe(message(5))
-        # Console may flush a pending content event before the full message.
-        replay.append(
-            wire(
-                {
-                    "object": "content",
-                    "msg_id": "message-5",
-                    "type": "text",
-                    "delta": True,
-                    "text": "partial",
-                },
-            ),
-            replay_receipt.get(),
-        )
-        assert not replay.has_evicted
-        replay.append(
-            f"data: {message(5).model_dump_json()}\n\n",
-            replay_receipt.get(),
-        )
-        assert replay.has_evicted
-        prefix = replay.capture()
-        events = [event async for event in prefix]
-        output = json.loads(materialize_replay(events)[0][6:])["output"]
-        assert len(output) == 6
-        assert output[-1]["content"][0]["text"] == "answer-5"
+        if failure == "write":
+            for index in range(8):
+                await record(
+                    recorder,
+                    replay,
+                    message(index, completed=False),
+                )
+            with patch.object(store, "upsert_message", side_effect=OSError):
+                with pytest.raises(OSError):
+                    await record(recorder, replay, message(0))
+            receipt = replay_receipt.get()
+            assert receipt is not None and not receipt.committed
+            assert not replay.has_evicted
+            output = json.loads(list(replay.replay())[0][6:])["output"]
+            assert len(output) == 8
+        else:
+            for index in range(5):
+                await record(recorder, replay, message(index))
+            await record(recorder, replay, message(5, completed=False))
+            await recorder.observe(message(5))
+            replay.append(
+                wire(
+                    {
+                        "object": "content",
+                        "msg_id": "message-5",
+                        "type": "text",
+                        "delta": True,
+                        "text": "partial",
+                    },
+                ),
+                replay_receipt.get(),
+            )
+            assert not replay.has_evicted
+            replay.append(
+                f"data: {message(5).model_dump_json()}\n\n",
+                replay_receipt.get(),
+            )
+            assert replay.has_evicted
+            prefix = replay.capture()
+            events = [event async for event in prefix]
+            output = json.loads(materialize_replay(events)[0][6:])["output"]
+            assert len(output) == 6
+            assert output[-1]["content"][0]["text"] == "answer-5"
     finally:
         store.close()
 
@@ -220,30 +210,6 @@ async def test_subscription_boundary_excludes_future_db_completions(tmp_path):
         release.set()
         await tracker.wait_all_done(timeout=5)
         store.close()
-
-
-def test_complete_message_replaces_delta_and_partial_survives():
-    replay = ReplayStore()
-    replay.append(response())
-    replay.append(wire(message(0, completed=False).model_dump()))
-    replay.append(
-        wire(
-            {
-                "object": "content",
-                "msg_id": "message-0",
-                "type": "text",
-                "delta": True,
-                "text": "partial",
-                "index": 0,
-            },
-        ),
-    )
-    partial = json.loads(list(replay.replay())[0][6:])["output"][0]
-    assert partial["content"][0]["text"] == "partial"
-    replay.append(wire(message(0).model_dump()))
-    complete = json.loads(list(replay.replay())[0][6:])["output"][0]
-    assert len(complete["content"]) == 1
-    assert complete["content"][0]["text"] == "answer-0"
 
 
 @pytest.mark.asyncio

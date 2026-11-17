@@ -29,6 +29,17 @@ it("unwraps the host history card and merges live inputs without duplicates", ()
       history([[first]]),
     ),
   ).toEqual(["Full input\nsecond line", "live input"]);
+  expect(
+    getInputHistoryTexts(
+      [
+        user("a", "repeat"),
+        user("b", "repeat"),
+        user("empty", ""),
+        { id: "reply", role: "assistant", cards: [] } as Message,
+      ],
+      null,
+    ),
+  ).toEqual(["repeat", "repeat"]);
 });
 it("does not reuse another session or an earlier same-size history window", () => {
   const card = createHistoryMessageWindowCard("chat-a");
@@ -44,17 +55,4 @@ it("does not reuse another session or an earlier same-size history window", () =
       history([[user("a", "private")]]),
     ),
   ).toEqual([]);
-});
-it("preserves repeated inputs and skips assistants and attachment-only inputs", () => {
-  expect(
-    getInputHistoryTexts(
-      [
-        user("a", "repeat"),
-        user("b", "repeat"),
-        user("empty", ""),
-        { id: "reply", role: "assistant", cards: [] } as Message,
-      ],
-      null,
-    ),
-  ).toEqual(["repeat", "repeat"]);
 });

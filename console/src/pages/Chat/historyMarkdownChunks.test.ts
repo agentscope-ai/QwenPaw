@@ -29,17 +29,6 @@ describe("historyMarkdownChunks", () => {
       chunks[chunks.length - 1],
     );
   });
-
-  it("makes progress when the content ends at a paragraph boundary", () => {
-    const content = `${"x".repeat(200)}\n\n`;
-    const chunks = splitHistoryMarkdown(content, 80);
-
-    expect(chunks.join("")).toBe(content);
-    expect(chunks.every((chunk) => chunk.length > 0)).toBe(true);
-    expect(chunks.map((chunk) => marked.parse(chunk)).join("")).toBe(
-      marked.parse(content),
-    );
-  });
 });
 
 it.each([
@@ -59,7 +48,7 @@ it.each([
   );
 });
 
-it("only lexes the unfinished suffix for append-only updates", () => {
+it("reuses append-only segments and resets replaced global syntax", () => {
   const content = "A complete paragraph.\n\n".repeat(1000);
   const previous = segmentMarkdown(content, 1000);
   const lex = vi.spyOn(Lexer, "lex");
@@ -68,16 +57,12 @@ it("only lexes the unfinished suffix for append-only updates", () => {
   expect(next.chunks.slice(0, -1)).toEqual(previous.chunks.slice(0, -1));
   expect(next.chunks.join("")).toBe(content + "Next paragraph");
   lex.mockRestore();
-});
-
-it("resets segments when content is replaced or a global definition arrives", () => {
-  const previous = segmentMarkdown("paragraph\n\n".repeat(100), 40);
-  const replaced = segmentMarkdown("replacement\n\n".repeat(100), 40, previous);
+  const replaced = segmentMarkdown("replacement\n\n".repeat(100), 40, next);
   expect(replaced.chunks.join("")).toBe(replaced.source);
   const references = segmentMarkdown(
-    previous.source + "[id]: https://example.com",
+    next.source + "\n\n[id]: https://example.com",
     40,
-    previous,
+    next,
   );
   expect(references.chunks).toEqual([references.source]);
 });

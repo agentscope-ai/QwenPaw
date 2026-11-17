@@ -41,7 +41,7 @@ const history: ChatHistory = {
 };
 
 describe("ChatHistoryPreview", () => {
-  it("groups a complete tool-assisted turn without dropping output", () => {
+  it("renders a complete tool-assisted turn without dropping output", () => {
     const turns = groupPreviewTurns(history.messages);
 
     expect(turns).toHaveLength(1);
@@ -52,9 +52,6 @@ describe("ChatHistoryPreview", () => {
       "result-1",
       "answer-1",
     ]);
-  });
-
-  it("renders final Markdown and keeps process messages collapsed", () => {
     render(<ChatHistoryPreview history={history} />);
 
     expect(screen.getByText("Inspect the repository")).toBeVisible();

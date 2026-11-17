@@ -17,116 +17,6 @@ def _payload(frame: str) -> dict:
     return json.loads(frame[len("data: ") :])
 
 
-def test_materializes_reasoning_and_tool_messages() -> None:
-    events = [
-        _sse(
-            {
-                "id": "response-1",
-                "object": "response",
-                "status": "in_progress",
-                "output": [],
-            },
-        ),
-        _sse(
-            {
-                "id": "reason-1",
-                "object": "message",
-                "type": "reasoning",
-                "role": "assistant",
-                "status": "in_progress",
-                "content": [],
-            },
-        ),
-        _sse(
-            {
-                "type": "text",
-                "object": "content",
-                "msg_id": "reason-1",
-                "delta": True,
-                "text": "inspect ",
-            },
-        ),
-        _sse(
-            {
-                "type": "text",
-                "object": "content",
-                "msg_id": "reason-1",
-                "delta": True,
-                "text": "files",
-            },
-        ),
-        _sse(
-            {
-                "id": "tool-1",
-                "object": "message",
-                "type": "tool_call",
-                "role": "assistant",
-                "status": "in_progress",
-                "content": [],
-            },
-        ),
-        _sse(
-            {
-                "type": "data",
-                "object": "content",
-                "msg_id": "tool-1",
-                "delta": True,
-                "data": {
-                    "call_id": "call-1",
-                    "name": "read_file",
-                    "arguments": '{"path":',
-                },
-            },
-        ),
-        _sse(
-            {
-                "type": "data",
-                "object": "content",
-                "msg_id": "tool-1",
-                "delta": True,
-                "data": {"arguments": '"README.md"}'},
-            },
-        ),
-        _sse(
-            {
-                "id": "tool-result-1",
-                "object": "message",
-                "type": "tool_call_output",
-                "role": "tool",
-                "status": "completed",
-                "content": [
-                    {
-                        "type": "data",
-                        "data": {
-                            "call_id": "call-1",
-                            "output": "done",
-                        },
-                    },
-                ],
-            },
-        ),
-        _sse({"type": "turn_usage", "tokens": 42}),
-    ]
-
-    materialized = materialize_replay(events)
-
-    assert len(materialized) == 2
-    assert _payload(materialized[0]) == {
-        "type": "turn_usage",
-        "tokens": 42,
-    }
-    snapshot = _payload(materialized[1])
-    assert [item["id"] for item in snapshot["output"]] == [
-        "reason-1",
-        "tool-1",
-        "tool-result-1",
-    ]
-    assert snapshot["output"][0]["content"][0]["text"] == "inspect files"
-    assert snapshot["output"][1]["content"][0]["data"]["arguments"] == (
-        '{"path":"README.md"}'
-    )
-
-
 def test_materializes_real_folded_terminal_replay_in_safe_order() -> None:
     response = {
         "id": "response-1",
@@ -162,6 +52,40 @@ def test_materializes_real_folded_terminal_replay_in_safe_order() -> None:
         "delta": True,
         "text": "partial",
     }
+    reasoning = {
+        "id": "reason-1",
+        "object": "message",
+        "type": "reasoning",
+        "role": "assistant",
+        "status": "in_progress",
+        "content": [],
+    }
+    reasoning_content = {
+        "type": "text",
+        "object": "content",
+        "msg_id": "reason-1",
+        "delta": True,
+        "text": "inspect files",
+    }
+    tool_call = {
+        "id": "tool-call-1",
+        "object": "message",
+        "type": "tool_call",
+        "role": "assistant",
+        "status": "in_progress",
+        "content": [],
+    }
+    tool_arguments = {
+        "type": "data",
+        "object": "content",
+        "msg_id": "tool-call-1",
+        "delta": True,
+        "data": {
+            "call_id": "call-1",
+            "name": "read_file",
+            "arguments": '{"path":"README.md"}',
+        },
+    }
     usage = {"type": "turn_usage", "tokens": 42}
     terminal = {
         **response,
@@ -179,6 +103,10 @@ def test_materializes_real_folded_terminal_replay_in_safe_order() -> None:
         response,
         message,
         content,
+        reasoning,
+        reasoning_content,
+        tool_call,
+        tool_arguments,
         tool_message,
         usage,
         terminal,
@@ -193,7 +121,16 @@ def test_materializes_real_folded_terminal_replay_in_safe_order() -> None:
     snapshot = _payload(materialized[1])
     assert snapshot["status"] == "completed"
     assert snapshot["output"][0]["content"][0]["text"] == "complete"
-    assert snapshot["output"][1] == tool_message
+    assert [item["id"] for item in snapshot["output"][1:]] == [
+        "reason-1",
+        "tool-call-1",
+        "tool-1",
+    ]
+    assert snapshot["output"][1]["content"][0]["text"] == "inspect files"
+    assert snapshot["output"][2]["content"][0]["data"]["arguments"] == (
+        '{"path":"README.md"}'
+    )
+    assert snapshot["output"][3] == tool_message
 
 
 def test_preserves_terminal_status_and_canonical_output() -> None:

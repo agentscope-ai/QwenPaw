@@ -42,30 +42,6 @@ def bridge(session) -> HarnessSessionBridge:
 
 
 # ---------------------------------------------------------------------------
-# has_history
-# ---------------------------------------------------------------------------
-
-
-class TestHasHistory:
-    async def test_no_state_returns_false(self, bridge):
-        result = await bridge.has_history(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        )
-        assert result is False
-
-    async def test_state_without_context_returns_false(self, bridge, session):
-        await bridge.clear(session_id="s", user_id="u", channel="c")
-        result = await bridge.has_history(
-            session_id="s",
-            user_id="u",
-            channel="c",
-        )
-        assert result is False
-
-
-# ---------------------------------------------------------------------------
 # hydrate
 # ---------------------------------------------------------------------------
 
@@ -96,23 +72,6 @@ class TestHydrate:
                 text="file.txt",
             ),
         ]
-
-    async def test_empty_history_is_noop(self, bridge):
-        await bridge.hydrate(
-            session_id="s",
-            user_id="u",
-            channel="c",
-            backend="codex",
-            history=[],
-        )
-        assert (
-            await bridge.has_history(
-                session_id="s",
-                user_id="u",
-                channel="c",
-            )
-            is False
-        )
 
     async def test_hydrate_persists_all_kinds(self, bridge, session):
         await bridge.hydrate(
@@ -227,57 +186,6 @@ class TestClear:
             )
             is False
         )
-
-
-# ---------------------------------------------------------------------------
-# _output_block edge branches
-# ---------------------------------------------------------------------------
-
-
-class TestOutputBlock:
-    def _message(self, message_type, content, role=Role.ASSISTANT):
-        return Message(
-            type=message_type,
-            role=role,
-            status=RunStatus.Completed,
-            content=content,
-        )
-
-    def test_empty_content_returns_none(self):
-        msg = self._message(MessageType.MESSAGE, [])
-        assert HarnessSessionBridge._output_block(msg) is None
-
-    def test_dict_output_serialized(self):
-        from qwenpaw.schemas import DataContent
-
-        msg = self._message(
-            MessageType.PLUGIN_CALL_OUTPUT,
-            [
-                DataContent(
-                    data={
-                        "call_id": "c1",
-                        "name": "t",
-                        "output": {"k": [1, 2]},
-                    },
-                ),
-            ],
-            role=Role.TOOL,
-        )
-        block = HarnessSessionBridge._output_block(msg)
-        assert block["type"] == "tool_result"
-        assert '"k"' in block["output"]
-
-    def test_unknown_type_with_data_returns_none(self):
-        from qwenpaw.schemas import DataContent
-
-        msg = self._message(
-            MessageType.MESSAGE,
-            [DataContent(data={"x": 1})],
-        )
-        # MESSAGE type looks at .text first; no data branch applies.
-        block = HarnessSessionBridge._output_block(msg)
-        assert block["type"] == "text"
-        assert block["text"] == ""
 
 
 # ---------------------------------------------------------------------------

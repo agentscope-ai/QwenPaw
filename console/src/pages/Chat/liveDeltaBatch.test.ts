@@ -39,32 +39,21 @@ function fixture(signal?: AbortSignal) {
 describe("live delta batching", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("combines changed text without response snapshots", async () => {
+  it("combines contiguous text and keeps the last sequence", async () => {
     vi.useFakeTimers();
     const stream = fixture();
     const next = stream.read();
-    stream.emit(...Array.from({ length: 100 }, () => delta("中")));
+    stream.emit(
+      ...Array.from({ length: 100 }, (_, index) =>
+        sequencedDelta("中", index + 1),
+      ),
+    );
     await vi.advanceTimersByTimeAsync(50);
-    expect(await next).toEqual(delta("中".repeat(100)));
+    expect(await next).toEqual(sequencedDelta("中".repeat(100), 100));
     await stream.reader.cancel();
   });
 
-  it("combines consecutive sequences and keeps the last number", async () => {
-    const stream = fixture();
-    stream.emit(
-      sequencedDelta("first", 1),
-      sequencedDelta(" second", 2),
-      sequencedDelta(" third", 3),
-    );
-    stream.source.close();
-
-    expect(await stream.read()).toEqual(
-      sequencedDelta("first second third", 3),
-    );
-    expect((await stream.reader.read()).done).toBe(true);
-  });
-
-  it("preserves SDK state across tool, usage and terminal boundaries", async () => {
+  it("preserves structural state across message and terminal boundaries", async () => {
     const initial = {
       object: "response",
       id: "r1",
@@ -118,6 +107,19 @@ describe("live delta batching", () => {
     expect(materialize(received)).toEqual(materialize(events));
     expect(received).toHaveLength(events.length - 1);
     expect(received[received.length - 1].status).toBe("completed");
+
+    const distinct = fixture();
+    const distinctEvents = [
+      delta("a"),
+      delta("b", "m2"),
+      { ...delta("c"), index: 1 },
+      { ...delta("d"), index: 2 },
+    ];
+    distinct.emit(...distinctEvents);
+    distinct.source.close();
+    for (const event of distinctEvents)
+      expect(await distinct.read()).toEqual(event);
+    expect((await distinct.reader.read()).done).toBe(true);
   });
 
   it.each([
@@ -176,20 +178,6 @@ describe("live delta batching", () => {
         `data: ${JSON.stringify(sequencedDelta("d", 4))}\n\n`,
     );
     expect(output).not.toContain("replay_end");
-  });
-
-  it("keeps distinct blocks and message ids separate", async () => {
-    const stream = fixture();
-    const events = [
-      delta("a"),
-      delta("b", "m2"),
-      { ...delta("c"), index: 1 },
-      { ...delta("d"), index: 2 },
-    ];
-    stream.emit(...events);
-    stream.source.close();
-    for (const event of events) expect(await stream.read()).toEqual(event);
-    expect((await stream.reader.read()).done).toBe(true);
   });
 
   it("bounds UTF-8 bytes and flushes on EOF", async () => {

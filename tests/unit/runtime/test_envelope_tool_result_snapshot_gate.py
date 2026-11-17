@@ -94,63 +94,47 @@ def _small_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def test_text_gate_preserves_complete_terminal_output() -> None:
-    """Suppressed fragments still appear in the terminal snapshot."""
+@pytest.mark.parametrize("case", ["text", "cancel", "data"])
+async def test_terminal_snapshot_preserves_suppressed_content(case) -> None:
+    """Suppressed text and data remain available at terminal boundaries."""
     envelope = Envelope(session_id="gate")
     await _start_result(envelope)
+    if case == "data":
+        for data in ("AA", "BB", "CC"):
+            await _drain(
+                envelope,
+                ToolResultDataDeltaEvent(
+                    reply_id=REPLY_ID,
+                    tool_call_id=CALL_ID,
+                    block_id="image",
+                    media_type="image/png",
+                    data=data,
+                ),
+            )
+        terminal = await _end_result(envelope)
+        assert json.loads(terminal[0].data["output"]) == [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "data": "AABBCC",
+                    "media_type": "image/png",
+                },
+            },
+        ]
+        return
 
     emitted = [
         await _text_delta(envelope, fragment)
         for fragment in ("ab", "cd", "ef", "gh")
     ]
-    terminal = await _end_result(envelope)
-
     assert [len(items) for items in emitted] == [1, 1, 0, 1]
-    assert terminal[0].data["output"] == "abcdefgh"
-    assert terminal[0].status == RunStatus.Completed
-
-
-async def test_cancel_collects_suppressed_text() -> None:
-    """Cancellation reads accumulated state, including hidden fragments."""
-    envelope = Envelope(session_id="gate")
-    await _start_result(envelope)
-
-    await _text_delta(envelope, "ab")
-    await _text_delta(envelope, "cd")
-    assert await _text_delta(envelope, "ef") == []
-
-    assert envelope.collect_tool_output()[CALL_ID] == "abcdef"
-
-
-async def test_data_fragments_are_complete_in_terminal_snapshot() -> None:
-    """Suppressed base64 fragments remain in the final image block."""
-    envelope = Envelope(session_id="gate")
-    await _start_result(envelope)
-
-    for data in ("AA", "BB", "CC"):
-        await _drain(
-            envelope,
-            ToolResultDataDeltaEvent(
-                reply_id=REPLY_ID,
-                tool_call_id=CALL_ID,
-                block_id="image",
-                media_type="image/png",
-                data=data,
-            ),
-        )
-    terminal = await _end_result(envelope)
-
-    blocks = json.loads(terminal[0].data["output"])
-    assert blocks == [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "data": "AABBCC",
-                "media_type": "image/png",
-            },
-        },
-    ]
+    if case == "cancel":
+        assert envelope.collect_tool_output()[CALL_ID] == "abcdefgh"
+    else:
+        terminal = await _end_result(envelope)
+        assert terminal[0].data["output"] == "abcdefgh"
+        assert terminal[0].status == RunStatus.Completed
 
 
 async def test_tool_call_arguments_are_not_gated() -> None:

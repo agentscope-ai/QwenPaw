@@ -398,6 +398,33 @@ class TranscriptStore:
             )
             return True
 
+    def is_pristine(self) -> bool:
+        """Return whether the schema has no durable conversation data."""
+        with self._read_connection() as connection:
+            has_data = connection.execute(
+                "SELECT EXISTS(SELECT 1 FROM transcript_sessions) OR "
+                "EXISTS(SELECT 1 FROM event_log) OR "
+                "EXISTS(SELECT 1 FROM content_objects) OR "
+                "EXISTS(SELECT 1 FROM projection_watermarks) OR "
+                "EXISTS(SELECT 1 FROM context_nodes) OR "
+                "EXISTS(SELECT 1 FROM sqlite_sequence)",
+            ).fetchone()[0]
+            if has_data:
+                return False
+            has_scroll_schema = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND "
+                "(name = 'history_migrations' OR "
+                "name LIKE 'conversation_history%') LIMIT 1",
+            ).fetchone()
+            if has_scroll_schema is not None:
+                return False
+            return (
+                connection.execute(
+                    "PRAGMA foreign_key_check",
+                ).fetchone()
+                is None
+            )
+
     def read_runtime_state(
         self,
         *,

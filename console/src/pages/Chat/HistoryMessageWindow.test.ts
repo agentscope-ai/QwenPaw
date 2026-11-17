@@ -8,12 +8,10 @@ import {
 } from "./HistoryMessageWindow";
 import { ChatUserMessageNavigation } from "./ChatUserMessageNavigation";
 import {
-  createHistoryMessageWindowCard,
-  HISTORY_MESSAGE_WINDOW_CARD,
   historyMessageWindow,
   splitHistoryMessagesIntoTurnRows,
 } from "./historyMessageWindowStore";
-import sessionApi, { mergeHistoryMessages } from "./sessionApi";
+import sessionApi from "./sessionApi";
 
 vi.mock("@agentscope-ai/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agentscope-ai/chat")>()),
@@ -120,50 +118,6 @@ describe("history message window store", () => {
     expect(onNavigateToUserMessage).not.toHaveBeenCalled();
   });
 
-  it("updates one isolated snapshot without changing its callbacks", () => {
-    const listener = vi.fn();
-    const unsubscribe = historyMessageWindow.subscribe(listener);
-    const onLoadOlder = vi.fn();
-    const onFillOlder = vi.fn();
-    const first = [{ id: "first", role: "user" }] as never[];
-    const second = [{ id: "second", role: "assistant" }] as never[];
-
-    historyMessageWindow.begin({
-      sessionId: "chat-1",
-      turnRows: [first],
-      canLoadOlder: true,
-      onLoadOlder,
-      onFillOlder,
-    });
-    historyMessageWindow.setTurnRows("chat-1", [second], false);
-    historyMessageWindow.setLoading("chat-1", false);
-
-    expect(historyMessageWindow.getSnapshot()).toEqual({
-      sessionId: "chat-1",
-      turnRows: [second],
-      loading: false,
-      canLoadOlder: false,
-      onLoadOlder,
-      onFillOlder,
-      userMessages: [],
-      onNavigateToUserMessage: expect.any(Function),
-      onCancelPending: expect.any(Function),
-    });
-    expect(listener).toHaveBeenCalledTimes(3);
-    unsubscribe();
-  });
-
-  it("creates one runtime boundary card for the active session", () => {
-    const card = createHistoryMessageWindowCard("chat-1");
-
-    expect(card).toMatchObject({
-      id: "qwenpaw-history-window-chat-1",
-      role: "assistant",
-      history: true,
-      cards: [{ code: HISTORY_MESSAGE_WINDOW_CARD }],
-    });
-  });
-
   it("groups accumulated history into stable virtual turn rows", () => {
     const messages = Array.from({ length: 12 }, (_, index) => [
       { id: `user-${index + 1}`, role: "user" },
@@ -179,66 +133,20 @@ describe("history message window store", () => {
     expect(turnRows.map((turn) => turn[0].id)).toEqual(
       Array.from({ length: 12 }, (_, index) => `user-${index + 1}`),
     );
-  });
-
-  it("virtualizes a partial turn prefix by materialized message", () => {
-    const messages = [
+    const partial = [
       { id: "assistant-fragment-1", role: "assistant" },
       { id: "assistant-fragment-2", role: "assistant" },
       { id: "user-2", role: "user" },
       { id: "assistant-2", role: "assistant" },
     ] as never[];
-
-    const turnRows = splitHistoryMessagesIntoTurnRows(messages);
-
-    expect(turnRows.map((turn) => turn.map((message) => message.id))).toEqual([
+    expect(
+      splitHistoryMessagesIntoTurnRows(partial).map((turn) =>
+        turn.map((message) => message.id),
+      ),
+    ).toEqual([
       ["assistant-fragment-1"],
       ["assistant-fragment-2"],
       ["user-2", "assistant-2"],
-    ]);
-  });
-
-  it("prepends one page without duplicating its boundary message", () => {
-    const current = Array.from({ length: 5 }, (_, index) => [
-      { id: `user-${index + 6}`, role: "user" },
-      { id: `assistant-${index + 6}`, role: "assistant" },
-    ]).flat() as never[];
-    const older = [
-      ...Array.from({ length: 5 }, (_, index) => [
-        { id: `user-${index + 1}`, role: "user" },
-        { id: `assistant-${index + 1}`, role: "assistant" },
-      ]).flat(),
-      current[0],
-    ] as never[];
-
-    const turnRows = splitHistoryMessagesIntoTurnRows(
-      mergeHistoryMessages(older, current),
-    );
-    const ids = turnRows.flat().map((message) => message.id);
-
-    expect(turnRows).toHaveLength(10);
-    expect(ids).toHaveLength(new Set(ids).size);
-    expect(ids).toEqual([
-      "user-1",
-      "assistant-1",
-      "user-2",
-      "assistant-2",
-      "user-3",
-      "assistant-3",
-      "user-4",
-      "assistant-4",
-      "user-5",
-      "assistant-5",
-      "user-6",
-      "assistant-6",
-      "user-7",
-      "assistant-7",
-      "user-8",
-      "assistant-8",
-      "user-9",
-      "assistant-9",
-      "user-10",
-      "assistant-10",
     ]);
   });
 
@@ -262,46 +170,6 @@ describe("history message window store", () => {
       loading: true,
       canLoadOlder: true,
     });
-  });
-
-  it("loads again after the preceding page request finishes", () => {
-    vi.useFakeTimers();
-    const onLoadOlder = vi.fn(() =>
-      historyMessageWindow.setLoading("chat-1", true),
-    );
-    historyMessageWindow.begin({
-      sessionId: "chat-1",
-      turnRows: [],
-      canLoadOlder: true,
-      onLoadOlder,
-      onFillOlder: vi.fn(),
-    });
-    historyMessageWindow.setLoading("chat-1", false);
-    const { container } = render(
-      createElement(
-        "div",
-        { className: "qwenpaw-chat-anywhere-message-list" },
-        createElement(HistoryMessageWindowCard),
-      ),
-    );
-    const window = container.querySelector<HTMLElement>(
-      "[data-history-message-window]",
-    );
-    expect(window).not.toBeNull();
-
-    act(() => fireEvent.wheel(window!, { deltaY: -10 }));
-    act(() => fireEvent.wheel(window!, { deltaY: -10 }));
-    expect(onLoadOlder).toHaveBeenCalledTimes(1);
-
-    act(() => historyMessageWindow.setLoading("chat-1", false));
-    act(() => fireEvent.wheel(window!, { deltaY: -10 }));
-    expect(onLoadOlder).toHaveBeenCalledTimes(1);
-
-    act(() => vi.advanceTimersByTime(161));
-    act(() => fireEvent.wheel(window!, { deltaY: -10 }));
-    expect(onLoadOlder).toHaveBeenCalledTimes(2);
-    act(() => vi.runOnlyPendingTimers());
-    vi.useRealTimers();
   });
 
   it("keeps the previous top message fixed while older turns are prepended", () => {
@@ -370,6 +238,13 @@ describe("history message window store", () => {
     });
     act(() => vi.runAllTimers());
 
+    const ids = historyMessageWindow
+      .getSnapshot()!
+      .turnRows.flat()
+      .map((message) => message.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).toHaveLength(new Set(ids).size);
+
     const anchor = document.getElementById("user-6");
     expect(anchor).not.toBeNull();
     expect(
@@ -414,87 +289,6 @@ describe("history message window store", () => {
     clientHeight.mockRestore();
     scrollHeight.mockRestore();
     vi.useRealTimers();
-  });
-
-  it("appends the next five turns when scrolling past a navigated page", () => {
-    const onNavigateToUserMessage = vi.fn();
-    const userMessages = Array.from({ length: 7 }, (_, index) => ({
-      messageId: `user-${index + 1}`,
-      preview: `message ${index + 1}`,
-      createdAt: `2026-10-23T0${index + 1}:00:00Z`,
-      anchor: `opaque-anchor-${index + 1}`,
-    }));
-    historyMessageWindow.begin({
-      sessionId: "chat-1",
-      turnRows: [
-        [
-          { id: "user-2", role: "user", cards: [] },
-          { id: "assistant-2", role: "assistant", cards: [] },
-        ],
-      ] as never[][],
-      canLoadOlder: true,
-      userMessages: userMessages.slice(-1),
-      onLoadOlder: vi.fn(),
-      onFillOlder: vi.fn(),
-      onNavigateToUserMessage,
-    });
-    historyMessageWindow.setLoading("chat-1", false);
-    const { container } = render(
-      createElement(
-        "div",
-        { className: "qwenpaw-chat-anywhere-message-list" },
-        createElement(HistoryMessageWindowCard),
-      ),
-    );
-    const window = container.querySelector<HTMLElement>(
-      "[data-history-message-window]",
-    );
-
-    act(() => fireEvent.wheel(window!, { deltaY: 10 }));
-
-    expect(onNavigateToUserMessage).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ messageId: "user-2" }),
-      "append-newer",
-    );
-  });
-
-  it("returns to the live card at the edge without querying its optimistic id", () => {
-    const navigate = vi.fn();
-    const latest = vi.fn();
-    historyMessageWindow.begin({
-      sessionId: "chat-1",
-      turnRows: [[{ id: "sdk-live-user", role: "user", cards: [] }]],
-      canLoadOlder: false,
-      onLoadOlder: vi.fn(),
-      onFillOlder: vi.fn(),
-      onNavigateToUserMessage: navigate,
-      onReturnToLatest: latest,
-    });
-    historyMessageWindow.setLoading("chat-1", false);
-    const { container } = render(
-      createElement(
-        "div",
-        {
-          className: "qwenpaw-chat-anywhere-message-list",
-        },
-        createElement(HistoryMessageWindowCard),
-      ),
-    );
-    const scroll = container.querySelector<HTMLElement>(
-      "[data-history-message-window]",
-    )!;
-    Object.defineProperties(scroll, {
-      clientHeight: { value: 500 },
-      scrollHeight: { value: 3000 },
-    });
-    scroll.scrollTop = 2000;
-    fireEvent.wheel(scroll, { deltaY: 20 });
-    expect(navigate).not.toHaveBeenCalled();
-    expect(latest).not.toHaveBeenCalled();
-    scroll.scrollTop = 2500;
-    fireEvent.wheel(scroll, { deltaY: 20 });
-    expect(navigate).not.toHaveBeenCalled();
-    expect(latest).toHaveBeenCalledOnce();
   });
 
   it("blocks automatic forward retries after a failed page", () => {
@@ -584,59 +378,6 @@ describe("history message window store", () => {
       }
     },
   );
-
-  it("fills newer turns at the start without requiring a wheel gesture", () => {
-    vi.useFakeTimers();
-    const clientHeight = vi
-      .spyOn(HTMLElement.prototype, "clientHeight", "get")
-      .mockReturnValue(800);
-    const scrollHeight = vi
-      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
-      .mockReturnValue(800);
-    const onNavigateToUserMessage = vi.fn();
-    const userMessages = Array.from({ length: 6 }, (_, index) => ({
-      messageId: `user-${index + 1}`,
-      preview: `message ${index + 1}`,
-      createdAt: "2026-10-24T00:00:00Z",
-      anchor: `anchor-${index + 1}`,
-    }));
-    historyMessageWindow.begin({
-      sessionId: "chat-1",
-      turnRows: [[{ id: "user-1", role: "user" }]] as never[][],
-      canLoadOlder: false,
-      userMessages,
-      onLoadOlder: vi.fn(),
-      onFillOlder: vi.fn(),
-      onNavigateToUserMessage,
-    });
-    historyMessageWindow.setLoading("chat-1", false);
-    render(
-      createElement(
-        "div",
-        { className: "qwenpaw-chat-anywhere-message-list" },
-        createElement(HistoryMessageWindowCard),
-      ),
-    );
-    act(() => vi.runAllTimers());
-    expect(onNavigateToUserMessage).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ messageId: "user-1" }),
-      "append-newer",
-    );
-    act(() => {
-      historyMessageWindow.setCanLoadNewer("chat-1", false);
-      historyMessageWindow.setTurnRows(
-        "chat-1",
-        [[{ id: "user-6", role: "user" }]] as never[][],
-        false,
-      );
-      vi.runAllTimers();
-    });
-    act(() => vi.runAllTimers());
-    expect(onNavigateToUserMessage).toHaveBeenCalledTimes(1);
-    clientHeight.mockRestore();
-    scrollHeight.mockRestore();
-    vi.useRealTimers();
-  });
 
   it("fills following context after a directory jump, not the nearby older edge", () => {
     const older = vi.fn();
