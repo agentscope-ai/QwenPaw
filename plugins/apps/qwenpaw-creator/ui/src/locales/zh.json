@@ -1323,7 +1323,8 @@
     "keepAllReviewChanges": "保留全部审阅修改（生产确认需单独决定）",
     "keepAll": "全部保留",
     "batchPartialTitle": "部分审阅已保留",
-    "batchPartialKept": "已保留 {{kept}} 项，{{failed}} 项失败：{{reason}}"
+    "batchPartialKept": "已保留 {{kept}} 项，{{failed}} 项失败：{{reason}}",
+    "dragToResize": "拖动调整待审区域高度"
   },
   "executionAuth": {
     "title": "高成本媒体执行",

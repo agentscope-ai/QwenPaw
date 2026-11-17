@@ -1,4 +1,13 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { message } from "antd";
 import {
   Check,
@@ -36,6 +45,35 @@ import i18n from "@/i18n";
  * reviews are ordinary (may collapse into a summary bar without interrupting
  * the conversation).
  */
+
+// Review bodies (diffs, media previews) are hard to read at the default cap,
+// so the tray edge is draggable. Mirrors the creation overview: the dragged
+// height lives in the dock UI store and drives a flex-basis through a CSS var.
+const TRAY_MIN_HEIGHT = 120;
+const TRAY_KEYBOARD_STEP = 16;
+const FEED_MIN_HEIGHT = 120;
+
+function trayHeightBounds(section: HTMLElement) {
+  const dock = section.closest<HTMLElement>("[data-agent-dock]");
+  if (!dock || !dock.clientHeight) {
+    return { min: TRAY_MIN_HEIGHT, max: Number.POSITIVE_INFINITY };
+  }
+  // Only the dock's flex-growing child (the conversation feed) can give up
+  // space, so the ceiling is the tray's current height plus that slack.
+  let slack = 0;
+  for (const child of Array.from(dock.children)) {
+    if (child === section) continue;
+    if (Number.parseFloat(getComputedStyle(child).flexGrow) > 0) {
+      slack += child.getBoundingClientRect().height;
+    }
+  }
+  const max = section.getBoundingClientRect().height + slack - FEED_MIN_HEIGHT;
+  return { min: TRAY_MIN_HEIGHT, max: Math.max(TRAY_MIN_HEIGHT, max) };
+}
+
+function clampTrayHeight(height: number, bounds: { min: number; max: number }) {
+  return Math.round(Math.min(bounds.max, Math.max(bounds.min, height)));
+}
 
 type TrayItem =
   | {
@@ -133,6 +171,56 @@ function DecisionTray({ projectId }: { projectId: string }) {
     ];
   }, [blockingReviewIds, pendingAuths, pendingReviews, project]);
   const urgent = pendingAuths.length > 0;
+
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const trayHeight = useAgentDockUiStore((state) => state.decisionTrayHeight);
+  const setTrayHeight = useAgentDockUiStore(
+    (state) => state.setDecisionTrayHeight,
+  );
+  const beginTrayResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const section = sectionRef.current;
+    if (!section || event.button !== 0) return;
+    event.preventDefault();
+    const startY = event.clientY;
+    const startHeight = section.getBoundingClientRect().height;
+    const bounds = trayHeightBounds(section);
+    const onMove = (moveEvent: PointerEvent) => {
+      // The tray is anchored to the dock bottom, so dragging UP grows it.
+      setTrayHeight(
+        clampTrayHeight(startHeight + (startY - moveEvent.clientY), bounds),
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+  const nudgeTrayHeight = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const section = sectionRef.current;
+    if (!section) return;
+    // ArrowUp grows the bottom-anchored tray; ArrowDown shrinks it.
+    const direction =
+      event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
+    if (!direction) return;
+    event.preventDefault();
+    setTrayHeight(
+      clampTrayHeight(
+        section.getBoundingClientRect().height + direction * TRAY_KEYBOARD_STEP,
+        trayHeightBounds(section),
+      ),
+    );
+  };
+  // Mirrors the creation overview: a dragged height is exposed as a CSS var
+  // and turned into flex-basis by globals.css — that is what actually resizes
+  // a flex item inside the dock (an inline max-height never did).
+  const resized = !collapsed && trayHeight != null;
+  const traySectionStyle = resized
+    ? ({ "--decision-tray-height": `${trayHeight}px` } as CSSProperties)
+    : undefined;
 
   const [filter, setFilter] = useState<"all" | "auth" | "review">("all");
   const [listMode, setListMode] = useState(false);
@@ -299,7 +387,10 @@ function DecisionTray({ projectId }: { projectId: string }) {
 
   return (
     <section
+      ref={sectionRef}
       data-decision-tray
+      data-resized={resized || undefined}
+      style={traySectionStyle}
       data-decision-tray-urgent={urgent ? "true" : undefined}
       data-decision-tray-collapsed={collapsed ? "true" : undefined}
       data-decision-tray-focused={focused?.key}
@@ -361,6 +452,22 @@ function DecisionTray({ projectId }: { projectId: string }) {
         />
       </button>
 
+      {!collapsed && (
+        <div
+          data-decision-tray-resize
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label={t("decisionTray.dragToResize")}
+          title={t("decisionTray.dragToResize")}
+          tabIndex={0}
+          className="decision-tray-resize group flex h-2 shrink-0 cursor-ns-resize touch-none items-center justify-center"
+          onPointerDown={beginTrayResize}
+          onKeyDown={nudgeTrayHeight}
+          onDoubleClick={() => setTrayHeight(null)}
+        >
+          <span className="pointer-events-none h-0.5 w-8 rounded-full bg-[var(--color-border-strong)] transition-colors group-hover:bg-[var(--color-accent)]" />
+        </div>
+      )}
       {!collapsed && (
         <div className="px-3.5 pb-2.5">
           {authError && (
@@ -434,7 +541,10 @@ function DecisionTray({ projectId }: { projectId: string }) {
           )}
 
           {listMode ? (
-            <div className="agent-decision-scroll max-h-[28vh] space-y-2 overflow-y-auto pr-0.5">
+            <div
+              data-decision-tray-body
+              className="agent-decision-scroll max-h-[28vh] space-y-2 overflow-y-auto pr-0.5"
+            >
               {visible.map((item) => (
                 <div key={item.key}>{renderCard(item)}</div>
               ))}
@@ -459,6 +569,7 @@ function DecisionTray({ projectId }: { projectId: string }) {
               {focused && (
                 <div
                   key={focused.key}
+                  data-decision-tray-body
                   className="agent-decision-scroll decision-tray-card-in max-h-[28vh] overflow-y-auto"
                 >
                   {renderCard(focused)}

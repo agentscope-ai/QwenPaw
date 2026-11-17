@@ -1323,7 +1323,8 @@
     "keepAllReviewChanges": "Keep all review changes (production confirm needs separate decision)",
     "keepAll": "Keep All",
     "batchPartialTitle": "Some reviews kept",
-    "batchPartialKept": "Kept {{kept}}, {{failed}} failed: {{reason}}"
+    "batchPartialKept": "Kept {{kept}}, {{failed}} failed: {{reason}}",
+    "dragToResize": "Drag to resize the review area"
   },
   "executionAuth": {
     "title": "High-cost Media Execution",

@@ -32,6 +32,8 @@ interface AgentDockUiState {
   height: number;
   /** User-dragged height of the creation overview; null keeps the automatic cap. */
   overviewHeight: number | null;
+  /** User-dragged height of the inline decision tray; null keeps the automatic cap. */
+  decisionTrayHeight: number | null;
   runFilter: string;
   draft: string;
   /**
@@ -56,6 +58,7 @@ interface AgentDockUiState {
   setSidebarTab: (tab: WorkspaceSidebarTab) => void;
   setSize: (width: number, height: number) => void;
   setOverviewHeight: (height: number | null) => void;
+  setDecisionTrayHeight: (height: number | null) => void;
   setRunFilter: (filter: string) => void;
   setDraft: (draft: string) => void;
   /** Stashes (or, with null/empty, drops) one Project's unsent draft. */
@@ -80,6 +83,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
   width: 340,
   height: 620,
   overviewHeight: null,
+  decisionTrayHeight: null,
   runFilter: "all",
   draft: "",
   unsentDrafts: {},
@@ -94,6 +98,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
     // narrow the dock down to 240px on tight windows.
     set({ width: Math.max(240, width), height: Math.max(320, height) }),
   setOverviewHeight: (overviewHeight) => set({ overviewHeight }),
+  setDecisionTrayHeight: (decisionTrayHeight) => set({ decisionTrayHeight }),
   setRunFilter: (runFilter) => set({ runFilter }),
   setDraft: (draft) => set({ draft }),
   parkUnsentDraft: (projectId, content) =>
@@ -132,6 +137,7 @@ export const useAgentDockUiStore = create<AgentDockUiState>((set) => ({
       width: 340,
       height: 620,
       overviewHeight: null,
+      decisionTrayHeight: null,
       runFilter: "all",
       draft: "",
       // `unsentDrafts` intentionally survives: the layout resets the dock on
