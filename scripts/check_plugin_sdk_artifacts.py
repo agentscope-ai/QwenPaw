@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import zipfile
 
@@ -119,6 +120,8 @@ def main():
         (root / (name + ".log")).write_text(result.stdout)
         report["steps"].append({"name": name, "returncode": result.returncode})
         (root / "report.json").write_text(json.dumps(report, indent=2))
+        if result.returncode != 0:
+            print("\n".join(result.stdout.splitlines()[-40:]), file=sys.stderr)
         assert (
             result.returncode == 0
         ), f"{name} failed; see {root / (name + '.log')}"
@@ -190,21 +193,34 @@ import qwenpaw
 location = Path(qwenpaw.__file__).resolve()
 assert "site-packages" in location.parts, location
 assert not location.is_relative_to(Path({str(source)!r})), location
+package_root = location.parent.parent
 distributions = [
-    dist for dist in importlib.metadata.distributions()
+    dist for dist in importlib.metadata.distributions(path=[str(package_root)])
     if dist.metadata["Name"].lower().replace("_", "-") == "qwenpaw"
 ]
-assert len(distributions) == 1, "Expected sole installed qwenpaw metadata"
+assert distributions, "Missing qwenpaw metadata in imported package directory"
+assert len(distributions) == 1, (
+    "Multiple qwenpaw metadata records in imported package directory"
+)
+selected = importlib.metadata.distribution("qwenpaw")
+assert Path(selected.locate_file("")).resolve() == package_root, (
+    "Selected qwenpaw metadata belongs to a different installation"
+)
+assert Path(selected.locate_file("qwenpaw/__init__.py")).resolve() == location, (
+    "Selected qwenpaw metadata does not match the imported package"
+)
 with zipfile.ZipFile({str(args.wheel.resolve())!r}) as archive:
     metadata = next(
         name for name in archive.namelist()
         if name.endswith(".dist-info/METADATA")
     )
     expected = BytesParser().parsebytes(archive.read(metadata))["Version"]
-    assert distributions[0].version == expected, "Installed wheel version mismatch"
+    assert selected.version == distributions[0].version == expected, (
+        "Installed wheel version mismatch"
+    )
     for name in archive.namelist():
         if name.startswith("qwenpaw/") and not name.endswith("/"):
-            installed = location.parent.parent / name
+            installed = package_root / name
             assert installed.is_file(), f"Missing installed wheel file: {{name}}"
             assert hashlib.sha256(installed.read_bytes()).digest() == hashlib.sha256(
                 archive.read(name)
