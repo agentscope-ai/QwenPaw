@@ -177,13 +177,10 @@ def observe_stream(function):
     def wrapped(workspace, request):
         async def observed():
             from ._runs import current_run, index
-            from ..schemas import AgentRequest
+            from ..runtime.runtime import Runtime
 
-            normalized = (
-                AgentRequest(**request)
-                if isinstance(request, dict)
-                else request
-            )
+            # Index the same identity that execution and approvals will use.
+            normalized = Runtime._normalize(request)
             runs = index()
             record = runs.start(workspace, normalized)
             run_id = record.run_id
@@ -211,7 +208,7 @@ def observe_stream(function):
                 )
 
             publish("run.started")
-            stream = function(workspace, request)
+            stream = function(workspace, normalized)
             outcome, reason = "completed", ""
             try:
                 while True:

@@ -3,6 +3,7 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,9 @@ from qwenpaw.plugins.commands import CommandResult, CommandSpec
 from qwenpaw.plugins.events import EventSubscription, RunEvent
 from qwenpaw.plugins.messages import ContentBlock, Message
 from qwenpaw.plugins.errors import StaleContextError
+from qwenpaw.plugins._events import observe_stream
+from qwenpaw.plugins._runs import current_run, index
+from qwenpaw.schemas import AgentRequest
 
 
 async def test_real_runs_query_snapshot_identity_and_reused_request_id(
@@ -180,8 +184,20 @@ async def test_cancelled_runtime_keeps_terminal_snapshot(sdk_component):
         assert terminal.snapshot.finished_at is not None
 
 
+@pytest.mark.parametrize("as_mapping", [False, True])
+@pytest.mark.parametrize(
+    "identity_fields",
+    [
+        {"session_id": "s", "user_id": "alice"},
+        {"session_id": "s"},
+        {"user_id": "alice"},
+        {},
+    ],
+)
 async def test_approval_origin_is_bound_only_with_matching_host_identity(
     sdk_component,
+    as_mapping,
+    identity_fields,
 ):
     from qwenpaw.app.approvals.service import get_approval_service
     from qwenpaw.app.approvals.models import ApprovalRequestSummary
@@ -194,6 +210,26 @@ async def test_approval_origin_is_bound_only_with_matching_host_identity(
         async def request(call, arguments):
             current = await call.runs.current()
             identity = call.identity
+            assert current is not None
+            assert await call.runs.get(current.run_id) == current
+            assert (
+                current.workspace_id,
+                current.session_id,
+                current.user_id,
+                current.channel,
+            ) == (
+                identity.workspace_id,
+                identity.session_id,
+                identity.user_id,
+                identity.channel,
+            )
+            assert identity.session_id
+            if "session_id" in identity_fields:
+                assert identity.session_id == identity_fields["session_id"]
+            assert identity.user_id == identity_fields.get(
+                "user_id",
+                identity.session_id,
+            )
             service = get_approval_service()
             for user in (identity.user_id, "someone-else"):
                 pending = await service.create_pending_summary(
@@ -230,10 +266,25 @@ async def test_approval_origin_is_bound_only_with_matching_host_identity(
         host,
         ctx,
     ):
-        events = [
-            event async for event in host.stream_chat("/approval-origin")
-        ]
-        assert any(event.status == "completed" for event in events)
+        workspace = await host._workspace("test")
+        request = {
+            "input": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "/approval-origin"},
+                    ],
+                },
+            ],
+            "channel": "console",
+            **identity_fields,
+        }
+        if not as_mapping:
+            request = AgentRequest(**request)
+        events = [event async for event in workspace.stream_query(request)]
+        assert any(
+            getattr(event, "status", None) == "completed" for event in events
+        )
         async with asyncio.timeout(5):
             while len(observed) < 4:
                 await asyncio.sleep(0.01)
@@ -243,3 +294,31 @@ async def test_approval_origin_is_bound_only_with_matching_host_identity(
         }
         for event in observed:
             assert event.approval.run_id == expected[event.approval.request_id]
+
+
+async def test_run_normalization_preserves_unknown_channel_actor(
+    fresh_registry,
+):
+    request = AgentRequest(session_id="room", user_id="", channel="mqtt")
+    request._channel_actor_unknown = True
+    runs = index(fresh_registry)
+
+    @observe_stream
+    async def stream(workspace, normalized):
+        assert normalized is request
+        snapshot = runs.snapshots[current_run.get()]
+        assert (
+            snapshot.workspace_id,
+            snapshot.session_id,
+            snapshot.user_id,
+            snapshot.channel,
+        ) == (workspace.agent_id, "room", "", "mqtt")
+        assert normalized.user_id == ""
+        assert normalized._channel_actor_unknown is True
+        yield {"object": "response", "status": "completed"}
+
+    events = [
+        event
+        async for event in stream(SimpleNamespace(agent_id="test"), request)
+    ]
+    assert events == [{"object": "response", "status": "completed"}]

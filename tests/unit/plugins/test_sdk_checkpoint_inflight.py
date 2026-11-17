@@ -64,6 +64,8 @@ async def test_restore_waits_for_existing_run_not_requests_at_closed_gate(
         engine.repository.config_file.write_text(
             "[safety]\ninclude_memory_quiesce_timeout = 2.0\n",
         )
+        engine.policy.reload(force=True)
+        assert engine.memory_quiesce_timeout == 2.0
 
         async def tracked(session):
             async def stream(_):
