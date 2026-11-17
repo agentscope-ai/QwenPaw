@@ -43,6 +43,9 @@ class DriverConfigService:
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None and hasattr(manager, "credential_store"):
             return manager.credential_store
+        prepared = getattr(self._workspace, "_driver_credential_store", None)
+        if prepared is not None:
+            return prepared
         return AsyncCredentialStore(
             self._workspace.workspace_dir / "credentials.yaml",
         )
@@ -52,6 +55,9 @@ class DriverConfigService:
         manager = getattr(self._workspace, "driver_manager", None)
         if manager is not None and hasattr(manager, "card_store"):
             return manager.card_store
+        prepared = getattr(self._workspace, "_driver_card_store", None)
+        if prepared is not None:
+            return prepared
         return AsyncDriverCardStore(self.cards_dir)
 
     def card_path(self, name: str, *, protocol: str) -> Path:

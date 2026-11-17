@@ -160,6 +160,8 @@ async def plugin_state(request):
 
 async def configuration_workspace(request):
     """Resolve saved identity without the manager's lazy-start operation."""
+    from ...utils.io_utils import run_sync_io
+
     config = await asyncio.to_thread(load_config)
     agent_id = (
         getattr(request.state, "agent_id", None)
@@ -183,11 +185,28 @@ async def configuration_workspace(request):
             pass
         else:
             return active
-    directory = Path(profile.workspace_dir).expanduser()
+    return await run_sync_io(
+        _saved_configuration_workspace,
+        agent_id,
+        profile.workspace_dir,
+        getattr(active, "chat_manager", None),
+    )
+
+
+def _saved_configuration_workspace(agent_id, workspace_dir, chat_manager):
+    """Prepare request-owned stores, including path resolution, off-loop."""
+    from ...drivers.credentials.store import AsyncCredentialStore
+    from ...drivers.storage import AsyncDriverCardStore
+
+    directory = Path(workspace_dir).expanduser()
     if not directory.is_absolute():
         directory = get_config_path().parent / directory
     return SimpleNamespace(
         agent_id=agent_id,
         workspace_dir=directory,
-        chat_manager=getattr(active, "chat_manager", None),
+        chat_manager=chat_manager,
+        _driver_card_store=AsyncDriverCardStore(directory / "drivers"),
+        _driver_credential_store=AsyncCredentialStore(
+            directory / "credentials.yaml",
+        ),
     )
