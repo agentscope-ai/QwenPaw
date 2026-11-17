@@ -281,30 +281,10 @@ async def capture_workspace_usage(workspace_id, directory):
     """Capture before bootstrap can hydrate or rewrite an agent's raw input."""
     from ..plugins.registry import PluginRegistry
 
-    if PluginRegistry().protocol_eligibility is None:
+    coordinator = PluginRegistry().get_protocol_preparation()
+    if coordinator is None:
         return None
-    coordinator = getattr(
-        PluginRegistry().protocol_eligibility,
-        "__self__",
-        None,
-    )
-    snapshot = await run_sync_io(
-        _workspace_evidence,
-        workspace_id,
-        directory,
-        getattr(coordinator, "config_path", None),
-    )
-    previous = getattr(coordinator, "initial_evidence", {}).pop(
-        workspace_id,
-        None,
-    )
-    if (
-        previous is not None
-        and classify_mcp_usage(MCPUsageSnapshot((previous,))).status
-        == "needs_review"
-    ):
-        return previous
-    return snapshot
+    return await coordinator.capture_workspace_usage(workspace_id, directory)
 
 
 def bind_workspace_usage(workspace, snapshot):
@@ -328,19 +308,27 @@ class MCPPluginCoordinator:
     def marker_path(self):
         return self.loader.plugin_dirs[0] / MARKER
 
+    async def capture_workspace_usage(self, workspace_id, directory):
+        snapshot = await run_sync_io(
+            _workspace_evidence,
+            workspace_id,
+            directory,
+            self.config_path,
+        )
+        previous = self.initial_evidence.pop(workspace_id, None)
+        if (
+            previous is not None
+            and classify_mcp_usage(MCPUsageSnapshot((previous,))).status
+            == "needs_review"
+        ):
+            return previous
+        return snapshot
+
     def eligible(self, workspace_id, protocol, *, workspace=None):
         if protocol != "mcp":
             return True
         if workspace is None:
-            manager = self.loader.registry.get_workspace_manager()
-            live = getattr(
-                manager,
-                "agents",
-                getattr(manager, "workspaces", {}),
-            )
-            workspace = live.get(
-                workspace_id,
-            ) or self.loader.registry._stop_workspaces.get(workspace_id)
+            workspace = self.loader.registry.get_driver_workspace(workspace_id)
         return (
             self.root_valid
             and PLUGIN_ID not in self.loader.startup_blocked_plugins
@@ -365,11 +353,15 @@ class MCPPluginCoordinator:
         statuses = (marker or {}).get("workspaces", {})
         mode = automatic(marker)
         decision = MCPUsageDecision(
-            "needs_review"
-            if mode == "needs_review"
-            else "configured"
-            if "configured" in statuses.values()
-            else "unused",
+            (
+                "needs_review"
+                if mode == "needs_review"
+                else (
+                    "configured"
+                    if "configured" in statuses.values()
+                    else "unused"
+                )
+            ),
             statuses,
         )
         self.latest_result = MCPPluginUpgradeResult(
@@ -532,16 +524,18 @@ class MCPPluginCoordinator:
 
     def _explicit_descriptor(self, record):
         """Validate runtime ownership without requiring migration readiness."""
-        descriptor = self.loader.registry._driver_protocols.get("mcp")
+        state = self.loader.registry.describe_driver_protocol(
+            "mcp",
+            loader=self.loader,
+        )
         if (
             self.loader.get_loaded_plugin(PLUGIN_ID) is not record
-            or descriptor is None
-            or descriptor.owner.plugin_id != PLUGIN_ID
-            or descriptor.plugin._loader is not self.loader
+            or state is None
+            or state.plugin_id != PLUGIN_ID
+            or not state.active
         ):
             raise RuntimeError("MCP recovery runtime has changed")
-        descriptor.guard()
-        return descriptor
+        return state.registration
 
     def _publish_explicit_recovery(self, record):
         """Persist trusted explicit success before releasing admission."""
@@ -648,6 +642,34 @@ class MCPPluginCoordinator:
                     "MCP is active but workspace service recovery failed",
                 )
 
+    async def prepare_for_use(self, workspace_id=None):
+        """Prepare explicit demand without exposing coordinator bookkeeping."""
+        from .mcp.feature_gate import is_mcp_ready
+
+        if is_mcp_ready(self.loader, workspace_id):
+            return True
+        record = self.loader.get_loaded_plugin(PLUGIN_ID)
+        if record is not None and record.status == "failed":
+            return False
+        previous = self.latest_result
+        if previous is not None and previous.status in {
+            "failed",
+            "needs_review",
+        }:
+            return False
+        try:
+            await self.ensure_protocol("mcp")
+        except Exception:
+            logger.warning(
+                "Local MCP preparation failed; use official plugins",
+            )
+            return False
+        if workspace_id is not None:
+            workspace = self.loader.registry.get_driver_workspace(workspace_id)
+            if workspace is not None:
+                await self.check_workspace(workspace)
+        return is_mcp_ready(self.loader, workspace_id)
+
     async def ensure_protocol(self, protocol):
         if protocol != "mcp":
             return
@@ -750,11 +772,13 @@ class MCPPluginCoordinator:
                 publish_marker,
                 self.marker_path,
                 marker,
-                automatic="needs_review"
-                if decision.status == "needs_review"
-                else "completed"
-                if target
-                else "not_required",
+                automatic=(
+                    "needs_review"
+                    if decision.status == "needs_review"
+                    else "completed"
+                    if target
+                    else "not_required"
+                ),
                 workspaces=dict(decision.workspace_statuses),
             )
             return await self.restore(marker)
@@ -850,9 +874,9 @@ class MCPPluginCoordinator:
                 persist_plugin_settings,
                 PLUGIN_ID,
                 enabled=True,
-                config_path=Path(self.config_path)
-                if self.config_path
-                else None,
+                config_path=(
+                    Path(self.config_path) if self.config_path else None
+                ),
                 refuse_disabled=True,
             )
             # Preserve the original order: intent commits before activation.
@@ -901,13 +925,22 @@ class MCPPluginCoordinator:
         return row, off
 
 
-def get_coordinator(loader):
+def get_coordinator(loader=None):
+    if loader is None:
+        from ..plugins.registry import PluginRegistry
+
+        registry = PluginRegistry()
+        coordinator = registry.get_protocol_preparation()
+        if coordinator is not None:
+            return coordinator
+        loader = registry.driver_protocol_loader("mcp", plugin_id=PLUGIN_ID)
+        if loader is None:
+            return None
     coordinator = getattr(loader, "protocol_coordinator", None)
     if coordinator is None:
         coordinator = MCPPluginCoordinator(loader)
         loader.protocol_coordinator = coordinator
-        loader.registry.protocol_resolver = coordinator.ensure_protocol
-        loader.registry.protocol_eligibility = coordinator.eligible
+        loader.registry.register_protocol_preparation(coordinator)
     return coordinator
 
 
@@ -971,9 +1004,11 @@ async def prepare_startup_plugins(
     try:
         root = await asyncio.to_thread(
             _read_root,
-            Path(current.config_path)
-            if current.config_path
-            else get_config_path(),
+            (
+                Path(current.config_path)
+                if current.config_path
+                else get_config_path()
+            ),
         )
     except (OSError, ValueError):
         return result

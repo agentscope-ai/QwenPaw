@@ -447,12 +447,7 @@ class QwenPawACPAgent(Agent):
                 )
             from ...app.mcp_plugin_upgrade import get_coordinator
 
-            # Preparation just verified this descriptor, with no intervening await.
-            loader = (
-                self._mcp_loader
-                or registry._driver_protocols["mcp"].plugin._loader
-            )
-            coordinator = get_coordinator(loader)
+            coordinator = get_coordinator(self._mcp_loader)
             async with self._workspace_lock:
                 workspace = await self._workspace_candidate()
                 await coordinator.check_workspace(
@@ -461,7 +456,7 @@ class QwenPawACPAgent(Agent):
                     == "needs_review",
                 )
                 if not feature_gate.is_mcp_ready(
-                    loader,
+                    coordinator.loader,
                     agent_id,
                     workspace=workspace,
                 ):
@@ -729,14 +724,9 @@ class QwenPawACPAgent(Agent):
                 if loader.get_loaded_plugin("qwenpaw-mcp") is not None:
                     await loader.unload_plugin("qwenpaw-mcp")
                 registry = PluginRegistry()
-                resolver = getattr(
-                    registry.protocol_resolver,
-                    "__self__",
-                    None,
-                )
-                if getattr(resolver, "loader", None) is loader:
-                    registry.protocol_resolver = None
-                    registry.protocol_eligibility = None
+                coordinator = getattr(loader, "protocol_coordinator", None)
+                if coordinator is not None:
+                    registry.unregister_protocol_preparation(coordinator)
                 if registry.get_plugin_http_app() is self._mcp_http_app:
                     registry.set_plugin_http_app(None)
                 self._mcp_loader = None

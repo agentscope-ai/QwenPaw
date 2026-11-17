@@ -75,6 +75,9 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
     def watcher(self):
         return self._watcher
 
+    def is_protocol_suspended(self, protocol):
+        return protocol in self._inactive
+
     def _guard(self, *, allow_draining=False):
         if self._stopped:
             raise RuntimeError("Driver workspace service has stopped")
@@ -95,11 +98,11 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         ):
             return False
         # pylint: enable=not-callable
-        descriptor = self._registry._driver_protocols.get(protocol)
+        state = self._registry.describe_driver_protocol(protocol)
         return (
-            descriptor is not None
-            and not descriptor.revoked
-            and protocol not in self._inactive
+            state is not None
+            and not state.revoked
+            and not self.is_protocol_suspended(protocol)
         )
 
     async def start(self):
@@ -279,11 +282,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
 
     async def _check_protocol_workspace(self, protocol):
         if protocol == "mcp":
-            coordinator = getattr(
-                self._registry.protocol_eligibility,
-                "__self__",
-                None,
-            )
+            coordinator = self._registry.get_protocol_preparation()
             if coordinator is not None:
                 await coordinator.check_workspace(self._workspace)
 

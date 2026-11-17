@@ -5,7 +5,6 @@
 
 import logging
 
-from ...plugins.errors import SDKError
 from ...plugins.registry import PluginRegistry
 
 PLUGIN_ID = "qwenpaw-mcp"
@@ -29,36 +28,20 @@ class MCPUnavailableError(RuntimeError):
 def is_mcp_ready(loader=None, workspace_id=None, *, workspace=None) -> bool:
     """Read existing admission evidence, without I/O or dependency checks."""
     registry = loader.registry if loader is not None else PluginRegistry()
-    descriptor = registry._driver_protocols.get("mcp")
-    if descriptor is None or descriptor.owner.plugin_id != PLUGIN_ID:
-        return False
-    if loader is None:
-        loader = descriptor.plugin._loader
-    record = loader.get_loaded_plugin(PLUGIN_ID)
+    state = registry.describe_driver_protocol("mcp", loader=loader)
     if (
-        record is None
-        or not record.enabled
-        or record.status != "active"
-        or PLUGIN_ID in loader.startup_blocked_plugins
+        state is None
+        or state.plugin_id != PLUGIN_ID
+        or not state.active
+        or state.blocked
     ):
-        return False
-    try:
-        descriptor.guard()
-    except SDKError:
         return False
     eligibility = registry.protocol_eligibility
     if workspace_id is not None:
-        manager = registry.get_workspace_manager()
-        live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
-        workspace = (
-            workspace
-            or live.get(workspace_id)
-            or registry._stop_workspaces.get(
-                workspace_id,
-            )
-        )
+        workspace = workspace or registry.get_driver_workspace(workspace_id)
         service = getattr(workspace, "driver_manager", None)
-        if "mcp" in getattr(service, "_inactive", ()):
+        suspended = getattr(service, "is_protocol_suspended", None)
+        if suspended is not None and suspended("mcp"):
             return False
     return not (
         workspace_id is not None
@@ -79,32 +62,12 @@ async def prepare_mcp_for_use(loader=None, workspace_id=None) -> bool:
         return True
     from ..mcp_plugin_upgrade import get_coordinator
 
-    if loader is None:
-        resolver = PluginRegistry().protocol_resolver
-        loader = getattr(getattr(resolver, "__self__", None), "loader", None)
-    if loader is None:
-        return False
-    record = loader.get_loaded_plugin(PLUGIN_ID)
-    if record is not None and record.status == "failed":
-        return False
     coordinator = get_coordinator(loader)
-    previous = coordinator.latest_result
-    if previous is not None and previous.status in {"failed", "needs_review"}:
-        return False
-    try:
-        await coordinator.ensure_protocol("mcp")
-    except Exception:
-        # Do not turn a saved feature into a failed config write.
-        logger.warning("Local MCP preparation failed; use official plugins")
-        return False
-    if workspace_id is not None:
-        registry = loader.registry
-        manager = registry.get_workspace_manager()
-        live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
-        workspace = live.get(workspace_id)
-        if workspace is not None:
-            await coordinator.check_workspace(workspace)
-    return is_mcp_ready(loader, workspace_id)
+    return (
+        await coordinator.prepare_for_use(workspace_id)
+        if coordinator is not None
+        else False
+    )
 
 
 async def prepare_mcp_for_request(request, workspace_id) -> bool:
