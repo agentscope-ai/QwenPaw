@@ -18,6 +18,8 @@ from models.provider_tasks import note_provider_task
 from models.reference_audio import wan_voice_excerpt
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
+    VIDEO_REFERENCE_INLINE_LADDER,
+    downscale_image_to_budget,
     read_reference_media,
     reference_media_data_url,
     upload_local_file_to_dashscope_temp,
@@ -82,6 +84,53 @@ AUDIO_REFERENCE_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac"}
 _INLINE_MEDIA_BACKENDS = frozenset(
     {"seedance2", "veo", "minimax", "minimax_sglang", "kling", "vidu"},
 )
+
+# HappyHorse/Wan take media[].url as a public URL or a Base64 image up to
+# 20MB per image; a Token Plan key has no upload route to mint an oss:// URL,
+# so a local image reference inlines as Base64 under this ceiling.
+VIDEO_TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES = 20 * 1024 * 1024
+
+
+def _fit_token_plan_video_reference(
+    content: bytes,
+    filename: str,
+    model_name: str,
+) -> tuple[bytes, str]:
+    """Downscale an oversized local reference under the Token Plan ceiling.
+
+    Token Plan has no upload route, so inlining is the only channel a local
+    reference has; refusing an image the ladder can shrink would fail a
+    request the provider could have served. Unlike a VLM understanding call,
+    this reference is the visual basis of the generated video, hence the
+    higher-resolution ladder.
+
+    The re-encoded payload is JPEG whatever the source format was, so the
+    filename follows it: ``reference_media_data_url`` takes the MIME type
+    from the suffix first and would otherwise label JPEG bytes as PNG.
+    """
+    downscaled = downscale_image_to_budget(
+        content,
+        VIDEO_TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES,
+        ladder=VIDEO_REFERENCE_INLINE_LADDER,
+        label=filename,
+    )
+    if downscaled is None:
+        # Permanent: the bytes cannot shrink below the provider ceiling, so
+        # a retry burns backoff seconds on a request that cannot succeed.
+        raise ModelError(
+            "Token Plan 视频端点没有本地上传通道，参考图只能以 Base64 内联"
+            "且需小于 20MB；自动降采样后仍然超限（原图约 "
+            f"{len(content) / (1024 * 1024):.1f}MB，{filename}）。请换用更小"
+            "的图片或公网 HTTP(S) URL，或把视频模型切到百炼直连端点。",
+            model_name=model_name,
+            retryable=False,
+        )
+    logger.info(
+        "Downscaled an oversized Token Plan video reference | "
+        f"filename={filename}, before={len(content)}, "
+        f"after={len(downscaled)}",
+    )
+    return downscaled, f"{Path(filename).stem}.jpg"
 
 
 def _reference_media_kind(filename: str) -> str:
@@ -156,6 +205,37 @@ async def _resolve_reference_media_url(
             return url, kind
         kind = _reference_media_kind(filename)
         if backend == "wan":
+            if model_config.is_token_plan_endpoint(
+                model_config.get_video_base_url(),
+            ):
+                # A Token Plan key (sk-sp-) has no temporary-upload route:
+                # public dashscope uploads answer it 401 and the token-plan
+                # host serves no /api/v1/uploads (both measured). HappyHorse
+                # and Wan take media[].url as a public URL or a Base64 image
+                # (<=20MB), so inline an image; a local reference video or
+                # audio has no Base64 channel and must stay a public URL.
+                if kind != "image":
+                    raise ModelError(
+                        "Token Plan 视频端点没有本地上传通道，参考视频/音频"
+                        "只能用公网 HTTP(S) URL；请改用公网 URL，或把视频模型"
+                        "切到百炼直连端点后再用本地参考媒体。",
+                        model_name=model_name,
+                        retryable=False,
+                    )
+                content, filename = await read_reference_media(url)
+                if len(content) > VIDEO_TOKEN_PLAN_INLINE_IMAGE_MAX_BYTES:
+                    content, filename = _fit_token_plan_video_reference(
+                        content,
+                        filename,
+                        model_name,
+                    )
+                resolved_url = reference_media_data_url(content, filename)
+                logger.info(
+                    "Inlined Token Plan video reference as a data URL | "
+                    f"backend={backend}, filename={filename}, "
+                    f"bytes={len(content)}",
+                )
+                return resolved_url, kind
             media_type = (
                 mimetypes.guess_type(filename)[0] or "application/octet-stream"
             )

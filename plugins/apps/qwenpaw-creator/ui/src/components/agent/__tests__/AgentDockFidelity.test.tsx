@@ -1161,6 +1161,42 @@ describe("AgentDock public output and interactions", () => {
     }
     expect(row.textContent).toContain("随时可以继续创作");
   });
+
+  it("answers a proven-unfittable input without promising a resume", async () => {
+    // The runtime parked the run only after the demotion ladder had given up
+    // every byte it is allowed to move. Its text names handles and media
+    // counts nobody can act on, and the generic banner reads as "retry to
+    // continue" for a request that has nothing smaller left to become.
+    useAgentDockUiStore.getState().setOpen(true);
+    renderDock();
+    act(() =>
+      useCreatorSessionStore.setState({
+        session: {
+          id: "session-1",
+          projectId: "p1",
+          status: "ERROR",
+          lastMessageSeq: 2,
+          lastConsumedMessageSeq: 1,
+          lastEventSeq: 5,
+          error: {
+            code: "MODEL_CONTEXT_UNFIT",
+            message:
+              "Error code: 400: This model's maximum context length is " +
+              "32768 tokens.\n媒体降级记录：真人附件媒体 2 块（已存档 2 块）",
+            retryable: false,
+          },
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/可让出的内容已全部让出/)).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText(/maximum context length/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/媒体降级记录/)).not.toBeInTheDocument();
+  });
 });
 
 describe("safe provider failure messages", () => {
@@ -1199,5 +1235,75 @@ describe("safe provider failure messages", () => {
     );
     expect(generic).not.toBe(refusal);
     expect(generic).toBe(simplifyErrorMessage("unknown provider failure"));
+  });
+});
+
+describe("AgentDock older-history paging while replay is suppressed", () => {
+  beforeEach(() => {
+    seedCreatorSession();
+    useAgentDockUiStore.getState().setOpen(true);
+  });
+
+  const historyCalls = (calls: Array<{ url: string }>) =>
+    calls.filter((call) => call.url.includes("messages?before=")).length;
+
+  const routes: Parameters<typeof installMockFetch>[0] = [
+    {
+      match: "messages?before=",
+      response: {
+        json: {
+          items: [
+            msg({ messageId: "tail-4", messageSeq: 4, text: "更早的消息" }),
+          ],
+          nextBefore: null,
+        },
+      },
+    },
+    { match: "/specialist-runs", response: { json: { items: [] } } },
+    { match: "/tasks", response: { json: { items: [] } } },
+  ];
+
+  /** The state a dying EventSource leaves behind: replay never finished. */
+  const seedStuckReplay = (connectionState: "reconnecting" | "connected") =>
+    useCreatorSessionStore.setState({
+      messages: [msg({ messageId: "tail-5", messageSeq: 5 })],
+      hasMoreMessages: true,
+      isReplaying: true,
+      loadingOlder: false,
+      connectionState,
+    });
+
+  it("pages older history over HTTP when the event stream is unhealthy", async () => {
+    const { calls } = installMockFetch(routes);
+    seedStuckReplay("reconnecting");
+    renderDock();
+
+    fireEvent.click(
+      document.querySelector("[data-agent-history-sentinel] button")!,
+    );
+
+    await waitFor(() => expect(historyCalls(calls)).toBe(1));
+    await waitFor(() =>
+      expect(
+        useCreatorSessionStore
+          .getState()
+          .messages.map((item) => item.messageId),
+      ).toContain("tail-4"),
+    );
+  });
+
+  it("still holds the button back while a healthy replay is running", () => {
+    const { calls } = installMockFetch(routes);
+    seedStuckReplay("connected");
+    renderDock();
+
+    // The sentinel auto-load is what this guard protects: the viewport parks at
+    // the top during replay and would otherwise pull extra pages that fight the
+    // replay-end snap.
+    fireEvent.click(
+      document.querySelector("[data-agent-history-sentinel] button")!,
+    );
+
+    expect(historyCalls(calls)).toBe(0);
   });
 });
