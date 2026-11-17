@@ -4,7 +4,7 @@
 
 Install the pinned integration dependencies before running the contract::
 
-    python -m pip install reme-ai==0.4.2.0
+    python -m pip install reme-ai==0.4.2.3
     python -m pip install reme-auto-fin==0.1.3 reme-daily-paper==0.1.3
     python -m pytest tests/integration/test_reme_watch_contract.py
 """
