@@ -42,7 +42,7 @@ except ImportError:
 from agentscope.formatter import OpenAIResponseFormatter
 
 from .utils.message_request_normalizer import (
-    normalize_messages_for_model_request,
+    normalize_messages_for_model_request_async,
 )
 from .utils.image_freezing import MAX_SNAPSHOT_IMAGE_BYTES
 from ..exceptions import ProviderError, ModelFormatterError
@@ -663,7 +663,7 @@ def _prepared_task_result(
     return task.result()
 
 
-def _normalize_messages_for_formatter(
+async def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
@@ -704,7 +704,7 @@ def _normalize_messages_for_formatter(
     else:
         target_family = "openai"
 
-    normalized_msgs = normalize_messages_for_model_request(
+    normalized_msgs = await normalize_messages_for_model_request_async(
         msgs,
         supports_multimodal=supports_multimodal,
         target_family=target_family,
@@ -1936,7 +1936,7 @@ def _create_file_block_support_formatter(
                 is_anthropic_formatter,
                 _is_gemini_formatter,
                 _is_response_formatter,
-            ) = _normalize_messages_for_formatter(
+            ) = await _normalize_messages_for_formatter(
                 msgs,
                 base_formatter_class,
                 self,
