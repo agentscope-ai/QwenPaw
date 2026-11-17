@@ -116,18 +116,26 @@ async def prepare_mcp_for_request(request, workspace_id) -> bool:
     return await prepare_mcp_for_use(loader, workspace_id)
 
 
-async def reconcile_mcp_features(loader, plugin_id: str) -> None:
+async def reconcile_mcp_features(
+    loader,
+    plugin_id: str,
+    *,
+    record=None,
+) -> None:
     """Resume enabled host services after an explicit plugin commit.
 
     Protocol projection happens before activation commits, when background
     Mail work must still be denied. Host install/enable/config endpoints call
     this only after the existing lifecycle transaction has finished.
     """
-    if plugin_id != PLUGIN_ID or not is_mcp_ready(loader):
+    if plugin_id != PLUGIN_ID:
         return
     from ..mcp_plugin_upgrade import get_coordinator
 
+    coordinator = get_coordinator(loader)
+    if not await coordinator.reconcile_explicit(record):
+        return
     try:
-        await get_coordinator(loader).reconcile_explicit()
+        await coordinator._reconcile_live_workspaces(refresh=True)
     except Exception:
         logger.warning("MCP is active but workspace service recovery failed")

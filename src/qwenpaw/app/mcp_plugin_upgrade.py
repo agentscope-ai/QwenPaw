@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 from dataclasses import dataclass
@@ -13,7 +14,9 @@ from uuid import uuid4
 from ..plugins.install_receipts import (
     has_install_commit,
     plugin_tree_digest as _digest,
+    write_install_commit,
 )
+from ..plugins.safe_fs import same_location
 from .mcp_plugin_migration import (
     MCPPluginUpgradeResult,
     MCPUsageSnapshot,
@@ -32,6 +35,7 @@ from .mcp_plugin_state import (
 
 PLUGIN_ID = "qwenpaw-mcp"
 ORIGIN = ".plugin-install-origin.json"
+logger = logging.getLogger(__name__)
 
 
 def _read_root(path):
@@ -522,7 +526,9 @@ class MCPPluginCoordinator:
             record = await self.loader.lifecycle.set_enabled(PLUGIN_ID, True)
             if getattr(record, "status", None) != "active":
                 raise RuntimeError("MCP activation did not complete")
-            await self.reconcile_explicit()
+            from .mcp.feature_gate import reconcile_mcp_features
+
+            await reconcile_mcp_features(self.loader, PLUGIN_ID, record=record)
             return record
 
     @staticmethod
@@ -539,27 +545,51 @@ class MCPPluginCoordinator:
         ):
             raise ValueError("Unowned incomplete installation")
 
-    async def reconcile_explicit(self):
-        from .mcp.feature_gate import is_mcp_ready
+    def _explicit_descriptor(self, record):
+        """Validate runtime ownership without requiring migration readiness."""
+        descriptor = self.loader.registry._driver_protocols.get("mcp")
+        if (
+            self.loader.get_loaded_plugin(PLUGIN_ID) is not record
+            or descriptor is None
+            or descriptor.owner.plugin_id != PLUGIN_ID
+            or descriptor.plugin._loader is not self.loader
+        ):
+            raise RuntimeError("MCP recovery runtime has changed")
+        descriptor.guard()
+        return descriptor
 
-        if not is_mcp_ready(self.loader):
-            return
+    def _publish_explicit_recovery(self, record):
+        """Persist trusted explicit success before releasing admission."""
+        _, off = self._current_settings()
+        if off:
+            raise RuntimeError("MCP is disabled or uninstalled")
+        target = self.loader.find_installed_plugin_dir(PLUGIN_ID)
+        if target is None or not same_location(target, record.source_path):
+            raise ValueError("MCP recovery requires the installed source")
+        # Reuse the installer's containment check for symlinks/junctions.
+        self.loader._install_paths(PLUGIN_ID, target.parent)
+        committed = has_install_commit(target, PLUGIN_ID)
         try:
-            marker = await run_sync_io(_read_marker, self.marker_path)
+            marker = _read_marker(self.marker_path)
         except ValueError:
-            target = await run_sync_io(
-                self.loader.find_installed_plugin_dir,
-                PLUGIN_ID,
-            )
-            if target is None or not await run_sync_io(
-                has_install_commit,
-                target,
-                PLUGIN_ID,
-            ):
+            if not committed:
                 raise
             marker = None
-        marker = await run_sync_io(
-            publish_marker,
+        if not committed:
+            if (marker or {}).get("stage") in {"preparing", "files_committed"}:
+                self._validate_origin(target, marker)
+            elif (target / ORIGIN).exists() and not (marker or {}).get(
+                "transaction",
+            ):
+                raise ValueError("Unowned incomplete installation")
+            write_install_commit(target, PLUGIN_ID)
+        if (
+            automatic(marker) == "completed"
+            and (marker or {}).get("stage", "completed") == "completed"
+            and not marker.get("diagnostics")
+        ):
+            return marker
+        return publish_marker(
             self.marker_path,
             marker,
             recover_invalid=True,
@@ -567,13 +597,40 @@ class MCPPluginCoordinator:
             diagnostics=[],
             **({"stage": "completed"} if "stage" in (marker or {}) else {}),
         )
-        self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
-        self._result(marker)
-        await self._reconcile_live_workspaces(refresh=True)
+
+    async def reconcile_explicit(self, record=None):
+        from .mcp.feature_gate import is_mcp_ready
+
+        async with self.loader.plugin_lifecycle(PLUGIN_ID):
+            current = self.loader.get_loaded_plugin(PLUGIN_ID)
+            if record is not None and (
+                not record.enabled or record.status != "active"
+            ):
+                return False
+            if record is not None and record is not current:
+                raise RuntimeError("MCP recovery record has changed")
+            record = current
+            if (
+                record is None
+                or not record.enabled
+                or record.status != "active"
+            ):
+                return False
+            self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+            descriptor = self._explicit_descriptor(record)
+            marker = await run_sync_io(self._publish_explicit_recovery, record)
+            _, off = await run_sync_io(self._current_settings)
+            if off:
+                raise RuntimeError("MCP is disabled or uninstalled")
+            if self._explicit_descriptor(record) is not descriptor:
+                raise RuntimeError("MCP recovery generation has changed")
+            self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
+            self._result(marker)
+            return is_mcp_ready(self.loader)
 
     async def _reconcile_live_workspaces(self, *, refresh=False):
         """Reconcile existing facades without starting agents."""
-        _, off = await asyncio.to_thread(self._current_settings)
+        _, off = await run_sync_io(self._current_settings)
         if off:
             return
         manager = self.loader.registry.get_workspace_manager()
@@ -599,7 +656,12 @@ class MCPPluginCoordinator:
                 continue
             # The facade rechecks exact workspace identity before activation
             # and retains cleanup ownership if retirement races this call.
-            await service.activate_protocol("mcp")
+            try:
+                await service.activate_protocol("mcp")
+            except Exception:
+                logger.warning(
+                    "MCP is active but workspace service recovery failed",
+                )
 
     async def ensure_protocol(self, protocol):
         if protocol != "mcp":

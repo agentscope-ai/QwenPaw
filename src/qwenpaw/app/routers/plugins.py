@@ -424,7 +424,7 @@ async def _load_plugin_with_optional_force_reinstall(
 
     from ..mcp.feature_gate import reconcile_mcp_features
 
-    await reconcile_mcp_features(loader, record.manifest.id)
+    await reconcile_mcp_features(loader, record.manifest.id, record=record)
     return record
 
 
@@ -924,7 +924,7 @@ async def repair_plugin_dependencies(plugin_id: str, request: Request):
         record = await loader.repair_dependencies(plugin_id)
         from ..mcp.feature_gate import reconcile_mcp_features
 
-        await reconcile_mcp_features(loader, plugin_id)
+        await reconcile_mcp_features(loader, plugin_id, record=record)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (DependencyUpgradeRequired, SharedDependencyError) as exc:
@@ -1168,7 +1168,7 @@ async def set_plugin_enabled(
         record = await loader.lifecycle.set_enabled(plugin_id, True)
         from ..mcp.feature_gate import reconcile_mcp_features
 
-        await reconcile_mcp_features(loader, plugin_id)
+        await reconcile_mcp_features(loader, plugin_id, record=record)
         return {
             "id": plugin_id,
             "enabled": bool(getattr(record, "enabled", False))
