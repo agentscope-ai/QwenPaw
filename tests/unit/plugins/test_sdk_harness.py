@@ -224,11 +224,11 @@ async def test_offline_migration_prepares_saved_harness_without_execution(
         await host._workspace("default")
         workspace = await host._workspace("legacy")
         agent_path = workspace.workspace_dir / "agent.json"
-        agent = json.loads(agent_path.read_text())
+        agent = json.loads(agent_path.read_text(encoding="utf-8"))
         agent.update(backend="codex", backend_settings={"model": "saved"})
         agent_path.write_text(json.dumps(agent), encoding="utf-8")
         config_path = host.root / "config.json"
-        config = json.loads(config_path.read_text())
+        config = json.loads(config_path.read_text(encoding="utf-8"))
         config.setdefault("plugins", {})["qwenpaw-harness-codex"] = {
             "enabled": False,
         }
