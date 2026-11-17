@@ -21,7 +21,7 @@ _RECOVERY_CODES = {
 }
 
 
-def _recovery_state(loader, request, config):
+def _recovery_state(loader, request, config, *, workspace_status=None):
     coordinator = getattr(loader, "protocol_coordinator", None)
     result = getattr(coordinator, "latest_result", None)
     if result is None:
@@ -32,7 +32,10 @@ def _recovery_state(loader, request, config):
         or config.agents.active_agent
         or "default"
     )
-    status = result.decision.workspace_statuses.get(agent_id, "unused")
+    status = workspace_status or result.decision.workspace_statuses.get(
+        agent_id,
+        "unused",
+    )
     codes = [code for code in result.diagnostics if code in _RECOVERY_CODES]
     # Workspace-specific uncertainty must not mark a healthy sibling blocked.
     diagnostics = [code for code in codes if code != "workspace_needs_review"]
@@ -44,7 +47,9 @@ def _recovery_state(loader, request, config):
         "workspace": {
             "id": agent_id,
             "status": status,
-            "eligible": coordinator.eligible(agent_id, "mcp"),
+            "eligible": coordinator.root_valid
+            and PLUGIN_ID not in loader.startup_blocked_plugins
+            and status != "needs_review",
             "diagnostics": workspace_codes,
         },
     }, list(dict.fromkeys([*diagnostics, *workspace_codes]))
@@ -101,7 +106,37 @@ async def plugin_state(request):
     )
     if status not in {"not_installed", "disabled", "active", "failed"}:
         status = "inactive"
-    recovery, diagnostics = _recovery_state(loader, request, config)
+    agent_id = (
+        getattr(request.state, "agent_id", None)
+        or request.headers.get("X-Agent-Id")
+        or config.agents.active_agent
+        or "default"
+    )
+    manager = loader.registry.get_workspace_manager() if loader else None
+    live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
+    workspace = live.get(agent_id)
+    workspace_status = getattr(workspace, "_mcp_usage_status", None)
+    if workspace_status is None:
+        # A settings page may inspect a dormant agent without starting it.
+        from ..mcp_plugin_upgrade import _workspace_evidence
+        from ..mcp_plugin_migration import MCPUsageSnapshot, classify_mcp_usage
+
+        profile = config.agents.profiles.get(agent_id)
+        if profile is not None:
+            snapshot = await asyncio.to_thread(
+                _workspace_evidence,
+                agent_id,
+                Path(profile.workspace_dir),
+            )
+            workspace_status = classify_mcp_usage(
+                MCPUsageSnapshot((snapshot,)),
+            ).status
+    recovery, diagnostics = _recovery_state(
+        loader,
+        request,
+        config,
+        workspace_status=workspace_status,
+    )
     if getattr(record, "status", None) == "failed":
         diagnostics.append("plugin_runtime_failed")
     elif getattr(record, "diagnostics", None):
@@ -112,13 +147,9 @@ async def plugin_state(request):
         "enabled": enabled,
         "status": status,
         "diagnostics": diagnostics,
-        "available": is_mcp_ready(
-            loader,
-            getattr(request.state, "agent_id", None)
-            or request.headers.get("X-Agent-Id")
-            or config.agents.active_agent
-            or "default",
-        ),
+        "available": is_mcp_ready(loader, agent_id)
+        if workspace is not None
+        else is_mcp_ready(loader) and workspace_status != "needs_review",
         "official_plugins_path": OFFICIAL_PLUGIN_PATH,
         **recovery,
     }

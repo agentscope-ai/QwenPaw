@@ -416,10 +416,20 @@ class MultiAgentManager:
             logger.debug(
                 f"Creating new workspace: {sanitize_log_value(agent_id)}",
             )
+            from .mcp_plugin_upgrade import (
+                capture_workspace_usage,
+                bind_workspace_usage,
+            )
+
+            usage = await capture_workspace_usage(
+                agent_id,
+                agent_ref.workspace_dir,
+            )
             instance = self._create_workspace(
                 agent_id=agent_id,
                 workspace_dir=agent_ref.workspace_dir,
             )
+            bind_workspace_usage(instance, usage)
             instance.cron_start_paused = True
             instance.set_manager(self)
             await instance.start()
@@ -1125,10 +1135,21 @@ class MultiAgentManager:
         logger.info(
             f"Creating new workspace instance: {sanitize_log_value(agent_id)}",
         )
+        from .mcp_plugin_upgrade import (
+            capture_workspace_usage,
+            bind_workspace_usage,
+        )
+
+        usage = await capture_workspace_usage(
+            agent_id,
+            agent_ref.workspace_dir,
+        )
         new_instance = self._create_workspace(
             agent_id=agent_id,
             workspace_dir=agent_ref.workspace_dir,
         )
+
+        bind_workspace_usage(new_instance, usage)
 
         # Until the atomic swap commits, this manager exclusively owns the
         # candidate and must stop it on every exit path.

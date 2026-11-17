@@ -34,6 +34,7 @@ from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..utils.daily_telemetry import start_daily_telemetry
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
     add_project_file_handler,
@@ -263,13 +264,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
-    from .mcp_plugin_migration import (
-        inventory_mcp_usage,
-        validate_mcp_upgrade_preflight,
-    )
+    from .mcp_plugin_upgrade import read_startup_migration
 
-    mcp_upgrade_snapshot = await asyncio.to_thread(inventory_mcp_usage)
-    validate_mcp_upgrade_preflight(mcp_upgrade_snapshot)
+    mcp_startup = await run_sync_io(read_startup_migration)
 
     auto_register_from_env()
     check_proxy_config_sanity()
@@ -598,7 +595,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 plugin_loader,
                 workspace_registry,
                 app=app,
-                snapshot=mcp_upgrade_snapshot,
+                startup=mcp_startup,
             )
             try:
                 seed_errors = await provision_bundled_channels(plugin_loader)

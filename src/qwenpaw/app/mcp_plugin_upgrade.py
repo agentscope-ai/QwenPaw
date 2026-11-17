@@ -6,8 +6,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 from pathlib import Path
+from dataclasses import dataclass
 from uuid import uuid4
 
 from ..plugins.install_receipts import (
@@ -17,12 +17,20 @@ from ..plugins.install_receipts import (
 from .mcp_plugin_migration import (
     MCPPluginUpgradeResult,
     MCPUsageSnapshot,
+    MCPUsageDecision,
     MCPWorkspaceSnapshot,
     classify_mcp_usage,
 )
 
+from ..utils.io_utils import run_sync_io
+from .mcp_plugin_state import (
+    MARKER,
+    automatic,
+    publish_marker,
+    read_marker as _read_marker,
+)
+
 PLUGIN_ID = "qwenpaw-mcp"
-MARKER = ".mcp-plugin-migration.json"
 ORIGIN = ".plugin-install-origin.json"
 
 
@@ -192,35 +200,128 @@ def get_optional_mcp_plugin_dir():
     )
 
 
-def _read_marker(path):
+@dataclass(frozen=True)
+class StartupMigration:
+    config_path: str
+    marker: dict | None
+    snapshot: MCPUsageSnapshot | None = None
+    diagnostics: tuple[str, ...] = ()
+
+
+def read_startup_migration(*, config_path=None, plugins_dir=None):
+    """Inspect the small decision before any host configuration conversion."""
+    from ..config.utils import get_config_path, get_plugins_dir
+    from .mcp_plugin_migration import validate_mcp_upgrade_preflight
+
+    config_path = Path(config_path) if config_path else get_config_path()
+    plugins_dir = Path(plugins_dir) if plugins_dir else get_plugins_dir()
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
+        root = _read_root(config_path)
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            "Root configuration requires review before startup",
+        ) from exc
+    if "mcp" in root and root.get("agents", {}).get("profiles") is None:
+        legacy = MCPWorkspaceSnapshot("default", {"mcp": root["mcp"]})
+        if (
+            classify_mcp_usage(MCPUsageSnapshot((legacy,))).status
+            == "needs_review"
+        ):
+            raise RuntimeError(
+                "Root configuration requires review before startup",
+            )
+    settings = root.get("plugins", {}).get(PLUGIN_ID)
+    if settings is not None and (
+        not isinstance(settings, dict)
+        or ("enabled" in settings and type(settings["enabled"]) is not bool)
+    ):
+        return StartupMigration(
+            str(config_path),
+            None,
+            diagnostics=("invalid_plugin_settings",),
+        )
+    try:
+        marker = _read_marker(plugins_dir / MARKER)
+    except (OSError, ValueError):
+        return StartupMigration(
+            str(config_path),
+            None,
+            diagnostics=("invalid_upgrade_record",),
+        )
+    snapshot = None
+    if marker is None:
+        snapshot = inventory_mcp_usage(
+            config_path=config_path,
+            plugins_dir=plugins_dir,
+        )
+        validate_mcp_upgrade_preflight(snapshot)
+    return StartupMigration(str(config_path), marker, snapshot)
+
+
+def _workspace_evidence(workspace_id, directory, config_path=None):
+    """Check the target's raw profile as well as its own files."""
+    from ..config.utils import get_config_path
+
+    snapshot = _workspace_snapshot(workspace_id, Path(directory))
+    try:
+        root = _read_root(
+            Path(config_path) if config_path else get_config_path(),
+        )
+        profile = root.get("agents", {}).get("profiles", {}).get(workspace_id)
+        invalid = profile is not None and (
+            not isinstance(profile, dict)
+            or profile.get("id", workspace_id) != workspace_id
+            or not isinstance(profile.get("workspace_dir"), str)
+            or not profile["workspace_dir"].strip()
+        )
+    except (OSError, ValueError):
+        invalid = True
+    if invalid:
+        return MCPWorkspaceSnapshot(
+            workspace_id,
+            snapshot.config,
+            snapshot.cards,
+            snapshot.errors + ("invalid_profile",),
+        )
+    return snapshot
+
+
+async def capture_workspace_usage(workspace_id, directory):
+    """Capture before bootstrap can hydrate or rewrite an agent's raw input."""
+    from ..plugins.registry import PluginRegistry
+
+    if PluginRegistry().protocol_eligibility is None:
         return None
-    if not isinstance(value, dict) or not all(
-        isinstance(value.get(key), expected)
-        for key, expected in {
-            "transaction": str,
-            "digest": str,
-            "version": str,
-            "workspaces": dict,
-        }.items()
-    ):
-        raise ValueError("Invalid MCP upgrade record")
-    valid_header = (
-        type(value.get("schema")) is int
-        and value["schema"] == 1
-        and value.get("stage") in ("preparing", "files_committed", "completed")
-        and re.fullmatch(r"[a-f0-9]{32}", value["transaction"])
-        and re.fullmatch(r"[a-f0-9]{64}", value["digest"])
+    coordinator = getattr(
+        PluginRegistry().protocol_eligibility,
+        "__self__",
+        None,
     )
-    if not valid_header or not all(
-        isinstance(key, str)
-        and status in ("unused", "configured", "needs_review")
-        for key, status in value["workspaces"].items()
+    snapshot = await run_sync_io(
+        _workspace_evidence,
+        workspace_id,
+        directory,
+        getattr(coordinator, "config_path", None),
+    )
+    previous = getattr(coordinator, "initial_evidence", {}).pop(
+        workspace_id,
+        None,
+    )
+    if (
+        previous is not None
+        and classify_mcp_usage(MCPUsageSnapshot((previous,))).status
+        == "needs_review"
     ):
-        raise ValueError("Invalid MCP upgrade record")
-    return value
+        return previous
+    return snapshot
+
+
+def bind_workspace_usage(workspace, snapshot):
+    if snapshot is not None:
+        workspace._mcp_usage_snapshot = snapshot
+        workspace._mcp_usage_status = classify_mcp_usage(
+            MCPUsageSnapshot((snapshot,)),
+        ).status
 
 
 class MCPPluginCoordinator:
@@ -232,65 +333,245 @@ class MCPPluginCoordinator:
         self.workspace_statuses = {}
         self.root_valid = True
         self.latest_result = None
+        self.initial_evidence = {}
 
-    def eligible(self, workspace_id, protocol):
-        return protocol != "mcp" or (
+    @property
+    def marker_path(self):
+        return self.loader.plugin_dirs[0] / MARKER
+
+    def eligible(self, workspace_id, protocol, *, workspace=None):
+        if protocol != "mcp":
+            return True
+        if workspace is None:
+            manager = self.loader.registry.get_workspace_manager()
+            live = getattr(
+                manager,
+                "agents",
+                getattr(manager, "workspaces", {}),
+            )
+            workspace = live.get(
+                workspace_id,
+            ) or self.loader.registry._stop_workspaces.get(workspace_id)
+        return (
             self.root_valid
             and PLUGIN_ID not in self.loader.startup_blocked_plugins
-            and self.workspace_statuses.get(workspace_id) != "needs_review"
+            and workspace is not None
+            and getattr(workspace, "_mcp_usage_status", "needs_review")
+            != "needs_review"
         )
 
-    async def install_explicitly(self):
-        """Retry offline installation, then refresh saved recovery evidence."""
-        async with self.loader.plugin_lifecycle(PLUGIN_ID):
-            snapshot = await asyncio.to_thread(
-                inventory_mcp_usage,
-                config_path=self.config_path,
-                plugins_dir=self.loader.plugin_dirs[0],
+    async def check_workspace(self, workspace, *, refresh=False):
+        if refresh or not hasattr(workspace, "_mcp_usage_status"):
+            snapshot = await run_sync_io(
+                _workspace_evidence,
+                workspace.agent_id,
+                workspace.workspace_dir,
+                self.config_path,
             )
-            try:
-                installed = await asyncio.to_thread(
-                    self.loader.find_installed_plugin_dir,
-                    PLUGIN_ID,
-                )
-                if installed is None:
-                    source = get_optional_mcp_plugin_dir()
-                    _, manifest = await asyncio.to_thread(
-                        self.loader.read_source_manifest,
-                        source,
-                    )
-                    if manifest.id != PLUGIN_ID:
-                        raise ValueError("Invalid optional MCP resource")
-                    await self.loader.install_plugin_files(
-                        source,
-                        allow_install=False,
-                        user_requested=True,
-                    )
-                record = self.loader.get_loaded_plugin(PLUGIN_ID)
-                if record is not None and record.status == "failed":
-                    await self.loader.lifecycle.reload(PLUGIN_ID)
-                record = await self.loader.lifecycle.set_enabled(
-                    PLUGIN_ID,
-                    True,
-                )
-                snapshot = await asyncio.to_thread(
-                    inventory_mcp_usage,
-                    config_path=self.config_path,
-                    plugins_dir=self.loader.plugin_dirs[0],
-                )
-                result = await self._ensure_owned(snapshot)
-                await self._reconcile_live_workspaces()
-                self.latest_result = result
-                return record
-            except Exception:
-                self.latest_result = MCPPluginUpgradeResult(
-                    "failed",
-                    classify_mcp_usage(snapshot),
-                    ("offline_upgrade_failed_check_dependencies_and_storage",),
-                )
-                raise
+            bind_workspace_usage(workspace, snapshot)
+        # Preserved pre-conversion errors must not disappear during hydration.
+        return self.eligible(workspace.agent_id, "mcp", workspace=workspace)
 
-    async def _reconcile_live_workspaces(self):
+    def _result(self, marker, *, status=None, diagnostics=()):
+        statuses = (marker or {}).get("workspaces", {})
+        mode = automatic(marker)
+        decision = MCPUsageDecision(
+            "needs_review"
+            if mode == "needs_review"
+            else "configured"
+            if "configured" in statuses.values()
+            else "unused",
+            statuses,
+        )
+        self.latest_result = MCPPluginUpgradeResult(
+            status
+            or {
+                "attempted": "failed",
+                "needs_review": "needs_review",
+                "completed": "unchanged",
+            }.get(mode, "skipped"),
+            decision,
+            tuple(diagnostics or (marker or {}).get("diagnostics", ())),
+        )
+        return self.latest_result
+
+    async def restore(self, marker, *, diagnostics=()):
+        """Restore decisions only; ordinary plugin loading owns runtime health."""
+        # Startup snapshots never authorize a later directory publication.
+        observed = marker
+        diagnostics = ()
+        try:
+            _, off = await run_sync_io(self._current_settings)
+        except (OSError, ValueError):
+            off = False
+            diagnostics = ("invalid_plugin_settings",)
+        try:
+            marker = await run_sync_io(_read_marker, self.marker_path)
+            if observed is not None and marker is None:
+                diagnostics = diagnostics or ("invalid_upgrade_record",)
+        except (OSError, ValueError):
+            marker = None
+            diagnostics = diagnostics or ("invalid_upgrade_record",)
+        if off:
+            self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+            return self._result(marker, status="skipped")
+        target = await run_sync_io(
+            self.loader.find_installed_plugin_dir,
+            PLUGIN_ID,
+        )
+        if diagnostics:
+            if (
+                diagnostics == ("invalid_upgrade_record",)
+                and target is not None
+                and await run_sync_io(has_install_commit, target, PLUGIN_ID)
+            ):
+                marker = await run_sync_io(
+                    publish_marker,
+                    self.marker_path,
+                    None,
+                    recover_invalid=True,
+                    automatic="completed",
+                )
+            else:
+                self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+                return self._result(
+                    marker,
+                    status="needs_review",
+                    diagnostics=diagnostics,
+                )
+        if (
+            automatic(marker) in (None, "not_required")
+            and target is not None
+            and await run_sync_io((target / ORIGIN).exists)
+            and not await run_sync_io(has_install_commit, target, PLUGIN_ID)
+        ):
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="needs_review",
+                diagnostics=["orphaned_installation_record"],
+            )
+        if automatic(marker) in {"attempted", "needs_review"}:
+            if target is None or not await run_sync_io(
+                has_install_commit,
+                target,
+                PLUGIN_ID,
+            ):
+                self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+                return self._result(marker)
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="completed",
+                diagnostics=[],
+            )
+        elif automatic(marker) == "not_required" and target is not None:
+            if await run_sync_io(has_install_commit, target, PLUGIN_ID):
+                marker = await run_sync_io(
+                    publish_marker,
+                    self.marker_path,
+                    marker,
+                    automatic="completed",
+                    diagnostics=[],
+                )
+        if target is None:
+            # A directory appearing after this check must not enter discovery.
+            self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+        else:
+            self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
+        return self._result(marker)
+
+    async def install_explicitly(self):
+        """Use the existing explicit installer and reconcile only committed work."""
+        async with self.loader.plugin_lifecycle(PLUGIN_ID):
+            try:
+                marker = await run_sync_io(_read_marker, self.marker_path)
+            except ValueError:
+                marker = await run_sync_io(
+                    publish_marker,
+                    self.marker_path,
+                    None,
+                    recover_invalid=True,
+                    automatic="attempted",
+                )
+            installed = await run_sync_io(
+                self.loader.find_installed_plugin_dir,
+                PLUGIN_ID,
+            )
+            if installed is not None and (marker or {}).get("stage") in {
+                "preparing",
+                "files_committed",
+            }:
+                if not await run_sync_io(
+                    has_install_commit,
+                    installed,
+                    PLUGIN_ID,
+                ):
+                    await run_sync_io(self._validate_origin, installed, marker)
+            if installed is None:
+                await self.loader.install_plugin_files(
+                    get_optional_mcp_plugin_dir(),
+                    allow_install=False,
+                    user_requested=True,
+                )
+            record = self.loader.get_loaded_plugin(PLUGIN_ID)
+            if record is not None and record.status == "failed":
+                await self.loader.lifecycle.reload(PLUGIN_ID)
+            record = await self.loader.lifecycle.set_enabled(PLUGIN_ID, True)
+            if getattr(record, "status", None) != "active":
+                raise RuntimeError("MCP activation did not complete")
+            await self.reconcile_explicit()
+            return record
+
+    @staticmethod
+    def _validate_origin(target, marker):
+        origin = json.loads((target / ORIGIN).read_text())
+        if (
+            origin
+            != {
+                "schema": 1,
+                "transaction": marker["transaction"],
+                "digest": marker["digest"],
+            }
+            or _digest(target) != marker["digest"]
+        ):
+            raise ValueError("Unowned incomplete installation")
+
+    async def reconcile_explicit(self):
+        from .mcp.feature_gate import is_mcp_ready
+
+        if not is_mcp_ready(self.loader):
+            return
+        try:
+            marker = await run_sync_io(_read_marker, self.marker_path)
+        except ValueError:
+            target = await run_sync_io(
+                self.loader.find_installed_plugin_dir,
+                PLUGIN_ID,
+            )
+            if target is None or not await run_sync_io(
+                has_install_commit,
+                target,
+                PLUGIN_ID,
+            ):
+                raise
+            marker = None
+        marker = await run_sync_io(
+            publish_marker,
+            self.marker_path,
+            marker,
+            recover_invalid=True,
+            automatic="completed",
+            diagnostics=[],
+            **({"stage": "completed"} if "stage" in (marker or {}) else {}),
+        )
+        self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
+        self._result(marker)
+        await self._reconcile_live_workspaces(refresh=True)
+
+    async def _reconcile_live_workspaces(self, *, refresh=False):
         """Reconcile existing facades without starting agents."""
         _, off = await asyncio.to_thread(self._current_settings)
         if off:
@@ -302,7 +583,12 @@ class MCPPluginCoordinator:
             getattr(manager, "workspaces", {}),
         )
         for workspace in tuple(workspaces.values()):
-            if not self.eligible(workspace.agent_id, "mcp"):
+            await self.check_workspace(workspace, refresh=refresh)
+            if not self.eligible(
+                workspace.agent_id,
+                "mcp",
+                workspace=workspace,
+            ):
                 continue
             service = getattr(workspace, "driver_manager", None)
             if not hasattr(service, "activate_protocol") or getattr(
@@ -325,119 +611,230 @@ class MCPPluginCoordinator:
         async with self.loader.plugin_lifecycle(PLUGIN_ID):
             if is_mcp_ready(self.loader):
                 return
-            await self._ensure_protocol_owned()
+            try:
+                await self._ensure_protocol_owned()
+            except Exception:
+                self._failed()
+
+    def _failed(self):
+        self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+        return self._result(
+            None,
+            status="failed",
+            diagnostics=(
+                "offline_upgrade_failed_check_dependencies_and_storage",
+            ),
+        )
 
     async def _ensure_protocol_owned(self):
-        """Local preparation, serialized without creating a child lock owner."""
-        snapshot = await asyncio.to_thread(
-            inventory_mcp_usage,
-            config_path=self.config_path,
-            plugins_dir=self.loader.plugin_dirs[0],
+        marker = await run_sync_io(_read_marker, self.marker_path)
+        row, off = await run_sync_io(self._current_settings)
+        if off:
+            return
+        restored = await self.restore(marker)
+        if restored.status in {"failed", "needs_review"}:
+            return
+        row, off = await run_sync_io(self._current_settings)
+        if off:
+            return
+        # Receipt reconciliation may have published a new revision.
+        marker = await run_sync_io(_read_marker, self.marker_path)
+        target = await run_sync_io(
+            self.loader.find_installed_plugin_dir,
+            PLUGIN_ID,
         )
-        # A nonempty transient request is itself evidence. Preserve every
-        # existing workspace decision and explicit saved plugin intent.
-        if classify_mcp_usage(snapshot).status == "unused":
-            snapshot = MCPUsageSnapshot(
-                snapshot.workspaces
-                + (
-                    MCPWorkspaceSnapshot(
-                        "__request__",
-                        {
-                            "mcp": {
-                                "clients": {
-                                    "request": {
-                                        "name": "request",
-                                        "command": "request",
-                                    },
-                                },
-                            },
-                        },
-                    ),
-                ),
-                snapshot.plugin_settings,
-                snapshot.plugin_uninstalled,
-                snapshot.config_path,
-            )
-        result = await self.ensure(snapshot)
-        if result.status in {"installed", "unchanged"}:
-            async with self.loader.plugin_lifecycle(PLUGIN_ID):
-                _, off = await asyncio.to_thread(self._current_settings)
-                if not off:
-                    await self.loader.activate_plugin_unlocked(PLUGIN_ID)
-                    await self._reconcile_live_workspaces()
+        if target is None:
+            if automatic(marker) not in (None, "not_required"):
+                return
+            # The real request itself establishes demand, without scanning peers.
+            decision = MCPUsageDecision("configured", {})
+            await self._install_once(marker, decision)
+        else:
+            await self._load_installed(target, row)
+            if automatic(marker) in (None, "not_required"):
+                marker = await run_sync_io(
+                    publish_marker,
+                    self.marker_path,
+                    marker,
+                    automatic="completed",
+                )
+        from .mcp.feature_gate import is_mcp_ready
+
+        if is_mcp_ready(self.loader):
+            await self._reconcile_live_workspaces()
 
     async def ensure(self, snapshot):
         async with self.loader.plugin_lifecycle(PLUGIN_ID):
-            self.latest_result = await self._ensure_owned(snapshot)
-            return self.latest_result
+            try:
+                return await self._ensure_snapshot(snapshot)
+            except Exception:
+                return self._failed()
 
-    async def _ensure_owned(self, snapshot):
+    async def _ensure_snapshot(self, snapshot):
         self.config_path = snapshot.config_path or self.config_path
         decision = classify_mcp_usage(snapshot)
         self.workspace_statuses = dict(decision.workspace_statuses)
+        self.initial_evidence = {
+            item.workspace_id: item for item in snapshot.workspaces
+        }
         self.root_valid = "__root__" not in self.workspace_statuses
-        self.loader.startup_blocked_plugins.add(PLUGIN_ID)
-        try:
-            marker = await asyncio.to_thread(
-                _read_marker,
-                self.loader.plugin_dirs[0] / MARKER,
+        marker = await run_sync_io(_read_marker, self.marker_path)
+        if marker is not None:
+            return await self.restore(marker)
+        target = await run_sync_io(
+            self.loader.find_installed_plugin_dir,
+            PLUGIN_ID,
+        )
+        if (
+            target is not None
+            and await run_sync_io((target / ORIGIN).exists)
+            and not await run_sync_io(has_install_commit, target, PLUGIN_ID)
+        ):
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="needs_review",
+                workspaces=dict(decision.workspace_statuses),
+                diagnostics=["orphaned_installation_record"],
             )
-            installed = await asyncio.to_thread(
-                self.loader.find_installed_plugin_dir,
-                PLUGIN_ID,
-            )
-            if (
-                marker is None
-                and installed is not None
-                and await asyncio.to_thread((installed / ORIGIN).exists)
-                and not await asyncio.to_thread(
-                    has_install_commit,
-                    installed,
-                    PLUGIN_ID,
-                )
-            ):
-                return MCPPluginUpgradeResult(
-                    "needs_review",
-                    decision,
-                    ("orphaned_installation_record",),
-                )
-        except (OSError, ValueError):
-            return MCPPluginUpgradeResult(
-                "needs_review",
-                decision,
-                ("invalid_upgrade_record",),
-            )
+            return await self.restore(marker)
         if decision.status in {"unused", "explicit_off", "needs_review"}:
-            if decision.status == "unused":
-                if installed and (
-                    marker is None
-                    or marker["stage"] == "completed"
-                    or await asyncio.to_thread(
-                        has_install_commit,
-                        installed,
-                        PLUGIN_ID,
-                    )
-                ):
-                    self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
-            return MCPPluginUpgradeResult(
-                "needs_review"
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="needs_review"
                 if decision.status == "needs_review"
-                else "skipped",
-                decision,
-                decision.reasons,
+                else "completed"
+                if target
+                else "not_required",
+                workspaces=dict(decision.workspace_statuses),
             )
+            return await self.restore(marker)
+        if target is not None:
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                automatic="completed",
+                workspaces=dict(decision.workspace_statuses),
+            )
+            return await self.restore(marker)
+        return await self._install_once(marker, decision)
+
+    async def _load_installed(self, target, row, *, activate=True):
+        from ..plugins.settings import runtime_config
+
+        _, manifest = await run_sync_io(
+            self.loader.read_source_manifest,
+            target,
+        )
+        record = await self.loader.load_plugin(
+            manifest,
+            target,
+            runtime_config(row),
+            allow_install=False,
+            activate=False,
+        )
+        if record.status == "failed":
+            raise RuntimeError(
+                "Optional MCP dependencies or registration unavailable",
+            )
+        if activate:
+            await self.loader.activate_plugin_unlocked(PLUGIN_ID)
+        return record
+
+    async def _install_once(self, marker, decision):
+        from ..plugins.settings import persist_plugin_settings
+
+        self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+        marker = await run_sync_io(
+            publish_marker,
+            self.marker_path,
+            marker,
+            automatic="attempted",
+            workspaces=dict(decision.workspace_statuses),
+        )
         try:
-            result = await self._ensure_locked(snapshot, decision)
-            if result.status in {"installed", "unchanged"}:
-                self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
-            return result
-        except Exception:
-            # Parser, dependency and filesystem errors may contain secrets.
-            return MCPPluginUpgradeResult(
-                "failed",
-                decision,
-                ("offline_upgrade_failed_check_dependencies_and_storage",),
+            source = get_optional_mcp_plugin_dir()
+            _, manifest = await run_sync_io(
+                self.loader.read_source_manifest,
+                source,
             )
+            if manifest.id != PLUGIN_ID:
+                raise ValueError("Invalid optional MCP resource")
+            digest = await run_sync_io(_digest, source)
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                transaction=uuid4().hex,
+                digest=digest,
+                version=manifest.version,
+                stage="preparing",
+            )
+            _, off = await run_sync_io(self._current_settings)
+            if off:
+                return self._result(marker, status="skipped")
+            await self.loader.install_plugin_files(
+                source,
+                allow_install=False,
+                user_requested=False,
+                install_origin={
+                    "schema": 1,
+                    "transaction": marker["transaction"],
+                    "digest": digest,
+                },
+            )
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                stage="files_committed",
+            )
+            row, off = await run_sync_io(self._current_settings)
+            if off:
+                return self._result(marker, status="skipped")
+            await self._load_installed(
+                self.loader.plugin_dirs[0] / PLUGIN_ID,
+                row,
+                activate=False,
+            )
+            await run_sync_io(
+                persist_plugin_settings,
+                PLUGIN_ID,
+                enabled=True,
+                config_path=Path(self.config_path)
+                if self.config_path
+                else None,
+                refuse_disabled=True,
+            )
+            # Preserve the original order: intent commits before activation.
+            self.loader.startup_blocked_plugins.discard(PLUGIN_ID)
+            await self.loader.activate_plugin_unlocked(PLUGIN_ID)
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                stage="completed",
+                automatic="completed",
+            )
+            return self._result(marker, status="installed")
+        except Exception:
+            self.loader.startup_blocked_plugins.add(PLUGIN_ID)
+            marker = await run_sync_io(
+                publish_marker,
+                self.marker_path,
+                marker,
+                diagnostics=[
+                    "offline_upgrade_failed_check_dependencies_and_storage",
+                ],
+            )
+            return self._result(marker)
+        finally:
+            if automatic(marker) != "completed":
+                self.loader.startup_blocked_plugins.add(PLUGIN_ID)
 
     def _current_settings(self):
         from ..config.utils import get_config_path
@@ -458,149 +855,6 @@ class MCPPluginCoordinator:
         ) is not None
         return row, off
 
-    async def _ensure_locked(self, snapshot, decision):
-        from ..plugins.settings import persist_plugin_settings, runtime_config
-        from ..utils.io_utils import run_sync_io, write_json_atomic
-
-        row, off = await asyncio.to_thread(self._current_settings)
-        if off:
-            fresh = MCPUsageSnapshot(
-                snapshot.workspaces,
-                row,
-                True,
-                snapshot.config_path,
-            )
-            return MCPPluginUpgradeResult("skipped", classify_mcp_usage(fresh))
-        base = self.loader.plugin_dirs[0]
-        marker_path = base / MARKER
-        marker = await asyncio.to_thread(_read_marker, marker_path)
-        target = await asyncio.to_thread(
-            self.loader.find_installed_plugin_dir,
-            PLUGIN_ID,
-        )
-        installed = False
-        explicit_commit = False
-        if target is None:
-            source = get_optional_mcp_plugin_dir()
-            _, manifest = await asyncio.to_thread(
-                self.loader.read_source_manifest,
-                source,
-            )
-            if manifest.id != PLUGIN_ID:
-                raise ValueError("Invalid optional MCP resource")
-            digest = await asyncio.to_thread(_digest, source)
-            marker = {
-                "schema": 1,
-                "transaction": uuid4().hex,
-                "stage": "preparing",
-                "version": manifest.version,
-                "digest": digest,
-                "workspaces": dict(decision.workspace_statuses),
-            }
-            await run_sync_io(write_json_atomic, marker_path, marker)
-            await self.loader.install_plugin_files(
-                source,
-                allow_install=False,
-                user_requested=False,
-                install_origin={
-                    "schema": 1,
-                    "transaction": marker["transaction"],
-                    "digest": digest,
-                },
-            )
-            target = base / PLUGIN_ID
-            installed = True
-        elif marker is None or marker["stage"] != "completed":
-            explicit_commit = await asyncio.to_thread(
-                has_install_commit,
-                target,
-                PLUGIN_ID,
-            )
-        if (
-            not installed
-            and not explicit_commit
-            and marker is not None
-            and marker["stage"] != "completed"
-        ):
-            origin = json.loads(
-                await asyncio.to_thread((target / ORIGIN).read_text),
-            )
-            if (
-                origin
-                != {
-                    "schema": 1,
-                    "transaction": marker["transaction"],
-                    "digest": marker["digest"],
-                }
-                or await asyncio.to_thread(_digest, target) != marker["digest"]
-            ):
-                raise ValueError("Unowned incomplete installation")
-        if (
-            not explicit_commit
-            and marker is not None
-            and marker["stage"] != "completed"
-        ):
-            marker = {**marker, "stage": "files_committed"}
-            await run_sync_io(write_json_atomic, marker_path, marker)
-        row, off = await asyncio.to_thread(self._current_settings)
-        if off:
-            fresh = MCPUsageSnapshot(
-                snapshot.workspaces,
-                row,
-                True,
-                snapshot.config_path,
-            )
-            return MCPPluginUpgradeResult("skipped", classify_mcp_usage(fresh))
-        _, manifest = await asyncio.to_thread(
-            self.loader.read_source_manifest,
-            target,
-        )
-        record = await self.loader.load_plugin(
-            manifest,
-            target,
-            runtime_config(row),
-            allow_install=False,
-            activate=False,
-        )
-        if record.status == "failed":
-            raise RuntimeError(
-                "Optional MCP dependencies or registration unavailable",
-            )
-        if explicit_commit:
-            await run_sync_io(
-                write_json_atomic,
-                marker_path,
-                {
-                    "schema": 1,
-                    "transaction": uuid4().hex,
-                    "stage": "completed",
-                    "version": manifest.version,
-                    "digest": await asyncio.to_thread(_digest, target),
-                    "workspaces": dict(decision.workspace_statuses),
-                },
-            )
-        elif marker is not None and marker["stage"] != "completed":
-            await run_sync_io(
-                persist_plugin_settings,
-                PLUGIN_ID,
-                enabled=True,
-                config_path=Path(self.config_path)
-                if self.config_path
-                else None,
-                refuse_disabled=True,
-            )
-            marker = {
-                **marker,
-                "stage": "completed",
-                "workspaces": dict(decision.workspace_statuses),
-            }
-            await run_sync_io(write_json_atomic, marker_path, marker)
-        return MCPPluginUpgradeResult(
-            "installed" if installed else "unchanged",
-            decision,
-            decision.reasons,
-        )
-
 
 def get_coordinator(loader):
     coordinator = getattr(loader, "protocol_coordinator", None)
@@ -618,6 +872,7 @@ async def prepare_startup_plugins(
     *,
     app=None,
     snapshot=None,
+    startup=None,
 ):
     """Register startup-critical SDK protocols before workspace publication."""
     from ..config.utils import get_config_path
@@ -627,11 +882,24 @@ async def prepare_startup_plugins(
         app.state.plugin_loader = loader
         app.state.plugin_registry = loader.registry
         loader.registry.set_plugin_http_app(app)
-    current = await asyncio.to_thread(
-        inventory_mcp_usage,
-        config_path=snapshot.config_path if snapshot else None,
-        plugins_dir=loader.plugin_dirs[0],
-    )
+    coordinator = get_coordinator(loader)
+    if startup is not None:
+        coordinator.config_path = startup.config_path
+    if startup is not None and startup.snapshot is None:
+        result = await coordinator.restore(
+            startup.marker,
+            diagnostics=startup.diagnostics,
+        )
+        current = MCPUsageSnapshot((), config_path=startup.config_path)
+    else:
+        result = None
+        snapshot = startup.snapshot if startup else snapshot
+    if result is None:
+        current = await asyncio.to_thread(
+            inventory_mcp_usage,
+            config_path=snapshot.config_path if snapshot else None,
+            plugins_dir=loader.plugin_dirs[0],
+        )
     if snapshot is not None:
         preserved = {
             item.workspace_id: item
@@ -656,7 +924,8 @@ async def prepare_startup_plugins(
             current.plugin_uninstalled,
             current.config_path,
         )
-    result = await get_coordinator(loader).ensure(current)
+    if result is None:
+        result = await coordinator.ensure(current)
     try:
         root = await asyncio.to_thread(
             _read_root,
@@ -682,6 +951,18 @@ async def prepare_startup_plugins(
         try:
             async with loader.plugin_lifecycle(PLUGIN_ID):
                 await loader.activate_plugin_unlocked(PLUGIN_ID)
+                marker = await run_sync_io(
+                    _read_marker,
+                    coordinator.marker_path,
+                )
+                if automatic(marker) == "not_required":
+                    marker = await run_sync_io(
+                        publish_marker,
+                        coordinator.marker_path,
+                        marker,
+                        automatic="completed",
+                    )
+                    coordinator._result(marker)
         except Exception:
             # Optional Mail/ACP must not prevent ordinary agents from starting.
             loader.startup_blocked_plugins.add(PLUGIN_ID)

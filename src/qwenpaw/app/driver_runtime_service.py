@@ -91,6 +91,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
         if callable(eligibility) and not eligibility(
             self._workspace.agent_id,
             protocol,
+            workspace=self._workspace,
         ):
             return False
         # pylint: enable=not-callable
@@ -276,8 +277,19 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
                 cards.append(card)
         return cards
 
+    async def _check_protocol_workspace(self, protocol):
+        if protocol == "mcp":
+            coordinator = getattr(
+                self._registry.protocol_eligibility,
+                "__self__",
+                None,
+            )
+            if coordinator is not None:
+                await coordinator.check_workspace(self._workspace)
+
     async def activate_protocol(self, protocol):
         self._guard()
+        await self._check_protocol_workspace(protocol)
         self._inactive.discard(protocol)
         if not self._available(protocol):
             return
@@ -390,6 +402,7 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             await self._reclaim()
 
     async def _runtime(self, protocol, *, ensure=True):
+        await self._check_protocol_workspace(protocol)
         if not self._available(protocol) and ensure and self._ensure_protocol:
             await self._ensure_protocol(protocol)
         self._guard()

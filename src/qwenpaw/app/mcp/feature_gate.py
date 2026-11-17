@@ -26,7 +26,7 @@ class MCPUnavailableError(RuntimeError):
         )
 
 
-def is_mcp_ready(loader=None, workspace_id=None) -> bool:
+def is_mcp_ready(loader=None, workspace_id=None, *, workspace=None) -> bool:
     """Read existing admission evidence, without I/O or dependency checks."""
     registry = loader.registry if loader is not None else PluginRegistry()
     descriptor = registry._driver_protocols.get("mcp")
@@ -50,8 +50,12 @@ def is_mcp_ready(loader=None, workspace_id=None) -> bool:
     if workspace_id is not None:
         manager = registry.get_workspace_manager()
         live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
-        workspace = live.get(workspace_id) or registry._stop_workspaces.get(
-            workspace_id,
+        workspace = (
+            workspace
+            or live.get(workspace_id)
+            or registry._stop_workspaces.get(
+                workspace_id,
+            )
         )
         service = getattr(workspace, "driver_manager", None)
         if "mcp" in getattr(service, "_inactive", ()):
@@ -59,7 +63,7 @@ def is_mcp_ready(loader=None, workspace_id=None) -> bool:
     return not (
         workspace_id is not None
         and eligibility is not None
-        and not eligibility(workspace_id, "mcp")
+        and not eligibility(workspace_id, "mcp", workspace=workspace)
     )
 
 
@@ -93,6 +97,13 @@ async def prepare_mcp_for_use(loader=None, workspace_id=None) -> bool:
         # Do not turn a saved feature into a failed config write.
         logger.warning("Local MCP preparation failed; use official plugins")
         return False
+    if workspace_id is not None:
+        registry = loader.registry
+        manager = registry.get_workspace_manager()
+        live = getattr(manager, "agents", getattr(manager, "workspaces", {}))
+        workspace = live.get(workspace_id)
+        if workspace is not None:
+            await coordinator.check_workspace(workspace)
     return is_mcp_ready(loader, workspace_id)
 
 
@@ -117,6 +128,6 @@ async def reconcile_mcp_features(loader, plugin_id: str) -> None:
     from ..mcp_plugin_upgrade import get_coordinator
 
     try:
-        await get_coordinator(loader)._reconcile_live_workspaces()
+        await get_coordinator(loader).reconcile_explicit()
     except Exception:
         logger.warning("MCP is active but workspace service recovery failed")

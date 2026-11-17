@@ -408,10 +408,16 @@ class QwenPawACPAgent(Agent):
         agent_id = self._agent_id or getattr(self._workspace, "agent_id", None)
         if agent_id is None:
             agent_id = await run_sync_io(self._resolve_agent_id)
-        if feature_gate.is_mcp_ready(workspace_id=agent_id):
+        if self._workspace is not None and feature_gate.is_mcp_ready(
+            workspace_id=agent_id,
+            workspace=self._workspace,
+        ):
             return
         async with self._mcp_prepare_lock:
-            if feature_gate.is_mcp_ready(workspace_id=agent_id):
+            if self._workspace is not None and feature_gate.is_mcp_ready(
+                workspace_id=agent_id,
+                workspace=self._workspace,
+            ):
                 return
             registry = PluginRegistry()
             if registry.protocol_resolver is None and self._mcp_loader is None:
@@ -431,7 +437,6 @@ class QwenPawACPAgent(Agent):
                     get_coordinator(self._mcp_loader)
             if not await feature_gate.prepare_mcp_for_use(
                 self._mcp_loader,
-                agent_id,
             ):
                 raise RequestError.internal_error(
                     {
@@ -440,6 +445,36 @@ class QwenPawACPAgent(Agent):
                         "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
                     },
                 )
+            from ...app.mcp_plugin_upgrade import get_coordinator
+
+            # Preparation just verified this descriptor, with no intervening await.
+            loader = (
+                self._mcp_loader
+                or registry._driver_protocols["mcp"].plugin._loader
+            )
+            coordinator = get_coordinator(loader)
+            async with self._workspace_lock:
+                workspace = await self._workspace_candidate()
+                await coordinator.check_workspace(
+                    workspace,
+                    refresh=getattr(workspace, "_mcp_usage_status", None)
+                    == "needs_review",
+                )
+                if not feature_gate.is_mcp_ready(
+                    loader,
+                    agent_id,
+                    workspace=workspace,
+                ):
+                    if not self._workspace_ready:
+                        # Admission owns only this unbootstrapped candidate.
+                        self._workspace = None
+                    raise RequestError.internal_error(
+                        {
+                            "code": feature_gate.MCPUnavailableError.code,
+                            "details": str(feature_gate.MCPUnavailableError()),
+                            "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
+                        },
+                    )
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
@@ -583,6 +618,32 @@ class QwenPawACPAgent(Agent):
             ),
         )
 
+    async def _workspace_candidate(self):
+        """Return the same unstarted candidate used by admission and bootstrap.
+
+        The caller holds _workspace_lock; capture raw input before any bootstrap.
+        """
+        if self._workspace is None:
+            from ...app.workspace.workspace import Workspace
+            from ...app.mcp_plugin_upgrade import (
+                capture_workspace_usage,
+                bind_workspace_usage,
+            )
+
+            agent_id = await run_sync_io(self._resolve_agent_id)
+            workspace_dir = self._resolve_workspace_dir(agent_id)
+            usage = await capture_workspace_usage(agent_id, workspace_dir)
+            workspace = Workspace(
+                agent_id=agent_id,
+                workspace_dir=str(workspace_dir),
+                mode_config_overrides={
+                    f"goal": {f"max_tokens": self._goal_token_budget},
+                },
+            )
+            bind_workspace_usage(workspace, usage)
+            self._workspace = workspace
+        return self._workspace
+
     async def _ensure_workspace(self) -> Any:
         """Boot a full ``Workspace`` (once) and return it.
 
@@ -598,18 +659,9 @@ class QwenPawACPAgent(Agent):
             if self._workspace is not None and self._workspace_ready:
                 return self._workspace
 
-            from ...app.workspace.workspace import Workspace
-
-            agent_id = await run_sync_io(self._resolve_agent_id)
-            workspace_dir = self._resolve_workspace_dir(agent_id)
-
-            workspace = Workspace(
-                agent_id=agent_id,
-                workspace_dir=str(workspace_dir),
-                mode_config_overrides={
-                    f"goal": {f"max_tokens": self._goal_token_budget},
-                },
-            )
+            workspace = await self._workspace_candidate()
+            agent_id = workspace.agent_id
+            workspace_dir = workspace.workspace_dir
             app_services = await self._ensure_app_services()
             workspace.bootstrap_plugins(
                 **self._build_bootstrap_kwargs(app_services),
@@ -625,6 +677,8 @@ class QwenPawACPAgent(Agent):
                     await workspace.stop(final=True)
                 except Exception:
                     logger.exception(f"ACP workspace startup cleanup failed")
+                self._workspace = None
+                self._workspace_ready = False
                 raise
 
             self._workspace = workspace
