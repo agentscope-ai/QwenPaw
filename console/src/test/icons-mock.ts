@@ -55,3 +55,4 @@ export const SparkMagicNoteLine = makeIcon("SparkMagicNoteLine");
 export const SparkVisableLine = makeIcon("SparkVisableLine");
 export const SparkThumbsUpFill = makeIcon("SparkThumbsUpFill");
 export const SparkThumbsUpLine = makeIcon("SparkThumbsUpLine");
+export const SparkGithubGithubFill = makeIcon("SparkGithubGithubFill");

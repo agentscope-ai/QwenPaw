@@ -129,6 +129,15 @@ export const agentApi = {
       },
     ),
 
+  getTranscriptionModel: () =>
+    request<{ transcription_model: string }>("/workspace/transcription-model"),
+
+  updateTranscriptionModel: (transcription_model: string) =>
+    request<{ transcription_model: string }>("/workspace/transcription-model", {
+      method: "PUT",
+      body: JSON.stringify({ transcription_model }),
+    }),
+
   getLocalWhisperStatus: () =>
     request<{
       available: boolean;

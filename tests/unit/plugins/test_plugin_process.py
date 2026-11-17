@@ -78,12 +78,68 @@ def worker_logs(caplog, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["relative", "absolute", "empty", "literal", "explicit"],
+)
+async def test_worker_ca_paths_preserve_origin_and_absolute_spelling(
+    tmp_path,
+    monkeypatch,
+    process,
+    kind,
+):
+    # The child starts in code_root, not this parent directory.
+    monkeypatch.chdir(tmp_path)
+    if kind == "absolute":
+        directory = str(tmp_path / "证书 CA") + os.sep + "."
+        filename = directory + os.sep + "ca.pem"
+        expected_dir, expected_file = directory, filename
+    elif kind == "empty":
+        directory = filename = expected_dir = expected_file = ""
+    else:
+        directory = "~/证书 $CA %CA%" if kind == "literal" else "证书 CA"
+        filename = directory + os.sep + "ca.pem"
+        expected_dir = str(tmp_path / directory)
+        expected_file = str(tmp_path / filename)
+    monkeypatch.setenv("SSL_CERT_DIR", directory)
+    monkeypatch.setenv("SSL_CERT_FILE", filename)
+    private = {"SSL_CERT_DIR": "./plugin 证书"} if kind == "explicit" else {}
+    if private:
+        expected_dir = "./plugin 证书"
+    spec, _ = launch(tmp_path, private_env=private)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        f"assert os.environ.get('SSL_CERT_DIR') == {expected_dir!r}\n"
+        f"assert os.environ.get('SSL_CERT_FILE') == {expected_file!r}\n"
+        + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
+    assert (await process.start(spec))["state"] == "ready"
+    assert await process.call("sample.echo", {"ca": "available"}) == {
+        "ca": "available",
+    }
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
     tmp_path,
     process,
     worker_logs,
+    monkeypatch,
 ):
+    for name in ("HOME", "QWENPAW_WORKING_DIR", "QWENPAW_RUNTIME_ID"):
+        monkeypatch.setenv(name, str(tmp_path))
     spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        "assert not {'HOME', 'QWENPAW_WORKING_DIR', 'QWENPAW_RUNTIME_ID'}"
+        ".intersection(os.environ)\n" + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
     notices = []
     process.register_method(
         "sample.host",
@@ -132,6 +188,129 @@ async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
 
 
 @pytest.mark.asyncio
+async def test_startup_failure_preserves_redacted_cause_after_log_flood(
+    tmp_path,
+    process,
+    worker_logs,
+    monkeypatch,
+):
+    from qwenpaw.plugins.execution import worker_logs as log_bridge
+
+    monkeypatch.setattr(log_bridge, "monotonic", lambda: 1.0)
+    spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import sys\n"
+        "class Worker:\n"
+        "    def bind(self, context): self.context = context\n"
+        "    async def start(self, config):\n"
+        "        for _ in range(100): print('sdk noise', file=sys.stderr)\n"
+        "        try:\n"
+        "            raise ValueError(\n"
+        "                'https://user:url-secret@example.test/ws?ticket=query-secret '\n"
+        "                + config['app_secret'])\n"
+        "        except ValueError as cause:\n"
+        "            raise RuntimeError('component startup failed') from cause\n"
+        "    async def stop(self): pass\n",
+    )
+    spec = replace(
+        spec,
+        source_revision=digest(spec.code_root),
+        config={**spec.config, "app_secret": "unlabelled-config-secret"},
+    )
+    await process.start(spec)
+    await eventually(
+        lambda: process.health_snapshot()["component_state"] == "failed",
+    )
+    await eventually(lambda: "component startup failed" in worker_logs.text)
+    output = worker_logs.text
+    assert "ValueError" in output and "RuntimeError" in output
+    assert "worker.py" in output and "component_start" in output
+    assert "example.test/ws" in output
+    for secret in ("url-secret", "query-secret", "unlabelled-config-secret"):
+        assert secret not in output
+    assert (await process.stop()).exited
+
+
+def test_windows_crypto_paths_are_normalized_before_native_lookup():
+    from importlib import metadata
+
+    script = r"""
+import importlib.util
+import ntpath
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+sys.path.insert(0, sys.argv[2])
+spec = importlib.util.spec_from_file_location("worker", sys.argv[1])
+worker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(worker)
+worker._install_windows_crypto_path_fix()
+assert "Crypto" not in sys.modules  # Optional SDK remains lazy.
+from Crypto.Util import _file_system, _raw_api
+_file_system.os = SimpleNamespace(path=ntpath)
+for root in ("C:\\sdk", "\\\\?\\C:\\sdk", "\\\\?\\UNC\\server\\share",
+             "\\\\?\\C:\\" + "long-folder\\" * 30):
+    root = root.rstrip("\\")
+    _file_system.__file__ = root + "\\Crypto\\Util\\_file_system.py"
+    actual = _raw_api.pycryptodome_filename(["Crypto", "Util"], "_cpuid_c.pyd")
+    assert actual == root + "\\Crypto\\Util\\_cpuid_c.pyd", actual
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            script,
+            str(ROOT / "src/qwenpaw/plugins/execution/worker.py"),
+            str(metadata.distribution("pycryptodome").locate_file("")),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows extended-length paths")
+@pytest.mark.asyncio
+async def test_windows_worker_imports_crypto_from_extended_path(
+    tmp_path,
+    process,
+    worker_logs,
+):
+    from importlib import metadata
+
+    site = tmp_path / "dependencies"
+    distribution = metadata.distribution("pycryptodome")
+    shutil.copytree(distribution.locate_file("Crypto"), site / "Crypto")
+    site = Path("\\\\?\\" + str(site.resolve()))
+    spec, _ = launch(tmp_path, dependency_paths=(site,))
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        source.read_text().replace(
+            "    async def start(self, config):\n",
+            "    async def start(self, config):\n"
+            "        from Crypto.Cipher import AES\n"
+            "        key = bytes.fromhex('000102030405060708090a0b0c0d0e0f')\n"
+            "        plain = bytes.fromhex('00112233445566778899aabbccddeeff')\n"
+            "        assert AES.new(key, AES.MODE_ECB).encrypt(plain).hex() == "
+            "'69c4e0d86a7b0430d8cdb78070b4c55a'\n",
+        ),
+    )
+    await process.start(replace(spec, source_revision=digest(spec.code_root)))
+    await eventually(
+        lambda: process.health_snapshot()["component_state"]
+        in {"ready", "failed"},
+    )
+    assert (
+        process.health_snapshot()["component_state"] == "ready"
+    ), worker_logs.text
+    assert (await process.stop()).exited
+
+
+@pytest.mark.asyncio
 async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     tmp_path,
     process,
@@ -145,6 +324,9 @@ async def test_log_flood_is_bounded_redacted_and_keeps_ipc_responsive(
     spec, _ = launch(tmp_path)
     health = await process.start(spec)
     await eventually(lambda: "sample SDK diagnostic" in worker_logs.text)
+    await eventually(
+        lambda: '"phase": "component_started"' in worker_logs.text,
+    )
     worker_logs.clear()
     baseline = process.health_snapshot()["log_bytes"]
     cleaned = []
@@ -278,6 +460,7 @@ async def test_crash_restarts_generation_and_retains_host_handler(
 async def test_blocked_sdk_start_keeps_parent_loop_responsive(
     tmp_path,
     process,
+    worker_logs,
 ):
     spec, marker = launch(tmp_path, mode="blocked")
     ticks = []
@@ -298,6 +481,11 @@ async def test_blocked_sdk_start_keeps_parent_loop_responsive(
         == "responsive"
     )
     assert int(marker.read_text()) == health["pid"]
+    await eventually(lambda: '"event": "startup_slow"' in worker_logs.text)
+    assert (
+        sum('"await_frames"' in row.message for row in worker_logs.records)
+        == 1
+    )
     stopped = await asyncio.wait_for(process.stop(timeout=0.3), 3)
     assert stopped.exited and stopped.forced and not alive(health["pid"])
 

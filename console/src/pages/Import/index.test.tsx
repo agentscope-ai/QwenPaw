@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { useAgentStore } from "@/stores/agentStore";
 import { useImportJob } from "./useImportJob";
 import ImportPage from ".";
@@ -39,8 +39,20 @@ const actions = {
 function state(overrides = {}) {
   return {
     sources: [
-      { source: "codex", name: "Codex", detected: true },
-      { source: "qoder", name: "Qoder", detected: true },
+      {
+        source: "codex",
+        name: "Codex",
+        detected: true,
+        plugin_id: "qwenpaw-harness-codex",
+        plugin_state: "available",
+      },
+      {
+        source: "qoder",
+        name: "Qoder",
+        detected: true,
+        plugin_id: "qwenpaw-harness-qoder",
+        plugin_state: "available",
+      },
     ],
     job: null,
     selectedAgent: "agent",
@@ -64,9 +76,18 @@ function jobSnapshot(jobState: string) {
 }
 
 function renderPage() {
+  function Location() {
+    const location = useLocation();
+    return (
+      <output data-testid="location">
+        {location.pathname + location.search}
+      </output>
+    );
+  }
   return render(
     <MemoryRouter>
       <ImportPage />
+      <Location />
     </MemoryRouter>,
   );
 }
@@ -121,17 +142,76 @@ describe("ImportPage", () => {
     expect(actions.scan).toHaveBeenCalledWith(["codex", "qoder"]);
   });
 
+  it.each([
+    ["missing", "source", "pluginManager.installBtn", "official"],
+    ["disabled", "source", "common.enable", "installed"],
+    ["failed", "error", "pluginManager.repair", "installed"],
+  ])(
+    "guides a %s Harness requirement to plugin management",
+    (pluginState, origin, action, view) => {
+      const plugin_id = "qwenpaw-harness-codex";
+      vi.mocked(useImportJob).mockReturnValue(
+        state(
+          origin === "source"
+            ? {
+                sources: [
+                  {
+                    source: "codex",
+                    name: "Codex",
+                    detected: true,
+                    plugin_id,
+                    plugin_state: pluginState,
+                  },
+                ],
+              }
+            : {
+                sources: [],
+                error: "Harness plugin required",
+                requirement: {
+                  code: "harness_plugin_required",
+                  source: "codex",
+                  plugin_id,
+                  state: pluginState,
+                },
+              },
+        ) as never,
+      );
+      renderPage();
+      if (origin === "source")
+        expect(screen.getByRole("checkbox", { name: "Codex" })).toBeDisabled();
+      fireEvent.click(screen.getByRole("button", { name: action }));
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        `/market?tab=plugins&view=${view}&plugin=${plugin_id}`,
+      );
+      expect(actions.scan).not.toHaveBeenCalled();
+    },
+  );
+
   it("isolates stale Agent A sources while Agent B retries detection", async () => {
     vi.mocked(actions.detect)
       .mockReset()
       .mockRejectedValueOnce(new Error("Sources unavailable"))
       .mockResolvedValueOnce([
-        { source: "qoder", name: "Qoder", detected: true },
+        {
+          source: "qoder",
+          name: "Qoder",
+          detected: true,
+          plugin_id: "qwenpaw-harness-qoder",
+          plugin_state: "available",
+        },
       ]);
     vi.mocked(useImportJob).mockReturnValue(
       state({
         selectedAgent: "agent-b",
-        sources: [{ source: "codex", name: "Agent A Codex", detected: true }],
+        sources: [
+          {
+            source: "codex",
+            name: "Agent A Codex",
+            detected: true,
+            plugin_id: "qwenpaw-harness-codex",
+            plugin_state: "available",
+          },
+        ],
         error: "Sources unavailable",
         detectError: "Sources unavailable",
       }) as never,
@@ -155,7 +235,15 @@ describe("ImportPage", () => {
     vi.mocked(useImportJob).mockReturnValue(
       state({
         selectedAgent: "agent-b",
-        sources: [{ source: "qoder", name: "Qoder", detected: true }],
+        sources: [
+          {
+            source: "qoder",
+            name: "Qoder",
+            detected: true,
+            plugin_id: "qwenpaw-harness-qoder",
+            plugin_state: "available",
+          },
+        ],
       }) as never,
     );
     view.rerender(

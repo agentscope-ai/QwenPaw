@@ -340,11 +340,20 @@ def _authorized(path):
 
 
 def authorized(site):
-    return _authorized(marker(site))
+    barrier = marker(site)
+    return (
+        _authorized(barrier)
+        if barrier.exists()
+        else _authorized(repair_marker(site))
+    )
 
 
 def _check_admission(maintenance_path, repair_path, check_repair):
-    permitted = _authorized(maintenance_path)
+    permitted = (
+        _authorized(maintenance_path)
+        if maintenance_path.exists()
+        else _authorized(repair_path)
+    )
     if maintenance_path.exists() and not permitted:
         raise RuntimeError(
             "DEPENDENCY_MAINTENANCE_REQUIRED: "

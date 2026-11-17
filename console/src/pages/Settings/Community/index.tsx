@@ -4,6 +4,7 @@ import {
   Avatar,
   Button,
   Card,
+  Input,
   Space,
   Spin,
   Switch,
@@ -30,6 +31,8 @@ export default function CommunitySettings() {
   const [status, setStatus] = useState<CommunityConnectionStatus | null>(null);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [account, setAccount] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
   const popup = useRef<Window | null>(null);
   const blankPopup = useRef(false);
   const mounted = useRef(true);
@@ -140,6 +143,9 @@ export default function CommunitySettings() {
     });
 
   const pending = status?.authorization;
+  const loginAccount = account ?? status?.saved_account ?? "";
+  const canUseSavedPassword =
+    status?.password_saved && loginAccount.trim() === status.saved_account;
   const connected = status?.status === "connected";
   const unavailable =
     status?.status === "not_configured" ||
@@ -221,26 +227,144 @@ export default function CommunitySettings() {
                   </Space>
                 ) : (
                   <Space wrap>
-                    <Button
-                      type="primary"
-                      loading={busy}
-                      disabled={
-                        unavailable || status.local_login_supported === false
-                      }
-                      onClick={connect}
-                    >
-                      {t(
-                        connected
-                          ? "community.switchAccount"
-                          : "community.connect",
-                      )}
-                    </Button>
+                    {(!status.password_login_supported ||
+                      status.local_login_supported) && (
+                      <Button
+                        type="primary"
+                        loading={busy}
+                        disabled={
+                          unavailable || status.local_login_supported === false
+                        }
+                        onClick={connect}
+                      >
+                        {t(
+                          status.password_login_supported
+                            ? "community.browserConnect"
+                            : connected
+                            ? "community.switchAccount"
+                            : "community.connect",
+                        )}
+                      </Button>
+                    )}
                     {status.account && (
                       <Button danger disabled={busy} onClick={disconnect}>
                         {t("community.disconnect")}
                       </Button>
                     )}
                   </Space>
+                )}
+                {status.password_login_supported && (
+                  <form
+                    className={styles.passwordForm}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      if (
+                        !loginAccount.trim() ||
+                        (!password && !canUseSavedPassword)
+                      )
+                        return;
+                      void run(async () => {
+                        try {
+                          await communityConnectionApi.connectPassword(
+                            loginAccount.trim(),
+                            password,
+                          );
+                          if (mounted.current) setAccount(null);
+                        } finally {
+                          if (mounted.current) setPassword("");
+                        }
+                      });
+                    }}
+                  >
+                    <Typography.Title level={5}>
+                      {t("community.passwordTitle")}
+                    </Typography.Title>
+                    <Typography.Paragraph type="secondary">
+                      {t("community.passwordHelp")}
+                    </Typography.Paragraph>
+                    {status.credential_state === "rejected" && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={t("community.passwordRejected")}
+                      />
+                    )}
+                    {status.credential_state === "unreadable" && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={t("community.passwordUnreadable")}
+                      />
+                    )}
+                    {status.credential_state === "paused" && (
+                      <Typography.Paragraph type="secondary">
+                        {t("community.passwordPaused")}
+                      </Typography.Paragraph>
+                    )}
+                    <label htmlFor="community-login-account">
+                      {t("community.loginAccount")}
+                    </label>
+                    <Input
+                      id="community-login-account"
+                      autoComplete="username"
+                      maxLength={320}
+                      value={loginAccount}
+                      disabled={busy}
+                      onChange={(event) => setAccount(event.target.value)}
+                    />
+                    <label htmlFor="community-login-password">
+                      {t("community.loginPassword")}
+                    </label>
+                    <Input.Password
+                      id="community-login-password"
+                      autoComplete="current-password"
+                      maxLength={4096}
+                      value={password}
+                      disabled={busy}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder={
+                        canUseSavedPassword
+                          ? t("community.savedPasswordPlaceholder")
+                          : undefined
+                      }
+                    />
+                    <Space wrap>
+                      <Button
+                        type="primary"
+                        htmlType="submit"
+                        loading={busy}
+                        disabled={
+                          !loginAccount.trim() ||
+                          (!password && !canUseSavedPassword)
+                        }
+                      >
+                        {t("community.saveAndConnect")}
+                      </Button>
+                      {status.password_saved && (
+                        <Button
+                          disabled={busy}
+                          onClick={() =>
+                            modal.confirm({
+                              title: t("community.clearPassword"),
+                              content: t("community.clearPasswordDescription"),
+                              okText: t("community.clearPassword"),
+                              cancelText: t("common.cancel"),
+                              onOk: () =>
+                                run(async () => {
+                                  await communityConnectionApi.clearPassword();
+                                  if (mounted.current) {
+                                    setAccount(null);
+                                    setPassword("");
+                                  }
+                                }),
+                            })
+                          }
+                        >
+                          {t("community.clearPassword")}
+                        </Button>
+                      )}
+                    </Space>
+                  </form>
                 )}
               </Space>
             </Card>

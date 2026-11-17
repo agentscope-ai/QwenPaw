@@ -328,8 +328,15 @@ describe("HubPage", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
     expect(await screen.findByText("Refresh unavailable")).toBeInTheDocument();
+    const callsBeforeRetry = vi.mocked(hubApi.getOverview).mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
-    await waitFor(() => expect(hubApi.getOverview).toHaveBeenCalledTimes(3));
+    // The page schedules background refreshes on a timer, so assert the
+    // retry adds at least one call instead of pinning an exact total.
+    await waitFor(() =>
+      expect(vi.mocked(hubApi.getOverview).mock.calls.length).toBeGreaterThan(
+        callsBeforeRetry,
+      ),
+    );
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {

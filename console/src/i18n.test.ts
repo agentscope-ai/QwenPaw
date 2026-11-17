@@ -226,3 +226,28 @@ describe("approval notification translations", () => {
     },
   );
 });
+
+describe("chat completion notice translations", () => {
+  afterEach(() => {
+    localStorage.clear();
+    vi.resetModules();
+  });
+
+  it.each(["en", "zh", "ja", "ru", "pt-BR", "id", "vi"])(
+    "provides a localized output truncation notice in %s",
+    async (language) => {
+      const { default: i18n, i18nReady, loadLocale } = await freshI18nModule();
+      await i18nReady;
+      const resource = await loadLocale(language);
+      const value = readLocaleValue(resource, "chat.outputTruncated");
+
+      expect(typeof value, `${language}: chat.outputTruncated`).toBe("string");
+      expect((value as string).trim()).not.toBe("");
+
+      await i18n.changeLanguage(language);
+
+      expect(i18n.resolvedLanguage).toBe(language);
+      expect(i18n.t("chat.outputTruncated")).toBe(value);
+    },
+  );
+});
