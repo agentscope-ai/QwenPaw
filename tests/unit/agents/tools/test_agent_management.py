@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
@@ -1548,6 +1549,108 @@ async def test_spawn_subagent_batch_invalid_string_returns_error():
     )
     assert "ERROR" in response.content[0].text
     assert "batch" in response.content[0].text.lower()
+
+
+@pytest.fixture
+def batch_dispatch_spies(monkeypatch):
+    from qwenpaw.app import agent_context
+
+    submitted = Mock(return_value={"task_id": "synthetic-task"})
+    forked = AsyncMock(return_value={"fork_session_id": "synthetic-fork"})
+    monkeypatch.setattr(
+        agent_management,
+        "submit_agent_chat_task",
+        submitted,
+    )
+    monkeypatch.setattr(agent_management, "_call_fork_api", forked)
+    monkeypatch.setattr(
+        agent_management,
+        "_build_subagent_request_context",
+        AsyncMock(return_value={}),
+    )
+    monkeypatch.setattr(agent_context, "get_current_agent_id", lambda: "bot-a")
+    return submitted, forked
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+@pytest.mark.parametrize("fork", [False, True])
+@pytest.mark.parametrize(
+    "invalid_spec",
+    [
+        None,
+        "not a dict",
+        {},
+        *[
+            {"task": value}
+            for value in (
+                None,
+                0,
+                123,
+                1.5,
+                False,
+                True,
+                [],
+                ["x"],
+                {},
+                {"x": "y"},
+                "",
+                " \t\n",
+            )
+        ],
+    ],
+)
+async def test_spawn_subagent_batch_invalid_task_has_no_side_effects(
+    batch_dispatch_spies,
+    invalid_spec,
+    fork,
+    as_json,
+):
+    submitted, forked = batch_dispatch_spies
+    if isinstance(invalid_spec, dict):
+        invalid_spec = {**invalid_spec, "fork": fork}
+    batch = [
+        {"task": "valid sibling"},
+        {"task": "valid fork sibling", "fork": True},
+        invalid_spec,
+    ]
+    response = await agent_management.spawn_subagent(
+        task="",
+        batch=json.dumps(batch) if as_json else batch,
+    )
+
+    submitted.assert_not_called()
+    forked.assert_not_awaited()
+    text = response.content[0].text
+    assert text.startswith("ERROR:")
+    assert "batch[2]" in text
+    assert "task" in text
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+async def test_spawn_subagent_batch_preserves_valid_task_strings(
+    batch_dispatch_spies,
+    as_json,
+):
+    submitted, forked = batch_dispatch_spies
+    batch = [
+        {"task": "  normal task\n"},
+        {"task": "\tfork task  ", "fork": True},
+    ]
+    response = await agent_management.spawn_subagent(
+        task="",
+        batch=json.dumps(batch) if as_json else batch,
+    )
+
+    assert "ERROR" not in response.content[0].text
+    assert "[1/2]" in response.content[0].text
+    assert "[2/2]" in response.content[0].text
+    forked.assert_awaited_once()
+    assert submitted.call_count == 2
+    tasks = [
+        call.args[1]["input"][0]["content"][0]["text"]
+        for call in submitted.call_args_list
+    ]
+    assert sorted(tasks) == sorted(spec["task"] for spec in batch)
 
 
 async def test_spawn_subagent_batch_ignores_top_level_ignored_fields(

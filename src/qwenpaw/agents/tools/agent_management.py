@@ -1296,7 +1296,7 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
             per-item ``skills``).
         batch: List of task specs for batch mode.  When provided,
             ``task`` must be an empty string.  Each dict must contain a
-            ``task`` key; optional keys: ``fork``, ``timeout``,
+            non-empty string ``task``; optional keys: ``fork``, ``timeout``,
             ``allowed_tools``, ``skills`` (top-level ``fork`` /
             ``timeout`` / ``allowed_tools`` / ``skills`` /
             ``background`` are ignored in batch mode).
@@ -1454,13 +1454,12 @@ async def _spawn_batch(
     for i, spec in enumerate(specs):
         if (
             not isinstance(spec, dict)
-            or not str(
-                spec.get("task", ""),
-            ).strip()
+            or not isinstance(spec.get("task"), str)
+            or not spec["task"].strip()
         ):
             return _tool_text_response(
                 f"ERROR: batch[{i}] must be a dict with a "
-                f"non-empty 'task' field",
+                f"non-empty string 'task' field",
             )
         try:
             normalized.append(
