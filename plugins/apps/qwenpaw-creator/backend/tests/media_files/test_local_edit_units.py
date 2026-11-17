@@ -24,8 +24,10 @@ from services.media_files.local_execution import (
     FfmpegLocalMediaRunner,
     LocalMediaExecutionSpec,
     LocalMediaInput,
+    _caption_fallback_style_kwargs,
     _motion_document_matches_text,
 )
+from services.media_files.motion_blueprints import subtitle_pack_animation
 
 
 def test_motion_copy_match_uses_browser_visible_html_entities() -> None:
@@ -432,3 +434,52 @@ def test_keyframe_cache_rejects_directory_redirect(tmp_path, directory_link):
     with pytest.raises(StorageIntegrityError, match="安全的真实目录"):
         _materialize_keyframe(project_root, source, 1)
     assert not list(outside.iterdir())
+
+
+def test_normalized_overlay_carries_the_caption_animation_pick() -> None:
+    """The compose-time fallback must burn the user's entrance triple.
+
+    Regression: ``_normalized_overlay`` used to drop
+    ``caption_animation``, so every fallback caption silently reverted to
+    the pack's signature motion (the field report: "the animation setting
+    did nothing").
+    """
+
+    pick = {"entrance": "pop", "exit": "shrink", "loop": True}
+    normalized = FfmpegLocalMediaRunner._normalized_overlay(
+        {
+            "kind": "pet_os",
+            "text": "你好",
+            "appear_at": 0.5,
+            "duration": 2.0,
+            "subtitle_template": "warm_note",
+            "caption_animation": pick,
+        },
+        5.0,
+    )
+    assert normalized is not None
+    assert normalized["caption_animation"] == pick
+    kwargs = _caption_fallback_style_kwargs(normalized)
+    assert kwargs["entrance"] == "pop"
+    assert kwargs["exit"] == "shrink"
+    assert kwargs["loop"] is True
+
+
+def test_normalized_overlay_without_a_pick_keeps_the_pack_motion() -> None:
+    normalized = FfmpegLocalMediaRunner._normalized_overlay(
+        {
+            "kind": "pet_os",
+            "text": "你好",
+            "appear_at": 0.0,
+            "duration": 2.0,
+            "subtitle_template": "warm_note",
+        },
+        5.0,
+    )
+    assert normalized is not None
+    assert normalized["caption_animation"] is None
+    kwargs = _caption_fallback_style_kwargs(normalized)
+    expected = subtitle_pack_animation("warm_note")
+    assert kwargs["entrance"] == expected["entrance"]
+    assert kwargs["exit"] == expected["exit"]
+    assert kwargs["loop"] == expected["loop"]

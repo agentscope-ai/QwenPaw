@@ -94,10 +94,15 @@ def dashscope_native_search_unavailable_reason(
             return "native_search_config_incomplete"
         protocol = model_config.get_web_grounding_search_protocol()
         hostname = urlparse(base_url).hostname or ""
+        # Token Plan models carry the built-in web_search tool, invoked
+        # through the Responses API, so the plan's own gateway serves the
+        # native-search adapter the same way DashScope's does.
         if (
             "dashscope" not in protocol.casefold()
             and "百炼" not in protocol
             and "dashscope" not in hostname.casefold()
+            and not model_config.is_token_plan_protocol(protocol)
+            and not model_config.is_token_plan_endpoint(base_url)
         ):
             return "native_search_provider_incompatible"
         return ""
