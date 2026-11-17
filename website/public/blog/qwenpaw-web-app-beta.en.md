@@ -23,7 +23,7 @@ The mobile entry is [platform.agentscope.io/m](https://platform.agentscope.io/m)
 
 ![The Platform account panel in Console](/images/mobile/console-account.jpg)
 
-Open the bottom-left workspace menu in your local Console, choose **Sign in to cloud**, then click the phone icon at the top right. Scan the QR code, compare the digits on both devices, and confirm the phone on your computer. Follow the phone's instructions to add the app to your home screen.
+Click the phone icon at the top right of your local Console. If needed, sign in to your cloud account from that dialog; the QR code appears there once the connection completes. Scan it, compare the digits on both devices, and confirm the phone on your computer. Follow the phone's instructions to add the app to your home screen.
 
 The phone signs in to your full Platform account, including all its cloud and connected targets. The QR code contains only a short-lived, single-use authorization. Long-lived credentials never appear in the QR code or URL.
 

@@ -88,6 +88,7 @@ function PlatformAccessDialog() {
   const { t } = useTranslation();
   const { panel, open, connection, refresh, localAccount } =
     usePlatformAccess();
+  const ready = !!connection?.logged_in && !!connection.node_id;
   const [ticket, setTicket] = useState<MobileLogin | null>(null);
   const [status, setStatus] = useState<MobileLoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -131,7 +132,7 @@ function PlatformAccessDialog() {
     setStatus(null);
     setExpired(false);
     setBusy(true);
-    const load = panel === "mobile" ? generate() : refresh();
+    const load = panel === "mobile" && ready ? generate() : refresh();
     void load
       .catch((error) => {
         if (!cancelled) {
@@ -146,7 +147,7 @@ function PlatformAccessDialog() {
       cancelled = true;
       generation.current += 1;
     };
-  }, [panel, generate, refresh]);
+  }, [panel, ready, generate, refresh]);
   useEffect(() => {
     if (!panel || connection?.status !== "authorization_pending") return;
     const timer = window.setInterval(() => {
@@ -225,7 +226,6 @@ function PlatformAccessDialog() {
       }
     });
 
-  const ready = !!connection?.logged_in && !!connection.node_id;
   const complete = status?.status === "exchanged";
   return (
     <SharedModal
@@ -249,7 +249,7 @@ function PlatformAccessDialog() {
         {connection?.transport_status === "authorization_required" && (
           <Alert type="warning" message={t("platformAccess.bindingExpired")} />
         )}
-        {panel === "account" ? (
+        {panel === "account" || !ready ? (
           <>
             {localAccount && (
               <div className={styles.identity}>
@@ -327,18 +327,6 @@ function PlatformAccessDialog() {
             {connection?.status === "authorization_pending" && (
               <p role="status">{t("platformAccess.waitingLogin")}</p>
             )}
-          </>
-        ) : !ready && !busy ? (
-          <>
-            <p>{t("platformAccess.bindFirst")}</p>
-            <Button
-              type="primary"
-              onClick={() => {
-                open("account");
-              }}
-            >
-              {t("platformAccess.goToAccount")}
-            </Button>
           </>
         ) : complete ? (
           <div className={styles.completed} role="status">

@@ -9,8 +9,8 @@ Entry point: [platform.agentscope.io/m](https://platform.agentscope.io/m). This 
 ## Connect from your computer
 
 1. Start QwenPaw and open its Console.
-2. Open the bottom-left workspace menu, choose **Sign in to cloud**, and complete sign-in and authorization in the new window.
-3. Return to Console and check your cloud identity and node status.
+2. Click the top-right phone icon, choose **Sign in to cloud** in that dialog, and complete sign-in and authorization in the new window.
+3. The same dialog shows a QR code once the connection completes. You can also sign in and manage your cloud account from the bottom-left workspace menu.
 
 Standalone users sign in to Platform directly, without creating a new local account. Hub users first sign in to their local account, then connect a cloud account. The account panel displays both identities. Each Hub binding targets that user's personal Runtime; administrator privileges do not expand its remote scope.
 

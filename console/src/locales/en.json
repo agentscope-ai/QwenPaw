@@ -28,8 +28,6 @@
     "disconnectConfirm": "Disconnect this QwenPaw from Platform?",
     "waitingLogin": "Complete Platform sign-in and authorization in the new window.",
     "popupBlocked": "Allow pop-up windows, then sign in again.",
-    "bindFirst": "First sign in to Platform and connect this QwenPaw from the bottom-left account menu.",
-    "goToAccount": "Open account menu",
     "qrConsent": "Scan to sign in to your full Platform account, including its cloud and connected nodes.",
     "verifyPhone": "Match the digits on your phone, then confirm sign-in.",
     "confirmPhone": "Confirm this phone",
