@@ -14,6 +14,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from domain.enums import SpecialistRole
 from services.file_agent_runtime.prompts import render_file_agent_prompt
 from services.file_agent_runtime.prompts import tts_guidance
+from services.media_files.motion_blueprints import (
+    subtitle_settings_prompt_block,
+)
 from services.project_files.models import Project
 from services.project_files.schema_prompt import build_project_schema_prompt
 
@@ -189,6 +192,28 @@ def specialist_system_prompt(
                     f"{target_duration:g}"
                     if target_duration is not None
                     else "null"
+                ),
+                # The director's per-content-type rules each demand a caption
+                # card, so it has to be told the project's subtitle policy;
+                # otherwise it silently overrules the delegator's "off"
+                # default.
+                "subtitle_policy": (
+                    project.settings.subtitle_policy
+                    if project is not None
+                    else "off"
+                ),
+                # The optional JianYing-like style pack id, kept verbatim so
+                # the director can reason about (or echo) the real setting.
+                "subtitle_template": (
+                    project.settings.subtitle_template or "未选择"
+                    if project is not None
+                    else "未选择"
+                ),
+                # Full style wording generated from the same table the caption
+                # renderer reads, so the 动效描述 the director writes cannot
+                # disagree with the burned-in subtitles.
+                "subtitle_style_guidance": subtitle_settings_prompt_block(
+                    project.settings if project is not None else None,
                 ),
             },
         )

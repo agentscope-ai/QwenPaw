@@ -24,6 +24,7 @@ import AuthorBadges from "./AuthorBadges";
 import { PostBody } from "./PostBody";
 import { mediaUrl } from "./media";
 import { EditPostModal } from "./EditPostModal";
+import { FromGithubLink } from "./FromGithubLink";
 import { ArticleToc } from "./ArticleTocCard";
 import { RelatedResources } from "./RelatedResources";
 import { extractHtmlToc, parseMarkdownToc } from "./articleToc";
@@ -68,6 +69,9 @@ export function PostDetail({ id }: { id: string }) {
   const [reload, setReload] = useState(0);
   const [focusRequest, setFocusRequest] = useState(0);
   const [answerRequest, setAnswerRequest] = useState(0);
+  // Page-level single-open composer: main boxes, answer composer and inline
+  // replies all share this id so only one input is visible at a time.
+  const [openComposerId, setOpenComposerId] = useState<string | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
   const [barHidden, setBarHidden] = useState(false);
   const [barPinned, setBarPinned] = useState(false);
@@ -333,6 +337,9 @@ export function PostDetail({ id }: { id: string }) {
                         {post.view_count}
                       </span>
                     )}
+                    {post.github_link?.trim() && (
+                      <FromGithubLink href={post.github_link.trim()} />
+                    )}
                   </div>
                   {ownPost && (
                     <div className={styles.ownerActions}>
@@ -391,22 +398,26 @@ export function PostDetail({ id }: { id: string }) {
                         </button>
                         <button
                           type="button"
-                          className={styles.helpfulChip}
-                          aria-pressed={!!post.liked}
+                          className={styles.favoriteChip}
+                          aria-pressed={!!post.favorited}
                           disabled={!!busy}
-                          onClick={() => void interact("like")}
+                          onClick={() => void interact("favorite")}
                         >
-                          {post.liked ? (
-                            <SparkThumbsUpFill size={14} aria-hidden="true" />
-                          ) : (
-                            <ThumbsUp size={14} aria-hidden="true" />
+                          <Star
+                            size={14}
+                            fill={post.favorited ? "currentColor" : "none"}
+                            aria-hidden="true"
+                          />
+                          {t(
+                            post.favorited
+                              ? "communityPage.favorited"
+                              : "communityPage.favorite",
                           )}
-                          {t("communityPage.helpful")}
-                          {post.like_count ? (
+                          {post.favorite_count ? (
                             <>
                               {" "}
                               <span className={styles.barCount}>
-                                {post.like_count}
+                                {post.favorite_count}
                               </span>
                             </>
                           ) : null}
@@ -529,6 +540,8 @@ export function PostDetail({ id }: { id: string }) {
                       id={id}
                       connection={connection}
                       composeRequest={focusRequest}
+                      openComposerId={openComposerId}
+                      onOpenComposer={setOpenComposerId}
                     />
                   )}
                 </article>
@@ -545,6 +558,8 @@ export function PostDetail({ id }: { id: string }) {
                     }
                     onAccepted={applyAccepted}
                     focusRequest={answerRequest}
+                    openComposerId={openComposerId}
+                    onOpenComposer={setOpenComposerId}
                   />
                 ) : (
                   <div className={styles.discussionCard}>
@@ -552,6 +567,8 @@ export function PostDetail({ id }: { id: string }) {
                       id={id}
                       connection={connection}
                       focusRequest={focusRequest}
+                      openComposerId={openComposerId}
+                      onOpenComposer={setOpenComposerId}
                     />
                   </div>
                 )}

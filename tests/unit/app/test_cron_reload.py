@@ -813,6 +813,7 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
             stop=AsyncMock(),
             prepare_stop=AsyncMock(return_value=False),
             set_enqueue=MagicMock(),
+            set_workspace=MagicMock(),
             send_event=AsyncMock(),
         )
 
@@ -822,6 +823,16 @@ async def test_retired_cron_delivers_through_replacement_channel_owner(
     new_channels = ChannelManager([new_transport])
     old, repo, _ = cron_workspace("old-owner", old_channels)
     new, _, _ = cron_workspace("new-owner", new_channels)
+    # Production binds channels to the workspace and registers cron runs by
+    # chat ID. Both are required to exercise the tracker drain during handoff.
+    old_channels.set_workspace(old)
+    new_channels.set_workspace(new)
+    old._service_manager.services["chat_manager"] = SimpleNamespace(
+        get_or_create_chat=AsyncMock(
+            return_value=SimpleNamespace(id="owner-handoff-chat"),
+        ),
+        mark_chat_finished=AsyncMock(),
+    )
     entered, release = asyncio.Event(), asyncio.Event()
     yielded = asyncio.Event()
     handoff_entered, finish_handoff = asyncio.Event(), asyncio.Event()

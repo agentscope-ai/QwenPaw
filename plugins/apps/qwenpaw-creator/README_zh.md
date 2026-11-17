@@ -176,3 +176,14 @@ Agent 生成的媒体和修改的文本会进入决策托盘；你手动编辑�
 请打开 QwenPaw 控制台的 **Apps（应用中心）**，找到 **QwenPaw Creator** 并点击安装；安装完成后，直接从 Apps 打开 Creator。
 
 Creator 会使用若干本地工具，但不会改动系统安装：`ffmpeg` 负责媒体处理与合成（可用 `CREATOR_FFMPEG_PATH` 指定，否则回退系统 `ffmpeg` 或 `imageio-ffmpeg`）；`jq` 支撑 Agent 对项目文件的结构化编辑（`CREATOR_JQ_PATH` 或 `PATH`）。依赖缺失时 Creator 以降级模式启动，可通过 `GET /api/qwenpaw-creator/health` 查看缺失项。
+
+### 长会话的上下文预算
+
+Agent 每次请求模型前会先量一次输入，超限时先压缩历史、再降级可重取的媒体。下列变量在启动进程时设置，改动后需重启生效：
+
+- `CREATOR_MODEL_CONTEXT_TOKENS`：为本部署所用模型显式**覆盖最大输入 token 数**。默认情况下 Creator 会从平台 scroll 所用的同一份宿主目录解析窗口（未知模型回落 128k），因此在正常 QwenPaw 安装内 token 闸已默认开启、可预判 provider 的窗口拒绝；请求体积（384KB）只是传输地板，并非这道闸。仅当目录对你的端点不准时才需显式声明。有了窗口后，超窗输入会提前让位；媒体全部降级后仍超窗，则以 `MODEL_CONTEXT_UNFIT` 终止并等待更短的输入，不会反复重放。回复预留为窗口的 `min(4096, 5%)`（128k 约 3.2%、1M 约 0.4%），与平台 scroll 一致。
+- `CREATOR_MEDIA_OBSERVATION_DEGRADE_ENABLED`：设为 `0` 关闭媒体降级阶梯，恢复「超限即失败」并保留完整诊断。
+- `CREATOR_MEDIA_CLAMP_RATIO`：单块内联媒体在预算中可占的比例，默认 `0.5`，可设为 `0.05`–`1`。
+- `CREATOR_CONTINUATION_SUMMARY_ENABLED`：设为 `0` 跳过在归档 seq 召回地图旁读取的接续摘要（额外一次模型调用）；仅靠召回地图已能保证不丢内容。默认开启。
+
+已知边界：以 URL 形式进入请求的媒体（DashScope 临时 OSS、公网素材地址）不计入这份预算，也无法被降级——它们在线只占几百字节，但 provider 仍按视觉 token 计费。使用这类传输的部署请确认解析出的窗口能覆盖该模型，目录未覆盖时再显式声明 `CREATOR_MODEL_CONTEXT_TOKENS`。

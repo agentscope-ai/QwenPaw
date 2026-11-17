@@ -696,14 +696,6 @@ def _grounding_search_model(data: ModelConfigData) -> ModelConfigItem:
     )
 
 
-def _supports_dashscope_native_search(item: ModelConfigItem) -> bool:
-    protocol = item.protocol.casefold()
-    host = urlparse(item.base_url).hostname or ""
-    return (
-        "dashscope" in protocol or "百炼" in item.protocol or "dashscope" in host
-    )
-
-
 def _grounding_config_inputs(data: ModelConfigData) -> tuple[dict, ...]:
     connection_fields = {
         "model_name",
@@ -755,19 +747,11 @@ def _ensure_grounding_model_configured(
         )
     if grounding.tavily_api_key or grounding.serper_api_key:
         return
-    search_model = _grounding_search_model(data)
-    if not grounding.native_search_enabled:
-        raise ValidationError(
-            "Grounding 搜索未配置；请配置 Tavily/Serper，或启用 Qwen/DashScope 原生搜索",
-        )
-    if not _model_config_complete(search_model):
-        raise ValidationError(
-            "Grounding 搜索未配置；请配置 Tavily/Serper，或完整配置 Qwen/DashScope 搜索模型",
-        )
-    if not _supports_dashscope_native_search(search_model):
-        raise ValidationError(
-            "当前搜索模型不支持 Qwen/DashScope 原生 web_search；请配置 Tavily/Serper，或选择 DashScope（百炼）搜索模型",
-        )
+    # Which search channel will answer at runtime is an operational fact
+    # the connectivity test measures, not a config error: a grounding
+    # section with no reachable provider degrades to "no search" instead of
+    # blocking every unrelated model update carried by the same save.
+    return
 
 
 def _image_backend_for_protocol(protocol: str) -> str:
@@ -1182,6 +1166,7 @@ async def get_tts_capabilities() -> dict[str, Any]:
                 "transport": item.transport,
                 "systemVoices": list(item.system_voices),
                 "supportsDesign": item.supports_design,
+                "providers": list(item.providers),
             }
             for item in supported_models()
         ],
@@ -1657,6 +1642,77 @@ def _token_plan_models_probe(
     return url, headers, {"_get_probe": True}
 
 
+def _tts_probe_needs_websocket(body: ModelConnectionTestRequest) -> bool:
+    """True when only a real synthesis can probe this TTS config.
+
+    Token Plan serves neither the voice-management route (404 "Model not
+    exist") nor the native HTTP synthesis routes (400 "url error"), both
+    measured; the CosyVoice WebSocket on ``wss://<host>/api-ws/v1/inference``
+    is the plan's only TTS channel and the one production uses. Probing the
+    management route there would report a working configuration as broken.
+    """
+    if body.type != "tts":
+        return False
+    if not model_config.is_token_plan_endpoint(body.base_url):
+        return False
+    from models.tts_capabilities import require_capability
+
+    return require_capability(body.model_name).transport == "websocket"
+
+
+async def _probe_tts_over_websocket(
+    body: ModelConnectionTestRequest,
+) -> ConnectionTestResponse:
+    """Synthesize one character over the WebSocket production uses."""
+    from models import tts_model
+    from models.tts_capabilities import require_capability
+
+    start = time.monotonic()
+    capability = require_capability(body.model_name)
+    voice = body.voice or next(iter(capability.system_voices), "")
+    if not voice:
+        return ConnectionTestResponse(
+            ok=False,
+            ms=0,
+            error=(f"{body.model_name} 没有系统音色，请先复刻或设计音色后再" "测试连通性"),
+        )
+    try:
+        audio, _detail = await asyncio.to_thread(
+            tts_model._synthesize_over_websocket,
+            model=body.model_name,
+            voice=voice,
+            text="嗨",
+            api_key=body.api_key,
+            base_url=body.base_url,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        elapsed = round((time.monotonic() - start) * 1000)
+        return ConnectionTestResponse(
+            ok=False,
+            ms=elapsed,
+            error=(
+                f"tts: WebSocket 合成失败：{exc} [探测端点: "
+                f"{redact_url(body.base_url)}，协议: {body.protocol}]"
+            ),
+        )
+    elapsed = round((time.monotonic() - start) * 1000)
+    if not audio:
+        return ConnectionTestResponse(
+            ok=False,
+            ms=elapsed,
+            error=(
+                "tts: WebSocket 合成未返回音频 [探测端点: "
+                f"{redact_url(body.base_url)}，协议: {body.protocol}]"
+            ),
+        )
+    return ConnectionTestResponse(
+        ok=True,
+        ms=elapsed,
+        detail=f"synthesized {len(audio)} bytes over WebSocket",
+        capability_verified=True,
+    )
+
+
 def _anthropic_llm_probe(
     body: ModelConnectionTestRequest,
     base: str,
@@ -1758,22 +1814,29 @@ def _silent_wav_bytes() -> bytes:
 def _asr_provider(body: ModelConnectionTestRequest) -> str:
     """Which route ``asr_model.transcribe`` will actually take.
 
-    Mirrors that dispatch exactly: the stored provider decides whisper,
-    then a ``qwen3-asr*`` model name, then Fun-ASR. ``protocol`` is
-    deliberately not consulted, because ``get_asr_provider()`` does not
-    read it either: a config whose protocol says Whisper while its
-    provider says Fun-ASR runs the Fun-ASR route, and probing the whisper
-    one would green-light an endpoint production never calls. Probing a
-    different route than the one production runs is how a dead endpoint
-    stayed green, and the previous probe never produced ``qwen3-asr`` at
-    all — a qwen3-asr config was validated against the Fun-ASR
-    upload-policy call.
+    Delegates to :func:`models.asr_model.asr_route` so the probe cannot
+    drift from the dispatch it claims to mirror. A restated copy already
+    drifted once: it knew ``qwen3-asr*`` but not ``qwen-audio*``, so a
+    Token Plan ASR config was validated against the Fun-ASR upload-policy
+    call while production ran the multimodal-generation route. ``protocol``
+    stays unconsulted because ``get_asr_provider()`` does not read it
+    either: a config whose protocol says Whisper while its provider says
+    Fun-ASR runs the Fun-ASR route, and probing the whisper one would
+    green-light an endpoint production never calls.
     """
-    if (body.provider or "").casefold() == "whisper":
-        return "whisper"
-    if (body.model_name or "").casefold().startswith("qwen3-asr"):
-        return "qwen3-asr"
-    return "fun-asr"
+    from models.asr_model import asr_route
+
+    return asr_route(body.model_name or "", body.provider or "")
+
+
+# Alibaba's own documentation sample: a stable public clip the Token Plan
+# ASR probe can transcribe. The plan offers no channel for local audio —
+# uploads answer 401/404 and a Base64 data URL answers an empty 400, all
+# measured — while the same clip transcribes fine from a public URL.
+_ASR_PROBE_PUBLIC_SAMPLE = (
+    "https://dashscope.oss-cn-beijing.aliyuncs.com/samples/audio/"
+    "paraformer/hello_world_female2.wav"
+)
 
 
 async def _upload_asr_probe_sample(
@@ -1817,6 +1880,7 @@ async def _asr_probe(
         _FUN_ASR_TRANSCRIPTION_SUFFIX,
         _fun_asr_base,
         _qwen3_endpoint,
+        is_qwen_audio_asr_model,
     )
 
     headers = _probe_headers(body)
@@ -1858,43 +1922,56 @@ async def _asr_probe(
             f"/{_FUN_ASR_TRANSCRIPTION_SUFFIX}"
         )
     _assert_probe_destination(url)
-    file_url = await _upload_asr_probe_sample(body)
-    if provider == "qwen3-asr":
+    if provider != "qwen3-asr":
+        # Fun-ASR: the real async submit, with the headers production sends —
+        # omitting X-DashScope-Async is what made an earlier attempt at this
+        # probe come back 403 "does not support asynchronous calls". The probe
+        # deliberately does not poll the task, because a UI button needs
+        # bounded latency, so what it can assert is that the transcription
+        # route exists, accepts the key and took the work — not that a
+        # transcript will appear.
+        file_url = await _upload_asr_probe_sample(body)
         return (
             url,
-            {**headers, "X-DashScope-OssResourceResolve": "enable"},
             {
-                "_attests": _ATTEST_ASR_QWEN3,
+                **headers,
+                "X-DashScope-Async": "enable",
+                "X-DashScope-OssResourceResolve": "enable",
+            },
+            {
+                "_attests": _ATTEST_ASR_FUN,
                 "model": body.model_name,
-                "input": {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": [{"audio": file_url}],
-                        },
-                    ],
-                },
-                "parameters": {"result_format": "message"},
+                "input": {"file_urls": [file_url]},
+                "parameters": {},
             },
         )
-    # Fun-ASR: the real async submit, with the headers production sends —
-    # omitting X-DashScope-Async is what made an earlier attempt at this
-    # probe come back 403 "does not support asynchronous calls". The probe
-    # deliberately does not poll the task, because a UI button needs bounded
-    # latency, so what it can assert is that the transcription route exists,
-    # accepts the key and took the work — not that a transcript will appear.
+    # The multimodal-generation route. A Token Plan key has no local-audio
+    # channel at all, so the probe transcribes the public documentation
+    # sample instead of staging a clip through an uploader the plan does
+    # not have (see _ASR_PROBE_PUBLIC_SAMPLE).
+    if model_config.is_token_plan_endpoint(body.base_url):
+        file_url = _ASR_PROBE_PUBLIC_SAMPLE
+    else:
+        file_url = await _upload_asr_probe_sample(body)
     return (
         url,
+        {**headers, "X-DashScope-OssResourceResolve": "enable"},
         {
-            **headers,
-            "X-DashScope-Async": "enable",
-            "X-DashScope-OssResourceResolve": "enable",
-        },
-        {
-            "_attests": _ATTEST_ASR_FUN,
+            "_attests": _ATTEST_ASR_QWEN3,
             "model": body.model_name,
-            "input": {"file_urls": [file_url]},
-            "parameters": {},
+            "input": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"audio": file_url}],
+                    },
+                ],
+            },
+            "parameters": (
+                {"format": "wav", "sample_rate": "16000"}
+                if is_qwen_audio_asr_model(body.model_name)
+                else {"result_format": "message"}
+            ),
         },
     )
 
@@ -2238,6 +2315,9 @@ def _assert_probe_peer(response: Any) -> None:
 # all prove the credential and nothing more.  Inferring the level from the
 # verb is what let that listing claim a verified voice.
 _ATTEST_HANDLED = "handled"
+# A synthesis probe is graded on the audio URL production goes on to download;
+# a 200 without one answered, it did not verify.
+_ATTEST_TTS = "tts-audio"
 _ATTEST_ASR_WHISPER = "asr-whisper"
 _ATTEST_ASR_QWEN3 = "asr-qwen3"
 _ATTEST_ASR_FUN = "asr-fun"
@@ -2346,7 +2426,10 @@ def _grade_fun_asr_terminal(
             + (f"：{failures[:160]}" if failures else "")
         )
     if not str(succeeded.get("transcription_url") or ""):
-        return False, "转写子任务已成功但未返回 transcription_url，生产下载转写结果时会失败"
+        return (
+            False,
+            "转写子任务已成功但未返回 transcription_url，生产下载转写结果时会失败",
+        )
     return True, ""
 
 
@@ -2495,6 +2578,40 @@ def _grade_qwen3_document(document: Mapping[str, Any]) -> tuple[bool, str]:
     return False, ""
 
 
+def _grade_tts_attestation(response: httpx.Response) -> tuple[bool, str]:
+    """Grade a synthesis probe on the field production actually reads.
+
+    ``tts_model`` takes ``output.audio.url`` and downloads it, so a 2xx whose
+    body carries no such URL - an acknowledgement, a queue receipt, an error
+    page shaped like JSON - proves the endpoint answered and nothing about the
+    model producing audio. That is the difference between a configuration the
+    operator can trust and one that only looks reachable.
+    """
+
+    body = response.text or ""
+    if not body.strip():
+        return False, "语音合成探测收到空响应，无法确认模型可合成"
+    try:
+        document = json.loads(body)
+    except ValueError:
+        return False, f"语音合成探测返回非 JSON 响应：{_body_sample(body)}"
+    if not isinstance(document, Mapping):
+        return False, (
+            "语音合成探测返回的 JSON 顶层不是对象，生产按字段读取会失败：" f"{_body_sample(body)}"
+        )
+    wrapped = _error_wrapped_in_2xx(document)
+    if wrapped:
+        return False, f"语音合成探测在 2xx 响应中返回错误：{wrapped}"
+    output = document.get("output")
+    audio = output.get("audio") if isinstance(output, Mapping) else None
+    url = audio.get("url") if isinstance(audio, Mapping) else None
+    if not (isinstance(url, str) and url.strip()):
+        return False, (
+            "语音合成探测未返回 output.audio.url，生产无从下载音频：" f"{_body_sample(body)}"
+        )
+    return True, ""
+
+
 _ASR_DOCUMENT_GRADERS: dict[
     str,
     Callable[[Mapping[str, Any]], tuple[bool, str]],
@@ -2523,6 +2640,8 @@ def _grade_attestation(
     """
     if not attests:
         return False, ""
+    if attests == _ATTEST_TTS:
+        return _grade_tts_attestation(response)
     grader = _ASR_DOCUMENT_GRADERS.get(attests)
     if grader is None:
         return True, ""
@@ -2658,15 +2777,23 @@ def _probe_payload(
     if body.type == "tts":
         # The upload-policy probe accepts any model string, so it cannot catch a
         # mistyped model name. Synthesizing one character costs a fraction of a
-        # cent and actually validates the model/voice pair. Models without
-        # system voices cannot synthesize at all until a character voice
-        # exists, so for those verify the credential against the voice-listing
-        # surface instead.
+        # cent and actually validates the model/voice pair - but only over the
+        # route that model really speaks on. A WebSocket model is not served by
+        # the HTTP multimodal-generation endpoint this branch would call, so
+        # probing it there answers for a route production never uses: the
+        # configuration reads green while narration stays broken, or red while
+        # narration works. Either way it is the mistake this endpoint's whole
+        # job is to avoid. Models without system voices cannot synthesize at all
+        # until a character voice exists. Both cases fall back to the voice
+        # listing, which proves the credential and nothing about the timbre.
         from models.tts_capabilities import require_capability
 
         parsed = urlparse(body.base_url)
         capability = require_capability(body.model_name)
-        if not capability.has_system_voices:
+        if (
+            not capability.has_system_voices
+            or capability.transport == "websocket"
+        ):
             action = (
                 "list_voice" if capability.family == "cosyvoice" else "list"
             )
@@ -2686,7 +2813,7 @@ def _probe_payload(
             "/api/v1/services/aigc/multimodal-generation/generation",
             headers,
             {
-                "_attests": _ATTEST_HANDLED,
+                "_attests": _ATTEST_TTS,
                 "model": body.model_name,
                 "input": {
                     "text": "嗨",
@@ -2907,6 +3034,8 @@ async def test_model_connection(
     )
     if refusal:
         return ConnectionTestResponse(ok=False, ms=0, error=refusal)
+    if _tts_probe_needs_websocket(selected):
+        return await _probe_tts_over_websocket(selected)
     start = time.monotonic()
     try:
         url, headers, payload = await _prepare_probe_payload(selected)
