@@ -21,6 +21,9 @@ class Client:
     def reconnect_delay_set(self, **kwargs):
         pass
 
+    def enable_logger(self):
+        self.sdk_logger_enabled = True
+
     def connect(self, host, port, keepalive):
         self.connection = host, port, keepalive
 
@@ -78,6 +81,7 @@ async def test_start_subscribes_with_configured_qos(mqtt):
     driver, _, _, client = mqtt
     assert client.connection == ("broker.invalid", 1883, 60)
     assert client.subscriptions == [("request/+/text", 2)]
+    assert client.sdk_logger_enabled
     assert driver._connected and not client.options["reconnect_on_failure"]
 
 
@@ -177,7 +181,11 @@ async def test_publish_confirmation_unknown_is_not_replayed(
             await driver.stop()
 
 
-async def test_malformed_payload_is_filtered_before_valid_barrier(mqtt):
+async def test_malformed_payload_is_filtered_before_valid_barrier(
+    mqtt,
+    caplog,
+):
+    caplog.set_level(f"DEBUG", logger=f"qwenpaw_channel_mqtt.platform")
     driver, peer, _, client = mqtt
     for payload in (b"[]", b"\xff", b'{"text":12}', b'{"text":""}'):
         client.on_message(
@@ -188,6 +196,9 @@ async def test_malformed_payload_is_filtered_before_valid_barrier(mqtt):
     event = await inbound(mqtt, b"barrier")
     assert len(peer.batches) == 1
     assert event["content_parts"] == [{"type": "text", "text": "barrier"}]
+    assert f"MQTT invalid message (UnicodeDecodeError)" in caplog.text
+    assert f"MQTT received message: text_chars=7" in caplog.text
+    assert f"barrier" not in caplog.text
 
 
 async def test_stop_disconnects_and_is_idempotent_without_connection(

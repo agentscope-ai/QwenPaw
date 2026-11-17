@@ -224,6 +224,20 @@ async def test_stream_final_edits_native_placeholder_with_final_formatting(
     )
 
 
+async def test_sdk_failure_log_keeps_operation_without_response(slack, caplog):
+    _, _, _, platform = slack
+    error = module(f"slack", f"utils").SlackDeliveryError
+
+    async def fail():
+        raise OSError(f"private-slack-response")
+
+    with pytest.raises(error, match=f"SLACK_RESULT_UNKNOWN"):
+        await platform.effect_call(fail, operation=f"stream end")
+    assert f"Slack stream end failed" in caplog.text
+    assert f"OSError" in caplog.text
+    assert f"private-slack-response" not in caplog.text
+
+
 async def test_stop_closes_socket_and_owned_connection_tasks(slack):
     driver, _, _, platform = slack
     handler, task, watch = (

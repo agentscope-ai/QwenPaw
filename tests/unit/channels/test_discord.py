@@ -163,6 +163,23 @@ async def test_attachment_is_downloaded_classified_and_sent_as_file(discord):
     assert channel.sent[0]["filename"] == "9_picture.png"
 
 
+async def test_stream_failure_log_preserves_operation_and_status(caplog):
+    native = module(f"discord", f"platform")
+
+    async def reject():
+        raise native.discord.HTTPException(
+            NS(status=403, reason=f"Forbidden"),
+            {f"code": 50013, f"message": f"private-response"},
+        )
+
+    with pytest.raises(native.DiscordDeliveryError, match=f"DISCORD_REJECTED"):
+        await native.DiscordPlatform._request(
+            reject(), operation=f"stream end",
+        )
+    assert f"Discord stream end failed: HTTP 403, code=50013" in caplog.text
+    assert f"private-response" not in caplog.text
+
+
 async def test_duplicate_callback_and_stop_gateway(discord):
     driver, peer, _, client, _ = discord
     await receive(discord)

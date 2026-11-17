@@ -783,6 +783,15 @@ class IsolatedChannelProxy(BaseChannel):
                 while len(self._accepted) > 4096:
                     self._accepted.popitem(last=False)
                 accepted.append(event.event_id)
+        if logger.isEnabledFor(logging.DEBUG):
+            reasons = sorted({item.reason_code for item in rejected})
+            logger.debug(
+                f"{self.channel} ingress batch "
+                f"instance_id={self._launch_spec.instance_id} "
+                f"generation={self._launch_spec.generation} "
+                f"accepted={len(accepted)} duplicate={len(duplicates)} "
+                f"rejected={len(rejected)} reasons={reasons}",
+            )
         return EventBatchAck(
             tuple(accepted),
             tuple(duplicates),

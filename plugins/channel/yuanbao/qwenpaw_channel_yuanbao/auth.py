@@ -170,10 +170,10 @@ class TokenManager:
                 "timestamp": timestamp,
             }
 
-            retry_hint = (
-                f" (retry {attempt}/{SIGN_MAX_RETRIES})" if attempt > 0 else ""
+            logger.debug(
+                f"Yuanbao signing token: scheme={scheme}, "
+                f"attempt={attempt + 1}",
             )
-            logger.info("yuanbao: signing token: url=%s%s", url, retry_hint)
 
             try:
                 async with session.post(
@@ -182,17 +182,22 @@ class TokenManager:
                     headers={"Content-Type": "application/json"},
                 ) as response:
                     if not response.ok:
+                        logger.warning(
+                            f"Yuanbao sign-token HTTP "
+                            f"status={response.status}",
+                        )
                         raise RuntimeError(
                             f"sign-token HTTP error: {response.status} "
                             f"{response.reason}",
                         )
                     result = await response.json()
             except aiohttp.ClientError as exc:
+                logger.warning(
+                    f"Yuanbao sign-token network failure "
+                    f"({type(exc).__name__}); "
+                    f"retry={attempt < SIGN_MAX_RETRIES}",
+                )
                 if attempt < SIGN_MAX_RETRIES:
-                    logger.warning(
-                        "yuanbao: sign-token network error: %s, retrying...",
-                        exc,
-                    )
                     await asyncio.sleep(SIGN_RETRY_DELAY_S)
                     continue
                 raise RuntimeError(f"sign-token network error: {exc}") from exc
@@ -207,10 +212,7 @@ class TokenManager:
                     duration=data.get("duration", 0),
                     product=data.get("product", "yuanbao"),
                 )
-                logger.info(
-                    "yuanbao: sign-token success: bot_id=%s",
-                    token_result.bot_id,
-                )
+                logger.info(f"Yuanbao sign-token succeeded")
 
                 # Cache with TTL
                 if token_result.duration > 0:
@@ -231,6 +233,10 @@ class TokenManager:
                 await asyncio.sleep(SIGN_RETRY_DELAY_S)
                 continue
 
+            logger.warning(
+                f"Yuanbao sign-token rejected: "
+                f"code={code if type(code) is int else 'invalid'}",
+            )
             raise RuntimeError(
                 f"sign-token error: code={code}, msg={result.get('msg', '')}",
             )
@@ -263,8 +269,8 @@ class TokenManager:
                 logger.info("yuanbao: scheduled token refresh succeeded")
             except Exception as exc:
                 logger.error(
-                    "yuanbao: scheduled token refresh failed: %s",
-                    exc,
+                    f"Yuanbao scheduled token refresh failed "
+                    f"({type(exc).__name__})",
                 )
 
         if self._closing:

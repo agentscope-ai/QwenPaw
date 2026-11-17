@@ -197,15 +197,15 @@ async def runtime(tmp_path, monkeypatch):
     requests, clients = [], []
     real_client = httpx.AsyncClient
     polling, qr_release = asyncio.Event(), asyncio.Event()
-    upload = {}
+    upload, response_overrides = {}, {}
 
     async def transport(request):
         requests.append(request)
         path = request.url.path
         if path.endswith("/getupdates"):
             await polling.wait()
-            return httpx.Response(200, json={"ret": 0, "msgs": []})
-        if path.endswith("/get_bot_qrcode"):
+            value = {f"ret": 0, f"msgs": []}
+        elif path.endswith("/get_bot_qrcode"):
             value = {
                 "qrcode": "scan-code",
                 "qrcode_img_content": "https://login.test/scan",
@@ -232,7 +232,10 @@ async def runtime(tmp_path, monkeypatch):
         else:
             assert path.endswith(("/sendmessage", "/sendtyping")), path
             value = {"ret": 0}
-        return httpx.Response(200, json=value)
+        endpoint = path.rsplit(f"/", 1)[-1]
+        return httpx.Response(
+            200, json=response_overrides.get(endpoint, value)
+        )
 
     def external_client(**kwargs):
         client = real_client(
@@ -274,6 +277,8 @@ async def runtime(tmp_path, monkeypatch):
         requests=requests,
         qr_release=qr_release,
         upload=upload,
+        polling=polling,
+        response_overrides=response_overrides,
     )
     qr_release.set()
     for driver in drivers:
@@ -346,6 +351,53 @@ async def test_context_files_are_workspace_local(
         assert token_file.read_text(encoding=f"utf-8") == f"file-token"
 
 
+async def test_poll_and_typing_log_numeric_platform_codes(runtime, caplog):
+    caplog.set_level(f"INFO")
+    runtime.response_overrides.update(
+        getupdates={f"ret": -14, f"errcode": 401},
+        getconfig={
+            f"ret": 0,
+            f"errcode": 0,
+            f"typing_ticket": f"ticket-value",
+        },
+        sendtyping={f"ret": -2, f"errcode": 404},
+    )
+    rt = await runtime.start()
+    platform = rt.driver._platform
+    platform.start_typing(f"reply", f"user-A", f"context-value")
+    runtime.polling.set()
+    async with asyncio.timeout(3):
+        while f"WeChat sendtyping failed: status=1" not in caplog.text:
+            await asyncio.sleep(0.01)
+    await platform.finish_response(f"reply")
+    assert f"getupdates failed: ret=-14 errcode=401" in caplog.text
+    assert (
+        f"getconfig response: ret=0 errcode=0 has_ticket=True" in caplog.text
+    )
+    for status in (1, 2):
+        assert f"status={status} ret=-2 errcode=404" in caplog.text
+    assert f"ticket-value" not in caplog.text
+    assert f"context-value" not in caplog.text
+
+
+async def test_getconfig_rejection_is_a_warning(runtime, caplog):
+    runtime.response_overrides[f"getconfig"] = {
+        f"ret": -14,
+        f"errcode": 401,
+        f"errmsg": f"private-server-response",
+    }
+    rt = await runtime.start()
+    platform = rt.driver._platform
+    platform.start_typing(f"reply", f"user-A", f"context-value")
+    async with asyncio.timeout(3):
+        await platform._typing_users[f"user-A"][f"task"]
+    assert (
+        f"WARNING",
+        f"WeChat getconfig response: ret=-14 errcode=401 has_ticket=False",
+    ) in [(record.levelname, record.getMessage()) for record in caplog.records]
+    assert f"private-server-response" not in caplog.text
+
+
 async def test_first_scan_transitions_from_auth_required_to_connected(
     runtime,
     tmp_path,
@@ -380,6 +432,16 @@ async def test_first_scan_transitions_from_auth_required_to_connected(
         if name == "channel.auth.required"
     ]
     assert notices[0]["scan_url"] == "https://login.test/scan"
+
+
+async def test_missing_qr_logs_failure_without_response_body(runtime, caplog):
+    runtime.response_overrides[f"get_bot_qrcode"] = {
+        f"errmsg": f"private-qr-response",
+    }
+    with pytest.raises(ValueError, match=f"QRCODE_UNAVAILABLE"):
+        await runtime.start(token=f"")
+    assert f"WeChat QR login failed (ValueError)" in caplog.text
+    assert f"private-qr-response" not in caplog.text
 
 
 @pytest.mark.parametrize(

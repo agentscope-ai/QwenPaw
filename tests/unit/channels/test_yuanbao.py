@@ -194,6 +194,23 @@ async def test_signed_token_and_binary_authenticate_before_connected(yuanbao):
     assert driver._platform._bot_id == "native-bot" and driver._connected
 
 
+async def test_gateway_diagnostics_summarize_native_frames(yuanbao, caplog):
+    driver, _, _, codec, _, _, _, _, _ = yuanbao
+    caplog.set_level("DEBUG", logger=driver._platform.__module__)
+    head = {
+        "cmdType": codec.CMD_TYPE_PUSH,
+        "cmd": "private-command-value",
+        "module": "private-module-value",
+    }
+    payload = b"private-message-value"
+    await driver._platform._handle_binary_frame(
+        codec.encode_conn_msg(head, payload),
+    )
+    assert "cmd=unknown module=unknown" in caplog.text
+    assert f"push is not valid JSON: bytes={len(payload)}" in caplog.text
+    assert "private-" not in caplog.text
+
+
 @pytest.mark.parametrize("group", [None, "native-group"])
 async def test_dm_group_identity_and_reply_target_retain_full_native_id(
     yuanbao,

@@ -464,9 +464,10 @@ def main(
         if len(raw) > 1024 * 1024 or not raw.endswith(b"\n"):
             return 70
         packet = json.loads(raw)
+        worker_logs = _sibling(f"worker_logs")
         diagnostics = _sibling("diagnostics").StartupDiagnostics(
             packet,
-            clean=_sibling("worker_logs")._clean,
+            clean=worker_logs._clean,
         )
         diagnostics.mark(
             "bootstrap",
@@ -481,6 +482,8 @@ def main(
             "probe",
         }:
             return 70
+        if mode in {f"run", f"manage"} and f"channel_log_level" in packet:
+            worker_logs.configure_channel_logging(packet[f"channel_log_level"])
 
         async def enter() -> None:
             nonlocal input_transferred

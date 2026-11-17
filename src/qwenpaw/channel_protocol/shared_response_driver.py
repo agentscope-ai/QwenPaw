@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 import hashlib
 import json
+import logging
 import uuid
 
 from qwenpaw.channel_protocol.errors import (
@@ -50,6 +51,7 @@ from qwenpaw.channel_protocol.response_lifecycle import (
 _MAX_ROUTES = 128
 _STREAM_RECEIPTS = 4
 _CHECKPOINT_BYTES = 768 * 1024
+logger = logging.getLogger(__name__)
 
 
 class SharedResponseDriver:
@@ -945,7 +947,11 @@ class SharedResponseDriver:
         except asyncio.CancelledError:
             await asyncio.shield(self._checkpoint())
             raise
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                f"{self._kind} delivery result unavailable "
+                f"({type(exc).__name__})",
+            )
             result = self._result(
                 delivery_id,
                 "unknown",
@@ -967,11 +973,25 @@ class SharedResponseDriver:
         )
         try:
             await self._checkpoint()
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"{self._kind} {intent['operation']} checkpoint failed "
+                f"({type(exc).__name__}), delivery result unknown",
+            )
             return self._result(
                 delivery_id,
                 "unknown",
                 "CHECKPOINT_RESULT_UNKNOWN",
+            )
+        operation, state = intent[f"operation"], result[f"state"]
+        if state == f"acknowledged":
+            logger.debug(f"{self._kind} {operation} acknowledged")
+        else:
+            reason = result.get(f"reason_code")
+            retryable = result.get(f"retryable", False)
+            logger.warning(
+                f"{self._kind} {operation} result={state} "
+                f"reason={reason} retryable={retryable}",
             )
         return result
 

@@ -227,13 +227,13 @@ class CommandRegistry:
                 next_char_idx = len(prefix)
                 if next_char_idx >= len(query_lower):
                     logger.debug(
-                        f"Query '{query[:30]}' → priority_level={level}",
+                        f"Command {prefix}: priority_level={level}",
                     )
                     return level
                 next_char = query_lower[next_char_idx]
                 if next_char in (" ", "\t", "\n"):
                     logger.debug(
-                        f"Query '{query[:30]}' → priority_level={level}",
+                        f"Command {prefix}: priority_level={level}",
                     )
                     return level
 
