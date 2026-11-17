@@ -1303,7 +1303,8 @@
     },
     "regenerate": "Tạo lại",
     "regenerateUnavailable": "Lượt cũ này không có mã yêu cầu. Hãy gửi tin nhắn mới để tiếp tục.",
-    "turnCanceled": "Đã dừng"
+    "turnCanceled": "Đã dừng",
+    "outputTruncated": "Mô hình đã đạt giới hạn đầu ra. Câu trả lời này chưa đầy đủ. Hãy yêu cầu mô hình tiếp tục hoặc tăng giới hạn đầu ra."
   },
   "debug": {
     "title": "Gỡ lỗi",
