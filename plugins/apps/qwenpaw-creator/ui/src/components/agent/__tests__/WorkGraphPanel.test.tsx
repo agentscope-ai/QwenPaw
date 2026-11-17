@@ -78,6 +78,8 @@ const graph: WorkGraphView = {
       deps: ["storyboard:elem:one"],
       lane: "element:elem:one",
       missing: ["storyboard:elem:one"],
+      timelineId: "tl-one",
+      promptSyncRequired: true,
       locator: { page: "plan", elementId: "elem:one" },
     }),
   ],
@@ -103,15 +105,34 @@ describe("WorkGraphPanel", () => {
     expect(screen.getByText("三人组 阵容图")).toBeInTheDocument();
     expect(screen.getByText(/50%/)).toBeInTheDocument();
     expect(screen.getByText("等待前置内容")).toBeInTheDocument();
-    expect(document.body).not.toHaveTextContent("safety rejected");
     expect(document.body).not.toHaveTextContent("storyboard:elem:one");
-    expect(document.querySelector('[title="safety rejected"]')).toBeNull();
+
+    // B1: a failed node states why it failed, expands in place instead of
+    // navigating away, and keeps the raw reason in the hover tooltip.
+    const error = document.querySelector("[data-work-node-error]")!;
+    expect(error).toHaveTextContent("safety rejected");
+    expect(error).toHaveAttribute("title", "safety rejected");
+    expect(error).not.toHaveClass("whitespace-pre-line");
+    fireEvent.click(error);
+    expect(error).toHaveClass("whitespace-pre-line");
+    expect(navigateToLocator).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByText(/开场 · 分镜/));
     expect(navigateToLocator).toHaveBeenCalledWith(
       "p1",
       expect.objectContaining({ page: "plan", elementId: "elem:one" }),
     );
+    // D1: a prompt-sync gated node offers a direct way to the workbench
+    // banner where the confirmation lives (element route, not plan timeline).
+    navigateToLocator.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", { name: "去同步 · 开场 · 视频" }),
+    );
+    expect(navigateToLocator).toHaveBeenCalledWith("p1", {
+      page: "element",
+      elementId: "elem:one",
+      timelineId: "tl-one",
+    });
     fireEvent.click(
       screen.getByRole("button", { name: "重新生成阵容图 · 三人组 阵容图" }),
     );
@@ -120,6 +141,48 @@ describe("WorkGraphPanel", () => {
       "lineup:lineup:trio",
     );
     expect(screen.queryByRole("button", { name: "恢复自动制作" })).toBeNull();
+  });
+
+  it("shows the failure reason and the matching next step in the progress overview", () => {
+    // B2: the collapsed overview used to say only "failed". It now repeats
+    // the reason and offers retry (dispatchable) or model configuration
+    // (provider/config failures) instead of a blind retry.
+    render(<AgentProgressOverview projectId="p1" />);
+    const row = document.querySelector("[data-progress-error]");
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent("safety rejected");
+    expect(
+      within(row as HTMLElement).getByRole("button", { name: "重试" }),
+    ).toBeInTheDocument();
+  });
+
+  it("routes provider configuration failures to the model settings instead of a blind retry", () => {
+    useWorkGraphStore.setState({
+      projectId: "p1",
+      graph: {
+        ...graph,
+        nodes: [
+          node({
+            id: "video:elem:one",
+            label: "开场 · 视频",
+            status: "failed",
+            lane: "element:elem:one",
+            error: "模型未配置：请先为视频生成选择模型",
+            locator: { page: "plan", elementId: "elem:one" },
+          }),
+        ],
+      },
+    } as never);
+    render(<AgentProgressOverview projectId="p1" />);
+    const row = document.querySelector("[data-progress-error]");
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent("模型未配置");
+    expect(
+      within(row as HTMLElement).getByRole("button", { name: "去模型配置" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).queryByRole("button", { name: "重试" }),
+    ).toBeNull();
   });
 });
 

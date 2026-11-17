@@ -49,6 +49,13 @@ export interface FileProjectReviewState {
   decisionInFlight: boolean;
   polling: boolean;
   consecutiveFailures: number;
+  /**
+   * Set when a failed decision was reconciled by a later poll and actually
+   * committed server-side. Consumers show a "decision took effect"
+   * correction and then clear it.
+   */
+  reconciledDecision: { reviewId: string; at: string } | null;
+  clearReconciledDecision: () => void;
   reset: (projectId?: string | null) => void;
   pollOnce: (projectId: string) => Promise<void>;
   decide: (
@@ -84,6 +91,7 @@ const reviewBase = (projectId: string | null = null) => ({
   decisionInFlight: false,
   polling: false,
   consecutiveFailures: 0,
+  reconciledDecision: null as { reviewId: string; at: string } | null,
 });
 
 function semanticEtag(value: string): string {
@@ -314,6 +322,52 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       return request;
     };
 
+    const reconcileDecision = async (
+      projectId: string,
+      reviewId: string,
+      decisions: FileProjectReviewDecisionItem[],
+      epoch: number,
+    ) => {
+      // The decision endpoint commits before its response can still fail
+      // (e.g. follow-up publication errors on older builds, network reset).
+      // If a fresh poll shows the decided operations are no longer pending,
+      // the decision actually took effect: clear the error state and flag
+      // the reconciliation so the UI can correct its "failed" toast.
+      try {
+        const fresh = await getActiveFileProjectReview(projectId);
+        if (epoch !== projectEpoch || get().projectId !== projectId) return;
+        if (fresh.kind === "not_modified") return;
+        const reviews = fresh.kind === "updated" ? fresh.reviews : [];
+        const target = reviews.find((r) => r.review_id === reviewId);
+        const decidedIds = new Set(decisions.map((item) => item.operation_id));
+        const stillPending =
+          target != null &&
+          target.status === "PENDING" &&
+          target.operations.some(
+            (operation) =>
+              decidedIds.has(operation.operation_id) &&
+              operation.decision === "PENDING",
+          );
+        if (stillPending) return;
+        const pendingReviews = reviews.filter((r) => r.status === "PENDING");
+        const compositeToken =
+          pendingReviews.length > 0
+            ? pendingReviews.map((r) => r.decision_token).join("|")
+            : null;
+        set({
+          reviews: pendingReviews,
+          etag: compositeToken ? quotedEtag(compositeToken) : null,
+          syncStatus: "healthy",
+          syncError: null,
+          consecutiveFailures: 0,
+          lastGoodAt: new Date().toISOString(),
+          reconciledDecision: { reviewId, at: new Date().toISOString() },
+        });
+      } catch {
+        // Keep the degraded state; the next scheduled poll retries.
+      }
+    };
+
     const decide = async (
       projectId: string,
       reviewId: string,
@@ -484,6 +538,18 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
               }
             : {},
         );
+        // A CAS conflict is a definite pre-commit rejection: the decision was
+        // not applied, so a reconciliation poll would only add latency.
+        const casConflict =
+          error instanceof CreatorHttpError && error.status === 409;
+        if (!casConflict) {
+          void reconcileDecision(
+            projectId,
+            reviewId,
+            canonicalDecisions,
+            epoch,
+          );
+        }
         throw error;
       }
     };
@@ -530,6 +596,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
 
     return {
       ...reviewBase(),
+      clearReconciledDecision: () => set({ reconciledDecision: null }),
       reset: (projectId = null) => {
         stopController();
         projectEpoch += 1;

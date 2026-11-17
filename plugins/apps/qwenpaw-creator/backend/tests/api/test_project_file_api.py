@@ -682,6 +682,53 @@ def test_review_decision_appends_exactly_one_action_specific_message(
             assert "人物状态不对" in messages[0].content_parts[0].text
 
 
+def test_review_decision_degrades_followup_failure_then_replays_it(
+    tmp_path,
+    run_scenario,
+    monkeypatch,
+) -> None:
+    """A committed decision must never surface as a failure because the
+    follow-up message could not be published; replay recovers it once."""
+
+    app, services, base = _app(tmp_path)
+    runtime = services.sessions.create_project_runtime(
+        "project-1",
+        session_id="session-1",
+        conversation_id="conversation-1",
+    )
+    review = _pending_review(services, base, interrupted_run_id=None)
+    payload = _decision_payload(review, "decision-deferred")
+
+    async def failing_followup(_self, **_kwargs):
+        raise RuntimeError("session store unavailable")
+
+    monkeypatch.setattr(
+        CreatorFileServices,
+        "publish_review_followup",
+        failing_followup,
+    )
+
+    async def scenario(client):
+        return await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-deferred"},
+            json=payload,
+        )
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200, response.text
+    assert response.json()["followupDeferred"] is True
+    assert _messages(services.sessions, runtime.session.session_id) == []
+
+    # The FINALIZED journal is the outbox: startup/convergence replay must
+    # land the missing message and stay idempotent when it runs again.
+    services.recover_review_followup_messages("project-1")
+    services.recover_review_followup_messages("project-1")
+    messages = _messages(services.sessions, runtime.session.session_id)
+    assert len(messages) == 1
+    assert messages[0].source == "review_approval_resume"
+
+
 def test_rejection_feedback_requires_a_reject_decision(
     tmp_path,
     api_request,

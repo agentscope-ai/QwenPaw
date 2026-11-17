@@ -252,7 +252,8 @@ export default function FileProjectReviewPanel({
             type="button"
             disabled={busy || pending.length === 0}
             onClick={() => void submit(pending, "ACCEPT")}
-            className="rounded-md bg-[var(--color-text-primary)] px-2 py-1 text-[11px] font-medium text-[var(--color-bg-primary)] disabled:opacity-50"
+            data-file-review-keep-all=""
+            className="btn-decision"
           >
             {mediaLocator ? t("fileReview.keep") : t("fileReview.keepAll")}
           </button>

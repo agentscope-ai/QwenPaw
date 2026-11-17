@@ -18,7 +18,9 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
+import { useDecisionFocusStore } from "@/store/decisionFocusStore";
 import { creatorTargetLabel } from "@/lib/creatorPresentation";
+import { showBackendFeedback } from "@/lib/creatorFeedback";
 import { pendingUserReviewOperations } from "@/lib/fileProjectReviewDecisions";
 import ExecutionAuthorizationCard from "./ExecutionAuthorizationCard";
 import FileProjectReviewPanel, {
@@ -86,6 +88,7 @@ function DecisionTray({ projectId }: { projectId: string }) {
       state.projectId === projectId ? state.reviews : null,
     ) ?? [];
   const decide = useFileProjectReviewStore((state) => state.decide);
+  const pollOnce = useFileProjectReviewStore((state) => state.pollOnce);
   const project = useProjectSnapshotStore((state) =>
     state.projectId === projectId ? state.project : null,
   );
@@ -109,10 +112,26 @@ function DecisionTray({ projectId }: { projectId: string }) {
       ),
     [fileReviews],
   );
-  const items = useMemo(
-    () => trayItemsOf(pendingAuths, pendingReviews, project),
-    [pendingAuths, pendingReviews, project],
-  );
+  const blockingReviewIds = useDecisionFocusStore((state) => state.reviewIds);
+  const focusNonce = useDecisionFocusStore((state) => state.nonce);
+  const items = useMemo(() => {
+    const all = trayItemsOf(pendingAuths, pendingReviews, project);
+    if (blockingReviewIds.length === 0) return all;
+    const priority = new Set(blockingReviewIds);
+    const blocking = all.filter(
+      (item) => item.kind === "review" && priority.has(item.review.review_id),
+    );
+    if (blocking.length === 0) return all;
+    // A blocked authorization is only held up by these reviews; surface them
+    // first so keeping them is one click away instead of two pages deep.
+    return [
+      ...blocking,
+      ...all.filter(
+        (item) =>
+          !(item.kind === "review" && priority.has(item.review.review_id)),
+      ),
+    ];
+  }, [blockingReviewIds, pendingAuths, pendingReviews, project]);
   const urgent = pendingAuths.length > 0;
 
   const [filter, setFilter] = useState<"all" | "auth" | "review">("all");
@@ -122,6 +141,23 @@ function DecisionTray({ projectId }: { projectId: string }) {
   const [batchBusy, setBatchBusy] = useState(false);
   const previousAuthCount = useRef(0);
   const firstAuthKey = items.find((item) => item.kind === "auth")?.key ?? null;
+  // One timer owns the flash state: effect cleanup must not cancel a running
+  // flash while the same nonce keeps the effect from re-arming it.
+  const flashTimer = useRef<number | null>(null);
+  const triggerFlash = () => {
+    setFlash(true);
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => {
+      flashTimer.current = null;
+      setFlash(false);
+    }, 2200);
+  };
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
 
   // Blocking item arrived: force-expand the tray, focus the newest production
   // confirmation and flash to draw attention.
@@ -132,10 +168,28 @@ function DecisionTray({ projectId }: { projectId: string }) {
     setCollapsed(false);
     setFilter("all");
     if (firstAuthKey) setFocusKey(firstAuthKey);
-    setFlash(true);
-    const timer = window.setTimeout(() => setFlash(false), 2200);
-    return () => window.clearTimeout(timer);
+    triggerFlash();
   }, [firstAuthKey, pendingAuths.length, setCollapsed]);
+
+  // The blocked authorization asked the tray to surface the reviews holding it
+  // up: expand, focus the first blocking review and flash the tray. The nonce
+  // guard keeps later snapshots from re-stealing focus.
+  const handledFocusNonce = useRef(0);
+  useEffect(() => {
+    if (focusNonce === 0 || focusNonce === handledFocusNonce.current) return;
+    handledFocusNonce.current = focusNonce;
+    setCollapsed(false);
+    setFilter("all");
+    const priority = new Set(blockingReviewIds);
+    const target =
+      items.find(
+        (item) => item.kind === "review" && priority.has(item.review.review_id),
+      ) ??
+      items.find((item) => item.kind === "review") ??
+      items[0];
+    if (target) setFocusKey(target.key);
+    triggerFlash();
+  }, [blockingReviewIds, focusNonce, items, setCollapsed]);
 
   const visible = useMemo(
     () =>
@@ -175,22 +229,59 @@ function DecisionTray({ projectId }: { projectId: string }) {
 
   const acceptAllReviews = async () => {
     setBatchBusy(true);
+    let kept = 0;
+    const failures: string[] = [];
     try {
       for (const review of pendingReviews) {
         const operations = pendingUserReviewOperations(review);
         if (operations.length === 0) continue;
-        await decide(
-          projectId,
-          review.review_id,
-          operations.map((operation) => ({
-            operation_id: operation.operation_id,
-            decision: "ACCEPT",
-          })),
+        try {
+          await decide(
+            projectId,
+            review.review_id,
+            operations.map((operation) => ({
+              operation_id: operation.operation_id,
+              decision: "ACCEPT",
+            })),
+          );
+          kept += 1;
+        } catch (error) {
+          // Per-item isolation: earlier keeps already committed, so report
+          // exactly what landed instead of a blanket failure toast. The
+          // failure may still have committed (response lost after the server
+          // write), so refresh the canonical pending list first and count a
+          // review that no longer pends as kept — the store's reconciliation
+          // toast reports the same outcome.
+          await pollOnce(projectId).catch(() => undefined);
+          const stillPending = useFileProjectReviewStore
+            .getState()
+            .reviews.some(
+              (candidate) => candidate.review_id === review.review_id,
+            );
+          if (!stillPending) {
+            kept += 1;
+            continue;
+          }
+          failures.push(
+            error instanceof Error
+              ? error.message
+              : t("fileReview.public.decisionFailed"),
+          );
+        }
+      }
+      if (failures.length === 0) {
+        message.success(t("decisionTray.allReviewChangesKept"));
+      } else {
+        showBackendFeedback(
+          "warning",
+          t("decisionTray.batchPartialKept", {
+            kept,
+            failed: failures.length,
+            reason: failures[0],
+          }),
+          t("decisionTray.batchPartialTitle"),
         );
       }
-      message.success(t("decisionTray.allReviewChangesKept"));
-    } catch (error) {
-      message.error(t("fileReview.public.decisionFailed"));
     } finally {
       setBatchBusy(false);
     }
@@ -211,6 +302,7 @@ function DecisionTray({ projectId }: { projectId: string }) {
       data-decision-tray
       data-decision-tray-urgent={urgent ? "true" : undefined}
       data-decision-tray-collapsed={collapsed ? "true" : undefined}
+      data-decision-tray-focused={focused?.key}
       className={`border-t border-[var(--color-border)] ${
         urgent && collapsed
           ? "bg-[var(--color-warning-soft)]"
@@ -416,7 +508,7 @@ function DecisionTray({ projectId }: { projectId: string }) {
                       disabled={batchBusy}
                       onClick={() => void acceptAllReviews()}
                       title={t("decisionTray.keepAllReviewChanges")}
-                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-success)] disabled:opacity-50"
+                      className="btn-decision flex items-center gap-1"
                     >
                       <Check className="h-3 w-3" />
                       {t("decisionTray.keepAll")}

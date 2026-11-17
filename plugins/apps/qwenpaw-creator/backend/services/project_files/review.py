@@ -877,6 +877,35 @@ class ProjectReviewService:
             ),
         )
 
+    def finalized_followup_journals(
+        self,
+        project_id: str,
+    ) -> list[ReviewDecisionJournal]:
+        """Return every finalized decision eligible for follow-up replay.
+
+        A decision that committed but whose follow-up publication failed
+        (or was interrupted by a crash) must stay replayable from the
+        journal outbox; deterministic client message IDs make the replay
+        idempotent at Session admission.
+        """
+
+        self.store.read(project_id)
+        journals, _integrity_outcomes = self._discover_decision_journals(
+            project_id,
+        )
+        return sorted(
+            (
+                journal
+                for _store, journal in journals
+                if journal.state is ReviewDecisionJournalState.FINALIZED
+            ),
+            key=lambda item: (
+                item.created_at,
+                item.review_id,
+                item.decision_id,
+            ),
+        )
+
     def recover_project(
         self,
         project_id: str,

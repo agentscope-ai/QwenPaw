@@ -751,6 +751,80 @@ async def get_execution_authorization(
     return _authorization_view(record)
 
 
+async def _workgraph_authorization_blocked_detail(
+    services: CreatorFileServices,
+    current: ExecutionAuthorizationRecord,
+    node: Any,
+    blocker: str,
+) -> dict[str, Any]:
+    """可执行的 409 说明：哪个镜头、被什么卡住、去哪里处理。
+
+    前端 ExecutionAuthorizationCard 依赖 details.reason/blockingReviewIds
+    把「继续」置灰并把阻塞的审阅卡排到前面，所以这里只输出结构化事实。
+    """
+
+    label = str(getattr(node, "label", "") or node.node_id).strip()
+    target_ref = node.target_ref or (current.target_scope or [None])[0]
+    element_id = (
+        target_ref.removeprefix("element:")
+        if isinstance(target_ref, str) and target_ref.startswith("element:")
+        else ""
+    )
+    review_ids: list[str] = []
+    if blocker == "WAITING_REVIEW":
+        try:
+            pending = await asyncio.to_thread(
+                services.reviews.all_pending,
+                current.project_id,
+            )
+        except Exception:  # noqa: BLE001 - 诊断信息不得阻断错误处理
+            pending = []
+        for review in pending:
+            locators = [
+                value
+                for operation in review.operations
+                for value in (operation.ui_locator or {}).values()
+            ]
+            if not element_id or any(
+                element_id in str(value) for value in locators
+            ):
+                review_ids.append(review.review_id)
+    prompt_sync_gap = blocker == "GATED" and bool(
+        getattr(node, "prompt_sync_required", False),
+    )
+    if prompt_sync_gap:
+        message = (
+            f"目标尚未就绪：镜头「{label}」的提示词待同步。"
+            "请打开该镜头的制作工作台，点分镜/视频步骤顶部的"
+            "「保留现有内容并继续」，再点「继续」。"
+        )
+    elif blocker == "WAITING_REVIEW":
+        count = len(review_ids)
+        message = (
+            f"目标尚未就绪：镜头「{label}」"
+            + (f"还有 {count} 项审阅待确认，" if count else "还有审阅待确认，")
+            + "请先在下方审阅卡完成确认，再点「继续」。"
+        )
+    else:
+        message = (
+            f"目标尚未就绪：镜头「{label}」当前状态为 {blocker}。"
+            "请先完成上游制作步骤（或在工作台重新同步该镜头），再点「继续」。"
+        )
+    return {
+        "message": message,
+        "details": {
+            "reason": "not_ready",
+            "blocker": blocker,
+            "nodeId": node.node_id,
+            "nodeLabel": label,
+            "targetRef": target_ref,
+            "promptSyncRequired": prompt_sync_gap,
+            "blockedNodeIds": [node.node_id],
+            "blockingReviewIds": review_ids[:8],
+        },
+    }
+
+
 async def _rebind_workgraph_authorization(
     services: CreatorFileServices,
     store: ProjectExecutionStore,
@@ -799,9 +873,29 @@ async def _rebind_workgraph_authorization(
         node is None
         or node.kind not in {"visual", "lineup", "storyboard", "video"}
         or current.target_scope != [node.target_ref]
-        or node.node_id in blocked
     ):
-        raise ConflictError("授权的 WorkGraph 目标已改变或尚未就绪")
+        raise ConflictError(
+            "授权的 WorkGraph 目标已改变：快照中的节点已不存在或不再匹配。"
+            "请重新发起一次制作请求并批准新的授权，再点「继续」。",
+            details={
+                "reason": "target_changed",
+                "nodeId": workgraph["nodeId"],
+                "targetRef": (current.target_scope or [None])[0],
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
+        )
+    if node.node_id in blocked:
+        blocked_detail = await _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            blocked[node.node_id],
+        )
+        raise ConflictError(
+            blocked_detail["message"],
+            details=blocked_detail["details"],
+        )
     plan = requested_work_node(snapshot, node)
     if (
         plan.spec.name != current.operation
@@ -811,6 +905,13 @@ async def _rebind_workgraph_authorization(
     ):
         raise ConflictError(
             "执行参数或 provider/model 已改变，必须重新请求授权",
+            details={
+                "reason": "params_changed",
+                "nodeId": node.node_id,
+                "targetRef": node.target_ref,
+                "blockedNodeIds": [],
+                "blockingReviewIds": [],
+            },
         )
     return {
         "nodeId": node.node_id,

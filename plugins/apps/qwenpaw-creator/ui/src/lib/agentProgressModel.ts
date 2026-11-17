@@ -16,7 +16,7 @@ import {
 } from "@/lib/creatorPresentation";
 import i18n from "@/i18n";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
-import { taskProgressPercent } from "@/lib/taskPresentation";
+import { taskErrorMessage, taskProgressPercent } from "@/lib/taskPresentation";
 
 export type AgentProgressPhase =
   | "preparing"
@@ -39,6 +39,10 @@ export interface AgentProgressItem {
   phase: AgentProgressPhase;
   locator: Record<string, string> | null;
   progressPercent: number | null;
+  /** Failure reason for attention items (task error first, node error as fallback). */
+  errorText?: string;
+  /** Which action helps: retry the step, or fix model configuration. */
+  errorHint?: "retry" | "modelConfig";
   node?: WorkGraphNode;
   run?: SpecialistRunView;
   task?: TaskView;
@@ -128,6 +132,21 @@ function isLater(a: { createdAt?: string }, b: { createdAt?: string }) {
   const x = Date.parse(a.createdAt ?? ""),
     y = Date.parse(b.createdAt ?? "");
   return Number.isFinite(x) && Number.isFinite(y) && x > y;
+}
+
+// Provider config problems (missing key, forbidden, model not found) need
+// model configuration, not a blind retry that fails identically.
+const CONFIG_ERROR_PATTERN =
+  /(?:^|\D)(?:401|403|404)(?:\D|$)|api[ _-]?key|credential|unauthorized|forbidden|not configured|model not found|模型不存在|模型未配置|凭据|密钥|未授权|无权限/i;
+
+function errorHintOf(error: unknown, text: string): "retry" | "modelConfig" {
+  const record =
+    error != null && typeof error === "object" && !Array.isArray(error)
+      ? (error as Record<string, unknown>)
+      : null;
+  const status = record?.status ?? record?.statusCode ?? record?.httpStatus;
+  if (status === 401 || status === 403 || status === 404) return "modelConfig";
+  return CONFIG_ERROR_PATTERN.test(text) ? "modelConfig" : "retry";
 }
 
 function taskOrderTime(task: TaskView): number {
@@ -472,6 +491,11 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         : preparationRunning
         ? "running"
         : phaseOf(status);
+    const errorText =
+      phase === "attention"
+        ? taskErrorMessage(projectedTask?.error, "") ||
+          (node.error ?? "").trim()
+        : "";
     group.items.push({
       id: `graph:${node.id}`,
       source: "graph",
@@ -536,6 +560,12 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         phase,
         node.kind,
       ),
+      ...(errorText
+        ? {
+            errorText,
+            errorHint: errorHintOf(projectedTask?.error, errorText),
+          }
+        : {}),
     });
   }
   // Supersession is explicit; relatedRunId identifies a parent and is not a replacement.
@@ -670,6 +700,8 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         ? i18n.t("blueprint.scriptTitle")
         : taskKindLabel(task.kind);
     const phase = phaseOf(task.status);
+    const taskErrorText =
+      phase === "attention" ? taskErrorMessage(task.error, "") : "";
     group.items.push({
       id: `task:${task.id}`,
       source: "task",
@@ -682,6 +714,12 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
         ? operationLocator(String(task.kind), locator, project)
         : null,
       progressPercent: percent(task.progress, phase, task.kind),
+      ...(taskErrorText
+        ? {
+            errorText: taskErrorText,
+            errorHint: errorHintOf(task.error, taskErrorText),
+          }
+        : {}),
     });
   }
   const result = [...groups.values()].filter((group) => group.items.length);

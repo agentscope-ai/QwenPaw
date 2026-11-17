@@ -216,10 +216,22 @@ describe("file-native Project Review store", () => {
         { ...operation2, decision: "REJECTED" },
       ],
     });
-    const fetchMock = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("response lost"))
-      .mockResolvedValueOnce(response(200, resolved, { ETag: '"token-2"' }));
+    let decisionAttempts = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/runtime/reviews/active")) {
+        // The lost response never committed: the review is still pending.
+        return Promise.resolve(
+          activeResponse(
+            review("token-1", 3, { operations: [op1, operation2] }),
+          ),
+        );
+      }
+      decisionAttempts += 1;
+      if (decisionAttempts === 1)
+        return Promise.reject(new Error("response lost"));
+      return Promise.resolve(response(200, resolved, { ETag: '"token-2"' }));
+    });
     vi.stubGlobal("fetch", fetchMock);
     seed([review("token-1", 3, { operations: [op1, operation2] })]);
     const decisions = [
@@ -240,12 +252,19 @@ describe("file-native Project Review store", () => {
     ).resolves.toMatchObject({ status: "RESOLVED" });
 
     const firstBody = bodyOf(fetchMock, 0);
-    const secondBody = bodyOf(fetchMock, 1);
+    const secondBody = bodyOf(fetchMock, 2);
     expect(firstBody.decisionId).toBe(secondBody.decisionId);
     expect(firstBody.decisions).toEqual(secondBody.decisions);
     expect(firstBody.rejectionFeedback).toEqual(feedback);
     expect(secondBody.rejectionFeedback).toEqual(feedback);
-    for (const index of [0, 1]) {
+    // The ambiguous failure triggered one reconciliation poll; both decision
+    // POSTs still reuse the same Idempotency-Key.
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/runtime/reviews/active"),
+      ),
+    ).toHaveLength(1);
+    for (const index of [0, 2]) {
       expect(headerOf(fetchMock, index, "Idempotency-Key")).toBe(
         firstBody.decisionId,
       );

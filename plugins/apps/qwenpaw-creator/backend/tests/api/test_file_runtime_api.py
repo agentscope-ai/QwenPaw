@@ -1021,6 +1021,22 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
             ), response.text
             assert current.status is ExecutionAuthorizationStatus.PENDING
             assert current.decision is None
+            if change in {"review", "not-ready"}:
+                # The client renders these details inline; a bare message would
+                # force it back to a truncated toast with no next step.
+                body = response.json()
+                assert body["message"].startswith("目标尚未就绪")
+                assert body["details"]["reason"] == "not_ready"
+                assert body["details"]["nodeId"] == node.node_id
+                assert body["details"]["targetRef"] == "element:e1"
+                assert isinstance(body["details"]["blockingReviewIds"], list)
+                if change == "review":
+                    assert body["details"]["blocker"] == "WAITING_REVIEW"
+                    assert "审阅" in body["message"]
+                else:
+                    assert body["details"]["blocker"] == "GATED"
+                    assert body["details"]["promptSyncRequired"] is False
+                    assert "GATED" in body["message"]
             if change == "stale-etag":
                 payload["projectEtag"] = fresh.etag
                 retried = await client.post(

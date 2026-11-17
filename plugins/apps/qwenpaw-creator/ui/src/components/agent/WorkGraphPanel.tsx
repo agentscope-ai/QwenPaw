@@ -115,6 +115,7 @@ function NodeRow({
   const dispatching = useWorkGraphStore((state) =>
     Boolean(state.dispatching[node.id]),
   );
+  const [errorExpanded, setErrorExpanded] = useState(false);
   const actionLabel = t(
     `workGraph.actions.${node.kind}.${
       node.status === "failed" ? "retry" : "generate"
@@ -124,6 +125,13 @@ function NodeRow({
     node.dispatchable &&
     node.missing.length === 0 &&
     ["failed", "ready", "stale"].includes(node.status);
+  // A prompt-sync gate is invisible otherwise: the node is gated, shows
+  // "waiting for deps", and the confirm action only exists inside the R2V
+  // workbench regenerate flow, so users hit a dead end. Offer a direct
+  // entry to the workbench where the sync banner lives.
+  const promptSyncGated =
+    node.status === "gated" && Boolean(node.promptSyncRequired);
+  const errorText = node.status === "failed" ? (node.error ?? "").trim() : "";
   const percent =
     !node.manuallyHeld &&
     node.status === "running" &&
@@ -177,7 +185,43 @@ function NodeRow({
           )}
           {percent != null && ` · ${percent}%`}
         </span>
+        {errorText && (
+          <span
+            role="status"
+            data-work-node-error
+            title={errorText}
+            onClick={(event) => {
+              // Expand/collapse the full reason instead of navigating away.
+              event.stopPropagation();
+              setErrorExpanded((expanded) => !expanded);
+            }}
+            className={`mt-0.5 block cursor-pointer text-[11px] text-[var(--color-danger)] ${
+              errorExpanded ? "whitespace-pre-line" : "truncate"
+            }`}
+          >
+            {errorText}
+          </span>
+        )}
       </button>
+      {promptSyncGated && (
+        <button
+          type="button"
+          aria-label={`${t("workGraph.actions.promptSync")} · ${publicLabel}`}
+          className="agent-work-action"
+          onClick={() =>
+            // The confirmation banner lives in the Element workbench, not the
+            // plan timeline: force the element route (keeping the timeline
+            // scope so non-primary episodes resolve too).
+            navigateToLocator(projectId, {
+              ...(node.locator ?? {}),
+              page: "element",
+              ...(node.timelineId ? { timelineId: node.timelineId } : {}),
+            })
+          }
+        >
+          {t("workGraph.actions.promptSync")}
+        </button>
+      )}
       {showAction && (
         <button
           type="button"

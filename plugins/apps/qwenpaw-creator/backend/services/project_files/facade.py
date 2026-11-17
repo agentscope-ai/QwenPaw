@@ -267,7 +267,7 @@ class CreatorFileServices:
             startup_recovery=startup_recovery,
             startup_review_recovery=startup_review_recovery,
         )
-        services.recover_review_rejection_feedback_messages()
+        services.recover_review_followup_messages()
         return services
 
     def recover_project(
@@ -529,39 +529,55 @@ class CreatorFileServices:
             decision_id=decision_id,
         )
 
-    def recover_review_rejection_feedback_messages(self) -> None:
-        """Replay the rejection-feedback outbox after a process crash.
+    def recover_review_followup_messages(
+        self,
+        project_id: str | None = None,
+    ) -> None:
+        """Replay the review follow-up outbox after a failure or crash.
 
-        A crash can happen after the Review journal is finalized but before
-        its Session message is appended. The deterministic client message ID
-        makes replay safe even when the first append actually succeeded.
+        A failure can happen after the Review journal is finalized but
+        before its Session message is appended (crash, or a follow-up
+        publication error that the decision route degrades to a deferred
+        follow-up). Every FINALIZED journal is replayable, not just
+        rejection feedback: the deterministic client message ID makes
+        replay safe even when the first append actually succeeded.
         """
 
-        for project_id in self.projects.discover_project_ids():
+        project_ids = (
+            [project_id]
+            if project_id is not None
+            else self.projects.discover_project_ids()
+        )
+        for scoped_project_id in project_ids:
             try:
-                journals = self.reviews.finalized_rejection_feedback_journals(
-                    project_id,
+                journals = self.reviews.finalized_followup_journals(
+                    scoped_project_id,
                 )
             except Exception:
                 logger.exception(
-                    "failed to discover rejection feedback for Project %s",
-                    project_id,
+                    "failed to discover review followups for Project %s",
+                    scoped_project_id,
                 )
                 continue
             for journal in journals:
                 try:
                     self._publish_review_followup(
-                        project_id=project_id,
+                        project_id=scoped_project_id,
                         review_id=journal.review_id,
                         decision_id=journal.decision_id,
                     )
                 except Exception:
                     logger.exception(
-                        "failed to recover rejection feedback %s "
+                        "failed to recover review followup %s "
                         "for Project %s",
                         journal.decision_id,
-                        project_id,
+                        scoped_project_id,
                     )
+
+    def recover_review_rejection_feedback_messages(self) -> None:
+        """Backward-compatible alias for follow-up outbox replay."""
+
+        self.recover_review_followup_messages()
 
     def _followup_conversation_id(
         self,

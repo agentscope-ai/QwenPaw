@@ -1,9 +1,16 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DecisionTray from "@/components/agent/DecisionTray";
 import type { FileProjectReviewRecord } from "@/contracts/creator";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { useDecisionFocusStore } from "@/store/decisionFocusStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import {
   makePendingAuthorization,
@@ -13,6 +20,11 @@ import {
 
 vi.mock("@/routing/locators", () => ({
   navigateToLocator: vi.fn(),
+}));
+
+const showBackendFeedback = vi.fn();
+vi.mock("@/lib/creatorFeedback", () => ({
+  showBackendFeedback: (...args: unknown[]) => showBackendFeedback(...args),
 }));
 
 vi.mock("@/api/creator", async (importOriginal) => {
@@ -61,9 +73,11 @@ function seed({
 }
 
 afterEach(() => {
+  showBackendFeedback.mockClear();
   useAgentDockUiStore.getState().reset();
   useExecutionAuthorizationStore.getState().reset();
   useFileProjectReviewStore.getState().reset();
+  useDecisionFocusStore.getState().clear();
 });
 
 describe("DecisionTray", () => {
@@ -112,5 +126,98 @@ describe("DecisionTray", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /^全部 3$/ }));
     expect(screen.getByText(/生成画面/)).toBeInTheDocument();
+  });
+
+  it("keeps earlier reviews when one batch keep fails and reports the exact tally", async () => {
+    // v2.0.6 problem 1: a failure in the middle of "keep all" used to look
+    // like the whole batch failed. Each review is isolated, and the toast
+    // states what actually landed.
+    seed({
+      reviews: [
+        textReview("review-1", "/description"),
+        textReview("review-2", "/title"),
+      ],
+    });
+    const decide = vi.fn(async (_projectId: string, reviewId: string) => {
+      if (reviewId === "review-2") {
+        throw new Error("审阅令牌已过期，请刷新后重试");
+      }
+      return undefined;
+    });
+    const pollOnce = vi.fn(async () => {});
+    useFileProjectReviewStore.setState({
+      decide: decide as never,
+      pollOnce: pollOnce as never,
+    });
+    render(<DecisionTray projectId="p1" />);
+
+    const keepAll = screen.getByRole("button", { name: "全部保留" });
+    // F1/F2: the batch action uses the shared decision-button style.
+    expect(keepAll).toHaveClass("btn-decision");
+    fireEvent.click(keepAll);
+
+    await waitFor(() => expect(showBackendFeedback).toHaveBeenCalled());
+    expect(decide.mock.calls.map((call) => call[1])).toEqual([
+      "review-1",
+      "review-2",
+    ]);
+    // A failed keep refreshes decision tokens before the next review runs.
+    expect(pollOnce).toHaveBeenCalledWith("p1");
+    expect(showBackendFeedback).toHaveBeenCalledWith(
+      "warning",
+      "已保留 1 项，1 项失败：审阅令牌已过期，请刷新后重试",
+      "部分审阅已保留",
+    );
+    // The failed review stays actionable for a second attempt.
+    fireEvent.click(screen.getByRole("button", { name: /列表/ }));
+    expect(
+      document.querySelector('[data-file-project-review="review-2"]'),
+    ).toBeInTheDocument();
+  });
+
+  it("hoists blocking reviews above the blocked authorization and focuses them", () => {
+    seed({
+      reviews: [
+        textReview("review-1", "/description"),
+        textReview("review-2", "/title"),
+      ],
+    });
+    render(<DecisionTray projectId="p1" />);
+
+    // Default ordering still puts the blocking authorization first.
+    expect(document.querySelector("[data-decision-tray]")).toHaveAttribute(
+      "data-decision-tray-focused",
+      "auth:authorization-1",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /列表/ }));
+    act(() =>
+      useDecisionFocusStore.getState().noteBlockingReviews(["review-2"]),
+    );
+    const hoisted = document.querySelector(
+      '[data-file-project-review="review-2"]',
+    );
+    const auth = document.querySelector(
+      '[data-execution-authorization-card="authorization-1"]',
+    );
+    expect(hoisted).not.toBeNull();
+    expect(auth).not.toBeNull();
+    expect(
+      hoisted!.compareDocumentPosition(auth!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // An explicit request focuses the blocking review and flashes the tray.
+    act(() => useDecisionFocusStore.getState().focusReviews());
+    expect(document.querySelector("[data-decision-tray]")).toHaveClass(
+      "decision-tray-flash",
+    );
+    expect(document.querySelector("[data-decision-tray]")).toHaveAttribute(
+      "data-decision-tray-focused",
+      "review:review-2",
+    );
+    expect(
+      screen.getByRole("button", { name: "折叠决策托盘" }),
+    ).toBeInTheDocument();
   });
 });

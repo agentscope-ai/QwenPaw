@@ -9566,6 +9566,11 @@ class FileCreatorAgentRuntime:
         (consecutive-resume cap, no-progress breaker) prevent runaway loops.
         """
 
+        # The scheduler only runs in the autonomous (allow-all) mode. In the
+        # default ask mode this reconcile tick must stay a no-op: deriving the
+        # work graph on every poll interval costs a project read plus a task
+        # scan per second, and the prompt-sync notice below would wake a paid
+        # model turn for a decision that only a human can make.
         if not self.work_scheduler.enabled():
             return
         records = await asyncio.to_thread(self.runs.list, project_id)
@@ -9595,6 +9600,20 @@ class FileCreatorAgentRuntime:
             tasks=task_records,
             media_models=(get_image_model_name(), get_video_model_name()),
         )
+        # D4: prompt-sync 门只能由人在工作台显式确认。如果 Agent 已结束
+        # （Session IDLE）而图里仍卡着 gated + promptSyncRequired 的节点，
+        # 用户看不到任何提示就会永远停在这里；用与
+        # NODE_DETERMINISTIC_FAILURE 相同的通知总线补一条可执行的告知。
+        # request_id 含节点指纹，由 outbox 全历史去重，不会反复投递。
+        await self._notify_prompt_sync_deadlock(
+            project_id,
+            [
+                node
+                for node in graph.nodes
+                if node.status is WorkNodeStatus.GATED
+                and getattr(node, "prompt_sync_required", False)
+            ],
+        )
         unfinished_nodes = graph.unfinished()
         if not unfinished_nodes:
             # Check for deterministic failures that may need scheduler wake-up
@@ -9615,6 +9634,59 @@ class FileCreatorAgentRuntime:
             conversation_id=last.conversation_id,
             run_id=last.run_id,
         )
+
+    async def _notify_prompt_sync_deadlock(
+        self,
+        project_id: str,
+        gated_nodes: Sequence[Any],
+    ) -> None:
+        """Tell the user which shots are stuck behind the prompt-sync gate.
+
+        The gate only clears through an explicit confirm in the workbench, so a
+        run that ended with gated nodes leaves nothing else to move the
+        project. Emit one durable next-step notification (same bus as
+        ``NODE_DETERMINISTIC_FAILURE``) naming the shots and the button. The
+        request id folds in node fingerprints and the outbox deduplicates
+        against its full history, so repeated reconcile ticks stay quiet while
+        a genuinely new gate still gets its own message.
+        """
+
+        if not gated_nodes:
+            return
+        labels: list[str] = []
+        for node in gated_nodes:
+            label = str(getattr(node, "label", "") or node.node_id).strip()
+            if label and label not in labels:
+                labels.append(label)
+        identity = "|".join(
+            sorted(
+                f"{node.node_id}@{getattr(node, 'dispatch_fingerprint', '')}"
+                for node in gated_nodes
+            ),
+        )
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+        text = (
+            "制作已停在「提示词待同步」这一步，以下镜头不会自动继续："
+            f"{'、'.join(labels[:8])}。\n"
+            "请打开对应镜头的制作工作台（在蓝图/工作图中点该镜头的「去同步」），"
+            "在分镜或视频步骤顶部点「保留现有内容并继续」，同步完成后再继续生成。"
+        )
+        try:
+            await self.notifications.notify(
+                project_id,
+                kind=RuntimeEventKind.NODE_DETERMINISTIC_FAILURE,
+                request_id=f"prompt-sync-deadlock-{digest}",
+                text=text,
+                payload={
+                    "gate": "prompt_sync",
+                    "nodeIds": [node.node_id for node in gated_nodes][:12],
+                },
+            )
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "prompt-sync deadlock notification failed: project=%s",
+                project_id,
+            )
 
     async def _queue_mainline_resume(
         self,
@@ -9746,6 +9818,21 @@ class FileCreatorAgentRuntime:
         )
         if active_review is not None:
             return session
+        # A decision that committed but whose follow-up publication failed
+        # leaves the Session paused with no continuation queued. Replay the
+        # durable journal outbox before resolving the pause so the follow-up
+        # message (if any) is admitted and dispatched by this reconcile.
+        try:
+            await asyncio.to_thread(
+                self.services.recover_review_followup_messages,
+                project_id,
+            )
+        except Exception:
+            logger.exception(
+                "review followup replay failed during convergence: "
+                "project=%s",
+                project_id,
+            )
         try:
             return await asyncio.to_thread(
                 self.sessions.resolve_pending_review,

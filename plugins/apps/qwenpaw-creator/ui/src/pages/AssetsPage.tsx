@@ -59,6 +59,7 @@ import {
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { taskErrorMessage } from "@/lib/taskPresentation";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { nodeGenerating } from "@/lib/generationActivity";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
@@ -1853,6 +1854,47 @@ export default function AssetsPage() {
     () => (project ? memoryBuiltVersionIds(project, tasks) : new Set<string>()),
     [project, tasks],
   );
+  // Latest resolved generation attempt per target. A failed latest attempt
+  // surfaces its reason on the asset card instead of the asset silently
+  // staying a placeholder (v2.0.6: "image generation keeps failing with no
+  // reason"). A later SUCCEEDED attempt hides the badge.
+  const generationFailures = useMemo(() => {
+    const latest = new Map<string, TaskView>();
+    for (const task of tasks) {
+      const stamp = Date.parse(task.updatedAt ?? task.createdAt ?? "");
+      const previous = latest.get(task.targetRef);
+      const previousStamp = previous
+        ? Date.parse(previous.updatedAt ?? previous.createdAt ?? "")
+        : Number.NEGATIVE_INFINITY;
+      if (!previous || !(Number.isFinite(stamp) && stamp < previousStamp)) {
+        latest.set(task.targetRef, task);
+      }
+    }
+    const failures = new Map<string, string>();
+    for (const [ref, task] of latest) {
+      if (!["FAILED", "QUARANTINED"].includes(task.status)) continue;
+      const reason = taskErrorMessage(task.error, "");
+      if (reason) failures.set(ref, reason);
+    }
+    return failures;
+  }, [tasks]);
+  const failureReasonFor = (item: AssetItem): string | null => {
+    const candidates = [item.ref];
+    const entityId =
+      item.entityId ??
+      (item.ref.startsWith("visual-entity:")
+        ? item.ref.slice("visual-entity:".length)
+        : null) ??
+      (item.ref.startsWith("asset:") ? item.ref.slice("asset:".length) : null);
+    if (entityId) {
+      candidates.push(`visual-entity:${entityId}`, `asset:${entityId}`);
+    }
+    for (const ref of candidates) {
+      const reason = generationFailures.get(ref);
+      if (reason) return reason;
+    }
+    return null;
+  };
 
   useEffect(() => {
     useCreatorInteractionStore.getState().select(selected?.ref || null);
@@ -2248,6 +2290,7 @@ export default function AssetsPage() {
                     {group.items.map((item) => {
                       const display = displayedItem(item);
                       const Icon = mediaIcon(display.mediaKind);
+                      const failureReason = failureReasonFor(item);
                       return (
                         <button
                           key={`${item.kind}:${item.id}`}
@@ -2337,6 +2380,15 @@ export default function AssetsPage() {
                               {display.stale && (
                                 <span className="rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                                   {t("assets.stale")}
+                                </span>
+                              )}
+                              {failureReason && (
+                                <span
+                                  data-asset-generation-failed={item.id}
+                                  title={failureReason}
+                                  className="max-w-[9rem] truncate rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                                >
+                                  {t("assets.generationFailed")}
                                 </span>
                               )}
                             </div>
