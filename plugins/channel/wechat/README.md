@@ -6,12 +6,17 @@ are integrated. The host owns Agent execution, ACL, queues and conversation
 history; the worker owns platform HTTP, AES, polling and message delivery.
 
 The worker preserves the `wechat` channel and `wechat:<sender>` /
-`wechat:group:<group>` sessions. Its runtime loads a configured token before the
-legacy token file, and starts QR login only when neither exists. Default files
-remain `WORKING_DIR/wechat_bot_token` and the same directory's
-`wechat_context_tokens.json`; explicit custom paths remain valid. It does not
-automatically reauthenticate an expired token. Stopping retains these files,
-configuration and media.
+`wechat:group:<group>` sessions. It uses a configured token first, then reads
+`bot_token_file`, and starts QR login when both sources are empty. The token
+file defaults to `<workspace>/wechat/wechat_bot_token`. The reply cache always
+lives at `<workspace>/wechat/wechat_context_tokens.json`, including when a
+custom token file is configured. Console QR login saves the token to the
+agent's `agent.json`.
+
+Existing root-level files stay in place. To reuse an old token file, set
+`bot_token_file` to its path or scan again. Incoming messages rebuild the
+reply cache. An expired token requires reauthentication. Stopping retains
+these files, configuration and media.
 
 The private client requires `httpx` and `pycryptodome`. Network and AES operations
 run in the channel worker. Explicit static QR fetch/poll and reachability verify
