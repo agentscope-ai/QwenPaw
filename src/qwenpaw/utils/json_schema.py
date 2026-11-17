@@ -2,6 +2,8 @@
 """JSON Schema validation against bundled and supplied resources only."""
 
 from collections.abc import Mapping
+from functools import lru_cache
+import json
 
 from jsonschema.validators import validator_for
 from jsonschema_specifications import REGISTRY as SPECIFICATIONS
@@ -76,3 +78,26 @@ def schema_validator(schema, *, validator_class=None):
     cls = validator_class or validator_for(schema)
     check_schema_references(schema, validator_class=cls)
     return cls(schema, registry=_REGISTRY)
+
+
+@lru_cache(maxsize=128)
+def _checked_schema(serialized, validator_class):
+    """Retain only content-bound check evidence, never mutable validators."""
+    check_schema_references(
+        json.loads(serialized),
+        validator_class=validator_class,
+    )
+
+
+def prepared_schema_validator(schema, *, validator_class=None):
+    """Prepare a private JSON snapshot; async callers offload this CPU work."""
+    serialized = json.dumps(
+        schema,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    snapshot = json.loads(serialized)
+    cls = validator_class or validator_for(snapshot)
+    _checked_schema(serialized, cls)
+    return cls(snapshot, registry=_REGISTRY)

@@ -42,7 +42,76 @@ from ..drivers.errors import (
     DriverPermissionDeniedError,
 )
 
+from ..utils.io_utils import run_sync_io
+from ..utils.json_schema import prepared_schema_validator
+
 logger = logging.getLogger(__name__)
+
+
+def _argument_snapshot(payload):
+    frozen = _freeze(payload)
+    return frozen, _thaw(frozen)
+
+
+def _validate_arguments(schema, arguments):
+    prepared_schema_validator(schema).validate(_thaw(arguments))
+
+
+def _project_capabilities(specs, protocol, driver_name, display, whitelist):
+    namespace = re.sub(r"[^A-Za-z0-9_-]+", "_", display.strip())
+    if not namespace.strip("_"):
+        namespace = (
+            re.sub(r"[^A-Za-z0-9_-]+", "_", driver_name.strip()) or "tool"
+        )
+    if not namespace[0].isalpha():
+        namespace = "tool_" + namespace
+    result = []
+    for spec in specs:
+        name = spec.name
+        description = spec.description
+        if not spec.tool_name and display and namespace != driver_name:
+            protocol_label = protocol.upper()
+            description = (
+                f"{description}\n\n"
+                f"{protocol_label} server display name: {display}. "
+                f"Stable {protocol_label} client key: {driver_name}."
+            ).strip()
+        tool = (
+            name
+            if re.fullmatch(r"[A-Za-z0-9_-]+", name)
+            else (re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_") or "tool")
+        )
+        result.append(
+            DriverCapability(
+                capability_id=format_capability_id(
+                    protocol,
+                    driver_name,
+                    "tool",
+                    "invoke",
+                    name,
+                ),
+                driver_name=driver_name,
+                protocol=protocol,
+                kind="tool",
+                action="invoke",
+                name=name,
+                description=description,
+                input_schema=_thaw(spec.input_schema),
+                output_schema=_thaw(spec.output_schema),
+                exposure=CapabilityExposure(
+                    True,
+                    spec.tool_name or f"{namespace}__{tool}",
+                    namespace,
+                ),
+                metadata={
+                    **_thaw(spec.metadata),
+                    "driver_key": driver_name,
+                    "display_name": display or driver_name,
+                },
+                enabled=spec.enabled and mcp_tool_is_enabled(whitelist, name),
+            ),
+        )
+    return result
 
 
 def _credential_error(alias, operation, error):
@@ -113,7 +182,6 @@ def _cleanup_admission(plugin):
 
 async def _environment(plugin, check):
     from ..envs import load_envs
-    from ..utils.io_utils import run_sync_io
 
     with plugin._admission():
         await check()
@@ -625,67 +693,20 @@ class SDKDriverHandler(DriverHandler):
                 )
             if len({spec.name for spec in specs}) != len(specs):
                 raise SDKError("Driver capability names must be unique")
+            result = await run_sync_io(
+                _project_capabilities,
+                tuple(specs),
+                self.card.protocol,
+                self.name,
+                str(self.card.config.get("display_name") or ""),
+                mcp_tool_whitelist(self.card.config.get("tools")),
+            )
+            await self.check()
+            if revision != self.metadata_revision:
+                raise StaleContextError(
+                    "Driver metadata changed during discovery",
+                )
             self.capabilities = tuple(specs)
-            whitelist = mcp_tool_whitelist(self.card.config.get("tools"))
-            display = str(self.card.config.get("display_name") or "")
-            namespace = re.sub(r"[^A-Za-z0-9_-]+", "_", display.strip())
-            if not namespace.strip("_"):
-                namespace = (
-                    re.sub(r"[^A-Za-z0-9_-]+", "_", self.name.strip())
-                    or "tool"
-                )
-            if not namespace[0].isalpha():
-                namespace = "tool_" + namespace
-            result = []
-            for spec in self.capabilities:
-                name = spec.name
-                description = spec.description
-                if not spec.tool_name and display and namespace != self.name:
-                    protocol_label = self.card.protocol.upper()
-                    description = (
-                        f"{description}\n\n"
-                        f"{protocol_label} server display name: {display}. "
-                        f"Stable {protocol_label} client key: {self.name}."
-                    ).strip()
-                tool = (
-                    name
-                    if re.fullmatch(r"[A-Za-z0-9_-]+", name)
-                    else (
-                        re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
-                        or "tool"
-                    )
-                )
-                result.append(
-                    DriverCapability(
-                        capability_id=format_capability_id(
-                            self.card.protocol,
-                            self.name,
-                            "tool",
-                            "invoke",
-                            name,
-                        ),
-                        driver_name=self.name,
-                        protocol=self.card.protocol,
-                        kind="tool",
-                        action="invoke",
-                        name=name,
-                        description=description,
-                        input_schema=_thaw(spec.input_schema),
-                        output_schema=_thaw(spec.output_schema),
-                        exposure=CapabilityExposure(
-                            True,
-                            spec.tool_name or f"{namespace}__{tool}",
-                            namespace,
-                        ),
-                        metadata={
-                            **_thaw(spec.metadata),
-                            "driver_key": self.name,
-                            "display_name": display or self.name,
-                        },
-                        enabled=spec.enabled
-                        and mcp_tool_is_enabled(whitelist, name),
-                    ),
-                )
             return result
 
     def _invocation_target(self, invocation):
@@ -736,6 +757,11 @@ class SDKDriverHandler(DriverHandler):
                         metadata={"driver_name": self.name, "tool_name": name},
                     )
                 revision = self.metadata_revision
+                arguments, approval_arguments = await run_sync_io(
+                    _argument_snapshot,
+                    invocation.payload,
+                )
+                await self.check()
                 values = invocation.request_context
                 subjects = []
                 if values.get("subject"):
@@ -762,7 +788,7 @@ class SDKDriverHandler(DriverHandler):
                     target=PolicyTarget(kind="tool", name=name),
                     extras={
                         "tool_name": name,
-                        "arguments": invocation.payload,
+                        "arguments": approval_arguments,
                     },
                 )
                 await self.check()
@@ -773,10 +799,10 @@ class SDKDriverHandler(DriverHandler):
                 )
                 if capability is None or not capability.enabled:
                     raise SDKError("Driver capability is missing or disabled")
-                from ..utils.json_schema import schema_validator
-
-                schema_validator(capability.input_schema).validate(
-                    invocation.payload,
+                await run_sync_io(
+                    _validate_arguments,
+                    capability.input_schema,
+                    arguments,
                 )
                 await self.check()
                 if revision != self.metadata_revision:
@@ -785,7 +811,7 @@ class SDKDriverHandler(DriverHandler):
                     )
                 result = await self.connection.invoke(
                     name,
-                    _freeze(invocation.payload),
+                    arguments,
                     self.request(values),
                 )
                 await self.check()

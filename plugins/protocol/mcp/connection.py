@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """One SDK source owns one MCP transport and its discovery cache."""
 
+import asyncio
 import time
 from collections.abc import Mapping
 
@@ -10,11 +11,42 @@ from qwenpaw.plugins.drivers import DriverCapabilitySpec
 
 from .bindings import implicit_auth_headers, resolve_binding
 from .credentials import CredentialResolver
-from .mcp_stateful_client import HttpStatefulClient, StdIOStatefulClient
+from .mcp_stateful_client import (
+    HttpStatefulClient,
+    StdIOStatefulClient,
+    _discard_task_result,
+    _restore_cancel,
+    _wait_task_uncancelled,
+)
 from .mcp_streamable_http import HttpAutoClient
 from .results import call_result, plain
 
 _CAPABILITY_CACHE_TTL_SECONDS = 10.0
+
+
+def _build_capabilities(tools, source_id):
+    specs = []
+    prefix = f"mcp__{source_id}__"
+    for tool in tools:
+        raw = plain(getattr(tool, "_tool", tool))
+        name = str(raw["name"])
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+        schema = raw.get("inputSchema", raw.get("input_schema")) or {}
+        schema = dict(schema) if isinstance(schema, Mapping) else {}
+        schema.setdefault("type", "object")
+        schema.setdefault("properties", {})
+        schema.setdefault("required", [])
+        specs.append(
+            DriverCapabilitySpec(
+                name=name,
+                description=str(raw.get("description") or ""),
+                input_schema=schema,
+                output_schema=raw.get("outputSchema"),
+                metadata={"mcp": raw},
+            ),
+        )
+    return tuple(specs)
 
 
 class _CredentialAuth(httpx.Auth):
@@ -109,8 +141,12 @@ class MCPConnection:
         self.credentials = credentials or CredentialResolver()
         self._client = None
         self._capability_cache = None
+        self._discovery_lock = asyncio.Lock()
+        self._discovery_token = object()
 
     async def open(self):
+        self._discovery_token = object()
+        self._capability_cache = None
         endpoint = self.source.endpoint
         transport = str(endpoint.get("transport") or "stdio")
         credentials = await self.credentials.resolve(self.context)
@@ -158,36 +194,48 @@ class MCPConnection:
 
     async def discover(self, request):
         request.check_cancelled()
-        now = time.monotonic()
-        if self._capability_cache is not None:
-            timestamp, specs = self._capability_cache
-            if now - timestamp <= _CAPABILITY_CACHE_TTL_SECONDS:
-                return specs
-        tools = await self._client.list_tools()
-        specs = []
-        for tool in tools:
-            raw = plain(getattr(tool, "_tool", tool))
-            name = str(raw["name"])
-            prefix = f"mcp__{self.source.source_id}__"
-            if name.startswith(prefix):
-                name = name[len(prefix) :]
-            schema = raw.get("inputSchema", raw.get("input_schema")) or {}
-            schema = dict(schema) if isinstance(schema, Mapping) else {}
-            schema.setdefault("type", "object")
-            schema.setdefault("properties", {})
-            schema.setdefault("required", [])
-            specs.append(
-                DriverCapabilitySpec(
-                    name=name,
-                    description=str(raw.get("description") or ""),
-                    input_schema=schema,
-                    output_schema=raw.get("outputSchema"),
-                    metadata={"mcp": raw},
+        cached = self._cached_capabilities()
+        if cached is not None:
+            return cached
+        async with self._discovery_lock:
+            request.check_cancelled()
+            cached = self._cached_capabilities()
+            if cached is not None:
+                return cached
+            client, token = self._client, self._discovery_token
+            if token is None or client is None:
+                raise RuntimeError("MCP connection is closed or closing")
+            tools = await client.list_tools()
+            request.check_cancelled()
+            worker = asyncio.create_task(
+                asyncio.to_thread(
+                    _build_capabilities,
+                    tools,
+                    self.source.source_id,
                 ),
             )
-        result = tuple(specs)
-        self._capability_cache = (now, result)
-        return result
+            # Retain refresh ownership until the pure worker actually finishes.
+            cancelled = await _wait_task_uncancelled(worker, "")
+            _restore_cancel(asyncio.current_task(), cancelled)
+            if cancelled:
+                _discard_task_result(worker)
+                raise asyncio.CancelledError
+            specs = worker.result()
+            request.check_cancelled()
+            if (
+                self._client is not client
+                or self._discovery_token is not token
+            ):
+                raise RuntimeError("MCP connection changed during discovery")
+            self._capability_cache = (time.monotonic(), specs)
+            return specs
+
+    def _cached_capabilities(self):
+        if self._capability_cache is not None:
+            timestamp, specs = self._capability_cache
+            if time.monotonic() - timestamp <= _CAPABILITY_CACHE_TTL_SECONDS:
+                return specs
+        return None
 
     async def invoke(self, name, arguments, request):
         request.check_cancelled()
@@ -196,6 +244,7 @@ class MCPConnection:
         )
 
     async def close(self):
+        self._discovery_token = None
         self._capability_cache = None
         if self._client is not None:
             client = self._client
