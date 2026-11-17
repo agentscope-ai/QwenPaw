@@ -266,6 +266,41 @@ describe("ApprovalCard decisions", () => {
     ).toBeEnabled();
   });
 
+  it.each(["en", "zh"] as const)(
+    "shows application identity and risk outside collapsed parameters in %s",
+    (selectedLanguage) => {
+      language = selectedLanguage;
+      const resource = selectedLanguage === "zh" ? zh : en;
+      const appId = String.raw`process:C:\Applications\Editor.exe`;
+      renderCard({
+        approvalBehavior: "session_app",
+        showInboxAgentContext: true,
+        isGeneralized: false,
+        exactTarget: "Editor for this session",
+        toolParams: {
+          canonical_app_id: appId,
+          risk: "high",
+          warning: "Application identity needs verification.",
+        },
+      });
+      for (const value of [
+        appId,
+        "high",
+        "Application identity needs verification.",
+      ]) {
+        const detail = screen.getByText(value, { exact: true });
+        expect(detail).toBeVisible();
+        expect(detail.closest("details")).toBeNull();
+      }
+      expect(
+        screen.getByText(`${resource.approval.applicationId}:`),
+      ).toBeVisible();
+      expect(
+        document.querySelector(`.${styles.paramsDetails}`),
+      ).not.toHaveAttribute("open");
+    },
+  );
+
   it("preserves Chinese scope wording and keyboard order", async () => {
     language = "zh";
     renderCard();

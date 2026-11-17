@@ -5413,6 +5413,9 @@
     "localModelsNotice": "备份文件不包含本地模型文件。如需跨设备迁移，请在目标设备上重新下载所需的本地模型。"
   },
   "approval": {
+    "applicationId": "应用标识",
+    "risk": "风险",
+    "warning": "风险提示",
     "allowTarget": "本会话允许此目标",
     "allowPattern": "本会话允许此模式",
     "allowOnce": "仅本次允许",

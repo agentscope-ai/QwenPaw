@@ -20,6 +20,8 @@ const keys: (MessageKey | DecisionKey)[] = [
   "applicationId",
   "revoke",
   "revokeConfirm",
+  "revokeHint",
+  "cancel",
   "empty",
   "approvalTitle",
   "unknownApplication",

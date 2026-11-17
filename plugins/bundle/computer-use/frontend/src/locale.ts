@@ -22,6 +22,9 @@ const messages = {
     applicationId: "Application ID",
     revoke: "Revoke access",
     revokeConfirm: "Revoke this application access?",
+    revokeHint:
+      "This removes only the saved application grant for this QwenPaw installation. Existing session decisions and running operations are not affected.",
+    cancel: "Cancel",
     empty: "No applications are always allowed.",
     approvalTitle: "Application access",
     unknownApplication: "Unknown application",
@@ -63,6 +66,9 @@ const messages = {
     applicationId: "应用标识",
     revoke: "撤销授权",
     revokeConfirm: "撤销这个应用的授权？",
+    revokeHint:
+      "仅移除当前 QwenPaw 安装中保存的此应用长期授权，不会清除已有会话决定或停止正在运行的操作。",
+    cancel: "取消",
     empty: "暂未允许任何应用长期访问。",
     approvalTitle: "应用访问请求",
     unknownApplication: "未知应用",
@@ -103,6 +109,9 @@ const messages = {
     applicationId: "アプリID",
     revoke: "アクセス権を解除",
     revokeConfirm: "このアプリのアクセス権を解除しますか？",
+    revokeHint:
+      "このQwenPaw環境に保存されたアプリの許可のみを削除します。既存のセッションの決定や実行中の操作には影響しません。",
+    cancel: "キャンセル",
     empty: "常に許可されているアプリはありません。",
     approvalTitle: "アプリへのアクセス",
     unknownApplication: "不明なアプリ",
@@ -145,6 +154,9 @@ const messages = {
     applicationId: "ID приложения",
     revoke: "Отозвать доступ",
     revokeConfirm: "Отозвать доступ к этому приложению?",
+    revokeHint:
+      "Будет удалено только сохранённое разрешение приложения в этой установке QwenPaw. Существующие решения сеансов и выполняемые операции не изменятся.",
+    cancel: "Отмена",
     empty: "Нет приложений с постоянным разрешением.",
     approvalTitle: "Доступ к приложению",
     unknownApplication: "Неизвестное приложение",
@@ -187,6 +199,9 @@ const messages = {
     applicationId: "ID do aplicativo",
     revoke: "Revogar acesso",
     revokeConfirm: "Revogar o acesso a este aplicativo?",
+    revokeHint:
+      "Isso remove apenas a permissão salva do aplicativo nesta instalação do QwenPaw. As decisões de sessões existentes e as operações em andamento não são afetadas.",
+    cancel: "Cancelar",
     empty: "Nenhum aplicativo tem permissão permanente.",
     approvalTitle: "Acesso ao aplicativo",
     unknownApplication: "Aplicativo desconhecido",
@@ -229,6 +244,9 @@ const messages = {
     applicationId: "ID aplikasi",
     revoke: "Cabut akses",
     revokeConfirm: "Cabut akses aplikasi ini?",
+    revokeHint:
+      "Hanya izin aplikasi yang tersimpan pada instalasi QwenPaw ini yang dihapus. Keputusan sesi yang sudah ada dan operasi yang berjalan tidak terpengaruh.",
+    cancel: "Batal",
     empty: "Belum ada aplikasi yang selalu diizinkan.",
     approvalTitle: "Akses aplikasi",
     unknownApplication: "Aplikasi tidak dikenal",
@@ -270,6 +288,9 @@ const messages = {
     applicationId: "ID ứng dụng",
     revoke: "Thu hồi quyền truy cập",
     revokeConfirm: "Thu hồi quyền truy cập ứng dụng này?",
+    revokeHint:
+      "Thao tác này chỉ xóa quyền ứng dụng đã lưu trong bản cài đặt QwenPaw này. Các quyết định hiện có của phiên và thao tác đang chạy không bị ảnh hưởng.",
+    cancel: "Hủy",
     empty: "Chưa có ứng dụng nào được cho phép vĩnh viễn.",
     approvalTitle: "Quyền truy cập ứng dụng",
     unknownApplication: "Ứng dụng không xác định",

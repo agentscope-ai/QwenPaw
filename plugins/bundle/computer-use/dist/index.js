@@ -1,4 +1,4 @@
-const I = {
+const _ = {
   en: {
     routeLabel: "Computer Use",
     title: "Computer Use",
@@ -13,18 +13,28 @@ const I = {
     applicationId: "Application ID",
     revoke: "Revoke access",
     revokeConfirm: "Revoke this application access?",
+    revokeHint: "This removes only the saved application grant for this QwenPaw installation. Existing session decisions and running operations are not affected.",
+    cancel: "Cancel",
     empty: "No applications are always allowed.",
     approvalTitle: "Application access",
     unknownApplication: "Unknown application",
     risk: "Risk",
-    deny: "Deny",
-    allowSession: "Allow for this session",
-    allowAlways: "Always allow",
+    deny: "Deny app for this session",
+    allowSession: "Allow app for this session",
+    allowAlways: "Always allow this app",
+    approvalHint: "Allow or deny access to this application for the current session. Allowing lets the pending operation continue.",
+    persistentHint: "Always allow saves application access for all agents in this QwenPaw installation until revoked in Computer Use → Access management. Revoking it does not clear existing session decisions or stop running operations.",
+    submitting: "Submitting decision…",
+    waiting: "Waiting for confirmation",
+    expired: "Request expired",
+    unavailableRequest: "Request already handled or expired",
+    submitUnconfirmed: "Could not confirm the decision. Refresh the page to check the request before trying again.",
+    submitRejected: "The server rejected this decision",
     failed: "Action failed.",
     accessManagement: "Access management",
     version: "Version",
     decision: {
-      deny: "Access denied.",
+      deny: "App access denied for this session.",
       session: "Access allowed for this session.",
       always: "Application always allowed."
     }
@@ -43,124 +53,354 @@ const I = {
     applicationId: "应用标识",
     revoke: "撤销授权",
     revokeConfirm: "撤销这个应用的授权？",
+    revokeHint: "仅移除当前 QwenPaw 安装中保存的此应用长期授权，不会清除已有会话决定或停止正在运行的操作。",
+    cancel: "取消",
     empty: "暂未允许任何应用长期访问。",
     approvalTitle: "应用访问请求",
     unknownApplication: "未知应用",
     risk: "风险",
-    deny: "拒绝",
-    allowSession: "仅本次会话允许",
-    allowAlways: "始终允许",
+    deny: "本会话拒绝此应用",
+    allowSession: "本会话允许此应用",
+    allowAlways: "长期允许此应用",
+    approvalHint: "在当前会话内允许或拒绝访问此应用。允许后将继续待处理的操作。",
+    persistentHint: "长期授权会保存此应用的访问权限，供当前 QwenPaw 安装下的所有 Agent 使用，直到在“电脑操作 → 授权管理”中撤销。撤销不会清除已有会话决定或停止正在运行的操作。",
+    submitting: "正在提交决定…",
+    waiting: "等待确认",
+    expired: "请求已过期",
+    unavailableRequest: "请求已处理或已失效",
+    submitUnconfirmed: "未能确认提交结果，请刷新页面核对请求状态后再操作。",
+    submitRejected: "服务器拒绝了此决定",
     failed: "操作失败。",
     accessManagement: "授权管理",
     version: "版本",
     decision: {
-      deny: "已拒绝访问。",
+      deny: "已拒绝本会话对此应用的访问。",
       session: "已允许本次会话访问。",
       always: "已始终允许该应用。"
     }
+  },
+  ja: {
+    routeLabel: "コンピューター操作",
+    title: "コンピューター操作",
+    ready: "実行環境の準備完了",
+    unavailable: "実行環境を利用できません",
+    refresh: "更新",
+    stop: "自動操作を停止",
+    feature: "コンピューター操作を有効にする",
+    enabledMsg: "コンピューター操作を有効にしました",
+    disabledMsg: "コンピューター操作を無効にし、実行中の自動操作を停止しました",
+    application: "アプリ",
+    applicationId: "アプリID",
+    revoke: "アクセス権を解除",
+    revokeConfirm: "このアプリのアクセス権を解除しますか？",
+    revokeHint: "このQwenPaw環境に保存されたアプリの許可のみを削除します。既存のセッションの決定や実行中の操作には影響しません。",
+    cancel: "キャンセル",
+    empty: "常に許可されているアプリはありません。",
+    approvalTitle: "アプリへのアクセス",
+    unknownApplication: "不明なアプリ",
+    risk: "リスク",
+    allowAlways: "このアプリを常に許可",
+    approvalHint: "このセッションでアプリへのアクセスを許可または拒否します。許可すると保留中の操作を続行します。",
+    persistentHint: "常に許可すると、このQwenPaw環境内のすべてのエージェントにアプリへのアクセス権が保存されます。「コンピューター操作 → アクセス管理」で解除するまで有効です。解除しても既存のセッションの決定は消去されず、実行中の操作も停止しません。",
+    failed: "操作に失敗しました。",
+    accessManagement: "アクセス管理",
+    version: "バージョン",
+    decision: {
+      deny: "このセッションでのアプリへのアクセスを拒否しました。",
+      session: "このセッションでのアクセスを許可しました。",
+      always: "アプリを常に許可しました。"
+    },
+    deny: "このセッションでアプリを拒否",
+    allowSession: "このセッションでアプリを許可",
+    submitting: "決定を送信中…",
+    waiting: "確認待ち",
+    expired: "リクエストの有効期限が切れました",
+    unavailableRequest: "リクエストは処理済み、または無効です",
+    submitUnconfirmed: "送信結果を確認できませんでした。ページを更新してリクエストの状態を確認してから再試行してください。",
+    submitRejected: "サーバーがこの決定を拒否しました"
+  },
+  ru: {
+    routeLabel: "Управление компьютером",
+    title: "Управление компьютером",
+    ready: "Среда выполнения готова",
+    unavailable: "Среда выполнения недоступна",
+    refresh: "Обновить",
+    stop: "Остановить автоматизацию",
+    feature: "Включить управление компьютером",
+    enabledMsg: "Управление компьютером включено",
+    disabledMsg: "Управление компьютером отключено; текущая автоматизация остановлена",
+    application: "Приложение",
+    applicationId: "ID приложения",
+    revoke: "Отозвать доступ",
+    revokeConfirm: "Отозвать доступ к этому приложению?",
+    revokeHint: "Будет удалено только сохранённое разрешение приложения в этой установке QwenPaw. Существующие решения сеансов и выполняемые операции не изменятся.",
+    cancel: "Отмена",
+    empty: "Нет приложений с постоянным разрешением.",
+    approvalTitle: "Доступ к приложению",
+    unknownApplication: "Неизвестное приложение",
+    risk: "Риск",
+    allowAlways: "Всегда разрешать это приложение",
+    approvalHint: "Разрешить или запретить доступ к этому приложению на время текущего сеанса. Разрешение продолжит ожидающую операцию.",
+    persistentHint: "Постоянное разрешение сохраняет доступ к приложению для всех агентов этой установки QwenPaw до отзыва в разделе «Управление компьютером → Управление доступом». Отзыв не сбрасывает существующие решения сеансов и не останавливает выполняемые операции.",
+    failed: "Действие не выполнено.",
+    accessManagement: "Управление доступом",
+    version: "Версия",
+    decision: {
+      deny: "Доступ к приложению запрещён на время сеанса.",
+      session: "Доступ разрешён на время сеанса.",
+      always: "Приложению предоставлен постоянный доступ."
+    },
+    deny: "Запретить приложение на время сеанса",
+    allowSession: "Разрешить приложение на время сеанса",
+    submitting: "Отправка решения…",
+    waiting: "Ожидание подтверждения",
+    expired: "Срок действия запроса истёк",
+    unavailableRequest: "Запрос уже обработан или недействителен",
+    submitUnconfirmed: "Не удалось подтвердить результат отправки. Обновите страницу и проверьте состояние запроса перед повторной попыткой.",
+    submitRejected: "Сервер отклонил это решение"
+  },
+  "pt-BR": {
+    routeLabel: "Uso do computador",
+    title: "Uso do computador",
+    ready: "Ambiente de execução pronto",
+    unavailable: "Ambiente de execução indisponível",
+    refresh: "Atualizar",
+    stop: "Parar automação",
+    feature: "Ativar uso do computador",
+    enabledMsg: "Uso do computador ativado",
+    disabledMsg: "Uso do computador desativado; automação em andamento interrompida",
+    application: "Aplicativo",
+    applicationId: "ID do aplicativo",
+    revoke: "Revogar acesso",
+    revokeConfirm: "Revogar o acesso a este aplicativo?",
+    revokeHint: "Isso remove apenas a permissão salva do aplicativo nesta instalação do QwenPaw. As decisões de sessões existentes e as operações em andamento não são afetadas.",
+    cancel: "Cancelar",
+    empty: "Nenhum aplicativo tem permissão permanente.",
+    approvalTitle: "Acesso ao aplicativo",
+    unknownApplication: "Aplicativo desconhecido",
+    risk: "Risco",
+    allowAlways: "Sempre permitir este aplicativo",
+    approvalHint: "Permita ou bloqueie o acesso a este aplicativo na sessão atual. Ao permitir, a operação pendente continuará.",
+    persistentHint: "A permissão permanente salva o acesso ao aplicativo para todos os agentes desta instalação do QwenPaw até sua revogação em Uso do computador → Gerenciamento de acesso. A revogação não apaga decisões existentes das sessões nem interrompe operações em andamento.",
+    failed: "Falha na ação.",
+    accessManagement: "Gerenciamento de acesso",
+    version: "Versão",
+    decision: {
+      deny: "Acesso ao aplicativo bloqueado nesta sessão.",
+      session: "Acesso permitido nesta sessão.",
+      always: "Aplicativo permitido permanentemente."
+    },
+    deny: "Bloquear aplicativo nesta sessão",
+    allowSession: "Permitir aplicativo nesta sessão",
+    submitting: "Enviando decisão…",
+    waiting: "Aguardando confirmação",
+    expired: "Solicitação expirada",
+    unavailableRequest: "Solicitação já processada ou inválida",
+    submitUnconfirmed: "Não foi possível confirmar o resultado do envio. Atualize a página e verifique o estado da solicitação antes de tentar novamente.",
+    submitRejected: "O servidor rejeitou esta decisão"
+  },
+  id: {
+    routeLabel: "Penggunaan Komputer",
+    title: "Penggunaan Komputer",
+    ready: "Lingkungan eksekusi siap",
+    unavailable: "Lingkungan eksekusi tidak tersedia",
+    refresh: "Muat ulang",
+    stop: "Hentikan otomatisasi",
+    feature: "Aktifkan Penggunaan Komputer",
+    enabledMsg: "Penggunaan Komputer diaktifkan",
+    disabledMsg: "Penggunaan Komputer dinonaktifkan; otomatisasi yang berjalan dihentikan",
+    application: "Aplikasi",
+    applicationId: "ID aplikasi",
+    revoke: "Cabut akses",
+    revokeConfirm: "Cabut akses aplikasi ini?",
+    revokeHint: "Hanya izin aplikasi yang tersimpan pada instalasi QwenPaw ini yang dihapus. Keputusan sesi yang sudah ada dan operasi yang berjalan tidak terpengaruh.",
+    cancel: "Batal",
+    empty: "Belum ada aplikasi yang selalu diizinkan.",
+    approvalTitle: "Akses aplikasi",
+    unknownApplication: "Aplikasi tidak dikenal",
+    risk: "Risiko",
+    allowAlways: "Selalu izinkan aplikasi ini",
+    approvalHint: "Izinkan atau blokir akses ke aplikasi ini selama sesi saat ini. Mengizinkan akses akan melanjutkan operasi yang tertunda.",
+    persistentHint: "Izin permanen menyimpan akses aplikasi untuk semua agen dalam instalasi QwenPaw ini hingga dicabut melalui Penggunaan Komputer → Pengelolaan akses. Pencabutan tidak menghapus keputusan sesi yang ada atau menghentikan operasi yang sedang berjalan.",
+    failed: "Tindakan gagal.",
+    accessManagement: "Pengelolaan akses",
+    version: "Versi",
+    decision: {
+      deny: "Akses aplikasi diblokir selama sesi ini.",
+      session: "Akses diizinkan selama sesi ini.",
+      always: "Aplikasi selalu diizinkan."
+    },
+    deny: "Blokir aplikasi selama sesi ini",
+    allowSession: "Izinkan aplikasi selama sesi ini",
+    submitting: "Mengirim keputusan…",
+    waiting: "Menunggu konfirmasi",
+    expired: "Permintaan kedaluwarsa",
+    unavailableRequest: "Permintaan sudah ditangani atau tidak berlaku",
+    submitUnconfirmed: "Hasil pengiriman belum dapat dikonfirmasi. Muat ulang halaman dan periksa status permintaan sebelum mencoba lagi.",
+    submitRejected: "Server menolak keputusan ini"
+  },
+  vi: {
+    routeLabel: "Sử dụng máy tính",
+    title: "Sử dụng máy tính",
+    ready: "Môi trường thực thi đã sẵn sàng",
+    unavailable: "Môi trường thực thi không khả dụng",
+    refresh: "Làm mới",
+    stop: "Dừng tự động hóa",
+    feature: "Bật Sử dụng máy tính",
+    enabledMsg: "Đã bật Sử dụng máy tính",
+    disabledMsg: "Đã tắt Sử dụng máy tính; tự động hóa đang chạy đã dừng",
+    application: "Ứng dụng",
+    applicationId: "ID ứng dụng",
+    revoke: "Thu hồi quyền truy cập",
+    revokeConfirm: "Thu hồi quyền truy cập ứng dụng này?",
+    revokeHint: "Thao tác này chỉ xóa quyền ứng dụng đã lưu trong bản cài đặt QwenPaw này. Các quyết định hiện có của phiên và thao tác đang chạy không bị ảnh hưởng.",
+    cancel: "Hủy",
+    empty: "Chưa có ứng dụng nào được cho phép vĩnh viễn.",
+    approvalTitle: "Quyền truy cập ứng dụng",
+    unknownApplication: "Ứng dụng không xác định",
+    risk: "Rủi ro",
+    allowAlways: "Luôn cho phép ứng dụng này",
+    approvalHint: "Cho phép hoặc chặn quyền truy cập ứng dụng này trong phiên hiện tại. Khi được cho phép, thao tác đang chờ sẽ tiếp tục.",
+    persistentHint: "Quyền truy cập vĩnh viễn được lưu cho tất cả Agent trong bản cài đặt QwenPaw này cho đến khi bị thu hồi tại Sử dụng máy tính → Quản lý quyền truy cập. Thu hồi không xóa các quyết định hiện có của phiên hoặc dừng thao tác đang chạy.",
+    failed: "Thao tác thất bại.",
+    accessManagement: "Quản lý quyền truy cập",
+    version: "Phiên bản",
+    decision: {
+      deny: "Đã chặn quyền truy cập ứng dụng trong phiên này.",
+      session: "Đã cho phép truy cập trong phiên này.",
+      always: "Đã cho phép ứng dụng vĩnh viễn."
+    },
+    deny: "Chặn ứng dụng trong phiên này",
+    allowSession: "Cho phép ứng dụng trong phiên này",
+    submitting: "Đang gửi quyết định…",
+    waiting: "Đang chờ xác nhận",
+    expired: "Yêu cầu đã hết hạn",
+    unavailableRequest: "Yêu cầu đã được xử lý hoặc không còn hiệu lực",
+    submitUnconfirmed: "Không thể xác nhận kết quả gửi. Hãy tải lại trang và kiểm tra trạng thái yêu cầu trước khi thử lại.",
+    submitRejected: "Máy chủ đã từ chối quyết định này"
   }
 };
-function _(t) {
-  return t != null && t.toLowerCase().startsWith("zh") ? "zh" : "en";
+function M(a) {
+  const t = a == null ? void 0 : a.toLowerCase().split("-")[0];
+  return t === "pt" ? "pt-BR" : t === "zh" || t === "ja" || t === "ru" || t === "id" || t === "vi" ? t : "en";
 }
-function a(t, n) {
-  if (n.startsWith("decision.")) {
-    const s = n.slice(
+function n(a, t) {
+  if (t.startsWith("decision.")) {
+    const i = t.slice(
       9
     );
-    return I[t].decision[s];
+    return _[a].decision[i];
   }
-  return I[t][n];
+  return _[a][t];
 }
-const B = "1.0.1", D = {
-  version: B
-}, o = window.QwenPaw.host, e = o.React, {
-  Badge: J,
-  Button: h,
-  Empty: R,
-  Popconfirm: F,
-  Space: k,
-  Switch: q,
-  Table: Q,
-  Tabs: K,
+const D = "1.0.1", B = {
+  version: D
+}, s = window.QwenPaw.host, e = s.React, {
+  Badge: $,
+  Button: q,
+  Empty: j,
+  Popconfirm: N,
+  Space: T,
+  Switch: O,
+  Table: K,
+  Tabs: W,
   Tooltip: z,
-  Typography: G,
-  message: m
-} = o.antd, {
-  CheckOutlined: M,
-  CloseOutlined: H,
-  DeleteOutlined: V,
-  FolderOpenOutlined: X,
-  ReloadOutlined: Y,
-  SafetyCertificateOutlined: Z
-} = o.antdIcons, { Text: d, Title: ee } = G;
-function te() {
+  Typography: J,
+  message: A
+} = s.antd, { DeleteOutlined: F, ReloadOutlined: G } = s.antdIcons, { Text: p, Title: V } = J;
+function Y() {
   try {
-    return _(localStorage.getItem("language"));
+    return M(localStorage.getItem("language"));
   } catch {
-    return _(void 0);
+    return M(void 0);
   }
 }
-async function b(t, n) {
-  const s = o.fetch ? await o.fetch(t, n) : await fetch(o.getApiUrl(t), {
-    ...n,
+async function E(a, t) {
+  const i = s.fetch ? await s.fetch(a, t) : await fetch(s.getApiUrl(a), {
+    ...t,
     headers: {
-      ...(n == null ? void 0 : n.headers) || {},
-      ...o.getApiToken() ? { Authorization: `Bearer ${o.getApiToken()}` } : {}
+      ...(t == null ? void 0 : t.headers) || {},
+      ...s.getApiToken() ? { Authorization: `Bearer ${s.getApiToken()}` } : {}
     }
-  }), l = await s.text();
-  let r = null;
+  }), l = await i.text();
+  let d = null;
   try {
-    r = l ? JSON.parse(l) : null;
+    d = l ? JSON.parse(l) : null;
   } catch {
-    r = null;
+    d = null;
   }
-  if (!s.ok) {
-    const u = r && typeof r == "object" && "detail" in r ? r.detail : void 0;
-    throw new Error(
-      typeof u == "string" ? u : `HTTP ${s.status}`
+  if (!i.ok) {
+    const g = d && typeof d == "object" && "detail" in d ? d.detail : void 0;
+    throw Object.assign(
+      new Error(
+        typeof g == "string" ? g : `HTTP ${i.status}`
+      ),
+      { status: i.status }
     );
   }
-  return r;
+  return d;
 }
-function ae(t, n) {
-  const s = t.toolParams.display_name;
-  if (typeof s == "string" && s.trim())
-    return s;
-  const l = t.toolParams.canonical_app_id;
-  return typeof l == "string" && l.trim() ? l : a(n, "unknownApplication");
+function X(a, t) {
+  const i = a.toolParams.display_name;
+  if (typeof i == "string" && i.trim())
+    return i;
+  const l = a.toolParams.canonical_app_id;
+  return typeof l == "string" && l.trim() ? l : n(t, "unknownApplication");
 }
-function ne(t) {
-  const n = t.toolParams.canonical_app_id;
-  if (typeof n != "string" || !n.trim())
+function Z(a) {
+  const t = a.toolParams.canonical_app_id;
+  if (typeof t != "string" || !t.trim())
     return "";
-  const s = n.indexOf(":");
-  return s !== -1 && n.slice(0, s) === "process" ? n.slice(s + 1) : n;
+  const i = t.indexOf(":");
+  return i !== -1 && t.slice(0, i) === "process" ? t.slice(i + 1) : t;
 }
-function se({ approval: t, onResolved: n }) {
-  var g;
-  const s = _((g = o.useLocale) == null ? void 0 : g.call(o)), [l, r] = e.useState(null), u = typeof t.toolParams.risk == "string" ? t.toolParams.risk : "", v = typeof t.toolParams.warning == "string" ? t.toolParams.warning : "", S = ae(t, s), p = ne(t), y = async (f) => {
-    r(f);
-    try {
-      await b("/computer-use/session/pending/decision", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: t.sessionId,
-          request_id: t.requestId,
-          decision: f
-        })
-      }), m.success(a(s, `decision.${f}`)), n();
-    } catch (E) {
-      m.error(
-        E instanceof Error ? E.message : a(s, "failed")
-      );
-    } finally {
-      r(null);
+function ee({
+  approval: a,
+  onResolved: t
+}) {
+  var v;
+  const i = M((v = s.useLocale) == null ? void 0 : v.call(s)), [l, d] = e.useState(null), g = e.useRef(!1), [m, f] = e.useState(null), [P, I] = e.useState(""), [x, S] = e.useState(Date.now), b = typeof a.createdAt == "number" && typeof a.timeoutSeconds == "number" ? (a.createdAt + a.timeoutSeconds) * 1e3 : 1 / 0, R = x >= b;
+  e.useEffect(() => {
+    const r = setInterval(() => S(Date.now()), 1e3);
+    return () => clearInterval(r);
+  }, [a.requestId]);
+  const w = typeof a.toolParams.risk == "string" ? a.toolParams.risk : "", y = typeof a.toolParams.warning == "string" ? a.toolParams.warning : "", C = X(a, i), k = Z(a), H = async (r) => {
+    if (!(g.current || m)) {
+      if (Date.now() >= b) {
+        S(Date.now());
+        return;
+      }
+      g.current = !0, d(r);
+      try {
+        const c = await E(
+          "/computer-use/session/pending/decision",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: a.sessionId,
+              request_id: a.requestId,
+              decision: r
+            })
+          }
+        );
+        if (!c || typeof c != "object" || !("resolved" in c) || c.resolved !== !0) {
+          f("unavailable");
+          return;
+        }
+        f(r), A.success(n(i, `decision.${r}`)), t();
+      } catch (c) {
+        const h = c && typeof c == "object" && "status" in c ? c.status : void 0;
+        h === 404 || h === 409 ? f("unavailable") : typeof h == "number" && h < 500 ? (I(
+          c instanceof Error ? c.message : `HTTP ${h}`
+        ), f("rejected")) : f("failed");
+      } finally {
+        g.current = !1, d(null);
+      }
     }
   };
   return e.createElement(
-    o.antd.Card,
+    s.antd.Card,
     { size: "small", bordered: !0, style: { borderRadius: 8 } },
     e.createElement(
       "div",
@@ -169,17 +409,30 @@ function se({ approval: t, onResolved: n }) {
         "div",
         { style: { display: "grid", gap: 4 } },
         e.createElement(
-          k,
+          T,
           { size: 8 },
-          e.createElement(Z),
           e.createElement(
-            d,
+            p,
             { strong: !0 },
-            a(s, "approvalTitle")
+            n(i, "approvalTitle")
           )
         ),
-        e.createElement(d, { strong: !0 }, S),
-        p && p !== S ? e.createElement(
+        e.createElement(
+          p,
+          { strong: !0, style: { overflowWrap: "anywhere" } },
+          C
+        ),
+        e.createElement(
+          p,
+          { type: "secondary" },
+          n(i, "approvalHint")
+        ),
+        e.createElement(
+          p,
+          { type: "secondary" },
+          n(i, "persistentHint")
+        ),
+        k && k !== C ? e.createElement(
           "div",
           {
             style: {
@@ -193,158 +446,164 @@ function se({ approval: t, onResolved: n }) {
               background: "rgba(140, 140, 140, 0.1)"
             }
           },
-          e.createElement(X, {
-            style: { color: "#8c8c8c", flexShrink: 0, fontSize: 12 }
-          }),
           e.createElement(
-            d,
+            p,
             {
               type: "secondary",
-              copyable: { text: p },
-              ellipsis: { tooltip: p },
+              copyable: { text: k },
               style: {
                 fontSize: 12,
                 minWidth: 0,
+                overflowWrap: "anywhere",
                 fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace"
               }
             },
-            p
+            k
           )
         ) : null,
-        u ? e.createElement(
-          d,
+        w ? e.createElement(
+          p,
           { type: "secondary" },
-          `${a(s, "risk")}: ${u}`
+          `${n(i, "risk")}: ${w}`
         ) : null,
-        v ? e.createElement(d, { type: "warning" }, v) : null
+        y ? e.createElement(p, { type: "warning" }, y) : null
       ),
       e.createElement(
-        k,
-        { size: 8, wrap: !0 },
-        e.createElement(
-          h,
-          {
-            danger: !0,
-            icon: e.createElement(H),
-            loading: l === "deny",
-            disabled: l !== null,
-            onClick: () => void y("deny")
-          },
-          a(s, "deny")
-        ),
-        e.createElement(
-          h,
-          {
-            icon: e.createElement(M),
-            loading: l === "session",
-            disabled: l !== null,
-            onClick: () => void y("session")
-          },
-          a(s, "allowSession")
-        ),
-        e.createElement(
-          h,
-          {
-            type: "primary",
-            icon: e.createElement(M),
-            loading: l === "always",
-            disabled: l !== null,
-            onClick: () => void y("always")
-          },
-          a(s, "allowAlways")
+        "p",
+        { role: "status", "aria-live": "polite", style: { margin: 0 } },
+        l ? n(i, "submitting") : m === "failed" ? n(i, "submitUnconfirmed") : m === "rejected" ? `${n(i, "submitRejected")}: ${P}` : m === "unavailable" ? n(i, "unavailableRequest") : m ? n(i, `decision.${m}`) : R ? n(i, "expired") : n(i, "waiting")
+      ),
+      !m && !R ? e.createElement(
+        "div",
+        {
+          "aria-busy": l !== null,
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 160px), 1fr))",
+            gap: 8
+          }
+        },
+        ...["deny", "always", "session"].map(
+          (r) => e.createElement(
+            q,
+            {
+              key: r,
+              type: r === "session" ? "primary" : "default",
+              loading: l === r,
+              disabled: l !== null,
+              style: {
+                whiteSpace: "normal",
+                height: "auto",
+                minHeight: 44,
+                padding: "8px 12px"
+              },
+              onClick: () => void H(r)
+            },
+            n(
+              i,
+              r === "deny" ? "deny" : r === "always" ? "allowAlways" : "allowSession"
+            )
+          )
         )
-      )
+      ) : null
     )
   );
 }
-function oe() {
-  var P, T, x;
-  const t = _((P = o.useLocale) == null ? void 0 : P.call(o)), n = (T = o.useCurrentSession) == null ? void 0 : T.call(o), s = (n == null ? void 0 : n.id) ?? ((x = o.getCurrentSessionId) == null ? void 0 : x.call(o)) ?? null, [l, r] = e.useState(null), [u, v] = e.useState([]), [S, p] = e.useState(!0), [y, g] = e.useState(!1), [f, E] = e.useState(!0), [U, A] = e.useState(null), w = e.useCallback(async () => {
-    E(!0);
+function ae() {
+  var r, c, h;
+  const a = M((r = s.useLocale) == null ? void 0 : r.call(s)), t = (c = s.useCurrentSession) == null ? void 0 : c.call(s), i = (t == null ? void 0 : t.id) ?? ((h = s.getCurrentSessionId) == null ? void 0 : h.call(s)) ?? null, [l, d] = e.useState(null), [g, m] = e.useState([]), [f, P] = e.useState(!0), [I, x] = e.useState(!1), [S, b] = e.useState(!0), [R, w] = e.useState(null), y = e.useCallback(async () => {
+    b(!0);
     try {
-      const [i, c] = await Promise.all([
-        b("/computer-use/status"),
-        b("/computer-use/access")
+      const [o, u] = await Promise.all([
+        E("/computer-use/status"),
+        E("/computer-use/access")
       ]);
-      r(i), v(c.access || []), p(i.enabled !== !1);
-    } catch (i) {
-      m.error(
-        i instanceof Error ? i.message : a(t, "failed")
+      d(o), m(u.access || []), P(o.enabled !== !1);
+    } catch (o) {
+      A.error(
+        o instanceof Error ? o.message : n(a, "failed")
       );
     } finally {
-      E(!1);
+      b(!1);
     }
-  }, [t]);
+  }, [a]);
   e.useEffect(() => {
-    w();
-  }, [w]);
-  const $ = async (i) => {
-    A(`revoke:${i.canonical_app_id}`);
+    y();
+  }, [y]);
+  const C = async (o) => {
+    w(`revoke:${o.canonical_app_id}`);
     try {
-      await b("/computer-use/access", {
+      await E("/computer-use/access", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ canonical_app_id: i.canonical_app_id })
-      }), await w();
-    } catch (c) {
-      m.error(
-        c instanceof Error ? c.message : a(t, "failed")
+        body: JSON.stringify({ canonical_app_id: o.canonical_app_id })
+      }), await y();
+    } catch (u) {
+      A.error(
+        u instanceof Error ? u.message : n(a, "failed")
       );
     } finally {
-      A(null);
+      w(null);
     }
-  }, W = async (i) => {
-    g(!0);
+  }, k = async (o) => {
+    x(!0);
     try {
-      await b("/computer-use/feature", {
+      await E("/computer-use/feature", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ enabled: i, session_id: s })
-      }), p(i), m.success(a(t, i ? "enabledMsg" : "disabledMsg")), await w();
-    } catch (c) {
-      m.error(
-        c instanceof Error ? c.message : a(t, "failed")
+        body: JSON.stringify({ enabled: o, session_id: i })
+      }), P(o), A.success(n(a, o ? "enabledMsg" : "disabledMsg")), await y();
+    } catch (u) {
+      A.error(
+        u instanceof Error ? u.message : n(a, "failed")
       );
     } finally {
-      g(!1);
+      x(!1);
     }
-  }, j = [
+  }, H = [
     {
-      title: a(t, "application"),
+      title: n(a, "application"),
       dataIndex: "display_name",
       key: "display_name",
-      render: (i) => e.createElement(d, { strong: !0 }, i)
+      render: (o) => e.createElement(p, { strong: !0 }, o)
     },
     {
-      title: a(t, "applicationId"),
+      title: n(a, "applicationId"),
       dataIndex: "canonical_app_id",
       key: "canonical_app_id",
-      render: (i) => e.createElement(d, { code: !0 }, i)
+      render: (o) => e.createElement(p, { code: !0 }, o)
     },
     {
       key: "actions",
       width: 56,
-      render: (i, c) => e.createElement(
-        F,
+      render: (o, u) => e.createElement(
+        N,
         {
-          title: a(t, "revokeConfirm"),
-          onConfirm: () => void $(c)
+          title: n(a, "revokeConfirm"),
+          description: n(a, "revokeHint"),
+          okText: n(a, "revoke"),
+          cancelText: n(a, "cancel"),
+          okButtonProps: { danger: !0 },
+          styles: {
+            root: { maxWidth: "min(360px, calc(100vw - 32px))" }
+          },
+          onConfirm: () => void C(u)
         },
         e.createElement(
           z,
-          { title: a(t, "revoke") },
-          e.createElement(h, {
+          { title: n(a, "revoke") },
+          e.createElement(q, {
             type: "text",
             danger: !0,
             shape: "circle",
-            icon: e.createElement(V),
-            loading: U === `revoke:${c.canonical_app_id}`,
-            "aria-label": a(t, "revoke")
+            icon: e.createElement(F),
+            loading: R === `revoke:${u.canonical_app_id}`,
+            "aria-label": n(a, "revoke")
           })
         )
       )
     }
-  ], C = (l == null ? void 0 : l.runtime_available) === !0;
+  ], v = (l == null ? void 0 : l.runtime_available) === !0;
   return e.createElement(
     "main",
     {
@@ -372,73 +631,73 @@ function oe() {
         "div",
         { style: { display: "grid", gap: 6 } },
         e.createElement(
-          k,
+          T,
           { align: "baseline", size: 8 },
           e.createElement(
-            ee,
+            V,
             { level: 3, style: { margin: 0 } },
-            a(t, "title")
+            n(a, "title")
           ),
           e.createElement(
-            d,
+            p,
             { type: "secondary", style: { fontSize: 12 } },
-            `${a(t, "version")} ${D.version}`
+            `${n(a, "version")} ${B.version}`
           )
         ),
-        e.createElement(J, {
-          status: C ? "success" : "error",
-          text: a(t, C ? "ready" : "unavailable")
+        e.createElement($, {
+          status: v ? "success" : "error",
+          text: n(a, v ? "ready" : "unavailable")
         })
       ),
       e.createElement(
-        k,
+        T,
         { size: 8 },
         e.createElement(
           z,
-          { title: a(t, "refresh") },
-          e.createElement(h, {
+          { title: n(a, "refresh") },
+          e.createElement(q, {
             type: "text",
             shape: "circle",
-            icon: e.createElement(Y),
-            loading: f,
-            onClick: () => void w(),
-            "aria-label": a(t, "refresh")
+            icon: e.createElement(G),
+            loading: S,
+            onClick: () => void y(),
+            "aria-label": n(a, "refresh")
           })
         ),
         e.createElement(
-          k,
+          T,
           { size: 8, align: "center" },
           e.createElement(
-            d,
+            p,
             { type: "secondary", style: { fontSize: 13 } },
-            a(t, "feature")
+            n(a, "feature")
           ),
-          e.createElement(q, {
-            checked: S,
-            loading: y,
-            disabled: !C,
-            onChange: (i) => void W(i),
-            "aria-label": a(t, "feature")
+          e.createElement(O, {
+            checked: f,
+            loading: I,
+            disabled: !v,
+            onChange: (o) => void k(o),
+            "aria-label": n(a, "feature")
           })
         )
       )
     ),
-    e.createElement(K, {
+    e.createElement(W, {
       defaultActiveKey: "access",
       items: [
         {
           key: "access",
-          label: a(t, "accessManagement"),
-          children: e.createElement(Q, {
+          label: n(a, "accessManagement"),
+          children: e.createElement(K, {
             rowKey: "canonical_app_id",
-            columns: j,
-            dataSource: u,
+            columns: H,
+            dataSource: g,
             pagination: !1,
             size: "middle",
             locale: {
-              emptyText: e.createElement(R, {
-                image: R.PRESENTED_IMAGE_SIMPLE,
-                description: a(t, "empty")
+              emptyText: e.createElement(j, {
+                image: j.PRESENTED_IMAGE_SIMPLE,
+                description: n(a, "empty")
               })
             }
           })
@@ -447,19 +706,22 @@ function oe() {
     })
   );
 }
-var O;
-(O = window.QwenPaw.chat) == null || O.approval.render(
+var U;
+(U = window.QwenPaw.chat) == null || U.approval.render(
   "computer-use",
   "computer_use_app_access",
-  se
+  ee
 );
-var L, N;
-(N = (L = window.QwenPaw).registerRoutes) == null || N.call(L, "computer-use", [
+var L, Q;
+(Q = (L = window.QwenPaw).registerRoutes) == null || Q.call(L, "computer-use", [
   {
     path: "/plugin/computer-use",
-    component: oe,
-    label: a(te(), "routeLabel"),
+    component: ae,
+    label: n(Y(), "routeLabel"),
     icon: "🖥️",
     priority: 43
   }
 ]);
+export {
+  ee as ComputerUseApprovalCard
+};

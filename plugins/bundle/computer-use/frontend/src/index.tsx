@@ -438,6 +438,13 @@ function ComputerUsePage() {
           Popconfirm,
           {
             title: t(selectedLocale, "revokeConfirm"),
+            description: t(selectedLocale, "revokeHint"),
+            okText: t(selectedLocale, "revoke"),
+            cancelText: t(selectedLocale, "cancel"),
+            okButtonProps: { danger: true },
+            styles: {
+              root: { maxWidth: "min(360px, calc(100vw - 32px))" },
+            },
             onConfirm: () => void revoke(item),
           },
           React.createElement(

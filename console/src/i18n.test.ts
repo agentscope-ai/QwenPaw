@@ -192,6 +192,9 @@ const APPROVAL_NOTIFICATION_KEYS = [
 ] as const;
 
 const APPROVAL_CARD_KEYS = [
+  "applicationId",
+  "risk",
+  "warning",
   "allowTarget",
   "allowPattern",
   "allowOnce",

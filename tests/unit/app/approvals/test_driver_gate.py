@@ -112,6 +112,35 @@ async def test_request_approval_allow_path_resolves_and_returns(
     assert svc._pending == {}
 
 
+@pytest.mark.parametrize(
+    (f"target_kind", f"target_name"),
+    [(f"*", f""), (f"tool", f"run_shell")],
+)
+async def test_request_approval_describes_one_call_only(
+    svc: ApprovalService,
+    target_kind: str,
+    target_name: str,
+):
+    """Expose one-call approval for driver and MCP tool requests."""
+    gate = QwenPawDriverApprovalGate()
+    ctx = _ctx(target_kind=target_kind, target_name=target_name)
+    task = asyncio.create_task(gate.request_approval(ctx))
+    try:
+        for _ in range(100):
+            await asyncio.sleep(0)
+            if svc._pending:
+                break
+        pending = next(iter(svc._pending.values()))
+        assert pending.extra[f"display"][f"approval_behavior"] == f"once"
+    finally:
+        for pending in list(svc._pending.values()):
+            await svc.resolve_request(
+                pending.request_id,
+                ApprovalDecision.APPROVED,
+            )
+        await task
+
+
 async def test_request_approval_deny_path_raises_permission_denied(
     svc: ApprovalService,
 ):

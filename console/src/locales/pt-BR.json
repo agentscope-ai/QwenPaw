@@ -4650,6 +4650,9 @@
     "runtimeRestartFailed": "Falha ao reiniciar o ambiente"
   },
   "approval": {
+    "applicationId": "ID do aplicativo",
+    "risk": "Risco",
+    "warning": "Aviso",
     "queue": {
       "title": "Aprovações pendentes",
       "position": "{{current}} / {{total}}",

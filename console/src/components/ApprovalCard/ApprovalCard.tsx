@@ -79,6 +79,13 @@ export function ApprovalCard({
   const denyLabel = isSessionApp
     ? t("approval.denyApp", "Deny app for this session")
     : t("approval.deny", "Reject this call");
+  const applicationDetails = isSessionApp
+    ? ([
+        ["applicationId", "Application ID", toolParams?.canonical_app_id],
+        ["risk", "Risk", toolParams?.risk],
+        ["warning", "Warning", toolParams?.warning],
+      ] as const)
+    : [];
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
@@ -394,6 +401,19 @@ export function ApprovalCard({
               </>
             )}
           </div>
+        )}
+
+        {applicationDetails.map(([key, label, value]) =>
+          typeof value === "string" && value.trim() ? (
+            <div key={key} className={styles.infoRow}>
+              <Text className={styles.label}>
+                {t(`approval.${key}`, label)}:
+              </Text>
+              <Text className={styles.value} code={key === "applicationId"}>
+                {value}
+              </Text>
+            </div>
+          ) : null,
         )}
 
         {toolParams && Object.keys(toolParams).length > 0 && (

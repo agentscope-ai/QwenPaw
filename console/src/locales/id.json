@@ -3495,6 +3495,9 @@
     "retry": "Coba Lagi"
   },
   "approval": {
+    "applicationId": "ID aplikasi",
+    "risk": "Risiko",
+    "warning": "Peringatan",
     "queue": {
       "title": "Persetujuan tertunda",
       "position": "{{current}} / {{total}}",

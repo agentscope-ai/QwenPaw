@@ -4598,6 +4598,9 @@
     "localModelsNotice": "バックアップファイルにはローカルモデルファイルは含まれません。デバイス間の移行の場合は、対象デバイスで必要なローカルモデルを再ダウンロードしてください。"
   },
   "approval": {
+    "applicationId": "アプリID",
+    "risk": "リスク",
+    "warning": "警告",
     "queue": {
       "title": "保留中の承認",
       "position": "{{current}} / {{total}}",

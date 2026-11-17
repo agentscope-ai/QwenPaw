@@ -2273,6 +2273,9 @@
     "byModel": "Theo mô hình"
   },
   "approval": {
+    "applicationId": "ID ứng dụng",
+    "risk": "Rủi ro",
+    "warning": "Cảnh báo",
     "queue": {
       "title": "Phê duyệt đang chờ",
       "position": "{{current}} / {{total}}",

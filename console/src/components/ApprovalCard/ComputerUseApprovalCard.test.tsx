@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import {
   afterEach,
@@ -19,6 +20,7 @@ import {
 
 const fetchMock = vi.fn();
 const success = vi.fn();
+const registerRoutes = vi.fn();
 let locale = "en";
 let Card: React.ComponentType<{
   approval: {
@@ -38,14 +40,14 @@ beforeAll(async () => {
       host: {
         React,
         antd: { ...antd, message: { success, error: vi.fn() } },
-        antdIcons: {},
+        antdIcons: { DeleteOutlined: () => null, ReloadOutlined: () => null },
         getApiUrl: (path: string) => path,
         getApiToken: () => "",
         useLocale: () => locale,
         fetch: fetchMock,
       },
       chat: { approval: { render: vi.fn() } },
-      registerRoutes: vi.fn(),
+      registerRoutes,
     },
   });
   // Import the plugin after its host runtime has been supplied. The literal
@@ -241,4 +243,71 @@ describe("Computer-use approval card", () => {
       screen.getByRole("button", { name: "本会话拒绝此应用" }),
     ).not.toHaveClass("ant-btn-dangerous");
   });
+});
+
+describe("Computer-use access management", () => {
+  it.each([
+    [
+      "en",
+      "Revoke access",
+      "Cancel",
+      "This removes only the saved application grant for this QwenPaw installation. Existing session decisions and running operations are not affected.",
+    ],
+    [
+      "zh",
+      "撤销授权",
+      "取消",
+      "仅移除当前 QwenPaw 安装中保存的此应用长期授权，不会清除已有会话决定或停止正在运行的操作。",
+    ],
+  ])(
+    "explains revocation before submitting in %s",
+    async (language, revoke, cancel, hint) => {
+      locale = language;
+      const app = {
+        canonical_app_id: "app:editor",
+        display_name: "Editor",
+      };
+      fetchMock.mockImplementation(async (path: string, init?: RequestInit) => {
+        if (path === "/computer-use/status") {
+          return response({ runtime_available: true, enabled: true });
+        }
+        return response(
+          init?.method === "DELETE" ? { revoked: true } : { access: [app] },
+        );
+      });
+      const Page = registerRoutes.mock.calls[0][1][0]
+        .component as React.ComponentType;
+      // jsdom cannot complete the popup's CSS entrance animation.
+      render(
+        <antd.ConfigProvider theme={{ token: { motion: false } }}>
+          <Page />
+        </antd.ConfigProvider>,
+      );
+      fireEvent.click(await screen.findByRole("button", { name: revoke }));
+      const confirmation = await screen.findByRole("tooltip");
+      await waitFor(() =>
+        expect(within(confirmation).getByText(hint)).toBeVisible(),
+      );
+      expect(
+        within(confirmation).getByRole("button", {
+          name: (name) => name.replace(/\s/g, "") === cancel,
+        }),
+      ).toBeVisible();
+      expect(
+        fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE"),
+      ).toBe(false);
+      fireEvent.click(
+        within(confirmation).getByRole("button", { name: revoke }),
+      );
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          "/computer-use/access",
+          expect.objectContaining({
+            method: "DELETE",
+            body: JSON.stringify({ canonical_app_id: app.canonical_app_id }),
+          }),
+        ),
+      );
+    },
+  );
 });

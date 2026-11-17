@@ -5397,6 +5397,9 @@
     "runtimeDisabledDescription": "An administrator has blocked this runtime from starting. Contact an administrator to restore access."
   },
   "approval": {
+    "applicationId": "Application ID",
+    "risk": "Risk",
+    "warning": "Warning",
     "allowTarget": "Allow target for this session",
     "allowPattern": "Allow pattern for this session",
     "allowOnce": "Allow this call",
