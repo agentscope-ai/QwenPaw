@@ -57,6 +57,12 @@ export interface PendingApproval {
   is_generalized?: boolean;
   exact_target?: string;
   similar_target?: string;
+  approval_behavior?:
+    | "once"
+    | "session_rule"
+    | "strict"
+    | "session_app"
+    | "unknown";
   source_type: string;
 }
 

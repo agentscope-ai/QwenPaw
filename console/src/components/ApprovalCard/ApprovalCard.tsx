@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Button, Card, Tag, Typography, Space, Tooltip } from "antd";
-import { Shield, Check, X, Clock, Copy, Info, AlertCircle } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Button, Card, Tag, Typography, Space } from "antd";
+import { Shield, Check, X, Clock, Copy, Info } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../stores/agentStore";
 import { getAgentDisplayName } from "../../utils/agentDisplayName";
+import { ApiError } from "../../api/request";
+import type { PendingApproval } from "../../api/modules/console";
+import { parseErrorDetail } from "../../utils/error";
 import styles from "./ApprovalCard.module.less";
 
 const { Text } = Typography;
@@ -30,6 +33,7 @@ export interface ApprovalCardProps {
   isGeneralized?: boolean;
   exactTarget?: string;
   similarTarget?: string;
+  approvalBehavior?: PendingApproval["approval_behavior"];
   onApprove: (requestId: string, scope?: "exact" | "similar") => Promise<void>;
   onDeny: (requestId: string) => Promise<void>;
   onCancel?: () => void;
@@ -55,13 +59,26 @@ export function ApprovalCard({
   isGeneralized,
   exactTarget,
   similarTarget,
+  approvalBehavior = "unknown",
   onApprove,
   onDeny,
-  onCancel: _onCancel,
   onAcknowledge,
 }: ApprovalCardProps) {
   const { t } = useTranslation();
-  const isAlwaysAllowDisabled = toolSource === "STRICT mode";
+  const isSessionRule = approvalBehavior === "session_rule";
+  const isSessionApp = approvalBehavior === "session_app";
+  const offersPattern =
+    isSessionRule && isGeneralized && Boolean(similarTarget);
+  const approveLabel = isSessionRule
+    ? t("approval.allowTarget", "Allow target for this session")
+    : isSessionApp
+    ? t("approval.allowApp", "Allow app for this session")
+    : approvalBehavior === "once"
+    ? t("approval.allowOnce", "Allow this call")
+    : t("approval.approve", "Approve call");
+  const denyLabel = isSessionApp
+    ? t("approval.denyApp", "Deny app for this session")
+    : t("approval.deny", "Reject this call");
   const agents = useAgentStore((state) => state.agents);
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.id, agent])),
@@ -70,7 +87,14 @@ export function ApprovalCard({
   const [loading, setLoading] = useState<
     "approve-pattern" | "approve-exact" | "deny" | "acknowledge" | null
   >(null);
-  const [remaining, setRemaining] = useState<number>(timeoutSeconds);
+  const [remaining, setRemaining] = useState(() =>
+    Math.max(0, Math.ceil(createdAt + timeoutSeconds - Date.now() / 1000)),
+  );
+  const submitting = useRef(false);
+  const [outcome, setOutcome] = useState<
+    "approved" | "denied" | "unavailable" | "rejected" | "failed" | null
+  >(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const handleCopy = useCallback(async (text: string, field: string) => {
@@ -86,7 +110,7 @@ export function ApprovalCard({
   // Check if this is a cross-session approval
   const isCrossSession =
     sessionId && rootSessionId && sessionId !== rootSessionId;
-  const isTimedOut = showInboxAgentContext && remaining <= 0;
+  const isTimedOut = remaining <= 0;
   const executionAgentDisplayName = useMemo(() => {
     const matched = agentsById.get(agentId);
     if (matched) return getAgentDisplayName(matched, t);
@@ -108,12 +132,12 @@ export function ApprovalCard({
 
   useEffect(() => {
     const elapsed = Date.now() / 1000 - createdAt;
-    const initialRemaining = Math.max(0, Math.floor(timeoutSeconds - elapsed));
+    const initialRemaining = Math.max(0, Math.ceil(timeoutSeconds - elapsed));
     setRemaining(initialRemaining);
 
     const timer = setInterval(() => {
       const newElapsed = Date.now() / 1000 - createdAt;
-      const newRemaining = Math.max(0, Math.floor(timeoutSeconds - newElapsed));
+      const newRemaining = Math.max(0, Math.ceil(timeoutSeconds - newElapsed));
       setRemaining(newRemaining);
 
       if (newRemaining <= 0) {
@@ -124,44 +148,87 @@ export function ApprovalCard({
     return () => clearInterval(timer);
   }, [createdAt, timeoutSeconds]);
 
-  const handleApprove = async (scope?: "exact" | "similar") => {
-    const loadingKey =
-      scope === "similar" ? "approve-pattern" : "approve-exact";
-    console.log(
-      "[ApprovalCard] Approve button clicked:",
-      requestId,
-      "scope:",
-      scope,
-    );
-    setLoading(loadingKey);
-    try {
-      await onApprove(requestId, scope);
-      console.log("[ApprovalCard] onApprove completed");
-    } catch (err) {
-      console.error("[ApprovalCard] onApprove failed:", err);
-    } finally {
-      setLoading(null);
+  const submitDecision = async (
+    decision: "approve" | "deny",
+    scope?: "exact" | "similar",
+  ) => {
+    if (submitting.current || outcome) return;
+    if (Date.now() / 1000 >= createdAt + timeoutSeconds) {
+      setRemaining(0);
+      return;
     }
-  };
-
-  const handleDeny = async () => {
-    setLoading("deny");
+    submitting.current = true;
+    setLoading(
+      decision === "deny"
+        ? "deny"
+        : scope === "similar"
+        ? "approve-pattern"
+        : "approve-exact",
+    );
     try {
-      await onDeny(requestId);
+      if (decision === "approve") await onApprove(requestId, scope);
+      else await onDeny(requestId);
+      setOutcome(decision === "approve" ? "approved" : "denied");
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : undefined;
+      if (status === 404 || status === 409) {
+        setOutcome("unavailable");
+      } else if (status !== undefined && status < 500) {
+        // Other client errors are explicit refusals: the decision was not
+        // applied, so show the server's reason instead of an unknown result.
+        const detail = parseErrorDetail(error);
+        setRejectionReason(
+          typeof detail === "string" ? detail : `HTTP ${status}`,
+        );
+        setOutcome("rejected");
+      } else {
+        setOutcome("failed");
+      }
     } finally {
+      submitting.current = false;
       setLoading(null);
     }
   };
 
   const handleAcknowledge = async () => {
-    if (!onAcknowledge) return;
+    if (!onAcknowledge || submitting.current) return;
+    submitting.current = true;
     setLoading("acknowledge");
     try {
       await onAcknowledge(requestId);
+    } catch {
+      setOutcome("failed");
     } finally {
+      submitting.current = false;
       setLoading(null);
     }
   };
+
+  const statusText =
+    loading && loading !== "acknowledge"
+      ? t("approval.submitting", "Submitting decision…")
+      : outcome === "approved"
+      ? t("approval.approved", "Tool call approved")
+      : outcome === "denied"
+      ? isSessionApp
+        ? t("approval.appDenied", "App access denied for this session")
+        : t("approval.denied", "Tool call rejected")
+      : outcome === "failed"
+      ? t(
+          "approval.submitUnconfirmed",
+          "Could not confirm the decision. Refresh the page to check the request before trying again.",
+        )
+      : outcome === "rejected"
+      ? t(
+          "approval.submitRejected",
+          "The server rejected this decision: {{reason}}",
+          { reason: rejectionReason },
+        )
+      : outcome === "unavailable"
+      ? t("approval.unavailable", "Request already handled or expired")
+      : isTimedOut
+      ? t("approval.expired", "Request expired")
+      : t("approval.waiting", "Waiting for confirmation");
 
   const getSeverityColor = (sev: string) => {
     const s = sev.toLowerCase();
@@ -176,7 +243,7 @@ export function ApprovalCard({
         <Space size={8} align="center" className={styles.titleRow}>
           <Shield size={16} className={styles.icon} />
           <Text className={styles.title}>
-            {t("approval.title", "Security Approval Required")}
+            {t("approval.title", "Security Approval Required")} · {toolName}
           </Text>
         </Space>
         <Space size={6} align="center" className={styles.timer}>
@@ -189,6 +256,40 @@ export function ApprovalCard({
       </div>
 
       <div className={styles.content}>
+        <p className={styles.scopeHint}>
+          {isSessionRule
+            ? t(
+                "approval.sessionRuleHint",
+                "Approval continues this call and attempts to save a rule for this tool and target in the executing agent’s session. Matching targets may be allowed again; other security checks still apply. Closing this page does not revoke the rule.",
+              )
+            : isSessionApp
+            ? t(
+                "approval.sessionAppHint",
+                "Allow or deny access to this application for the executing session. This does not grant permanent access.",
+              )
+            : approvalBehavior === "once"
+            ? t(
+                "approval.onceHint",
+                "Approval continues this call only and does not save an authorization rule.",
+              )
+            : approvalBehavior === "strict"
+            ? t(
+                "approval.strictHint",
+                "Strict mode requires confirmation for each call. Approval may record a session target rule, but it does not bypass strict mode.",
+              )
+            : t(
+                "approval.unknownHint",
+                "Approval lets the pending call continue. This source has not provided its authorization lifetime; review the details before deciding.",
+              )}
+        </p>
+        {(isSessionRule || isSessionApp || approvalBehavior === "strict") && (
+          <p className={styles.scopeHint}>
+            {t("approval.executingAgent", "Executing Agent")}:{" "}
+            {executionAgentDisplayName}
+            {" · "}
+            {t("approval.session", "Session")}: {sessionId}
+          </p>
+        )}
         {showInboxAgentContext ? (
           <>
             <div className={styles.infoRow}>
@@ -278,43 +379,25 @@ export function ApprovalCard({
           </div>
         )}
 
-        {isGeneralized && (exactTarget || similarTarget) && (
+        {exactTarget && (
           <div className={styles.scopeSection}>
             <Text className={styles.scopeLabel}>
-              {t("approval.approvalScope", "Approval scope")}:
+              {t("approval.target", "Target")}:
             </Text>
-            <div className={styles.scopeItems}>
-              <div className={styles.scopeItem}>
+            <code className={styles.scopeCode}>{exactTarget}</code>
+            {offersPattern && (
+              <>
                 <Text className={styles.scopeItemLabel}>
-                  {t("approval.approveExact", "Just Once")}:
-                </Text>
-                <code className={styles.scopeCode}>{exactTarget}</code>
-              </div>
-              <div className={styles.scopeItem}>
-                <Text className={styles.scopeItemLabel}>
-                  {t("approval.approvePattern", "Always Allow")}:
+                  {t("approval.pattern", "Target pattern")}:
                 </Text>
                 <code className={styles.scopeCode}>{similarTarget}</code>
-                {isAlwaysAllowDisabled && (
-                  <Tooltip
-                    title={t(
-                      "approval.alwaysAllowDisabledHint",
-                      "Always allow is unavailable for this approval source",
-                    )}
-                  >
-                    <AlertCircle
-                      size={14}
-                      className={styles.strictModeHintIcon}
-                    />
-                  </Tooltip>
-                )}
-              </div>
-            </div>
+              </>
+            )}
           </div>
         )}
 
         {toolParams && Object.keys(toolParams).length > 0 && (
-          <details className={styles.paramsDetails}>
+          <details className={styles.paramsDetails} open={!exactTarget}>
             <summary className={styles.paramsSummary}>
               {t("approval.parameters", "Parameters")}
             </summary>
@@ -338,7 +421,7 @@ export function ApprovalCard({
         )}
 
         {findingsSummary && (
-          <details className={styles.detailsSection}>
+          <details className={styles.detailsSection} open>
             <summary className={styles.detailsSummary}>
               <Info size={12} />
               {t("approval.details", "Details")}
@@ -359,81 +442,53 @@ export function ApprovalCard({
         )}
       </div>
 
-      <div className={styles.actions}>
-        {isTimedOut ? (
-          <>
-            <Text className={styles.timeoutHint}>
-              {t("approval.timeoutAutoDenied", "Timed out, auto denied")}
-            </Text>
-            {onAcknowledge ? (
-              <Button
-                type="primary"
-                onClick={handleAcknowledge}
-                loading={loading === "acknowledge"}
-                disabled={loading !== null}
-              >
-                {t("approval.acknowledge", "Got It")}
-              </Button>
-            ) : null}
-          </>
+      <p role="status" aria-live="polite" className={styles.scopeHint}>
+        {statusText}
+      </p>
+      <div className={styles.actions} aria-busy={loading !== null}>
+        {outcome || isTimedOut ? (
+          onAcknowledge && (isTimedOut || outcome === "unavailable") ? (
+            <Button
+              onClick={handleAcknowledge}
+              loading={loading === "acknowledge"}
+              disabled={loading !== null}
+            >
+              {t("approval.dismiss", "Dismiss notice")}
+            </Button>
+          ) : null
         ) : (
           <>
             <Button
-              danger
               icon={<X size={14} />}
-              onClick={handleDeny}
+              onClick={() => submitDecision("deny")}
               loading={loading === "deny"}
               disabled={loading !== null}
               className={styles.denyButton}
             >
-              {t("approval.deny", "Deny")}
+              {denyLabel}
             </Button>
-            {isGeneralized ? (
-              <>
-                <Button
-                  type="primary"
-                  icon={<Check size={14} />}
-                  onClick={() => handleApprove("exact")}
-                  loading={loading === "approve-exact"}
-                  disabled={loading !== null}
-                  className={styles.approveOnceButton}
-                >
-                  {t("approval.approveExact", "Just Once")}
-                </Button>
-                <Tooltip
-                  title={
-                    isAlwaysAllowDisabled
-                      ? t(
-                          "approval.alwaysAllowDisabledHint",
-                          "Always allow is unavailable for this approval source",
-                        )
-                      : undefined
-                  }
-                >
-                  <Button
-                    onClick={() => handleApprove("similar")}
-                    loading={loading === "approve-pattern"}
-                    disabled={isAlwaysAllowDisabled || loading !== null}
-                    className={styles.approveAlwaysButton}
-                  >
-                    {t("approval.approvePattern", "Always Allow")}
-                  </Button>
-                </Tooltip>
-              </>
-            ) : (
+            {offersPattern && (
               <Button
-                type="primary"
-                icon={<Check size={14} />}
-                onClick={() => handleApprove()}
-                loading={
-                  loading === "approve-exact" || loading === "approve-pattern"
-                }
+                onClick={() => submitDecision("approve", "similar")}
+                loading={loading === "approve-pattern"}
                 disabled={loading !== null}
-                className={styles.approveOnceButton}
+                className={styles.approveAlwaysButton}
               >
-                {t("approval.approve", "Approve")}
+                {t("approval.allowPattern", "Allow pattern for this session")}
               </Button>
             )}
+            <Button
+              type="primary"
+              icon={<Check size={14} />}
+              onClick={() =>
+                submitDecision("approve", isGeneralized ? "exact" : undefined)
+              }
+              loading={loading === "approve-exact"}
+              disabled={loading !== null}
+              className={styles.approveOnceButton}
+            >
+              {approveLabel}
+            </Button>
           </>
         )}
       </div>

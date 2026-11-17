@@ -720,6 +720,17 @@ async def _ask_user_approval(
         )
     )
     display_target = generalized_target or target
+    # Describe the existing consumer without promising rule persistence.
+    if source in {"jev", "decision_model"} or governor.is_builtin_ask(
+        tc_spec,
+    ):
+        approval_behavior = f"once"
+    elif source == f"STRICT mode":
+        approval_behavior = f"strict"
+    elif target and agent_id and session_id:
+        approval_behavior = f"session_rule"
+    else:
+        approval_behavior = f"unknown"
 
     # Construct a ToolGuardResult for ApprovalService.
     # If deep-scan findings were attached by policy.evaluate(),
@@ -865,6 +876,7 @@ async def _ask_user_approval(
                 "exact_target": target,
                 "similar_target": display_target,
                 "is_generalized": display_target != target,
+                "approval_behavior": approval_behavior,
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),

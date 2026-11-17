@@ -105,3 +105,21 @@ def test_is_generalized_falsy_values():
         {"display": {"is_generalized": 0}},
     )
     assert approval_display_fields(pending)["is_generalized"] is False
+
+
+def test_approval_behavior_defaults_to_unknown():
+    """Legacy approvals must not be presented as one-time permissions."""
+    assert approval_display_fields(_FakePending({}))[
+        f"approval_behavior"
+    ] == f"unknown"
+
+
+def test_approval_behavior_is_forwarded():
+    """Expose the consumer's authorization semantics without guessing."""
+    for behavior in (f"once", f"session_rule", f"strict", f"session_app"):
+        pending = _FakePending(
+            {f"display": {f"approval_behavior": behavior}},
+        )
+        assert approval_display_fields(pending)[
+            f"approval_behavior"
+        ] == behavior

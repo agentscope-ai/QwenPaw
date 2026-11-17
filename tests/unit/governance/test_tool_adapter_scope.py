@@ -90,6 +90,7 @@ async def _run_approval(
     scope: ApprovalScope | None,
     monkeypatch,
     source="No rule hit",
+    builtin=False,
 ):
     """Drive ``_ask_user_approval`` with fakes; return (governor, pending)."""
     from qwenpaw.governance import tool_adapter
@@ -123,6 +124,8 @@ async def _run_approval(
     )
 
     governor = _FakeGovernor()
+    if builtin:
+        governor.is_builtin_ask = lambda _tc_spec: True
     # ``_ask_user_approval`` imports get_approval_service lazily from
     # ..app.approvals; patch that path too.
     import qwenpaw.app.approvals as approvals_mod
@@ -201,3 +204,28 @@ class TestApprovalScopeConsumer:
         assert display["is_generalized"] is True
         assert display["exact_target"] == "git status"
         assert display["similar_target"] == "git *"
+        assert display[f"approval_behavior"] == f"session_rule"
+
+    async def test_once_metadata_for_decision_model(self, monkeypatch):
+        """Decision-model approvals must not advertise saved rules."""
+        for source in (f"jev", f"decision_model"):
+            _, pending = await _run_approval(
+                ApprovalScope.EXACT, monkeypatch, source=source,
+            )
+            assert pending.extra[f"display"][f"approval_behavior"] == f"once"
+
+    async def test_once_metadata_for_builtin_ask(self, monkeypatch):
+        """Builtin ASK approvals must not advertise session grants."""
+        _, pending = await _run_approval(
+            ApprovalScope.EXACT, monkeypatch, builtin=True,
+        )
+        assert pending.extra[f"display"][f"approval_behavior"] == f"once"
+
+    async def test_strict_metadata_preserves_repeated_confirmation(
+        self, monkeypatch,
+    ):
+        """Strict mode must not promise that later calls skip approval."""
+        _, pending = await _run_approval(
+            ApprovalScope.EXACT, monkeypatch, source=f"STRICT mode",
+        )
+        assert pending.extra[f"display"][f"approval_behavior"] == f"strict"
