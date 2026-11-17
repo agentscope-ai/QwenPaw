@@ -159,12 +159,24 @@ async def test_generate_and_edit_keep_independent_tool_settings(
             assert attachment.mime_type == "image/png"
             assert attachment.preview_url
             assert (result.is_error, result.metadata) == (False, {})
-            assert [asdict(block) for block in result.content] == [
+            blocks = [asdict(block) for block in result.content]
+            block_ids = []
+            for block in blocks:
+                block_id = block.pop("id")
+                assert isinstance(block_id, str) and block_id
+                block_ids.append(block_id)
+                created_at = block["attributes"].pop("created_at")
+                finished_at = block["attributes"].pop("finished_at")
+                assert isinstance(created_at, str) and created_at
+                assert finished_at is None or (
+                    isinstance(finished_at, str) and finished_at
+                )
+            assert len(set(block_ids)) == len(blocks)
+            assert blocks == [
                 {
                     "type": "image",
                     "text": "",
                     "attachment": asdict(attachment),
-                    "id": "",
                     "name": "",
                     "arguments": "",
                     "output": (),
@@ -180,7 +192,6 @@ async def test_generate_and_edit_keep_independent_tool_settings(
                         f"{details}\nSaved to: {attachment.url}"
                     ),
                     "attachment": None,
-                    "id": "",
                     "name": "",
                     "arguments": "",
                     "output": (),

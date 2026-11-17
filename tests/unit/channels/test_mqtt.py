@@ -238,6 +238,13 @@ async def test_legacy_unknown_receipt_survives_sdk_upgrade(
                 module("mqtt", "platform").MQTTDeliveryError,
             )
 
+        async def _open(self, params, request):
+            raise AssertionError("Legacy routes are seeded directly")
+
+        def _require_connected(self):
+            if not self._connected or self._stopping:
+                raise ValueError("NOT_CONNECTED")
+
         async def _perform_send(self, params):
             raise self.delivery_error(
                 "MQTT_CONFIRMATION_UNKNOWN",
