@@ -96,7 +96,10 @@ export function CreatorBackendBlockingOverlay() {
   const checkedAt = useCreatorBackendHealthStore((state) => state.checkedAt);
   const [dismissedAt, setDismissedAt] = useState<string | null>(null);
 
-  if (phase !== "unavailable" || (checkedAt !== null && dismissedAt === checkedAt)) {
+  if (
+    phase !== "unavailable" ||
+    (checkedAt !== null && dismissedAt === checkedAt)
+  ) {
     return null;
   }
 

@@ -128,9 +128,7 @@ describe("Creator backend status surfaces", () => {
 
     render(<CreatorBackendBlockingOverlay />);
 
-    expect(
-      document.querySelector("[data-creator-backend-blocked]"),
-    ).toBeNull();
+    expect(document.querySelector("[data-creator-backend-blocked]")).toBeNull();
   });
 
   it("blocks writes while unavailable and lets the user browse until the next failed probe", () => {
@@ -152,9 +150,7 @@ describe("Creator backend status surfaces", () => {
     fireEvent.click(
       document.querySelector("[data-backend-browse-only]") as HTMLButtonElement,
     );
-    expect(
-      document.querySelector("[data-creator-backend-blocked]"),
-    ).toBeNull();
+    expect(document.querySelector("[data-creator-backend-blocked]")).toBeNull();
 
     // The next failed probe carries a new checkedAt, so the prompt returns.
     act(() => {
