@@ -22,6 +22,8 @@ def test_exported_author_suite_collects_outside_checkout(tmp_path):
     assert not {
         "test_sdk_channel_routing_contract.py",
         "test_sdk_provider_contract.py",
+        "test_sdk_native_provider_contract.py",
+        "test_sdk_local_model_contract.py",
         "test_sdk_resource_contract.py",
     }.intersection(selected)
     assert "test_sdk_dependency_environment.py" not in selected

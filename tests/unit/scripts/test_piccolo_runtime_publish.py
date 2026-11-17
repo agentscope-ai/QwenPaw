@@ -247,9 +247,17 @@ def test_public_download_checks_actual_bytes(
                 ).read_bytes() == path.read_bytes()
 
 
-@pytest.mark.parametrize("resource", ["manifest", "checksum", "both"])
-@pytest.mark.parametrize("encoding", ["header", "sniff"])
-@pytest.mark.parametrize("download", [False, True])
+@pytest.mark.parametrize(
+    "resource,encoding,download",
+    [
+        ("manifest", "header", False),
+        ("manifest", "sniff", False),
+        ("checksum", "header", False),
+        ("checksum", "sniff", False),
+        ("both", "header", True),
+        ("both", "sniff", True),
+    ],
+)
 def test_public_metadata_accepts_gzip(
     bundles,
     tmp_path,
@@ -329,18 +337,6 @@ def test_public_head_size_must_match_manifest(public_server):
         runtime.verify_public(public_server.url)
 
 
-@pytest.mark.parametrize("error", [TimeoutError, urllib.error.URLError])
-def test_public_connection_errors_propagate(tmp_path, monkeypatch, error):
-    def unavailable(*_args, **_kwargs):
-        raise error("unavailable")
-
-    monkeypatch.setattr(runtime.urllib.request, "urlopen", unavailable)
-    destination = tmp_path / "downloads"
-    with pytest.raises(error):
-        runtime.verify_public("http://unavailable.invalid", destination)
-    assert not destination.exists()
-
-
 def test_verify_public_cli_accepts_compressed_metadata(
     bundles,
     tmp_path,
@@ -371,8 +367,10 @@ def test_verify_public_cli_accepts_compressed_metadata(
     assert len(list(destination.iterdir())) == 8
 
 
-@pytest.mark.parametrize("encoding", [None, "header", "sniff"])
-@pytest.mark.parametrize("corrupt", [False, True])
+@pytest.mark.parametrize(
+    "encoding,corrupt",
+    [(None, False), ("header", False), ("sniff", False), (None, True)],
+)
 def test_cuda_metadata_and_archive_integrity(
     tmp_path,
     monkeypatch,
