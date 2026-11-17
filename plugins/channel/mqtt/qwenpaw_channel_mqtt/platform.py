@@ -28,9 +28,10 @@ class MQTTDeliveryError(Exception):
 
 
 class MQTTPlatform:
-    def __init__(self, config, on_event, on_state):
+    def __init__(self, config, on_event, on_state, resources):
         self.config, self.on_event, self.on_state = config, on_event, on_state
         self.client = None
+        self.resources = resources
         self._client_id = "mqtt-" + uuid.uuid4().hex
         self._last_mid = 0
         self._loop = None
@@ -67,7 +68,7 @@ class MQTTPlatform:
         if len(self._tasks) >= 500:
             logger.warning("MQTT event capacity exceeded")
             return
-        task = asyncio.create_task(factory())
+        task = self.resources.task(factory(), "MQTT callback")
         self._tasks.add(task)
         task.add_done_callback(self._done)
 
@@ -166,7 +167,7 @@ class MQTTPlatform:
             # paho implicitly republishes unknown outbound messages. Replace
             # its object, retaining the worker identity and MID cursor.
             self._last_mid = client._last_mid
-            rc = await asyncio.to_thread(client.loop_stop)
+            rc = await self.resources.run_sync(client.loop_stop)
             if (
                 rc != mqtt.MQTT_ERR_SUCCESS
                 and getattr(client, "_thread", None) is not None
@@ -190,7 +191,7 @@ class MQTTPlatform:
                     if self.client is not None:
                         failed = self.client
                         failed.disconnect()
-                        rc = await asyncio.to_thread(failed.loop_stop)
+                        rc = await self.resources.run_sync(failed.loop_stop)
                         if (
                             rc != mqtt.MQTT_ERR_SUCCESS
                             and getattr(failed, "_thread", None) is not None
@@ -277,7 +278,7 @@ class MQTTPlatform:
             self._on_disconnect,
             self._on_message,
         )
-        await asyncio.to_thread(
+        await self.resources.run_sync(
             c.connect,
             self.config["host"],
             self.config.get("port") or 1883,
@@ -324,7 +325,7 @@ class MQTTPlatform:
                         retryable=not published,
                     )
                 try:
-                    await asyncio.to_thread(info.wait_for_publish, 3.0)
+                    await self.resources.run_sync(info.wait_for_publish, 3.0)
                     confirmed = info.is_published()
                 except Exception as exc:
                     raise MQTTDeliveryError(

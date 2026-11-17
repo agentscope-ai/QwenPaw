@@ -1,127 +1,99 @@
 # -*- coding: utf-8 -*-
-"""MQTT generic Driver; Agent execution and access control stay in the host."""
+"""MQTT transport implemented against the public process-channel SDK."""
 
-from __future__ import annotations
+from dataclasses import replace
 
-import uuid
-
-from qwenpaw.channel_protocol.models import InboundEvent
-from qwenpaw.channel_protocol.response_policy import (
+from qwenpaw.plugins.channel_workers import (
+    ChannelDeliveryError,
+    ChannelDriver,
+    ChannelSendResult,
     ResponsePolicy,
-    SendFormatPolicy,
 )
-from qwenpaw.channel_protocol.response_lifecycle import ResponseResourceRef
-from qwenpaw.channel_protocol.shared_response_driver import (
-    SharedResponseDriver,
-)
-from qwenpaw.channel_protocol.targets import decode_reply_target
+from qwenpaw.plugins.channels import ChannelMessage
+from qwenpaw.plugins.messages import ContentBlock
+
 from .platform import MQTTDeliveryError, MQTTPlatform
 
 
-class MQTTDriver(SharedResponseDriver):
-    def __init__(self):
-        super().__init__("mqtt", "mqtt.shared.responses", MQTTDeliveryError)
+class MQTTDriver(ChannelDriver):
+    response_policy = ResponsePolicy(configured_prefix=False)
 
-    async def start(self, config):
-        self._config = dict(config)
-        self._stopping = False
-        await self._restore_responses()
-        for snapshot in self._routes.pending_cleanups():
-            async with self._lock(snapshot.response_handle):
-                await self._cleanup(snapshot)
+    def __init__(self):
+        self._platform = None
+
+    async def start(self, ch):
+        async def receive(value):
+            sender = value["sender"]
+            await ch.receive(
+                ChannelMessage(
+                    sender_id=sender,
+                    content=(ContentBlock(text=value["text"]),),
+                    session_id="mqtt:" + sender,
+                    reply_to=sender,
+                    message_id=value["event_id"],
+                    metadata={
+                        "topic": value["topic"],
+                        "client_id": sender,
+                        "raw_payload": value["payload"],
+                    },
+                ),
+            )
+
         self._platform = MQTTPlatform(
-            self._config,
-            self._message,
-            self._state_changed,
+            dict(ch.config),
+            receive,
+            ch.report_status,
+            ch.resources,
         )
-        await self._state_changed("connecting")
+        ch.resources.defer(self._platform.stop, "MQTT client shutdown")
+        await ch.report_status("connecting")
         try:
             await self._platform.start()
         except BaseException:
-            await self._state_changed("failed")
+            await ch.report_status("failed")
             raise
 
-    async def _state_changed(self, state):
-        self._connected = state == "connected"
-        self._connection_generation += 1
-        await self._context.set_platform_state(state)
-
-    def _require_connected(self):
-        if not self._connected or self._stopping or self._platform is None:
-            raise ValueError("NOT_CONNECTED")
-        return self._platform
-
-    async def stop(self):
-        await self._stop_platform()
-
-    def response_policy(self, response_handle):
-        return ResponsePolicy(send_format=SendFormatPolicy(False, False))
-
-    def _target(self, handle, meta):
-        if meta.get("client_id"):
-            return str(meta["client_id"])
-        target = decode_reply_target(str(handle))
-        if target is not None:
-            session = target["session_id"]
-            return (
-                session.split(":", 1)[-1]
-                if session.startswith("mqtt:")
-                else target["user_id"]
-            )
-        session = str(meta.get("session_id") or handle)
-        return (
-            session.split(":", 1)[-1]
-            if session.startswith("mqtt:")
-            else str(handle)
-        )
-
-    async def _open(self, params, request):
-        self._identity(params)
-        self._require_connected()
-        meta = dict(params.get("meta") or {})
-        target = self._target(params["to_handle"], meta)
-        if not target:
+    async def resolve_target(self, ch, target):
+        client_id = target.metadata.get("client_id")
+        session = target.session_id or target.metadata.get("session_id")
+        if not client_id:
+            if session and session.startswith("mqtt:"):
+                client_id = session.split(":", 1)[1]
+            elif target.key.startswith("mqtt:"):
+                client_id = target.key.split(":", 1)[1]
+            else:
+                client_id = target.user_id or target.key
+        if not client_id:
             raise ValueError("OUTBOUND_TARGET_UNKNOWN")
-        handle = "mqtt:reply:" + uuid.uuid4().hex
-        await self._persist_route(handle, {"client_id": target})
-        return {"response_handle": handle}
+        return replace(target, key=str(client_id))
 
-    async def _message(self, value):
-        sender = value["sender"]
-        handle = "mqtt:reply:" + value["event_id"]
-        await self._persist_route(handle, {"client_id": sender})
-        session = "mqtt:" + sender
-        event = InboundEvent(
-            **self._context.identity.to_mapping(),
-            event_id=value["event_id"],
-            event_kind="message",
-            conversation={"id": sender, "type": "dm", "thread_id": None},
-            sender_id=sender,
-            acl_sender_id=sender,
-            sender_name="",
-            content_parts=({"type": "text", "text": value["text"]},),
-            metadata={
-                "session_id": session,
-                "user_id": sender,
-                "debounce_key": session,
-                "topic": value["topic"],
-                "client_id": sender,
-                "raw_payload": value["payload"],
-            },
-            response_handle=handle,
-        )
-        await self._admit_event(event, True)
+    async def send(self, ch, response):
+        if response.operation != "message.create":
+            raise ChannelDeliveryError(
+                "OPERATION_UNSUPPORTED",
+                side_effect_possible=False,
+            )
+        parts = []
+        for block in response.content:
+            part = {"type": block.type}
+            if block.type == "text":
+                part["text"] = block.text
+            elif block.attachment is not None:
+                part[block.type + "_url"] = block.attachment.url
+            parts.append(part)
+        try:
+            result = await self._platform.publish_parts(
+                response.target.key,
+                parts,
+            )
+        except MQTTDeliveryError as exc:
+            raise ChannelDeliveryError(
+                exc.reason_code,
+                side_effect_possible=exc.side_effect_possible,
+                retryable=exc.retryable,
+            ) from exc
+        return ChannelSendResult(result["message_id"])
 
-    async def _perform_send(self, params):
-        platform = self._require_connected()
-        if params.operation.value != "message.create":
-            raise MQTTDeliveryError("OPERATION_UNSUPPORTED")
-        resource = await platform.publish_parts(
-            self._route_attrs(params.to_handle)["client_id"],
-            params.content_parts,
-        )
-        return ResponseResourceRef.create(
-            "mqtt.delivery",
-            params.delivery_id,
-            resource,
-        )
+    async def stop(self, ch):
+        if self._platform is not None:
+            await self._platform.stop()

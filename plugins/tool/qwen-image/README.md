@@ -86,4 +86,20 @@ Get your API key at: https://bailian.console.aliyun.com/
 
 ## Output
 
-Generated images are saved to `{DEFAULT_MEDIA_DIR}/qwen_image/` as PNG files. Image URLs from the API are valid for 24 hours.
+Generated images are saved as PNG files through the host-owned plugin media store. Results contain a local attachment URI and a preview URL. Existing files in `{DEFAULT_MEDIA_DIR}/qwen_image/` remain untouched. If a download fails, the result retains the upstream image URL.
+
+
+## Public SDK migration (1.1.0)
+
+This release requires Plugin SDK 1.2. The tool names, input defaults, and
+per-tool configuration fields are unchanged, so existing Agent tool settings
+continue to apply independently to generation and editing. Credentials are read
+through the current call's declared secret, not a global configuration helper.
+Blocking DashScope calls and local reference-image reads belong to the call's
+ResourceScope. Cancelling a waiter does not release a live model-call thread or
+retry its external side effect. Downloaded images use unique names in the SDK
+media store; old output files are neither moved nor deleted.
+
+Migration checks are in `tests/unit/plugins/test_sdk_qwen_image_migration.py`.
+They use fake provider/download responses and must run in CI; the migration was
+reviewed locally using static checks only.

@@ -1,64 +1,78 @@
 # -*- coding: utf-8 -*-
-"""Qwen-Image Tool Plugin Entry Point."""
+"""Register Qwen-Image tools through the public Plugin SDK."""
 
-import importlib.util
-import logging
-import os
+import json
+from pathlib import Path
 
-from qwenpaw.plugins.api import PluginApi
+from qwenpaw.plugins import PluginContext
+from qwenpaw.plugins.tools import ToolSpec
 
-logger = logging.getLogger(__name__)
+# The host loads this entry as an isolated package.
+# pylint: disable-next=relative-beyond-top-level
+from .qwen_image_tool import edit_image_qwen, generate_image_qwen
 
-_PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+
+async def _generate(context, arguments):
+    return await generate_image_qwen(context, **arguments)
 
 
-def _load_tool_module():
-    """Load qwen_image_tool.py from this plugin's directory via importlib."""
-    tool_path = os.path.join(_PLUGIN_DIR, "qwen_image_tool.py")
-    spec = importlib.util.spec_from_file_location(
-        "qwen_image_tool",
-        tool_path,
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+async def _edit(context, arguments):
+    return await edit_image_qwen(context, **arguments)
+
+
+def _schema(edit):
+    properties = {
+        "prompt": {
+            "type": "string",
+            "description": "Image generation or editing instructions.",
+        },
+        "size": {
+            "type": "string",
+            "default": "" if edit else "2048*2048",
+            "description": "Output width*height; empty detects edit size.",
+        },
+        "n": {"type": "integer", "default": 1, "minimum": 1, "maximum": 6},
+        "negative_prompt": {"type": "string", "default": ""},
+        "prompt_extend": {"type": "boolean", "default": True},
+    }
+    required = ["prompt"]
+    if edit:
+        properties["reference_images"] = {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": "HTTP(S) URLs or local PNG/JPEG/WebP file paths.",
+        }
+        required.append("reference_images")
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
 
 
 class QwenImageToolPlugin:
-    """Qwen-Image Tool Plugin.
-
-    Registers generate_image_qwen and edit_image_qwen tools into
-    the Agent's toolkit.
-    """
-
-    def register(self, api: PluginApi):
-        """Register Qwen-Image tools.
-
-        Args:
-            api: PluginApi instance.
-        """
-        tool = _load_tool_module()
-
-        api.register_tool(
-            tool_name="generate_image_qwen",
-            tool_func=tool.generate_image_qwen,
-            description=(
-                "Generate images from text prompts " "using Qwen-Image"
+    def register(self, context: PluginContext) -> None:
+        manifest = json.loads(
+            Path(__file__)
+            .with_name("plugin.json")
+            .read_text(
+                encoding="utf-8",
             ),
-            icon="🖼️",
-            tool_type="network",
         )
+        for tool in manifest["meta"]["tools"]:
+            edit = tool["name"] == "edit_image_qwen"
+            context.register_tool(
+                ToolSpec(
+                    name=tool["name"],
+                    description=tool["description"],
+                    input_schema=_schema(edit),
+                    handler=_edit if edit else _generate,
+                    icon=tool["icon"],
+                    config_fields=tuple(tool["config_fields"]),
+                ),
+            )
 
-        api.register_tool(
-            tool_name="edit_image_qwen",
-            tool_func=tool.edit_image_qwen,
-            description="Edit or fuse images using Qwen-Image",
-            icon="✏️",
-            tool_type="network",
-        )
 
-        logger.info("Qwen-Image tool plugin registered")
-
-
-# Export plugin instance
 plugin = QwenImageToolPlugin()

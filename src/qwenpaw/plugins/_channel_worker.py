@@ -173,6 +173,12 @@ def prepare_driver(driver_class, packet, *, capabilities=None):
                 or request.workspace_id,
             )
 
+    if packet.get("plugin_id") == packet.get("channel_key") == "mqtt":
+
+        class MQTTAdapter(Adapter, MQTTWorkerAdapter):
+            pass
+
+        return MQTTAdapter
     return Adapter
 
 
@@ -889,3 +895,86 @@ class WorkerAdapter(SharedResponseDriver):
     async def _release_local_response(self, handle):
         self.runs.release(handle)
         await super()._release_local_response(handle)
+
+
+class MQTTWorkerAdapter(WorkerAdapter):
+    """Keep the official MQTT wire/state contract during its SDK migration.
+
+    Reuse the old journal and receipt namespace, including unknown effects.
+    Decode old routes at the host boundary without granting plugins access
+    to protocol storage. The compatibility format is intentionally private.
+    """
+
+    def __init__(self, driver, packet):
+        super().__init__(driver, packet)
+        self._kind = "mqtt"
+        self._state_key = "mqtt.shared.responses"
+
+    async def _status(self, state):
+        self._connection_generation += 1
+        await super()._status(state)
+
+    async def start(self, config):
+        await super().start(config)
+        for snapshot in self._routes.pending_cleanups():
+            async with self._lock(snapshot.response_handle):
+                await self._cleanup(snapshot)
+
+    @staticmethod
+    def _send_result(attributes):
+        if "result" in attributes:
+            return WorkerAdapter._send_result(attributes)
+        return ChannelSendResult(attributes.get("message_id", ""))
+
+    @staticmethod
+    def _decode_target(attributes):
+        if "target" in attributes:
+            return WorkerAdapter._decode_target(attributes)
+        client = attributes["client_id"]
+        return ReplyTarget(client, client, "mqtt:" + client)
+
+    def response_policy(self, response_handle):
+        return replace(
+            super().response_policy(response_handle),
+            send_format=SendFormatPolicy(False, False),
+        )
+
+    def response_open_policy(self):
+        return replace(
+            super().response_open_policy(),
+            send_format=SendFormatPolicy(False, False),
+        )
+
+    async def _persist_route(self, handle, attrs):
+        target = self._decode_target(attrs)
+        return await super()._persist_route(
+            handle,
+            {**attrs, "client_id": target.key},
+        )
+
+    async def _admit_event(self, event, created, *, detailed=False):
+        event = replace(
+            event,
+            conversation={
+                "id": event.sender_id,
+                "type": "dm",
+                "thread_id": None,
+            },
+            metadata={
+                **event.metadata,
+                "debounce_key": event.metadata["session_id"],
+            },
+        )
+        return await super()._admit_event(event, created, detailed=detailed)
+
+    async def _perform_send(self, params):
+        resource = await super()._perform_send(params)
+        attributes = dict(resource.attributes)
+        attributes["message_id"] = json.loads(attributes["result"])[
+            "message_id"
+        ]
+        return ResponseResourceRef.create(
+            "mqtt.delivery",
+            resource.resource_id,
+            attributes,
+        )
