@@ -361,15 +361,9 @@ def _find_plugin_dir(base: Path) -> Path:
     Raises:
         ValueError: If no plugin.json found
     """
-    if (base / "plugin.json").exists():
-        return base
-    sub_dirs = [d for d in base.iterdir() if d.is_dir()]
-    for sub in sub_dirs:
-        if (sub / "plugin.json").exists():
-            return sub
-    raise ValueError(
-        "No plugin.json found in archive root or top-level subdirectory",
-    )
+    from ...plugins.archive import find_plugin_root
+
+    return find_plugin_root(base)
 
 
 async def _load_plugin_with_optional_force_reinstall(

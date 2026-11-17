@@ -103,16 +103,6 @@ def _is_configured(provider: Provider) -> bool:
     return True
 
 
-def _save_provider(manager: ProviderManager, provider_id: str) -> None:
-    provider = manager.get_provider(provider_id)
-    if provider is None:
-        return
-    manager._save_provider(  # pylint: disable=protected-access
-        provider,
-        is_builtin=provider_id in manager.builtin_providers,
-    )
-
-
 def _all_provider_objects(manager: ProviderManager) -> list[Provider]:
     objs: list[Provider] = []
     for info in asyncio.run(manager.list_provider_info()):
@@ -172,14 +162,13 @@ def configure_provider_api_key_interactive(
     defn = manager.get_provider(provider_id)
     saved = None
     if defn is None:
-        from .plugin_resources import saved_provider_infos
         from ..providers.provider import provider_identity_key
 
-        saved = saved_provider_infos(manager).get(
+        saved = manager.saved_plugin_provider_infos().get(
             provider_identity_key(provider_id),
         )
         if saved is not None:
-            defn = saved[0]
+            defn = saved
     if defn is None:
         click.echo(
             click.style(
@@ -312,15 +301,15 @@ def _add_models_interactive(provider_id: str) -> None:
             default=model_id,
         ).strip()
         try:
-            ok, msg = asyncio.run(
-                defn.add_model(ModelInfo(id=model_id, name=model_name)),
+            from .plugin_resources import add_provider_model
+
+            add_provider_model(
+                manager,
+                provider_id,
+                ModelInfo(id=model_id, name=model_name),
             )
-            if ok:
-                _save_provider(manager, provider_id)
-                click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
-                all_models.append(ModelInfo(id=model_id, name=model_name))
-            else:
-                click.echo(click.style(f"Error: {msg}", fg="red"))
+            click.echo(f"✓ Model '{model_name}' ({model_id}) added.")
+            all_models.append(ModelInfo(id=model_id, name=model_name))
         except (ValueError, AppBaseException) as exc:
             click.echo(click.style(f"Error: {exc}", fg="red"))
 
@@ -598,9 +587,7 @@ def list_cmd() -> None:
                     label = " [user-added]" if m.id in extra_ids else ""
                     click.echo(f"    - {m.name} ({m.id}){label}")
 
-    from .plugin_resources import saved_provider_infos
-
-    for info, _ in saved_provider_infos(manager).values():
+    for info in manager.saved_plugin_provider_infos().values():
         click.echo(f"\n  {info.name} ({info.id}) [plugin unavailable]")
         click.echo(f"  {'base_url':16s}: {info.base_url or '(not set)'}")
         click.echo(
@@ -735,10 +722,13 @@ def add_model_cmd(provider_id: str, model_id: str, model_name: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        asyncio.run(
-            provider.add_model(ModelInfo(id=model_id, name=model_name)),
+        from .plugin_resources import add_provider_model
+
+        add_provider_model(
+            manager,
+            provider_id,
+            ModelInfo(id=model_id, name=model_name),
         )
-        _save_provider(manager, provider_id)
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc
@@ -768,12 +758,10 @@ def remove_model_cmd(provider_id: str, model_id: str) -> None:
         provider = manager.get_provider(provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found.")
-        ok, msg = asyncio.run(provider.delete_model(model_id=model_id))
-        if ok:
-            _save_provider(manager, provider_id)
-            click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
-        else:
-            click.echo(click.style(f"Error: {msg}", fg="red"))
+        from .plugin_resources import delete_provider_model
+
+        delete_provider_model(manager, provider_id, model_id)
+        click.echo(f"✓ Model '{model_id}' removed from '{provider_id}'.")
     except (ValueError, AppBaseException) as exc:
         click.echo(click.style(f"Error: {exc}", fg="red"))
         raise SystemExit(1) from exc

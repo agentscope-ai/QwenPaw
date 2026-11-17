@@ -1,51 +1,17 @@
 # -*- coding: utf-8 -*-
 """Terminal consumers of existing provider, channel and diagnostic services."""
 
+import asyncio
 import inspect
-import logging
 from copy import deepcopy
+from contextlib import contextmanager
 
 import click
 
-logger = logging.getLogger(__name__)
 
-
-def saved_provider_infos(manager):
-    """Read retained plugin settings as data, without executable providers."""
-    import json
-    from ..providers.provider import ProviderInfo, provider_identity_key
-    from ..security.secret_store import (
-        PROVIDER_SECRET_FIELDS,
-        decrypt_dict_fields,
-    )
-
-    result = {}
-    directory = getattr(manager, "plugin_path", None)
-    if directory is None:
-        return result
-    for path in directory.glob("*.json"):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            info = ProviderInfo.model_validate(
-                decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS),
-            )
-            if info.id not in getattr(manager, "plugin_providers", {}):
-                result[provider_identity_key(info.id)] = (info, path)
-        except (OSError, ValueError, TypeError) as exc:
-            logger.warning(
-                "Cannot read plugin provider snapshot %s: %s",
-                path,
-                exc,
-            )
-    return result
-
-
-def update_provider_config(manager, provider_id, values, saved=None):
-    """Use a live plugin's API, or the same persisted settings offline.
-
-    Built-in and custom providers retain their existing CLI behavior.
-    Retained snapshots never become executable provider registrations.
-    """
+@contextmanager
+def _provider_api(manager, provider_id, saved=None):
+    """Route plugin mutations to their live owner or the local operation."""
     from ..config.utils import is_qwenpaw_running
     from ..providers.provider import provider_identity_key
 
@@ -61,73 +27,68 @@ def update_provider_config(manager, provider_id, values, saved=None):
         is click.core.ParameterSource.COMMANDLINE
         for option in ("host", "port")
     )
-    if is_plugin and (explicit or is_qwenpaw_running()):
-        import httpx
-        from .http import client, resolve_base_url
+    if not is_plugin or not (explicit or is_qwenpaw_running()):
+        yield None
+        return
 
-        try:
-            with client(resolve_base_url(ctx, None)) as api:
-                response = api.put(
-                    f"models/{provider_key}/config",
-                    json=values,
-                )
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise click.ClickException(
-                f"Cannot update plugin provider: {exc}",
-            ) from exc
-        return True
-    if saved is None:
-        return manager.update_provider(provider_id, values)
-    import json
-    from ..providers.provider import ProviderInfo
-    from ..providers.provider_manager import ProviderManager
-    from ..providers.model_sync import invalidate_api_metadata
-    from ..providers.provider_update_fields import CONNECTION_CONFIG_FIELDS
-    from ..providers.provider_persistence import write_snapshot_payload
-    from ..security.secret_store import (
-        PROVIDER_SECRET_FIELDS,
-        decrypt_dict_fields,
-        encrypt_dict_fields,
-    )
-    from ..utils.io_utils import get_sync_path_lock
+    import httpx
+    from .http import client, resolve_base_url
 
-    _, path = saved
-    with get_sync_path_lock(path):
-        raw = json.loads(path.read_text(encoding="utf-8"))
-        current = decrypt_dict_fields(raw, PROVIDER_SECRET_FIELDS)
-        updates = {
-            key: value for key, value in values.items() if value is not None
-        }
-        before = ProviderInfo.model_validate(current)
-        candidate = ProviderInfo.model_validate({**current, **updates})
-        changed = {
-            key
-            for key in CONNECTION_CONFIG_FIELDS.intersection(updates)
-            if getattr(before, key, None) != getattr(candidate, key, None)
-        }
-        if changed:
-            ProviderManager._reset_model_availability(candidate)
-            invalidate_api_metadata(candidate)
-            candidate.models_syncing = False
-            for key in ("models", "extra_models"):
-                updates[key] = [
-                    {**original, **model.model_dump(mode="json")}
-                    for original, model in zip(
-                        current.get(key, ()),
-                        getattr(candidate, key),
-                    )
-                ]
-            for key in (
-                "discovered_models",
-                "models_last_synced_at",
-                "models_last_sync_error",
-                "models_syncing",
-            ):
-                updates[key] = getattr(candidate, key)
-        secured = encrypt_dict_fields(updates, PROVIDER_SECRET_FIELDS)
-        write_snapshot_payload({**raw, **secured}, path)
-    return True
+    try:
+        with client(resolve_base_url(ctx, None)) as api:
+            yield api
+    except httpx.HTTPError as exc:
+        raise click.ClickException(
+            f"Cannot update plugin provider: {exc}",
+        ) from exc
+
+
+def update_provider_config(manager, provider_id, values, saved=None):
+    """Update settings through the owning runtime or retained local snapshot."""
+    from ..providers.provider import provider_identity_key
+
+    with _provider_api(manager, provider_id, saved) as api:
+        if api is not None:
+            response = api.put(
+                f"models/{provider_identity_key(provider_id)}/config",
+                json=values,
+            )
+            response.raise_for_status()
+            return True
+    if saved is not None:
+        return manager.update_saved_plugin_provider(provider_id, values)
+    return manager.update_provider(provider_id, values)
+
+
+def add_provider_model(manager, provider_id, model):
+    """Submit a model addition to the provider owner."""
+    from ..providers.provider import provider_identity_key
+
+    with _provider_api(manager, provider_id) as api:
+        if api is not None:
+            response = api.post(
+                f"models/{provider_identity_key(provider_id)}/models",
+                json=model.model_dump(mode="json", exclude_unset=True),
+            )
+            response.raise_for_status()
+            return
+    asyncio.run(manager.add_model_to_provider(provider_id, model))
+
+
+def delete_provider_model(manager, provider_id, model_id):
+    """Submit a model removal to the provider owner."""
+    from urllib.parse import quote
+    from ..providers.provider import provider_identity_key
+
+    with _provider_api(manager, provider_id) as api:
+        if api is not None:
+            response = api.delete(
+                f"models/{provider_identity_key(provider_id)}/models/"
+                f"{quote(model_id, safe='')}",
+            )
+            response.raise_for_status()
+            return
+    asyncio.run(manager.delete_model_from_provider(provider_id, model_id))
 
 
 def ensure_resources(capability):

@@ -6,15 +6,11 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from .errors import SDKError, StaleContextError
 from .extensions import ExtensionPoint
 from .dependency_requirements import resolve_optional_dependencies
 from .resources import Registration
-
-if TYPE_CHECKING:
-    from .registry import PluginRegistry
 
 
 def _require(context, capability):
@@ -133,44 +129,82 @@ def register_extension(context, point, spec):
 
 
 @dataclass(frozen=True)
-class _Extension:
+class _ContributionReference:
     """Internal reference whose admission is revoked with its registration."""
 
-    registry: PluginRegistry
+    table: dict
     key: tuple
     entry: _Contribution
+    kind: str
 
     @property
     def plugin_id(self):
-        return self.key[1]
+        return self.entry.context.plugin_id
 
     @property
     def id(self):
-        return self.key[2]
+        return self.entry.spec.id
+
+    def _guard(self):
+        if self.table.get(self.key) is not self.entry:
+            raise StaleContextError(
+                f"{self.kind} registration has been released",
+            )
+        self.entry.context._guard()
 
     async def admit(self):
         """Check prerequisites before the consumer imports or calls code."""
-        if self.registry.extensions.get(self.key) is not self.entry:
-            raise StaleContextError("Extension registration has been released")
+        self._guard()
         await self.entry.admit()
+
+    async def activate(self):
+        """Prepare runtime hooks for invocation without installation effects."""
+        sdk = self.entry.context
+        loader = sdk._loader
+        async with loader.plugin_lifecycle(self.plugin_id):
+            self._guard()
+            instance = sdk._instance
+            if not instance.activated:
+                await loader.run_plugin_startup_hooks(
+                    self.plugin_id,
+                    include_installation=False,
+                )
+                instance.activated = True
+
+    @property
+    def spec(self):
+        """Read an admitted definition for synchronous implementation building."""
+        self._guard()
+        if self.entry.requires and not self.entry.admitted:
+            raise SDKError(f"{self.kind} dependencies have not been admitted")
+        return self.entry.spec
 
     @contextmanager
     def invocation(self):
-        if self.registry.extensions.get(self.key) is not self.entry:
-            raise StaleContextError("Extension registration has been released")
-        sdk, spec = self.entry.context, self.entry.spec
-        sdk._guard()
-        if self.entry.requires and not self.entry.admitted:
-            raise SDKError("Extension dependencies have not been admitted")
-        with sdk._instance.activity.invocation():
+        spec = self.spec
+        with self.entry.context._instance.activity.invocation():
             yield spec
+
+
+def get_cli(registry, plugin_id, contribution_id):
+    """Resolve a registered command without importing its implementation."""
+    key = (plugin_id, contribution_id)
+    entry = registry.cli_contributions.get(key)
+    if entry is None:
+        return None
+    return _ContributionReference(
+        registry.cli_contributions,
+        key,
+        entry,
+        "CLI",
+    )
 
 
 def get_extensions(registry, point):
     """Snapshot host references without loading or activating any provider."""
     point = _resolve_point(registry, point)
     return tuple(
-        _Extension(registry, key, entry)
+        _ContributionReference(registry.extensions, key, entry, "Extension")
         for key, entry in registry.extensions.items()
         if key[0] == point.id
     )

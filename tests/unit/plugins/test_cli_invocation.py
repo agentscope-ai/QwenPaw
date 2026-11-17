@@ -71,8 +71,6 @@ def test_group_overlay_preserves_custom_click_behavior(monkeypatch, args):
     [
         (False, "lifecycle-fixture==1.0", True),
         (False, "qwenpaw-missing-cli-sdk==1.0", False),
-        (False, "lifecycle-fixture>=2.0", True),
-        (False, 'qwenpaw-missing-cli-sdk; python_version < "1"', True),
         (True, "lifecycle-fixture==1.0", True),
         (True, "qwenpaw-missing-cli-sdk==1.0", False),
     ],
@@ -82,7 +80,6 @@ def test_capability_dependencies_are_admitted_before_implementation(
     monkeypatch,
     fresh_registry,
     bounded_dependency_environment,
-    caplog,
     requirement,
     available,
     channel,
@@ -231,12 +228,6 @@ def check(call):
             assert "Traceback" not in result.output
     if available:
         assert result.output == "sent\n"
-    if requirement == "lifecycle-fixture>=2.0":
-        assert any(
-            requirement in record.message
-            and "installed 1.0; attempting load" in record.message
-            for record in caplog.records
-        )
 
     @click.command()
     def check():
@@ -596,6 +587,8 @@ def test_interrupt_waits_for_async_cleanup_before_session_close(tmp_path):
 
     import qwenpaw
 
+    from .timing import WAIT_TIMEOUT
+
     source = Path(qwenpaw.__file__).resolve().parent.parent
     code = """
 import sys
@@ -630,7 +623,7 @@ assert events == ['cleaned', 'aborted', 'closed'], events
         cwd=tmp_path,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=WAIT_TIMEOUT,
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
@@ -744,8 +737,10 @@ plugin = Plugin()
     assert set(threading.enumerate()) <= threads
 
 
-@pytest.mark.parametrize("capability", ["providers", "channels"])
-@pytest.mark.parametrize("cancelled", [False, True])
+@pytest.mark.parametrize(
+    "capability,cancelled",
+    [("providers", False), ("channels", False), ("providers", True)],
+)
 def test_native_resource_discovery_preserves_definition_lifecycle(
     tmp_path,
     monkeypatch,

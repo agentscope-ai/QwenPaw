@@ -2368,3 +2368,53 @@ def test_executor_inspection_preserves_immutable_support_tree(tmp_path):
     }
     assert set(after) == set(before)
     assert all(after[path] == value for path, value in before.items())
+
+
+def test_offline_maintenance_launch_uses_authenticated_plan(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.plugins.dependency_upgrade import DependencyUpgradeManager
+
+    manager = DependencyUpgradeManager(SimpleNamespace())
+    operation = {
+        "id": "a" * 32,
+        "status": "waiting_restart",
+        "approved": True,
+        "worker_python": "/retained/python",
+    }
+    reads = []
+
+    def authenticated_read(operation_id):
+        reads.append(operation_id)
+        return dict(operation)
+
+    monkeypatch.setattr(manager, "_directory", lambda _: tmp_path)
+    monkeypatch.setattr(manager, "_read", authenticated_read)
+    starts = []
+
+    def start(command, **options):
+        assert not options["stdout"].closed
+        starts.append((command, options))
+        return SimpleNamespace(pid=123)
+
+    monkeypatch.setattr(subprocess, "Popen", start)
+    result = manager.start_maintenance_worker(operation["id"])
+    assert reads == [operation["id"]]
+    command, options = starts[0]
+    assert command == [
+        "/retained/python",
+        "-I",
+        "-B",
+        "-S",
+        str(tmp_path / "worker" / "dependency_worker.py"),
+    ]
+    assert options["stdout"].closed
+    assert options["stdin"] == subprocess.DEVNULL
+    assert result["status"] == "waiting_restart"
+    assert "CLI exits" in result["message"]
+    assert "worker_python" not in result
+    operation["approved"] = False
+    with pytest.raises(RuntimeError, match="not awaiting maintenance"):
+        manager.start_maintenance_worker(operation["id"])
+    assert len(starts) == 1

@@ -155,7 +155,7 @@ class PluginSession:
             self.run,
         )
 
-    def execute(self, plugin_id, registration, callback, /, *args, **kwargs):
+    def execute(self, plugin_id, reference, callback, /, *args, **kwargs):
         from .plugin_cli import read_settings
 
         if plugin_id not in self.admitted:
@@ -164,37 +164,27 @@ class PluginSession:
                 raise click.ClickException("Plugin settings must be an object")
             if not settings.get("enabled", True):
                 raise click.ClickException(f"Plugin '{plugin_id}' is disabled")
-        loader = self.loader
-        name, expected = registration
-        if (
-            loader.registry.cli_contributions.get((plugin_id, name))
-            is not expected
-        ):
-            raise click.ClickException("CLI registration has been released")
-
         task = done = None
 
         async def enter():
             nonlocal task, done
 
-            async with loader.plugin_lifecycle(plugin_id):
-                instance = loader.lifecycle.get_instance(plugin_id)
-                if not instance.activated:
-                    await loader.run_plugin_startup_hooks(
-                        plugin_id,
-                        include_installation=False,
-                    )
-                    instance.activated = True
-            ready = asyncio.Event()
+            await reference.activate()
+            ready = asyncio.get_running_loop().create_future()
             done = asyncio.Event()
 
             async def hold():
-                with instance.activity.invocation():
-                    ready.set()
-                    await done.wait()
+                try:
+                    with reference.invocation():
+                        ready.set_result(None)
+                        await done.wait()
+                except BaseException as exc:
+                    if not ready.done():
+                        ready.set_exception(exc)
+                    raise
 
             task = asyncio.create_task(hold())
-            await ready.wait()
+            await ready
 
         try:
             # Admission can be interrupted after creating its activity task.

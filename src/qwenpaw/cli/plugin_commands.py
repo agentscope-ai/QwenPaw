@@ -20,6 +20,11 @@ import httpx
 from ..config import utils as config_utils
 from ..utils.runtime_api import api_client, read_runtime_api
 
+from ..plugins.archive import (
+    find_plugin_root,
+    safe_extract_zip as _safe_extract_zip,
+)
+from ..plugins.discovery import read_manifest
 from ..plugins.validation import (
     validate_plugin_module as _validate_plugin_module,
 )
@@ -260,7 +265,7 @@ def _is_running() -> bool:
     return is_qwenpaw_running()
 
 
-def _offline_channel_transaction(
+def _offline_plugin_transaction(
     plugin_id,
     *,
     source_path=None,
@@ -354,27 +359,6 @@ def _offline_channel_transaction(
         raise click.ClickException(str(exc)) from exc
 
 
-def _safe_extract_zip(zip_ref: zipfile.ZipFile, extract_path: Path):
-    """Safely extract zip file, preventing Zip Slip attacks.
-
-    Args:
-        zip_ref: ZipFile object
-        extract_path: Target extraction directory
-
-    Raises:
-        ValueError: If any zip member attempts path traversal
-    """
-    extract_resolved = extract_path.resolve()
-    for member in zip_ref.namelist():
-        member_path = (extract_path / member).resolve()
-        if not member_path.is_relative_to(extract_resolved):
-            raise ValueError(
-                f"Zip Slip detected: {member} attempts to extract "
-                f"outside target directory",
-            )
-    zip_ref.extractall(extract_path)
-
-
 def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
     """Download and extract plugin from URL.
 
@@ -402,13 +386,10 @@ def _download_plugin_from_url(url: str) -> tuple[Path, Path]:
             _safe_extract_zip(zip_ref, temp_dir)
         click.echo("✓ Downloaded and extracted")
 
-        # Find the plugin directory (should be the only directory or root)
-        plugin_dirs = [d for d in temp_dir.iterdir() if d.is_dir()]
-        if len(plugin_dirs) == 1:
-            return plugin_dirs[0], temp_dir
-        if (temp_dir / "plugin.json").exists():
-            return temp_dir, temp_dir
-        raise ValueError("Invalid plugin archive structure")
+        return find_plugin_root(temp_dir), temp_dir
+    except BaseException:
+        shutil.rmtree(temp_dir)
+        raise
     finally:
         # Clean up zip file
         zip_path.unlink()
@@ -548,7 +529,7 @@ def install(source: str, force: bool):
             return
 
     try:
-        record = _offline_channel_transaction(
+        record = _offline_plugin_transaction(
             None,
             source_path=source_path,
             force=force,
@@ -748,7 +729,7 @@ def uninstall(plugin_id: str):
         return
 
     try:
-        _offline_channel_transaction(plugin_id)
+        _offline_plugin_transaction(plugin_id)
     except Exception as exc:
         raise click.ClickException(
             f"Failed to uninstall plugin: {exc}",
@@ -763,33 +744,22 @@ def validate(path: str):
     plugin_path = Path(path).resolve()
 
     if not plugin_path.exists():
-        click.echo(f"❌ Path not found: {path}", err=True)
-        return
+        raise click.ClickException(f"Path not found: {path}")
 
     # Check plugin.json
     manifest_path = plugin_path / "plugin.json"
     if not manifest_path.exists():
-        click.echo("❌ plugin.json not found", err=True)
-        return
+        raise click.ClickException("plugin.json not found")
 
     try:
-        with open(manifest_path, encoding="utf-8") as f:
-            manifest = json.load(f)
-
-        # Validate required fields
-        required_fields = ["id", "name", "version"]
-        for field in required_fields:
-            if field not in manifest:
-                click.echo(f"❌ Missing required field: {field}", err=True)
-                return
-
-        # Check entry points
-        entry = manifest.get("entry", {})
-        backend_entry = entry.get("backend")
-        if backend_entry:
-            _validate_plugin_module(manifest["id"], plugin_path, backend_entry)
-
-        frontend_entry = entry.get("frontend")
+        manifest = read_manifest(manifest_path)
+        if manifest.entry.backend:
+            _validate_plugin_module(
+                manifest.id,
+                plugin_path,
+                manifest.entry.backend,
+            )
+        frontend_entry = manifest.entry.frontend
         if frontend_entry:
             frontend_path = plugin_path / frontend_entry
             if not frontend_path.exists():
@@ -799,13 +769,13 @@ def validate(path: str):
                 )
 
         click.echo("✅ Plugin validation passed")
-        click.echo(f"\nPlugin: {manifest['name']} (v{manifest['version']})")
-        click.echo(f"ID: {manifest['id']}")
+        click.echo(f"\nPlugin: {manifest.name} (v{manifest.version})")
+        click.echo(f"ID: {manifest.id}")
 
     except json.JSONDecodeError as e:
-        click.echo(f"❌ Invalid JSON in plugin.json: {e}", err=True)
+        raise click.ClickException(f"Invalid JSON in plugin.json: {e}") from e
     except Exception as e:
-        click.echo(f"❌ Validation failed: {e}", err=True)
+        raise click.ClickException(f"Validation failed: {e}") from e
 
 
 @plugin.group("dependency-upgrade")
@@ -865,40 +835,7 @@ def _dependency_operation(action, operation_id):
         try:
             manager, operation = asyncio.run(run())
             if action == "apply" and operation["status"] == "waiting_restart":
-                import subprocess
-
-                # Offline maintenance consumes the manager's authenticated record.
-                # pylint: disable=protected-access
-                script = (
-                    manager._directory(operation_id)
-                    / "worker/dependency_worker.py"
-                )
-                worker_python = manager._read(operation_id)["worker_python"]
-                # pylint: enable=protected-access
-                options = (
-                    {"start_new_session": True}
-                    if os.name != "nt"
-                    else {
-                        "creationflags": getattr(
-                            subprocess,
-                            "CREATE_NEW_PROCESS_GROUP",
-                            0,
-                        ),
-                    }
-                )
-                with (script.parent.parent / "worker.log").open("ab") as log:
-                    # The maintenance worker waits for this CLI to exit; a
-                    # Popen context manager would wait for it and deadlock.
-                    subprocess.Popen(  # pylint: disable=consider-using-with
-                        [worker_python, "-I", "-S", str(script)],
-                        stdin=subprocess.DEVNULL,
-                        stdout=log,
-                        stderr=subprocess.STDOUT,
-                        **options,
-                    )
-                operation[
-                    "message"
-                ] = "Maintenance starts when this CLI exits. Query this operation for its result."
+                operation = manager.start_maintenance_worker(operation_id)
         except Exception as exc:
             raise click.ClickException(str(exc)) from exc
     _echo_dependency_operation(operation)

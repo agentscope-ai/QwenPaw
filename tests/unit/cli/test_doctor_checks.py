@@ -1550,58 +1550,24 @@ class TestResolveAgentEffectiveModelSlot:
         assert slot2 is slot
         assert source == "agent.active_model"
 
-    def test_routing_cloud_first_uses_cloud(self):
-        cloud = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="cloud_first",
-            cloud=cloud,
-        )
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is cloud
+    @pytest.mark.parametrize("mode", ["cloud_first", "local_first"])
+    def test_legacy_routing_uses_runtime_primary_model(self, mode):
+        from qwenpaw.providers.model_selection import select_primary_model
 
-    def test_routing_cloud_first_falls_back_to_active(self):
-        active = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            active,
+        legacy = SimpleNamespace(provider_id="legacy", model="unused")
+        active = SimpleNamespace(provider_id="current", model="used")
+        cfg = self._agent_cfg(
+            routing=SimpleNamespace(
+                enabled=True,
+                mode=mode,
+                cloud=legacy,
+                local=legacy,
+            ),
         )
+        slot, source = dc._resolve_agent_effective_model_slot(cfg, active)
+        assert slot is select_primary_model(cfg.active_model, active)
         assert slot is active
-        assert "cloud fallback" in source
-
-    def test_routing_cloud_first_nothing(self):
-        routing = SimpleNamespace(enabled=True, mode="cloud_first", cloud=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-
-    def test_routing_local_first(self):
-        local = SimpleNamespace(provider_id="p", model="m")
-        routing = SimpleNamespace(
-            enabled=True,
-            mode="local_first",
-            local=local,
-        )
-        slot, _ = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is local
-
-    def test_routing_local_first_unset(self):
-        routing = SimpleNamespace(enabled=True, mode="local_first", local=None)
-        slot, source = dc._resolve_agent_effective_model_slot(
-            self._agent_cfg(routing=routing),
-            None,
-        )
-        assert slot is None
-        assert "local slot is not set" in source
+        assert source == "providers.active_llm"
 
     def test_no_routing_uses_active(self):
         active = SimpleNamespace(provider_id="p", model="m")

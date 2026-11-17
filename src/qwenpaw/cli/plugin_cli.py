@@ -195,7 +195,7 @@ class _CliExecution:
 
     session: "PluginSession"
     plugin_id: str
-    registration: tuple[str, object]
+    reference: object
 
 
 def _execution_command(command, execution):
@@ -214,7 +214,7 @@ def _execution_command(command, execution):
                     return callback(*args, **kwargs)
                 return execution.session.execute(
                     execution.plugin_id,
-                    execution.registration,
+                    execution.reference,
                     callback,
                     *args,
                     **kwargs,
@@ -268,14 +268,16 @@ class PluginCommand(click.Command):
         session = session_for(parent)
         try:
             session.load_registration(mount.manifest, mount.source)
-            contributions = session.loader.registry.cli_contributions
-            row = contributions.get((mount.manifest.id, mount.declaration.id))
-            if row is None:
+            reference = session.loader.registry.get_cli(
+                mount.manifest.id,
+                mount.declaration.id,
+            )
+            if reference is None:
                 raise click.ClickException(
                     f"CLI ID not registered: {mount.declaration.id}",
                 )
-            session.run(row.admit())
-            command = row.spec.build(
+            session.run(reference.admit())
+            command = reference.spec.build(
                 session.context(mount.manifest.id, parent),
             )
             if not isinstance(command, click.Command):
@@ -293,7 +295,7 @@ class PluginCommand(click.Command):
                 _CliExecution(
                     session,
                     mount.manifest.id,
-                    (mount.declaration.id, row),
+                    reference,
                 ),
             )
             command.name = mount.declaration.path[-1]

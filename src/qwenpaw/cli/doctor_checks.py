@@ -1106,27 +1106,17 @@ def _resolve_agent_effective_model_slot(
     active_slot: Any | None,
 ) -> tuple[Any | None, str]:
     """Resolve provider/model for the agent default chat model."""
-    if agent_cfg.active_model is not None and _slot_is_set(
-        agent_cfg.active_model,
-    ):
-        return agent_cfg.active_model, "agent.active_model"
+    from ..providers.model_selection import select_primary_model
 
-    routing = agent_cfg.llm_routing
-    if getattr(routing, "enabled", False):
-        if routing.mode == "cloud_first":
-            if routing.cloud is not None and _slot_is_set(routing.cloud):
-                return routing.cloud, "agent.llm_routing.cloud"
-            if active_slot is not None and _slot_is_set(active_slot):
-                return active_slot, "providers.active_llm (cloud fallback)"
-            return None, "routing enabled but no cloud slot and no active LLM"
-        # local_first
-        if routing.local is not None and _slot_is_set(routing.local):
-            return routing.local, "agent.llm_routing.local"
-        return None, "routing enabled but local slot is not set"
-
-    if active_slot is not None and _slot_is_set(active_slot):
-        return active_slot, "providers.active_llm"
-    return None, "no agent.active_model and no active LLM"
+    slot = select_primary_model(agent_cfg.active_model, active_slot)
+    if slot is None:
+        return None, "no agent.active_model and no active LLM"
+    source = (
+        "agent.active_model"
+        if slot is agent_cfg.active_model
+        else "providers.active_llm"
+    )
+    return slot, source
 
 
 async def check_enabled_agents_model_connections(

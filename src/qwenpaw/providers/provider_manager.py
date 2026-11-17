@@ -756,6 +756,8 @@ class ProviderManager(
                 None,
             )
             if discovered is not None:
+                # Cached failures can outlive permission changes at the
+                # provider. Manual additions may need a discovery refresh.
                 if discovered.availability_status in {
                     "permission_denied",
                     "model_not_found",

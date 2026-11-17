@@ -177,7 +177,7 @@ class TestZipExtractionHelpers:
         assert not (tmp_path.parent / "escape.txt").exists()
 
     def test_extract_bytes_without_manifest_raises(self, tmp_path):
-        with pytest.raises(ValueError, match="No plugin.json"):
+        with pytest.raises(ValueError, match="no plugin.json found"):
             _extract_plugin_zip_bytes(_zip_bytes({"a.txt": "A"}), tmp_path)
 
     def test_extract_downloaded_removes_the_zip(self, tmp_path):

@@ -16,6 +16,7 @@ from ..exceptions import ProviderError
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
+    encrypt_dict_fields,
     is_encrypted,
 )
 from ..utils.io_utils import (
@@ -62,6 +63,89 @@ class ProviderManagerPersistenceMixin(
     ProviderManagerHost,
 ):  # pylint: disable=abstract-method
     """Provide provider snapshot persistence and migration operations."""
+
+    def saved_plugin_provider_infos(self) -> dict[str, ProviderInfo]:
+        """Read unavailable plugin providers without loading their code."""
+        result = {}
+        for path in self.plugin_path.glob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                info = ProviderInfo.model_validate(
+                    decrypt_dict_fields(data, PROVIDER_SECRET_FIELDS),
+                )
+                key = self._normalize_provider_id(info.id)
+                if (
+                    key not in self.plugin_providers
+                    and self._remember_provider_path(
+                        "plugin",
+                        key,
+                        path,
+                    )
+                ):
+                    result[key] = info
+            except (OSError, ValueError, TypeError) as exc:
+                logger.warning(
+                    "Cannot read plugin provider snapshot %s: %s",
+                    path,
+                    exc,
+                )
+        return result
+
+    def update_saved_plugin_provider(
+        self,
+        provider_id: str,
+        values: dict,
+    ) -> bool:
+        """Update retained settings without registering an executable provider.
+
+        Re-read under the path lock so concurrent edits and fields from a
+        newer plugin survive. Connection changes invalidate endpoint metadata.
+        """
+        if self._normalize_provider_id(provider_id) in self.plugin_providers:
+            raise ProviderError(
+                message="Use the active provider update operation.",
+            )
+        path = self._provider_path_for_kind("plugin", provider_id)
+        with get_sync_path_lock(path):
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            current = decrypt_dict_fields(raw, PROVIDER_SECRET_FIELDS)
+            updates = {
+                key: value
+                for key, value in values.items()
+                if value is not None
+            }
+            before = ProviderInfo.model_validate(current)
+            candidate = ProviderInfo.model_validate({**current, **updates})
+            changed = {
+                key
+                for key in _CONNECTION_CONFIG_FIELDS.intersection(updates)
+                if getattr(before, key, None) != getattr(candidate, key, None)
+            }
+            if changed:
+                self._reset_model_availability(candidate)
+                invalidate_api_metadata(candidate)
+                candidate.models_syncing = False
+                for key in ("models", "extra_models"):
+                    updates[key] = [
+                        {**original, **model.model_dump(mode="json")}
+                        for original, model in zip(
+                            current.get(key, ()),
+                            getattr(candidate, key),
+                        )
+                    ]
+                for key in (
+                    "discovered_models",
+                    "models_last_synced_at",
+                    "models_last_sync_error",
+                    "models_syncing",
+                ):
+                    updates[key] = getattr(candidate, key)
+            secured = encrypt_dict_fields(updates, PROVIDER_SECRET_FIELDS)
+            provider_persistence.write_snapshot_payload(
+                {**raw, **secured},
+                path,
+            )
+        return True
 
     async def _mutate_provider_async(
         self,

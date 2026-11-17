@@ -362,10 +362,11 @@ class TestDownloadPluginFromUrl:
         pc.shutil.rmtree(temp)
         assert "Downloaded and extracted" in capsys.readouterr().out
 
-    def test_root_level_manifest(self, monkeypatch):
+    @pytest.mark.parametrize("extra", ["a.txt", "src/main.py"])
+    def test_root_level_manifest(self, monkeypatch, extra):
         self._patch_retrieve(
             monkeypatch,
-            _make_zip_bytes(None, {"plugin.json": "{}", "a.txt": "x"}),
+            _make_zip_bytes(None, {"plugin.json": "{}", extra: "x"}),
         )
         plug, temp = pc._download_plugin_from_url("http://x/p.zip")
         assert plug == temp
@@ -545,7 +546,7 @@ class TestInstallCommandOffline:
         def boom(*args, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(pc, "_offline_channel_transaction", boom)
+        monkeypatch.setattr(pc, "_offline_plugin_transaction", boom)
         res = CliRunner().invoke(pc.plugin, ["install", str(src)])
         assert res.exit_code != 0
         assert "disk full" in res.output
@@ -846,12 +847,14 @@ class TestValidateCommand:
             pc.plugin,
             ["validate", str(tmp_path / "nope")],
         )
+        assert res.exit_code == 1
         assert "Path not found" in res.output
 
     def test_missing_manifest(self, tmp_path):
         d = tmp_path / "p"
         d.mkdir()
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "plugin.json not found" in res.output
 
     def test_invalid_json(self, tmp_path):
@@ -859,6 +862,7 @@ class TestValidateCommand:
         d.mkdir()
         (d / "plugin.json").write_text("{x")
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "Invalid JSON" in res.output
 
     def test_missing_required_field(self, tmp_path):
@@ -866,7 +870,8 @@ class TestValidateCommand:
         d.mkdir()
         (d / "plugin.json").write_text(json.dumps({"id": "a", "name": "b"}))
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
-        assert "Missing required field: version" in res.output
+        assert res.exit_code == 1
+        assert "version" in res.output
 
     def test_backend_entry_validation_failure(self, monkeypatch, tmp_path):
         d = tmp_path / "p"
@@ -887,6 +892,7 @@ class TestValidateCommand:
 
         monkeypatch.setattr(pc, "_validate_plugin_module", bad)
         res = CliRunner().invoke(pc.plugin, ["validate", str(d)])
+        assert res.exit_code == 1
         assert "Validation failed" in res.output
 
     def test_frontend_entry_missing_warns(self, tmp_path):
@@ -1204,3 +1210,45 @@ def test_offline_dependency_operation_uses_one_async_loader(
     assert result.exit_code == 0, result.output
     assert events == ["resolve", "create", "manager", action]
     assert len(loops) == 1 and loops[0].is_closed()
+
+
+def test_validate_rejects_incomplete_cli_declaration(tmp_path):
+    from qwenpaw.plugins.discovery import read_manifest
+
+    manifest = {
+        "id": "example",
+        "name": "Example",
+        "version": "1.0.0",
+        "cli": [{"id": "status", "path": ["example", "status"]}],
+    }
+    path = tmp_path / "plugin.json"
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        read_manifest(path)
+    result = CliRunner().invoke(pc.plugin, ["validate", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "validation passed" not in result.output
+
+
+def test_download_rejected_archive_cleans_extraction_directory(
+    monkeypatch,
+    tmp_path,
+):
+    import io
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("plugin.json", "{}")
+        archive.writestr("PLUGIN.JSON", "{}")
+
+    def retrieve(_url, target):
+        Path(target).write_bytes(buffer.getvalue())
+        return target, {}
+
+    extract = tmp_path / "extracted"
+    extract.mkdir()
+    monkeypatch.setattr(pc.urllib.request, "urlretrieve", retrieve)
+    monkeypatch.setattr(pc.tempfile, "mkdtemp", lambda: str(extract))
+    with pytest.raises(ValueError, match="unsafe plugin archive"):
+        pc._download_plugin_from_url("https://example.invalid/plugin.zip")
+    assert not extract.exists()

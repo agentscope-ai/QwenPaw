@@ -1222,6 +1222,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         ]
         self._prompt_section_names.discard(name)
 
+    def get_cli(self, plugin_id, contribution_id):
+        """Return a revocable host reference to a registered CLI contribution."""
+        from ._contributions import get_cli
+
+        return get_cli(self, plugin_id, contribution_id)
+
     def get_extensions(self, point):
         """Return revocable host references for one supported contract."""
         from ._contributions import get_extensions

@@ -54,7 +54,10 @@ from ..providers.hub_managed import (
     managed_provider,
     managed_slot,
 )
-from ..providers.model_selection import resolve_model_slot_override
+from ..providers.model_selection import (
+    resolve_model_slot_override,
+    select_primary_model,
+)
 from ..providers.capping_formatter import (
     CappingFormatterMixin,
     MAX_INLINE_MEDIA_BYTES,
@@ -2561,10 +2564,8 @@ def create_model_and_formatter(
             pass
 
     settings = _load_agent_model_settings(agent_id, agent_config)
-    model_slot = settings.model_slot
     slot = resolve_model_slot_override(model_slot_override)
-    if slot is not None and slot.provider_id and slot.model:
-        model_slot = slot
+    model_slot = select_primary_model(settings.model_slot, request_model=slot)
 
     if hub_mode() and model_slot is None:
         model_slot = ProviderManager.get_instance().active_model
@@ -2582,7 +2583,8 @@ def create_model_and_formatter(
         return model, formatter
 
     manager = ProviderManager.get_instance()
-    model_slot = model_slot or manager.get_active_model()
+    if model_slot is None:
+        model_slot = select_primary_model(None, manager.get_active_model())
     if not model_slot or not model_slot.provider_id or not model_slot.model:
         raise ProviderError(message=f"No active model configured")
     provider = manager.get_provider(model_slot.provider_id)
