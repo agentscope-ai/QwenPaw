@@ -1,19 +1,19 @@
-# Standalone Data app 1.0.3
+# Standalone Data app 1.0.5
 
 ## Compatibility and release order
 
 | Component | Version / branch |
 | --- | --- |
 | Stable QwenPaw platform | 2.2.2 |
-| Data app | 1.0.3 |
-| QwenPaw-Data Python packages | 0.3.3, coordinated across all four packages |
-| QwenPaw-Data release branch | `release/v0.3.3` |
-| QwenPaw app release branch | `release/data-app-1.0.3` |
+| Data app | 1.0.5 |
+| QwenPaw-Data Python packages | 0.3.4, coordinated across all four packages |
+| QwenPaw-Data release branch | `release/0.3.4` |
+| QwenPaw app release branch | `release/data-app-1.0.5` |
 
-1. Review and merge the QwenPaw-Data release branch; publish its four 0.3.3
-   packages and `v0.3.3` tag.
+1. Review and merge the QwenPaw-Data release branch; publish its four 0.3.4
+   packages and `v0.3.4` tag.
 2. Review and merge the QwenPaw Data app branch. The app release workflow uses
-   the Engine `v0.3.3` Context console source; a missing tag stops packaging.
+   the Engine `v0.3.4` Context console source; a missing tag stops packaging.
 3. Install the app and run `scripts/setup-pypi.sh` to upgrade the runtime.
    For branch testing before publication, use `scripts/setup-dev.sh` with
    `QWENPAW_DATA_SOURCE_DIR` pointing to the matching Engine release checkout.
@@ -22,10 +22,13 @@ Creating these branches does not publish packages or update the marketplace.
 
 ## Included behavior
 
-- Runtime 0.3.3 keeps chat streams open until the final response is available,
+- Runtime 0.3.4 keeps chat streams open until the final response is available,
   fixing a race that could hide completion or failure from the client.
 - Runtime dependencies support Neo4j driver 6.x and OpenAI SDK 3.x; the
   Context console includes the latest validated frontend dependency updates.
+- The 0.3.4 Context console restores antd static toast and modal rendering
+  under React 19. Data-source tests now show both success and connection
+  failure feedback instead of completing silently.
 
 - Data analysis follows the Main Chat workspace model by default. Summaries
   and DataBridge follow the analysis model. Optional overrides reference Main

@@ -62,18 +62,18 @@ PawApp 后端代理服务请求并注入服务 token。托管服务使用动态�
 
 ## 快速开始：安装应用与 Python 运行时
 
-应用 **1.0.3** 面向 QwenPaw **2.2.2**，已验证的 QwenPaw-Data 运行时为 **0.3.3**。
+应用 **1.0.5** 面向 QwenPaw **2.2.2**，已验证的 QwenPaw-Data 运行时为 **0.3.4**。
 应用 ZIP 和 Python 运行时需要分别安装。
 
 1. 在 QwenPaw 的应用管理中安装或更新 QwenPaw-Data。
 2. 在 QwenPaw 使用的 Python 环境中安装运行时。锁定已验证版本的命令为：
 
    ```bash
-   python -m pip install "qwenpaw-data-context==0.3.3" "qwenpaw-data-host-core[service]==0.3.3" "qwenpaw-data-cli==0.3.3" "qwenpaw-data-skills==0.3.3"
+   python -m pip install "qwenpaw-data-context==0.3.4" "qwenpaw-data-host-core[service]==0.3.4" "qwenpaw-data-cli==0.3.4" "qwenpaw-data-skills==0.3.4"
    ```
 
    也可以在 QwenPaw 源码仓库运行 `./plugins/apps/qwenpaw-data/scripts/setup-pypi.sh`。
-   该脚本安装 `>=0.3.3,<0.4` 范围内的兼容版本，并非精确锁定 0.3.3。
+   该脚本安装 `>=0.3.4,<0.4` 范围内的兼容版本，并非精确锁定 0.3.4。
    如果运行时使用独立环境，在启动 QwenPaw 前将 `QWENPAW_DATA_CONTEXT_PYTHON`
    设置为该环境的 Python 可执行文件；QwenPaw 进程必须能够访问它。
 3. 启动或重启 QwenPaw，并启用应用。Python 安装方式可以运行：
@@ -90,7 +90,7 @@ PawApp 后端代理服务请求并注入服务 token。托管服务使用动态�
 
 ## 使用 Docker Compose 启动本地基础设施
 
-在 QwenPaw 源码仓库中，可以只启动 Neo4j 和 PostgreSQL，让应用管理 **0.3.3** 的 Context 和 Engine 服务：
+在 QwenPaw 源码仓库中，可以只启动 Neo4j 和 PostgreSQL，让应用管理 **0.3.4** 的 Context 和 Engine 服务：
 
 ```bash
 cd plugins/apps/qwenpaw-data
@@ -105,21 +105,21 @@ PostgreSQL 登记为 `127.0.0.1:55432`，数据库 `qwenpaw_data_demo`，用户�
 
 以上只启动基础设施，**不会**填充 GAAP 数据或导入语义定义。已有数据库可以直接登记。
 演示资产和语义导入、织网说明见
-[QwenPaw-Data 示例](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.3.3/examples)及
-[CLI 指南](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.3.3/packages/qwenpaw-data-cli/README.md)。
+[QwenPaw-Data 示例](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.3.4/examples)及
+[CLI 指南](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.3.4/packages/qwenpaw-data-cli/README.md)。
 
-仓库中的 `context` 和 `seed` Dockerfile 仍锁定 **0.3.0**，属于旧版演示，不是应用 1.0.3 的推荐安装方式。
+仓库中的 `context` 和 `seed` Dockerfile 仍锁定 **0.3.0**，属于旧版演示，不是应用 1.0.5 的推荐安装方式。
 不指定服务的 `docker compose up -d` 还会构建 `qwenpaw` 服务；只有显式选择服务才能排除它。
 完整演示栈的升级和验证需要单独处理，不包含在本次 README 与打包修复中。
 
-如果使用独立部署且兼容运行时 0.3.3 的 Context 服务，在启动 QwenPaw 前配置
+如果使用独立部署且兼容运行时 0.3.4 的 Context 服务，在启动 QwenPaw 前配置
 `QWENPAW_DATA_CONTEXT_MODE=external`、`QWENPAW_DATA_CONTEXT_URL` 和 `QWENPAW_DATA_CONTEXT_TOKEN`。
 该服务必须提供运行时模型绑定能力；不兼容时应用会明确报错。
 分析引擎仍需要运行时，除非另行配置了外部 Engine 服务。
 
 ## 源码开发
 
-从 QwenPaw 仓库根目录开始，并准备兼容的 QwenPaw-Data 源码 checkout；复现本次发布时使用其 `v0.3.3` 标签。
+从 QwenPaw 仓库根目录开始，并准备兼容的 QwenPaw-Data 源码 checkout；复现本次发布时使用其 `v0.3.4` 标签。
 这些脚本需要 Bash、Python、uv、Node.js 和 npm。
 
 ```bash
@@ -228,9 +228,9 @@ DataBridge 启用 **复用 QwenPaw 已配置的模型** 后，保存配置或启
 
 托管模式下，用户只需启动 QwenPaw 这一个 UI / 后端入口。PawApp 生命周期会自动启动和停止 Context 服务及 `qwenpaw-data-host-core` 分析引擎。内嵌 Data Console 通过 PawApp 网关访问该引擎；`/data` 通过渠道桥接将 QwenPaw 渠道对话路由到同一引擎。
 
-## 独立应用 1.0.3
+## 独立应用 1.0.5
 
-本次发布基于稳定版 QwenPaw 2.2.2，配套 QwenPaw-Data 运行时 0.3.3。
+本次发布基于稳定版 QwenPaw 2.2.2，配套 QwenPaw-Data 运行时 0.3.4。
 Data 分析默认使用主聊天当前工作区的模型，摘要和 DataBridge 默认继承分析模型。
 在 Data 的「设置 → 智能体配置 → Models」中选择覆盖；供应商凭据仍在主聊天中管理。
 Embedding 与图索引属于共享数据服务，单独配置。

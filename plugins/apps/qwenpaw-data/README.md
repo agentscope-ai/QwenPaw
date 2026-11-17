@@ -86,20 +86,20 @@ that do not opt in receive no additional chat, storage, toast, or notify routes.
 
 ## Quick start: installed app and Python runtime
 
-App **1.0.3** targets QwenPaw **2.2.2** and was validated with QwenPaw-Data
-runtime **0.3.3**. The app ZIP and the Python runtime are separate installations.
+App **1.0.5** targets QwenPaw **2.2.2** and was validated with QwenPaw-Data
+runtime **0.3.4**. The app ZIP and the Python runtime are separate installations.
 
 1. Install or update the QwenPaw-Data app in QwenPaw's app manager.
 2. Install the runtime into the Python environment used by QwenPaw. For the
    validated runtime versions:
 
    ```bash
-   python -m pip install "qwenpaw-data-context==0.3.3" "qwenpaw-data-host-core[service]==0.3.3" "qwenpaw-data-cli==0.3.3" "qwenpaw-data-skills==0.3.3"
+   python -m pip install "qwenpaw-data-context==0.3.4" "qwenpaw-data-host-core[service]==0.3.4" "qwenpaw-data-cli==0.3.4" "qwenpaw-data-skills==0.3.4"
    ```
 
    Alternatively, from a QwenPaw source checkout run
    `./plugins/apps/qwenpaw-data/scripts/setup-pypi.sh`. This installs the
-   compatible range `>=0.3.3,<0.4`, rather than pinning exactly 0.3.3.
+   compatible range `>=0.3.4,<0.4`, rather than pinning exactly 0.3.4.
    If using a separate runtime environment, set
    `QWENPAW_DATA_CONTEXT_PYTHON` to its Python executable before starting
    QwenPaw. The interpreter must be available to the QwenPaw process.
@@ -124,7 +124,7 @@ metadata are separate setup steps.
 ## Local infrastructure with Docker Compose
 
 From a QwenPaw source checkout, the bundled Compose file can start just Neo4j
-and PostgreSQL while the app manages the **0.3.3** Context and Engine services:
+and PostgreSQL while the app manages the **0.3.4** Context and Engine services:
 
 ```bash
 cd plugins/apps/qwenpaw-data
@@ -142,16 +142,16 @@ apply when QwenPaw runs on the same host as the published Docker ports.
 This starts infrastructure only; it does **not** seed GAAP rows or import
 semantic definitions. Existing databases can be registered directly. For
 sample assets and semantic import/weave instructions, see the
-[QwenPaw-Data examples](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.3.3/examples)
-and [CLI guide](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.3.3/packages/qwenpaw-data-cli/README.md).
+[QwenPaw-Data examples](https://github.com/agentscope-ai/QwenPaw-Data/tree/v0.3.4/examples)
+and [CLI guide](https://github.com/agentscope-ai/QwenPaw-Data/blob/v0.3.4/packages/qwenpaw-data-cli/README.md).
 
 The bundled `context` and `seed` Dockerfiles still pin **0.3.0**. They are a
-legacy demo, not the supported 1.0.3 runtime setup. An unqualified
+legacy demo, not the supported 1.0.5 runtime setup. An unqualified
 `docker compose up -d` also builds the `qwenpaw` service; it is not optional
 unless you explicitly select services. Updating and validating the full demo
 stack is separate from this README and packaging change.
 
-For an externally managed Context service compatible with runtime 0.3.3,
+For an externally managed Context service compatible with runtime 0.3.4,
 set `QWENPAW_DATA_CONTEXT_MODE=external`, `QWENPAW_DATA_CONTEXT_URL`, and
 `QWENPAW_DATA_CONTEXT_TOKEN` before starting QwenPaw. The service must expose
 runtime model bindings; the app reports an error for incompatible services.
@@ -161,7 +161,7 @@ as an external service.
 ## Development from source
 
 Run these commands from the QwenPaw repository root, with a compatible
-QwenPaw-Data checkout available. For release reproduction, use its `v0.3.3`
+QwenPaw-Data checkout available. For release reproduction, use its `v0.3.4`
 tag. The scripts require Bash, Python, uv, Node.js, and npm.
 
 ```bash
@@ -372,9 +372,9 @@ The PawApp lifecycle starts and stops both the Context service and the
 that engine through the PawApp gateway; `/data` routes QwenPaw channel
 conversations to the same engine through the channel bridge.
 
-## Standalone app 1.0.3 release
+## Standalone app 1.0.5 release
 
-This release targets stable QwenPaw 2.2.2 and QwenPaw-Data runtime 0.3.3.
+This release targets stable QwenPaw 2.2.2 and QwenPaw-Data runtime 0.3.4.
 See [the release boundary and validation guide](RELEASE.md). The app uses
 the Engine native console API and inherits Main Chat models on the stable
 platform. Its declared compatibility range is `>=2.2.2,<2.2.3`.

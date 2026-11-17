@@ -51,12 +51,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      context_console_ref: ${{ steps.version.outputs.context_console_ref }}
       should_publish: ${{ steps.decide.outputs.should_publish }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Read qwenpaw-data plugin version
+      - name: Read qwenpaw-data plugin and context console versions
         id: version
         run: |
           version=$(jq -r '.version' "${PLUGIN_DIR}/plugin.json")
@@ -64,8 +65,17 @@ jobs:
             echo "ERROR: no version in ${PLUGIN_DIR}/plugin.json" >&2
             exit 1
           fi
+          runtime_version=$(jq -er \
+            '.meta.runtime_dependencies.minimum_version | select(type == "string" and length > 0)' \
+            "${PLUGIN_DIR}/plugin.json") || {
+            echo "ERROR: no minimum qwenpaw-data runtime version in ${PLUGIN_DIR}/plugin.json" >&2
+            exit 1
+          }
+          context_console_ref="v${runtime_version}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "context_console_ref=$context_console_ref" >> "$GITHUB_OUTPUT"
           echo "qwenpaw-data plugin version: $version"
+          echo "qwenpaw-data context console ref: $context_console_ref"
 
       - name: Install ossutil
         run: |
@@ -143,9 +153,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: agentscope-ai/QwenPaw-Data
-          # Pinned for reproducible vendoring; bump together with the
-          # plugin version, or override per-run via the data_ref input.
-          ref: ${{ github.event.inputs.data_ref || 'v0.3.3' }}
+          # Tie the context console to the runtime version declared by the
+          # plugin manifest so app releases cannot silently bundle stale UI.
+          ref: ${{ github.event.inputs.data_ref || needs.check-version.outputs.context_console_ref }}
           path: qwenpaw-data
 
       - name: Set up Python

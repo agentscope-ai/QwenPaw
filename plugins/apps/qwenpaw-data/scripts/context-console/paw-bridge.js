@@ -15,11 +15,24 @@
   "use strict";
 
   var API_PREFIX = "/api/qwenpaw-data/";
+  var GATEWAY_BASE = "/api/qwenpaw-data/context";
   var TOKEN_KEY = "qwenpaw_auth_token";
 
-  // Route the console's auth-status probe through the context gateway.
+  // Route the console's API and auth probes through the context gateway.
+  // 0.3.4 reads this object before the module bundle executes.
+  var consoleConfig = window.QWENPAW_DATA_CONSOLE || {};
+  var dataBridgeConfig = consoleConfig.databridge || {};
+  dataBridgeConfig.base_path = dataBridgeConfig.base_path || "/";
+  dataBridgeConfig.api_base_url = dataBridgeConfig.api_base_url || GATEWAY_BASE;
+  dataBridgeConfig.auth_mode = "portal";
+  dataBridgeConfig.console_url =
+    dataBridgeConfig.console_url || "/apps/qwenpaw-data";
+  consoleConfig.databridge = dataBridgeConfig;
+  window.QWENPAW_DATA_CONSOLE = consoleConfig;
+
+  // Keep the pre-0.3.4 integration variable for older vendored builds.
   if (!window.__VITE_AUTH_API_URL__) {
-    window.__VITE_AUTH_API_URL__ = "/api/qwenpaw-data/context";
+    window.__VITE_AUTH_API_URL__ = GATEWAY_BASE;
   }
 
   function hostToken() {

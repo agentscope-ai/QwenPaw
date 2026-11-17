@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-data",
   "name": "QwenPaw-Data",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
@@ -68,7 +68,7 @@
         "external_url_env": "QWENPAW_DATA_CONTEXT_URL",
         "external_token_env": "QWENPAW_DATA_CONTEXT_TOKEN"
       },
-      "minimum_version": "0.3.3"
+      "minimum_version": "0.3.4"
     },
     "features": [
       "chat-analysis",

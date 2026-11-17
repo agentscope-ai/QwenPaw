@@ -1,6 +1,6 @@
 {
   "name": "@qwenpaw-data/app-ui",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "private": true,
   "type": "module",
   "scripts": {
