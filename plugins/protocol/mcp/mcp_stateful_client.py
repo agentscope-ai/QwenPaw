@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
-import time
 from contextlib import AsyncExitStack
 from typing import Any, Literal
 
@@ -157,7 +156,7 @@ class _MCPClientMixin:
     """Mixin providing shared tool-call and lifecycle logic for both clients.
 
     ``StdIOStatefulClient`` and ``HttpStatefulClient`` share identical
-    ``list_tools``, ``call_tool``, ``close``, ``connect``, ``reload``,
+    ``list_tools``, ``call_tool``, ``close``, ``connect``,
     ``_run_lifecycle``, ``_validate_connection``, and
     ``_handle_transport_error`` implementations.  This mixin is the single
     authoritative source for all of them.
@@ -178,7 +177,6 @@ class _MCPClientMixin:
     name: str
     session: ClientSession | None
     is_connected: bool
-    is_stateful: bool
     _oauth_required: bool
     _cached_tools: Any
     _stop_event: asyncio.Event
@@ -193,7 +191,6 @@ class _MCPClientMixin:
     _reconnect_delay: float
     _consecutive_failures: int
     _circuit_open: bool
-    _circuit_open_since: float
     _max_reconnect_delay: float
     _circuit_breaker_threshold: int
     _circuit_half_open_after: float
@@ -317,7 +314,6 @@ class _MCPClientMixin:
                     >= self._circuit_breaker_threshold
                 ):
                     self._circuit_open = True
-                    self._circuit_open_since = time.monotonic()
                     logger.error(
                         "MCP client '%s': circuit breaker OPEN after %d "
                         "consecutive failures. Automatic reconnect "
@@ -433,39 +429,6 @@ class _MCPClientMixin:
                 f"MCP client '{self.name}' requires OAuth authorization "
                 "(HTTP 401). Please authorize via the UI before connecting.",
             )
-
-    async def reload(self, timeout: float = 30.0) -> None:
-        """Reload the MCP client (tear down and reconnect).
-
-        Args:
-            timeout: Reconnection timeout in seconds (default 30 s).
-
-        Raises:
-            RuntimeError: If not connected, or if the client is stopped
-                while reload is waiting.
-            asyncio.TimeoutError: If the new connection is not
-                established within *timeout* seconds.
-        """
-        if not self.is_connected:
-            raise self._not_connected_error()
-
-        logger.info(f"Triggering reload for MCP client: {self.name}")
-        self._reload_event.set()
-        # Clear _ready_event *before* waiting.  When connected,
-        # _ready_event is already set; without this clear, the wait
-        # below would return immediately before the reload has started.
-        self._ready_event.clear()
-
-        await self._wait_ready(timeout)
-        if self._stop_event.is_set():
-            raise self._not_connected_error()
-        if self.is_connected and self._ready_event.is_set():
-            logger.info(f"Reload completed for MCP client: {self.name}")
-            return
-        logger.error(
-            f"Timeout waiting for MCP client '{self.name}' to reload",
-        )
-        raise asyncio.TimeoutError
 
     # ------------------------------------------------------------------
     # Public API
@@ -917,8 +880,7 @@ class StdIOStatefulClient(_MCPClientMixin):
     - No CPU leak on reload
     - No zombie processes
 
-    API-compatible with agentscope.mcp.StdIOStatefulClient for drop-in
-    replacement.
+    Owns the stdio subprocess for one MCP driver connection.
     """
 
     def __init__(
@@ -934,7 +896,6 @@ class StdIOStatefulClient(_MCPClientMixin):
             "ignore",
             "replace",
         ] = "strict",
-        read_timeout_seconds: float = 60 * 5,
     ) -> None:
         """Initialize the StdIO MCP client.
 
@@ -946,7 +907,6 @@ class StdIOStatefulClient(_MCPClientMixin):
             cwd: The working directory to use when spawning the process
             encoding: The text encoding used when sending/receiving messages
             encoding_error_handler: The text encoding error handler
-            read_timeout_seconds: The read timeout seconds
 
         Raises:
             TypeError: If name or command is not a string
@@ -959,7 +919,6 @@ class StdIOStatefulClient(_MCPClientMixin):
             )
 
         self.name = name
-        self.is_stateful = True
         self.server_params = StdioServerParameters(
             command=command,
             args=args or [],
@@ -968,7 +927,6 @@ class StdIOStatefulClient(_MCPClientMixin):
             encoding=encoding,
             encoding_error_handler=encoding_error_handler,
         )
-        self.read_timeout_seconds = read_timeout_seconds
 
         # Lifecycle management
         self._lifecycle_task: asyncio.Task | None = None
@@ -984,7 +942,6 @@ class StdIOStatefulClient(_MCPClientMixin):
         self._reconnect_delay: float = 1.0
         self._consecutive_failures: int = 0
         self._circuit_open: bool = False
-        self._circuit_open_since: float = 0.0
         self._max_reconnect_delay: float = 60.0
         self._circuit_breaker_threshold: int = 5
         self._circuit_half_open_after: float = 300.0
@@ -1014,9 +971,8 @@ class StdIOStatefulClient(_MCPClientMixin):
 class HttpStatefulClient(_MCPClientMixin):
     """HTTP/SSE MCP client with proper cross-task lifecycle management.
 
-    Drop-in replacement for agentscope.mcp.HttpStatefulClient that solves
-    the CPU leak issue by running the entire context manager lifecycle in
-    a single dedicated background task.
+    Runs the entire context manager lifecycle in one dedicated background
+    task so transport setup and teardown share the same task.
 
     Supports both streamable HTTP and SSE transports.
     """
@@ -1062,7 +1018,6 @@ class HttpStatefulClient(_MCPClientMixin):
             raise TypeError(f"url must be str, got {type(url).__name__}")
 
         self.name = name
-        self.is_stateful = True
         self.transport = transport
         self.url = url
         self.headers = headers
@@ -1071,7 +1026,6 @@ class HttpStatefulClient(_MCPClientMixin):
             timeout_seconds(sse_read_timeout),
             self.timeout,
         )
-        self.read_timeout_seconds = self.sse_read_timeout
         self.client_kwargs = client_kwargs
 
         # Lifecycle management
@@ -1088,7 +1042,6 @@ class HttpStatefulClient(_MCPClientMixin):
         self._reconnect_delay: float = 1.0
         self._consecutive_failures: int = 0
         self._circuit_open: bool = False
-        self._circuit_open_since: float = 0.0
         self._max_reconnect_delay: float = 60.0
         self._circuit_breaker_threshold: int = 5
         self._circuit_half_open_after: float = 300.0

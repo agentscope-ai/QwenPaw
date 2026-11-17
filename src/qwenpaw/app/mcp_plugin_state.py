@@ -14,8 +14,6 @@ MARKER = ".mcp-plugin-migration.json"
 def automatic(marker):
     if marker is None:
         return None
-    if marker["schema"] == 1:
-        return "completed" if marker["stage"] == "completed" else "attempted"
     return marker["automatic"]
 
 
@@ -26,8 +24,7 @@ def read_marker(path):
         return None
     if not isinstance(value, dict) or type(value.get("schema")) is not int:
         raise ValueError("Invalid MCP upgrade record")
-    schema = value["schema"]
-    if schema not in (1, 2) or not isinstance(value.get("workspaces"), dict):
+    if value["schema"] != 2 or not isinstance(value.get("workspaces"), dict):
         raise ValueError("Invalid MCP upgrade record")
     if any(
         not isinstance(key, str)
@@ -35,7 +32,7 @@ def read_marker(path):
         for key, status in value["workspaces"].items()
     ):
         raise ValueError("Invalid MCP workspace record")
-    if schema == 2 and (
+    if (
         not isinstance(value.get("automatic"), str)
         or value["automatic"]
         not in {"not_required", "attempted", "completed", "needs_review"}
@@ -47,15 +44,14 @@ def read_marker(path):
         )
     ):
         raise ValueError("Invalid MCP automatic decision")
-    fields = {"transaction", "digest", "version", "stage"}
-    if schema == 1 or fields.intersection(value):
+    fields = {"transaction", "digest", "stage"}
+    if fields.intersection(value):
         if (
             not fields <= value.keys()
             or not isinstance(value["transaction"], str)
             or re.fullmatch(r"[a-f0-9]{32}", value["transaction"]) is None
             or not isinstance(value["digest"], str)
             or re.fullmatch(r"[a-f0-9]{64}", value["digest"]) is None
-            or not isinstance(value["version"], str)
             or not isinstance(value["stage"], str)
             or value["stage"]
             not in {"preparing", "files_committed", "completed"}

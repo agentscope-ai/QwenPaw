@@ -473,17 +473,6 @@ class LazyDriverService:  # pylint: disable=too-many-public-methods
             description=str(card.config.get("description") or ""),
         )
 
-    async def upsert_driver(self, card, credential=None):
-        self._guard()
-        if credential is not None:
-            await self.credential_store.put(credential)
-        await self.register_driver(card)
-        return (
-            self._manager._runtime_info_from_card(card)
-            if self._manager
-            else self._info(card)
-        )
-
     async def register_driver(self, card):
         card = coerce_card(card)
         validate_card(card)

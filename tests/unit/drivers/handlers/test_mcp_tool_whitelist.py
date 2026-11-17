@@ -191,14 +191,15 @@ async def test_list_capabilities_reads_card_config_tools(
 
 
 @pytest.mark.asyncio
-async def test_sync_runtime_metadata_clears_capability_cache(
+async def test_sync_runtime_metadata_updates_tool_whitelist(
     tmp_path,
     monkeypatch,
     mcp_runtime_host,
 ) -> None:
     handler = await _handler(["read"], mcp_runtime_host, tmp_path, monkeypatch)
-    await handler.list_capabilities()
-    assert handler.capabilities is not None
+    assert {
+        item.name: item.enabled for item in await handler.list_capabilities()
+    } == {"read": True, "write": False}
 
     await handler.manager.card_store.save(
         DriverCard(
@@ -209,7 +210,6 @@ async def test_sync_runtime_metadata_clears_capability_cache(
         ),
     )
     await handler.manager.refresh_driver("fs")
-    assert handler.capabilities is None
     capabilities = await handler.list_capabilities()
     assert {item.name: item.enabled for item in capabilities} == {
         "read": True,

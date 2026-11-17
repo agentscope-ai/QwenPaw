@@ -74,17 +74,17 @@ async def test_driver_configuration_and_plugin_shutdown_release_resources(
         runtime = await start_driver_service(workspace)
         source = DriverCard(**card())
         try:
-            await runtime.upsert_driver(source)
+            await runtime.register_driver(source)
             assert any(
                 row.name == "echo" for row in await runtime.list_capabilities()
             )
             assert len(events(context, "opened")) == 1
-            await runtime.upsert_driver(replace(source, enabled=False))
+            await runtime.register_driver(replace(source, enabled=False))
             assert await runtime.list_capabilities() == []
             assert runtime.manager is None
             assert runtime.watcher is not None
             assert len(events(context, "closed")) == 1
-            await runtime.upsert_driver(source)
+            await runtime.register_driver(source)
             assert len(events(context, "opened")) == 2
             await host.unload("driver-lifecycle")
             assert runtime.manager is None and runtime.watcher is None

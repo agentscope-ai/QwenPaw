@@ -28,7 +28,7 @@ def _build_capabilities(tools, source_id):
     specs = []
     prefix = f"mcp__{source_id}__"
     for tool in tools:
-        raw = plain(getattr(tool, "_tool", tool))
+        raw = plain(tool)
         name = str(raw["name"])
         if name.startswith(prefix):
             name = name[len(prefix) :]

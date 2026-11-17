@@ -43,7 +43,6 @@ class MCPUsageSnapshot:
 class MCPUsageDecision:
     status: str
     workspace_statuses: Mapping[str, str]
-    reasons: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -51,7 +50,6 @@ class MCPUsageDecision:
             "workspace_statuses",
             MappingProxyType(dict(self.workspace_statuses)),
         )
-        object.__setattr__(self, "reasons", tuple(self.reasons))
 
 
 @dataclass(frozen=True)
@@ -62,20 +60,6 @@ class MCPPluginUpgradeResult:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "diagnostics", tuple(self.diagnostics))
-
-
-def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
-    """Read raw evidence without hydrating or migrating workspace models."""
-    from .mcp_plugin_upgrade import inventory_mcp_usage as inventory
-
-    return inventory(config_path=config_path, plugins_dir=plugins_dir)
-
-
-async def ensure_mcp_plugin_for_upgrade(snapshot, *, loader):
-    """Reuse the loader-owned offline protocol installation coordinator."""
-    from .mcp_plugin_upgrade import get_coordinator
-
-    return await get_coordinator(loader).ensure(snapshot)
 
 
 def validate_mcp_upgrade_preflight(snapshot):
@@ -547,9 +531,4 @@ def classify_mcp_usage(snapshot: MCPUsageSnapshot) -> MCPUsageDecision:
         status = "needs_review"
     else:
         status = "unused"
-    reasons = ["workspace_" + value for value in statuses.values()]
-    if off:
-        reasons.append("plugin_explicit_off")
-    if invalid_settings:
-        reasons.append("invalid_plugin_settings")
-    return MCPUsageDecision(status, statuses, tuple(dict.fromkeys(reasons)))
+    return MCPUsageDecision(status, statuses)

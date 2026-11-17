@@ -10,7 +10,6 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from ..drivers.capabilities import DriverRuntimeInfo
 from ..drivers.contracts import DriverCard
 from ..drivers.credentials.store import (
     AsyncCredentialStore,
@@ -104,34 +103,12 @@ class DriverConfigService:
         except CredentialNotFoundError:
             return None
 
-    async def save_card(
-        self,
-        card: DriverCard,
-        *,
-        reload_driver: bool = True,
-    ) -> Path:
-        path = await self.card_store.save(card)
-        await self._request_monitoring(card.protocol)
-        if reload_driver:
-            await self.reload_driver_best_effort(card.name)
-        return path
-
     async def save_card_if_absent(self, card: DriverCard) -> bool:
         """Persist an imported card without replacing an existing one."""
         saved = await self.card_store.save_if_absent(card)
         if saved:
             await self._request_monitoring(card.protocol)
         return saved
-
-    async def save_policy(self, card: DriverCard) -> Path:
-        """Persist policy changes and update the active Driver immediately."""
-        manager = getattr(self._workspace, "driver_manager", None)
-        if manager is not None:
-            await manager.sync_driver_policy(card)
-        else:
-            await self.card_store.save(card)
-        await self._request_monitoring(card.protocol)
-        return self.card_path(card.name, protocol=card.protocol)
 
     async def _request_monitoring(self, protocol: str) -> None:
         manager = getattr(self._workspace, "driver_manager", None)
@@ -218,24 +195,3 @@ class DriverConfigService:
             kind=kind,
             request_context=request_context or {},
         )
-
-
-async def ensure_driver_active(
-    manager: Any,
-    name: str,
-    *,
-    protocol: str,
-) -> DriverRuntimeInfo:
-    """Compatibility helper for tests and small call sites."""
-    drivers = await manager.list_drivers(protocol=protocol)
-    current = next((item for item in drivers if item.name == name), None)
-    if current is None or current.status != "active":
-        status = current.status if current is not None else "missing"
-        raise HTTPException(
-            503,
-            detail=(
-                f"{protocol.upper()} client '{name}' is saved but not "
-                f"active yet (status={status})"
-            ),
-        )
-    return current

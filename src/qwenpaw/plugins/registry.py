@@ -216,11 +216,6 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         if current is not None and current.owner is expected_owner:
             del self._driver_protocols[protocol]
 
-    def get_driver_protocol(self, protocol):
-        """Return the owner/spec pair without creating a connection."""
-        descriptor = self._driver_protocols.get(protocol)
-        return (descriptor.owner, descriptor.spec) if descriptor else None
-
     @property
     def backend_registry_initialized(self):
         """Check declaration presence without importing backend machinery."""

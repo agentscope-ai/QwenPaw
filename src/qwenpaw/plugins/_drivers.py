@@ -520,7 +520,6 @@ class SDKDriverHandler(DriverHandler):
         self.manager = None
         self.scope = None
         self.connection = None
-        self.capabilities = None
         self.tasks = set()
         self.stopping = False
         self.closed = False
@@ -580,7 +579,6 @@ class SDKDriverHandler(DriverHandler):
 
     def sync_runtime_metadata(self, card):
         self.metadata_revision += 1
-        self.capabilities = None
         super().sync_runtime_metadata(card)
 
     def set_policy(self, policy):
@@ -589,7 +587,6 @@ class SDKDriverHandler(DriverHandler):
 
     def invalidate(self):
         self.guard()
-        self.capabilities = None
 
     async def _setup(self):
         # Only the current workspace may start a new connection.
@@ -706,7 +703,6 @@ class SDKDriverHandler(DriverHandler):
                 raise StaleContextError(
                     "Driver metadata changed during discovery",
                 )
-            self.capabilities = tuple(specs)
             return result
 
     def _invocation_target(self, invocation):
@@ -915,10 +911,6 @@ async def management_source(services, protocol, source_id):
 
     async def check():
         guard()
-        descriptor.guard()
-        _workspace_guard(registry, workspace)
-        if not live:
-            raise StaleContextError("Driver management scope has ended")
         try:
             current = await store.load(source_id, protocol=protocol)
         except DriverCardError as exc:

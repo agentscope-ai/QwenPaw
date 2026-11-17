@@ -205,7 +205,6 @@ class StartupMigration:
     config_path: str
     marker: dict | None
     snapshot: MCPUsageSnapshot | None = None
-    diagnostics: tuple[str, ...] = ()
 
 
 def read_startup_migration(*, config_path=None, plugins_dir=None):
@@ -235,19 +234,11 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
         not isinstance(settings, dict)
         or ("enabled" in settings and type(settings["enabled"]) is not bool)
     ):
-        return StartupMigration(
-            str(config_path),
-            None,
-            diagnostics=("invalid_plugin_settings",),
-        )
+        return StartupMigration(str(config_path), None)
     try:
         marker = _read_marker(plugins_dir / MARKER)
     except (OSError, ValueError):
-        return StartupMigration(
-            str(config_path),
-            None,
-            diagnostics=("invalid_upgrade_record",),
-        )
+        return StartupMigration(str(config_path), None)
     snapshot = None
     if marker is None:
         snapshot = inventory_mcp_usage(
@@ -318,7 +309,6 @@ async def capture_workspace_usage(workspace_id, directory):
 
 def bind_workspace_usage(workspace, snapshot):
     if snapshot is not None:
-        workspace._mcp_usage_snapshot = snapshot
         workspace._mcp_usage_status = classify_mcp_usage(
             MCPUsageSnapshot((snapshot,)),
         ).status
@@ -330,7 +320,6 @@ class MCPPluginCoordinator:
     def __init__(self, loader):
         self.loader = loader
         self.config_path = None
-        self.workspace_statuses = {}
         self.root_valid = True
         self.latest_result = None
         self.initial_evidence = {}
@@ -395,7 +384,7 @@ class MCPPluginCoordinator:
         )
         return self.latest_result
 
-    async def restore(self, marker, *, diagnostics=()):
+    async def restore(self, marker):
         """Restore decisions only; ordinary plugin loading owns runtime health."""
         # Startup snapshots never authorize a later directory publication.
         observed = marker
@@ -731,11 +720,10 @@ class MCPPluginCoordinator:
     async def _ensure_snapshot(self, snapshot):
         self.config_path = snapshot.config_path or self.config_path
         decision = classify_mcp_usage(snapshot)
-        self.workspace_statuses = dict(decision.workspace_statuses)
         self.initial_evidence = {
             item.workspace_id: item for item in snapshot.workspaces
         }
-        self.root_valid = "__root__" not in self.workspace_statuses
+        self.root_valid = "__root__" not in decision.workspace_statuses
         marker = await run_sync_io(_read_marker, self.marker_path)
         if marker is not None:
             return await self.restore(marker)
@@ -829,7 +817,6 @@ class MCPPluginCoordinator:
                 marker,
                 transaction=uuid4().hex,
                 digest=digest,
-                version=manifest.version,
                 stage="preparing",
             )
             _, off = await run_sync_io(self._current_settings)
@@ -944,10 +931,7 @@ async def prepare_startup_plugins(
     if startup is not None:
         coordinator.config_path = startup.config_path
     if startup is not None and startup.snapshot is None:
-        result = await coordinator.restore(
-            startup.marker,
-            diagnostics=startup.diagnostics,
-        )
+        result = await coordinator.restore(startup.marker)
         current = MCPUsageSnapshot((), config_path=startup.config_path)
     else:
         result = None

@@ -127,16 +127,6 @@ async def create_driver_service(
     return service
 
 
-async def create_driver_config_watcher(ws, _service, publish):
-    """Compatibility factory; the lazy service owns watcher lifecycle."""
-    # pylint: disable=protected-access
-    service = ws._service_manager.services.get("driver_manager")
-    watcher = service.watcher if service is not None else None
-    if watcher is not None:
-        publish(watcher)
-    return watcher
-
-
 async def create_chat_service(
     ws: "Workspace",
     service,

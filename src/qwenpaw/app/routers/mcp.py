@@ -8,11 +8,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Body, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from ..mcp.config_service import (
-    MCPConfigService,
-    ensure_mcp_display_name_unique,
-    ensure_mcp_driver_active,
-)
+from ..mcp.config_service import MCPConfigService
 from ..mcp.schemas import (
     MCPAccessPolicy,
     MCPAccessPrincipalOption,
@@ -57,25 +53,6 @@ async def _agent_for_request(request: Request) -> Any:
         else:
             return await get_agent_for_request(request)
     return await configuration_workspace(request)
-
-
-async def _ensure_mcp_driver_active(manager: Any, client_key: str) -> None:
-    """Compatibility wrapper for existing tests."""
-    await ensure_mcp_driver_active(manager, client_key)
-
-
-async def _ensure_mcp_display_name_unique(
-    agent: Any,
-    display_name: str,
-    *,
-    client_key: str,
-) -> None:
-    """Compatibility wrapper for existing tests."""
-    await ensure_mcp_display_name_unique(
-        _mcp_service(agent),
-        display_name,
-        client_key=client_key,
-    )
 
 
 @router.get(

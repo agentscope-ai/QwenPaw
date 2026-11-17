@@ -295,30 +295,6 @@ def attach_mcp_oauth_credential(card: DriverCard, ref: str) -> DriverCard:
     return replace(card, endpoint=endpoint, credentials=credentials)
 
 
-def detach_mcp_oauth_credential(card: DriverCard) -> DriverCard:
-    """Return a card with OAuth source and bearer binding removed."""
-    credentials = _credential_refs_from_existing(card)
-    credentials.pop(OAUTH_CREDENTIAL_ALIAS, None)
-    endpoint = dict(card.endpoint)
-    headers = endpoint.get("headers")
-    if isinstance(headers, dict):
-        updated_headers = dict(headers)
-        auth_spec = updated_headers.get("Authorization")
-        if (
-            isinstance(auth_spec, dict)
-            and auth_spec.get("source") == "credential"
-            and auth_spec.get("credential") == OAUTH_CREDENTIAL_ALIAS
-        ):
-            updated_headers.pop("Authorization", None)
-        endpoint["headers"] = updated_headers
-    return replace(card, endpoint=endpoint, credentials=credentials)
-
-
-def update_oauth_credential_ref(card: DriverCard, ref: str) -> DriverCard:
-    """Return a copy of card pointing at an OAuth auth-code credential."""
-    return attach_mcp_oauth_credential(card, ref)
-
-
 def _is_tool_access_override(rule: Any) -> bool:
     if (
         rule.condition is not None

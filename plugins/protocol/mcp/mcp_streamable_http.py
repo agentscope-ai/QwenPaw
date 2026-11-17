@@ -548,7 +548,6 @@ class _HttpClientBase:
             self.timeout,
         )
         self.client_kwargs = dict(client_kwargs)
-        self.is_stateful = False
         self.is_connected = False
 
 
@@ -989,7 +988,6 @@ class HttpAutoClient(_HttpClientBase):
             )
         else:
             self._impl = modern
-            self.is_stateful = False
             self.is_connected = True
             return
         finally:
@@ -1029,14 +1027,12 @@ class HttpAutoClient(_HttpClientBase):
                     f"({exc}); modern probe reported: {fallback_reason}",
                 )
             raise
-        self.is_stateful = True
         self.is_connected = True
 
     async def close(self, ignore_errors: bool = True) -> None:
         """Close the active modern or legacy implementation."""
         async with self._lifecycle_lock:
             self.is_connected = False
-            self.is_stateful = False
             impl = self._impl
             if impl is None:
                 return

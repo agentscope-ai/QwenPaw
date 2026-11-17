@@ -14,10 +14,7 @@ from uuid import uuid4
 from fastapi import HTTPException
 from ...config.utils import get_config_path, load_config
 
-from ..driver_config_service import (
-    DriverConfigService,
-    ensure_driver_active,
-)
+from ..driver_config_service import DriverConfigService
 from .schemas import (
     MCPAccessPolicy,
     MCPAccessPrincipalOption,
@@ -728,10 +725,6 @@ def driver_policy_from_mcp_access_update(
         default_effect=access.default_effect,
         rules=[*unmanaged_rules, *managed_rules],
     )
-
-
-async def ensure_mcp_driver_active(manager: Any, client_key: str) -> None:
-    await ensure_driver_active(manager, client_key, protocol=MCP_PROTOCOL)
 
 
 def _display_name_key(value: str) -> str:
