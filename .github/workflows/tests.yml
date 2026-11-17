@@ -172,7 +172,8 @@ jobs:
           python scripts/check_plugin_sdk_artifacts.py \
             --wheel "${wheel[0]}" --sdist "${sdist[0]}" \
             --python "$RUNNER_TEMP/sdk-author-venv/bin/python" \
-            --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/sdk-author"
+            --source-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/sdk-author" \
+            --local-provider
 
       - name: Upload public SDK author verification
         if: always() && matrix.python-version == '3.11'

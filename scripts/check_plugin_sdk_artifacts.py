@@ -67,9 +67,75 @@ def prepare_author_tests(
     return tests
 
 
-# The standalone acceptance sequence shares one report and environment.
-# pylint: disable-next=too-many-statements
-def main():
+def check_local_provider_artifact(artifact: Path, source: Path) -> None:
+    """Check that the bundled provider ships its Python and metadata files."""
+    local = source / "plugins/provider/local-llamacpp"
+    files = list(local.rglob("*.py")) + [
+        local / "plugin.json",
+        local / "requirements.txt",
+        local / "runtime-release.json",
+    ]
+    wheel = artifact.suffix == ".whl"
+    with (
+        zipfile.ZipFile(artifact) if wheel else tarfile.open(artifact)
+    ) as archive:
+        names = archive.namelist() if wheel else archive.getnames()
+        prefix = (
+            "qwenpaw/plugins/bundled/provider/local-llamacpp"
+            if wheel
+            else names[0].split("/")[0] + "/plugins/provider/local-llamacpp"
+        )
+        for file in files:
+            name = f"{prefix}/{file.relative_to(local).as_posix()}"
+            assert (
+                name in names
+            ), f"Missing bundled local provider file: {name}"
+            if wheel:
+                content = archive.read(name)
+            else:
+                with archive.extractfile(name) as stream:
+                    content = stream.read()
+            assert (
+                content == file.read_bytes()
+            ), f"Bundled local provider differs from source: {name}"
+
+
+def prepare_local_provider_tests(source: Path, root: Path) -> list[str]:
+    """Select installed local-provider checks separately from SDK authors."""
+    suite = root / "local_provider_tests"
+    suite.mkdir()
+    file = "test_sdk_local_model_contract.py"
+    shutil.copy2(source / "tests/unit/plugins" / file, suite)
+    return [
+        f"{suite / file}::{name}"
+        for name in (
+            "test_bundle_load_does_not_import_backend_or_download_packages",
+            "test_local_dataclasses_preserve_management_http_responses",
+        )
+    ]
+
+
+def run_acceptance_tests(
+    run,
+    source: Path,
+    root: Path,
+    *,
+    local_provider: bool = False,
+) -> None:
+    """Run public SDK tests and explicitly requested local checks."""
+    suites = {"public-author-tests": [str(root / "author_tests")]}
+    if local_provider:
+        suites[
+            "installed-local-provider-tests"
+        ] = prepare_local_provider_tests(
+            source,
+            root,
+        )
+    for name, nodes in suites.items():
+        run(name, "-m", "pytest", *nodes, "-q", "--tb=short", "--timeout=45")
+
+
+def _parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--wheel", type=Path, required=True)
     parser.add_argument("--sdist", type=Path, required=True)
@@ -77,7 +143,18 @@ def main():
     parser.add_argument("--source-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--test-files", nargs="+")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--local-provider",
+        action="store_true",
+        help="Also check the installed local provider (requires the local extra).",
+    )
+    return parser.parse_args(argv)
+
+
+# The standalone acceptance sequence shares one report and environment.
+# pylint: disable-next=too-many-statements
+def main():
+    args = _parse_args()
     root, source = args.output.resolve(), args.source_root.resolve()
     assert not root.exists(), "Author output must be a new directory"
     assert not root.is_relative_to(
@@ -126,10 +203,11 @@ def main():
             print("\n".join(result.stdout.splitlines()[-40:]), file=sys.stderr)
         assert (
             result.returncode == 0
-        ), f"{name} failed; see {root / (name + '.log')}"
+        ), f"{name} failed; see {root / (name + '.log')}\n{result.stdout}"
         return result.stdout
 
     for artifact in (args.wheel.resolve(), args.sdist.resolve()):
+        check_local_provider_artifact(artifact, source)
         if artifact.suffix == ".whl":
             with zipfile.ZipFile(artifact) as archive:
                 names = archive.namelist()
@@ -262,14 +340,11 @@ print(json.dumps({{
         str(root / typing_source.name),
     )
     report["tests"] = prepare_author_tests(source, root, args.test_files)
-    run(
-        "public-author-tests",
-        "-m",
-        "pytest",
-        str(root / "author_tests"),
-        "-q",
-        "--tb=short",
-        "--timeout=45",
+    run_acceptance_tests(
+        run,
+        source,
+        root,
+        local_provider=args.local_provider,
     )
     template, frontend = root / "template", root / "frontend"
     run(
