@@ -1196,8 +1196,11 @@ class CronManager(ManagerBase):
                     st.last_status = "success"
                     st.last_error = None
                 logger.info(
-                    "cron _execute_once: job_id=%s status=success",
+                    "cron _execute_once: job_id=%s status=%s "
+                    "execution_status=success delivery_status=%s",
                     job.id,
+                    st.last_status,
+                    execution_result.get("delivery_status", "success"),
                 )
             except asyncio.CancelledError:
                 st.last_status = "cancelled"

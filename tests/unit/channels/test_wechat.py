@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """iLink login, native messages, media and polling lifecycle."""
+
 import asyncio
 import base64
 import hashlib
 import json
+import ssl
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +17,140 @@ from qwenpaw.channel_protocol.models import SendParams
 from tests.channel_support.driver import bind, module
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.parametrize(
+    "failure,fail_chunk,recover,state,attempts",
+    [
+        (httpx.ConnectError, 1, True, "acknowledged", 3),
+        (httpx.ConnectTimeout, 1, False, "failed", 3),
+        (httpx.ConnectError, 2, False, "unknown", 4),
+        (httpx.ReadTimeout, 2, False, "unknown", 2),
+        (ssl.SSLCertVerificationError, 1, False, "failed", 1),
+    ],
+)
+async def test_send_retries_only_unsent_connection_attempts(
+    tmp_path,
+    failure,
+    fail_chunk,
+    recover,
+    state,
+    attempts,
+):
+    client = module("wechat", "client").ILinkClient(
+        "fake",
+        "https://test.invalid",
+    )
+    bodies, accepted = [], []
+
+    async def transport(request):
+        body = json.loads(request.content)["msg"]
+        bodies.append(body)
+        chunk = body["item_list"][0]["text_item"]["text"]
+        if chunk == ("first" if fail_chunk == 1 else "second"):
+            if not recover or len(bodies) == 1:
+                if failure is ssl.SSLCertVerificationError:
+                    raise httpx.ConnectError(
+                        "untrusted certificate",
+                    ) from failure(1, "untrusted")
+                raise failure("injected connection boundary", request=request)
+        accepted.append(chunk)
+        return httpx.Response(200, json={"message_id": "accepted"})
+
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(transport),
+    )
+    driver = module("wechat").WeChatDriver()
+    peer, identity = bind("wechat", driver, tmp_path)
+    platform = module("wechat", "platform").WeChatPlatform({}, None, None)
+    platform._client = client
+    driver._platform, driver._connected = platform, True
+    opened = await peer.methods["channel.response.open"](
+        {
+            **identity.to_mapping(),
+            "to_handle": "user",
+            "meta": {"wechat_context_token": "context"},
+        },
+        None,
+    )
+    params = SendParams.from_mapping(
+        {
+            **identity.to_mapping(),
+            "to_handle": opened["response_handle"],
+            "delivery_id": "retry-test",
+            "operation": "message.create",
+            "content_parts": [
+                {"type": "text", "text": "first"},
+                {"type": "text", "text": "second"},
+            ],
+        },
+    )
+    try:
+        result = await peer.methods["channel.send"](params, None)
+        assert result["state"] == state
+        assert len(bodies) == attempts
+        assert accepted == (
+            ["first", "second"]
+            if recover
+            else ["first"]
+            if fail_chunk == 2
+            else []
+        )
+        failed_bodies = [
+            b
+            for b in bodies
+            if b["item_list"][0]["text_item"]["text"]
+            == ("first" if fail_chunk == 1 else "second")
+        ]
+        assert all(body == failed_bodies[0] for body in failed_bodies)
+        # Replaying the same delivery never sends either chunk again.
+        assert await peer.methods["channel.send"](params, None) == result
+        assert len(bodies) == attempts
+    finally:
+        await client.stop()
+
+
+async def test_connection_retry_inherits_budget_and_propagates_cancellation():
+    from qwenpaw.channel_protocol.outbound_budget import send_budget
+
+    client = module("wechat", "client").ILinkClient(
+        "fake",
+        "https://test.invalid",
+    )
+    entered = asyncio.Event()
+    attempts = []
+
+    async def transport(request):
+        if request.url.path.endswith("/getupdates"):
+            await asyncio.sleep(0.02)
+            return httpx.Response(200, json={"ret": 0})
+        attempts.append(request)
+        entered.set()
+        raise httpx.ConnectError("offline", request=request)
+
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(transport),
+    )
+    try:
+        with send_budget(0.01):
+            with pytest.raises(httpx.ConnectError):
+                await client.send_text("user", "text", "context")
+        assert len(attempts) == 1
+        entered.clear()
+        sending = asyncio.create_task(
+            client.send_text("user", "text", "context"),
+        )
+        await entered.wait()
+        sending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await sending
+        assert len(attempts) == 2
+        # A long poll retains its own timeout even if launched from a context
+        # carrying a short send deadline. Only sendmessage opts into retries.
+        with send_budget(0.001):
+            assert await client.getupdates() == {"ret": 0}
+    finally:
+        await client.stop()
 
 
 def message(number, *, group="", text="hello"):

@@ -18,12 +18,17 @@ import base64
 import hashlib
 import logging
 import secrets
+import ssl
 import uuid
 from typing import Any, Dict, Optional, Tuple
 from urllib.parse import quote
 
 import httpx
 
+from qwenpaw.channel_protocol.outbound_budget import (
+    await_send,
+    retry_delay_fits,
+)
 from .utils import (
     aes_ecb_decrypt,
     aes_ecb_encrypt,
@@ -41,6 +46,21 @@ _DEFAULT_TIMEOUT = 15.0
 # iLink holds QR-status polls up to ~30s; use a dedicated longer timeout
 # so wait_for_login governs total wait time, not the transport.
 _QRCODE_STATUS_TIMEOUT = 60.0
+
+
+def _connection_details(error):
+    """Extract bounded diagnostics without credentials or request URLs."""
+    seen, errno, verify_code, tls_error = set(), None, None, False
+    cause = error
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        tls_error |= isinstance(cause, ssl.SSLError)
+        if isinstance(getattr(cause, "errno", None), int):
+            errno = cause.errno
+        if isinstance(getattr(cause, "verify_code", None), int):
+            verify_code = cause.verify_code
+        cause = cause.__cause__ or cause.__context__
+    return errno, verify_code, tls_error
 
 
 class ILinkClient:
@@ -111,6 +131,8 @@ class ILinkClient:
         path: str,
         body: Dict[str, Any],
         timeout: float = _DEFAULT_TIMEOUT,
+        *,
+        retry_connections: bool = False,
     ) -> Any:
         if self._client is None:
             raise ChannelError(
@@ -118,12 +140,38 @@ class ILinkClient:
                 message="ILinkClient not started",
             )
         headers = make_headers(self.bot_token)
-        resp = await self._client.post(
-            self._url(path),
-            json=body,
-            headers=headers,
-            timeout=timeout,
-        )
+        # Only sendmessage opts in. Reuse the built body/client_id, and keep
+        # every attempt and delay inside the inherited outbound deadline.
+        for attempt in range(3 if retry_connections else 1):
+            try:
+                request = self._client.post(
+                    self._url(path),
+                    json=body,
+                    headers=headers,
+                    timeout=timeout,
+                )
+                resp = (
+                    await await_send(request)
+                    if retry_connections
+                    else await request
+                )
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                errno, verify_code, tls_error = _connection_details(exc)
+                logger.warning(
+                    "iLink connection failed: attempt=%s error_type=%s "
+                    "errno=%s verify_code=%s",
+                    attempt + 1,
+                    type(exc).__name__,
+                    errno,
+                    verify_code,
+                )
+                if not retry_connections or tls_error or attempt == 2:
+                    raise
+                delay = (0.2, 0.5)[attempt]
+                if not retry_delay_fits(delay):
+                    raise
+                await await_send(asyncio.sleep(delay))
         resp.raise_for_status()
         return resp.json()
 
@@ -241,6 +289,7 @@ class ILinkClient:
         return await self._post(
             "ilink/bot/sendmessage",
             {"msg": msg, "base_info": {"channel_version": _CHANNEL_VERSION}},
+            retry_connections=True,
         )
 
     async def send_text(
