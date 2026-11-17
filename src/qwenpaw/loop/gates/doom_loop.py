@@ -38,8 +38,7 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
-    last_recorded_msg_id: str | None = None
-    last_recorded_block_count: int = 0
+    recorded_tool_call_ids: set[str] = field(default_factory=set)
     history_dirty: bool = False
 
 
@@ -111,8 +110,7 @@ class DoomLoopGate(LoopGate):
             state.history.clear()
             state.consecutive_hits = 0
             state.prompt = ""
-            state.last_recorded_msg_id = None
-            state.last_recorded_block_count = 0
+            state.recorded_tool_call_ids.clear()
             state.history_dirty = False
 
     async def check(
@@ -187,7 +185,7 @@ class DoomLoopGate(LoopGate):
         ctx: Any,
         state: _DoomState,
     ) -> None:
-        """Record tool calls newly appended to the latest message."""
+        """Record tool calls of this turn that were not seen yet."""
         if not isinstance(ctx, dict):
             return
         if ctx.get("has_tool_calls") is False:
@@ -208,30 +206,32 @@ class DoomLoopGate(LoopGate):
         if not content or not isinstance(content, list):
             return
 
-        # A reply keeps appending blocks to one assistant message whose id
-        # stays ``reply_id``, so the message id cannot tell which tool calls
-        # were already recorded. Consume the tail of the message instead,
-        # so every iteration contributes its own calls.
-        tool_blocks = [
-            block
-            for block in content
-            if (
+        # One reply may be split into several assistant messages that all
+        # reuse ``reply_id`` as their id: a warning injects a user message,
+        # then the next reasoning step opens a new assistant message. The
+        # message id and a per-message block count therefore cannot tell
+        # which calls were already recorded. Tool call blocks carry a
+        # unique id, so record every id not seen yet in this turn.
+        for block in content:
+            btype = (
                 block.get("type")
                 if isinstance(block, dict)
                 else getattr(block, "type", None)
             )
-            in ("tool_call", "tool_use")
-        ]
-        if last_msg.id == state.last_recorded_msg_id:
-            start = state.last_recorded_block_count
-            if len(tool_blocks) <= start:
-                return
-        else:
-            start = 0
-        state.last_recorded_msg_id = last_msg.id
-        state.last_recorded_block_count = len(tool_blocks)
-
-        for block in tool_blocks[start:]:
+            if btype not in ("tool_call", "tool_use"):
+                continue
+            call_id = (
+                block.get("id")
+                if isinstance(block, dict)
+                else getattr(block, "id", None)
+            )
+            if not isinstance(call_id, str) or not call_id:
+                # Dict-shaped blocks may omit the id; fall back to the
+                # block object so re-checking a snapshot stays a no-op.
+                call_id = f"object:{id(block)}"
+            if call_id in state.recorded_tool_call_ids:
+                continue
+            state.recorded_tool_call_ids.add(call_id)
             name = (
                 block.get("name", "")
                 if isinstance(block, dict)
