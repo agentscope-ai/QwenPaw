@@ -586,6 +586,60 @@ async def test_execute_once_records_last_run_in_job_timezone(
     assert history[0].run_at == state.last_run_at
 
 
+@pytest.mark.asyncio
+async def test_execute_once_records_a_gate_stop_as_an_error(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+    monkeypatch,
+):
+    spec = make_cron_job_spec(job_id="gate-job")
+    await repo.upsert_job(spec)
+    inbox = AsyncMock()
+    monkeypatch.setattr(
+        "qwenpaw.app.crons.manager.append_inbox_event",
+        inbox,
+    )
+    manager._executor.execute = AsyncMock(
+        return_value={
+            "delivery_status": "success",
+            "run_id": "run-1",
+            "stop_reason": "Doom loop: agent stuck",
+        },
+    )
+
+    await manager._execute_once(spec, trigger="manual")
+
+    state = manager.get_state("gate-job")
+    assert state.last_status == "error"
+    assert "Doom loop: agent stuck" in (state.last_error or "")
+    event = inbox.await_args.kwargs
+    assert event["status"] == "error"
+    assert event["severity"] == "warning"
+    assert "Doom loop: agent stuck" in event["body"]
+
+
+@pytest.mark.asyncio
+async def test_execute_once_records_a_normal_turn_as_success(
+    manager: CronManager,
+    repo: InMemoryJobRepository,
+):
+    spec = make_cron_job_spec(job_id="plain-job")
+    await repo.upsert_job(spec)
+    manager._executor.execute = AsyncMock(
+        return_value={
+            "delivery_status": "success",
+            "run_id": "run-2",
+            "stop_reason": None,
+        },
+    )
+
+    await manager._execute_once(spec, trigger="manual")
+
+    state = manager.get_state("plain-job")
+    assert state.last_status == "success"
+    assert state.last_error is None
+
+
 # ---------------------------------------------------------------------------
 # delete_job cleans up in-memory state
 # ---------------------------------------------------------------------------

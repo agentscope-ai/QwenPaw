@@ -126,6 +126,10 @@ EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
 AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
 LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
 RUBRIC_EVALUATION_MESSAGE_TAG = "rubric_evaluation"
+# Metadata key carrying the reason a loop gate stopped the turn. Consumers
+# outside the agent loop (e.g. cron) need it to tell a gate stop from a
+# normal completion, whose final message is otherwise identical.
+QWENPAW_STOP_REASON_KEY = "qwenpaw_stop_reason"
 # User-role messages the runtime injects to keep a turn going. They are NOT
 # new requests: the scroll active-turn anchor (live scan + SQL floor) must
 # skip them, or the anchor jumps to the stub and the REAL request becomes

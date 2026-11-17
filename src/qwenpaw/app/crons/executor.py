@@ -9,6 +9,7 @@ import re
 import uuid
 from typing import Any, AsyncIterator, Dict
 
+from ...constant import QWENPAW_STOP_REASON_KEY
 from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
     append_trace_from_session_delta,
@@ -98,6 +99,22 @@ class CronExecutionTimeout(asyncio.TimeoutError):
     def __init__(self, *, run_id: str, timeout_seconds: float):
         super().__init__(f"timed out after {timeout_seconds}s")
         self.run_id = run_id
+
+
+def _stop_reason_of(event: Any) -> str | None:
+    """Return the loop-gate stop reason carried by ``event``, if any.
+
+    The runtime stamps the reason on the message metadata of the
+    finalized reply, so the cron job learns why a turn ended instead of
+    assuming every stream that produced text succeeded.
+    """
+    metadata = getattr(event, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    reason = metadata.get(QWENPAW_STOP_REASON_KEY)
+    if isinstance(reason, str) and reason:
+        return reason
+    return None
 
 
 class CronExecutor:
@@ -265,9 +282,10 @@ class CronExecutor:
         )
 
         final_no_content = False
+        stop_reason: str | None = None
 
         async def _run() -> AsyncIterator[Any]:
-            nonlocal delivery_error, final_no_content
+            nonlocal delivery_error, final_no_content, stop_reason
 
             async def _deliver(event: Any) -> None:
                 nonlocal delivery_error
@@ -305,6 +323,8 @@ class CronExecutor:
                     )
             final_event: Any | None = None
             async for event in self._workspace.stream_query(req):
+                if stop_reason is None:
+                    stop_reason = _stop_reason_of(event)
                 yield event
                 if job.dispatch.silent:
                     continue
@@ -395,7 +415,10 @@ class CronExecutor:
                 channel=target_channel,
                 baseline_count=baseline_count,
             )
-            await finalize_trace(run_id, status="success")
+            await finalize_trace(
+                run_id,
+                status="error" if stop_reason else "success",
+            )
             if job.dispatch.silent:
                 delivery_status = "suppressed"
             elif delivery_error:
@@ -410,6 +433,7 @@ class CronExecutor:
                 "session_id": req["session_id"],
                 "delivery_status": delivery_status,
                 "delivery_error": delivery_error,
+                "stop_reason": stop_reason,
             }
         except asyncio.TimeoutError:
             logger.warning(

@@ -59,6 +59,22 @@ class AgentExecutor:
             async for obj in self._envelope.translate_event(event):
                 yield obj
 
+        self._carry_stop_reason()
+
+    def _carry_stop_reason(self) -> None:
+        """Hand a loop-gate stop reason to the envelope before finalize.
+
+        The agent keeps the reason out of band because agentscope drops
+        the reply Msg that carries it; the envelope is the last object
+        that both the runtime and the streamed message share.
+        """
+        reason = getattr(self._agent, "stop_reason", None)
+        if not reason or self._envelope is None:
+            return
+        setter = getattr(self._envelope, "set_stop_reason", None)
+        if setter is not None:
+            setter(reason)
+
     def _maybe_stamp_finished_at(self, event: Any) -> None:
         """Backfill ``finished_at`` on the reply's assistant message.
 
