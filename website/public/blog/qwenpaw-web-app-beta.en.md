@@ -1,48 +1,52 @@
 ---
-title: "QwenPaw Web App Beta: cloud and local workspaces on your phone"
+title: "QwenPaw on your phone: Web App Beta"
 date: 2026-11-16
 author: QwenPaw Team
 tags: [Web App, PWA, Mobile, Beta]
-excerpt: "Connect Platform from Console, scan to sign in on your phone, and add QwenPaw to your home screen."
+excerpt: "Pick up a conversation from your phone, switch between cloud and local workspaces, and keep using the Console you already know."
 related:
   heading: "Get started on your phone"
-  description: "Beta feature. May be unstable. Both your local instance and Platform must support this feature."
+  description: "Connect your local workspace, sign in with a QR code, and add QwenPaw to your home screen."
   items:
     - label: "Docs"
       name: "Mobile Web App guide"
       href: "/docs/mobile"
 ---
 
-# QwenPaw Web App Beta: cloud and local workspaces on your phone
+# QwenPaw on your phone: Web App Beta
 
-The mobile experience is a Web App. Open it in your browser, sign in, and add it to your home screen to switch between cloud deployments and connected local QwenPaw instances. This feature is **Beta** and may be unstable.
+You no longer need to be at your computer to use your local QwenPaw. Web App access lets you pick up a conversation from your phone and switch between cloud deployments and connected local workspaces. Open it in your browser or add it to your home screen. No native app is needed.
+
+Web App access is in **Beta** and may be unstable. Your QwenPaw installation and Platform deployment must both support it.
 
 ## Start from Console
 
-The mobile entry is [platform.agentscope.io/m](https://platform.agentscope.io/m). Both your local instance and Platform need this Beta deployment.
+Open [platform.agentscope.io/m](https://platform.agentscope.io/m), or connect your local workspace from Console.
 
-![The Platform account panel in Console](/images/mobile/console-account.jpg)
+![The local Console workspace menu and phone button (demo environment)](https://github.com/user-attachments/assets/99a956a4-8e86-4b74-903f-e76ba134ba03)
 
-Click the phone icon at the top right of your local Console. If needed, sign in to your cloud account from that dialog; the QR code appears there once the connection completes. Scan it, compare the digits on both devices, and confirm the phone on your computer. Follow the phone's instructions to add the app to your home screen.
+Click the phone icon at the top right of your local Console. If you have not connected a cloud account, sign in from that dialog. Once connected, the same dialog shows a QR code. Scan it with your phone, check that the digits match on both screens, and confirm sign-in on your computer.
 
-Use any QR scanner. Recognized in-app browsers, including WeChat and DingTalk, first guide you to Safari or your system browser and let you copy the complete link. Switch browsers before continuing authorization. The phone page and home-screen icon use the QwenPaw logo. On iOS, adding the app still uses Safari's Share menu.
+You can use any QR scanner. If the link opens inside WeChat, DingTalk, or another app, follow the page's instructions to open it in Safari or your system browser before continuing. You can also copy the full link. After sign-in, the page explains how to add QwenPaw to your home screen.
 
-The phone signs in to your full Platform account, including all its cloud and connected targets. The QR code contains only a short-lived, single-use authorization. Long-lived credentials never appear in the QR code or URL.
+This signs your phone in to your **full Platform account**, with access to its cloud and connected workspaces. Only confirm a phone you trust. The QR code uses a short-lived, single-use authorization; it never contains a long-lived account token.
 
-Hub users see both their local and cloud identities. Each remote binding points to that user's personal Runtime. Standalone users sign in to Platform directly, without creating a new local account. One cloud account can connect multiple local accounts or devices within its node quota.
+Hub users keep their local and cloud accounts separate, and each connection is limited to that user's personal Runtime. Standalone users can sign in to Platform without creating a local account. A cloud account can connect multiple local accounts or devices, up to its node quota.
 
-## What this phase supports
+## The Console you already know
 
-![Shared Console model and thinking controls (demo environment)](/images/mobile/model-thinking.jpg)
+![The shared Console's model and thinking controls (demo environment)](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
-Your phone uses the Console shipped with the selected node, including the existing model, thinking intensity, and mode controls in the composer. Other pages reuse the same interface. Switching targets keeps conversations and approvals separate. Returning from the background reloads saved state without automatically resending your last message. After a node upgrade, reload its matching Console; there is no separate mobile UI to maintain.
+Your phone loads the Console that comes with the workspace you select. The familiar model, thinking intensity, and mode controls are right in the composer; thinking settings are available when the selected model supports them. Conversations and approvals stay with their workspace when you switch.
 
-Your local instance continues running on your computer. The phone reaches it through Platform without a manually entered LAN address. Keep the computer on and connected.
+When you return to the app, it restores saved conversation state without resending your last message. If a node has been upgraded, reload to use its updated Console. The mobile and desktop experiences share the same UI.
+
+Your local QwenPaw still runs on your computer, so keep it on and connected. Your phone connects through Platform and can use a different network. There is no LAN address to enter.
 
 ## One browser entry across systems
 
-On iPhone and iPad, use Safari's Share → Add to Home Screen. Android can show an Install button or offer installation through its browser menu. On HarmonyOS, use the system browser's home-screen option when available; behavior depends on the OS and browser version.
+On iPhone and iPad, open Safari's **Share → Add to Home Screen** menu. On Android, use the **Install** button when available or the browser's installation menu. On HarmonyOS, look for an option to add the page to your home screen in the system browser. Availability varies by OS and browser version.
 
-Browser distribution avoids native mobile packages. Attachments, the file workspace, and terminal retain the node's capabilities and permissions. Installation, microphone access, and background behavior still require device testing; push notifications and offline execution are unavailable.
+Attachments, files, and terminal access follow the selected node's configuration and permissions. This Beta does not support push notifications or offline execution. Installation, microphone access, and background behavior still need to be checked on individual devices.
 
-See the [Mobile Web App guide](/docs/mobile) for steps, authorization scope, and troubleshooting.
+See the [Mobile Web App guide](/docs/mobile) for setup steps, account access, and troubleshooting.

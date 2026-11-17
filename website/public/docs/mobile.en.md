@@ -1,73 +1,76 @@
 # Mobile Web App (Beta)
 
-> Beta feature. May be unstable. Both your local QwenPaw and Platform must run versions that support this feature.
+> Web App access is in Beta and may be unstable. Your QwenPaw installation and Platform deployment must both support this feature.
 
-The mobile experience runs in your browser. Add it to your home screen to switch between cloud workspaces and connected local QwenPaw instances in Platform. Browser distribution does not require an App Store or Android store listing; installation behavior varies by system.
+Use QwenPaw from your phone's browser, or add it to your home screen for easy access. One workspace menu lets you switch between cloud deployments and connected local instances. There is no native app to install from an app store; home-screen installation varies by browser and operating system.
 
-Entry point: [platform.agentscope.io/m](https://platform.agentscope.io/m). This Beta requires a coordinated deployment; upgrading Console alone does not enable it.
+Open [platform.agentscope.io/m](https://platform.agentscope.io/m). To connect a local instance, follow the steps below. Updating Console alone will not enable the feature if your Platform deployment does not yet support Web App access.
 
-## Connect from your computer
+## Connect your local QwenPaw
 
-1. Start QwenPaw and open its Console.
-2. Click the top-right phone icon, choose **Sign in to cloud** in that dialog, and complete sign-in and authorization in the new window.
-3. The same dialog shows a QR code once the connection completes. You can also sign in and manage your cloud account from the bottom-left workspace menu.
+1. Start QwenPaw and open Console.
+2. Click the phone icon at the top right. If you have not connected a cloud account, choose **Sign in to cloud** and finish sign-in in the window that opens.
+3. Once connected, the same dialog shows a QR code. You can also sign in to or manage your cloud account from the workspace menu at the bottom left.
 
-Standalone users sign in to Platform directly, without creating a new local account. Hub users first sign in to their local account, then connect a cloud account. The account panel displays both identities. Each Hub binding targets that user's personal Runtime; administrator privileges do not expand its remote scope.
+For a standalone installation, sign in to Platform directly; you do not need to create a local account. In Hub, sign in to your local account first, then connect your cloud account. The account panel shows both. Each Hub connection is limited to that user's personal Runtime, including when the user is an administrator.
 
-One cloud account can connect multiple local accounts or devices, with separate credentials for each binding and subject to Platform's existing node quota. If enrollment fails, existing bindings remain intact. Resolve the quota or network issue, then choose **Retry connection**.
+One cloud account can connect multiple local accounts or devices, up to its node quota. Each connection has its own credentials. If a new connection fails, existing connections stay in place. Resolve the quota or network error shown in the panel, then choose **Retry connection**.
 
 ## Sign in on your phone
 
-![Platform account panel in Console](/images/mobile/console-account.jpg)
+![The local Console workspace menu and phone button (demo environment)](https://github.com/user-attachments/assets/99a956a4-8e86-4b74-903f-e76ba134ba03)
 
-1. Click the phone icon, **Add to phone (Beta)**, at the top right of Console.
-2. Scan with any phone scanner. If prompted, open the page in Safari (iOS) or your system browser, or copy the complete link there. Switch browsers before continuing sign-in.
-3. Tap **Continue sign-in** and compare the digits on both devices.
+1. Click the **Add to phone** icon at the top right of Console.
+2. Scan the QR code with your phone. If the page opens inside another app, follow the browser instructions or copy the full link into Safari on iOS or your system browser on Android or HarmonyOS. Do this before continuing sign-in.
+3. Tap **Continue sign-in** and check that the digits match on your phone and computer.
 4. On your computer, choose **Confirm this phone**.
 5. Once your workspace opens on the phone, follow the home-screen instructions.
 
-**This signs in to your full Platform account**, including all its cloud and connected targets. Confirm only on a phone you trust. The QR code contains a single-use authorization valid for two minutes, never a long-lived login token. Closing the desktop QR panel cancels unfinished authorization.
+**This signs your phone in to your full Platform account**, with access to all of its cloud and connected workspaces. Only confirm a phone you trust. The QR code uses a single-use authorization that expires after two minutes; it never contains a long-lived login token. Closing the QR dialog on your computer cancels any unfinished authorization.
 
-A phone already signed in to an account that owns the scanned target opens that target directly. Switching to another account still requires desktop confirmation.
+If your phone is already signed in to an account with access to that workspace, the workspace opens directly. Switching to a different account still requires confirmation on your computer.
 
 ## Add to your home screen
 
-| System       | Steps                                                                                                                                 |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| iOS / iPadOS | Open in Safari, then **Share → Add to Home Screen → Add**. The website can guide you through this system action.                      |
-| Android      | Tap **Install** when supported, or find **Install app / Add to Home Screen** in the browser menu.                                     |
-| HarmonyOS    | Look for **Add to desktop** in the system browser. Availability depends on the OS and browser version; use a bookmark if unavailable. |
+| System       | Steps                                                                                                                                                 |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| iOS / iPadOS | Open in Safari, then **Share → Add to Home Screen → Add**. The website guides you through this system action.                                         |
+| Android      | Tap **Install** when available, or choose **Install app / Add to Home Screen** from the browser menu.                                                 |
+| HarmonyOS    | Look for **Add to desktop** in the system browser. Availability depends on your OS and browser version; use a bookmark if this option is unavailable. |
 
-No Android Quick App or HarmonyOS native package is required. Use trusted HTTPS. Recognized in-app browsers such as WeChat and DingTalk show external-browser instructions first. The scan page also provides browser help and a complete link to copy. Switching browsers does not consume the scan authorization. Refresh the QR code on your computer if it expires or authorization has already started. The installed icon uses the QwenPaw logo. Systems that transfer cookies during installation can restore your session; otherwise scan again from Console after launching the installed app.
+No Android Quick App or HarmonyOS native package is needed. Use an HTTPS address with a trusted certificate. Browsers inside apps such as WeChat and DingTalk show instructions for opening the page in your system browser. The scan page also lets you copy the full link. Opening that link in another browser does not use up the authorization; if it has expired or you have already started sign-in, refresh the QR code on your computer and scan again.
 
-## Use and recovery
+Your home-screen icon uses the QwenPaw logo. Whether the installed app keeps your browser session depends on your operating system and browser. If it asks you to sign in, scan a new QR code from Console after launching the app.
 
-![Console model and thinking controls on mobile (demo environment)](/images/mobile/model-thinking.jpg)
+## Workspaces and conversations
 
-- Open the workspace menu with the experiment icon at the top, choose **Cloud** or **Connected**, then select an agent and conversation.
-- Your phone reuses the Console shipped with the selected node. Choose the model, thinking intensity, and mode with the existing composer controls. Pages, attachments, the file workspace, and terminal use the same Console; availability depends on node configuration.
-- Switching workspaces clears the current target's UI context, keeping messages and approvals separate.
-- Your computer must stay on and QwenPaw must keep running with outbound access to Platform. Your phone can use another network.
-- On reconnect or return from the background, the page reloads saved conversation status. It never automatically resends your last message.
-- You can add an offline node to your phone, but operations require it to come online. There is no offline execution.
-- After a node upgrade, wait for the current response to finish before choosing **Update** to reload its Console. Unsent drafts are retained; sent requests are never automatically replayed.
+![The shared Console's model and thinking controls (demo environment)](https://github.com/user-attachments/assets/41b91808-9712-4541-b3de-e762dd5b958d)
 
-Older nodes without Web App support must upgrade first. Updating the web entry does not require every node to upgrade together, but its connection protocol must be supported. Terminal retains the node's authentication and dependency requirements. HTTP uploads are limited to 8 MiB. Push notifications and offline execution are unavailable; installation, microphone permissions, and background behavior require validation on individual devices.
+- Open the workspace menu beside the small experiment icon at the top. Choose **Cloud** or **Connected**, then select an agent and conversation.
+- Choose a model, thinking intensity, and mode from the composer. Thinking settings depend on the selected model's capabilities.
+- Your phone uses the Console that comes with the selected node. Other pages, attachments, files, and terminal access follow that node's configuration and permissions.
+- Conversations and approvals stay with their workspace when you switch.
+- Keep your computer on, with QwenPaw running and connected to Platform. Your phone can use a different network.
+- When you reconnect or return to the app, it restores saved conversation state without resending your last message.
+- You can add an offline node to your phone, but the node must come online before you can use it. Offline execution is not supported.
+- After a node upgrade, wait for the current response to finish, then choose **Update** to reload its Console. Unsent drafts are retained; sent requests are never automatically replayed.
 
-## Sign out and disconnect
+Upgrade older nodes that do not support Web App access. Nodes do not all need to run the same version: each supplies its own Console, as long as Platform supports its connection protocol. Terminal access still requires the node's usual authentication and dependencies. Uploads are limited to 8 MiB. Push notifications are not available in this Beta. Installation, microphone permissions, and background behavior still need to be checked on individual devices.
 
-**Sign out of Web App** on your phone ends its web session. Signing out of the cloud account in Console ends the desktop login and leaves the node binding in place. The main Platform site keeps its existing account session and has its own sign-out action.
+## Sign out or disconnect a node
 
-Choose **Disconnect node** in the Console account panel to stop remote access to that node. Other devices connected to the same cloud account remain connected. Disabling a Hub user or changing Runtime ownership also stops forwarding through the old local mapping.
+Choose **Sign out of Web App** on your phone to end its web session. Signing out of your cloud account in Console ends the desktop login but keeps the node connected. The main Platform website has a separate sign-out action.
+
+Choose **Disconnect node** in the Console account panel to stop remote access to that node. This does not disconnect other devices on the same cloud account. Disabling a Hub user or changing Runtime ownership also stops remote access through that user's previous connection.
 
 ## Troubleshooting
 
 **Expired or used QR code:** Refresh it on your computer, then scan and confirm again.
 
-**Signed in but not connected:** Resolve the quota or network error shown in the account panel, then retry connection.
+**Signed in but not connected:** Resolve the quota or network error shown in the account panel, then retry the connection.
 
-**Asked to sign in after installation:** Session transfer depends on your system version. Scan again; do not copy long-lived tokens into URLs.
+**Asked to sign in after installation:** Your browser session may not carry over to the installed app. Open the app and scan a new QR code from Console. Never put long-lived tokens in a URL.
 
-**No Install button:** Follow the browser-menu instructions above. Websites cannot guarantee a system installation prompt.
+**No Install button:** Use the browser-menu steps above. A website cannot guarantee that your browser will show an installation prompt.
 
 See also [Console](./console), [Hub](./hub), and [Security](./security).
