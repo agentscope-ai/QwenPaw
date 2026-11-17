@@ -417,6 +417,12 @@ def test_nsis_previous_uninstall_uses_the_new_installer_guard():
     assert install.index("ClearRuntime") < install.index(
         'File "${MAINBINARYSRCPATH}"',
     )
+    uninstall = template.split("Section Uninstall\n", 1)[1]
+    assert uninstall.index('ClearRuntime "un."') < uninstall.index(
+        'Delete "$INSTDIR\\${MAINBINARYNAME}.exe"',
+    )
+    # The shared completion helper removes the marker only after cleanup.
+    assert '.qwenpaw-installing"' not in uninstall
 
 
 @pytest.mark.parametrize("phase", ["cancelled", "partial", "complete"])
@@ -512,8 +518,10 @@ def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
             child.wait(timeout=5)
 
 
+@pytest.mark.parametrize("operation", ["install", "uninstall"])
 def test_nsis_runtime_cleanup_stops_on_locked_files_and_can_retry(
     nsis_cli_install,
+    operation,
 ):
     """Partial deletion stays gated; retry removes only the bundled trees."""
     cli, launcher, run = nsis_cli_install
@@ -532,22 +540,31 @@ def test_nsis_runtime_cleanup_stops_on_locked_files_and_can_retry(
     unrelated = root / "binaries" / "custom"
     unrelated.mkdir()
     (unrelated / "keep.txt").write_bytes(b"keep")
+    uninstaller = root / "uninstall.exe"
+    uninstaller.write_bytes(b"uninstaller")
     run("Prepare", "BeginInstall")
     with (root / "binaries/python-runtime/obsolete.pyd").open("rb"):
         run("ClearRuntime", expected=1)
     assert any(not directory.exists() for directory in runtimes)
     assert not cli.exists()
     assert (root / ".qwenpaw-installing").exists()
+    assert uninstaller.read_bytes() == b"uninstaller"
+    assert (root / "qwenpaw-desktop.exe").exists()
     run("AbortInstall", expected=1)
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
     run("Prepare", "BeginInstall", "ClearRuntime", "ClearRuntime")
     assert all(not directory.exists() for directory in runtimes)
     assert user_data.read_bytes() == b"user history"
     assert (unrelated / "keep.txt").read_bytes() == b"keep"
-    cli.parent.mkdir(parents=True)
-    cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
-    run("CompleteInstall")
-    assert cli.read_bytes() == b"new CLI"
+    if operation == "install":
+        cli.parent.mkdir(parents=True)
+        cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
+        run("CompleteInstall")
+        assert cli.read_bytes() == b"new CLI"
+    else:
+        run("CompleteUninstall")
+        assert not cli.exists()
+    assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
     assert not (root / ".qwenpaw-installing").exists()
 
 
