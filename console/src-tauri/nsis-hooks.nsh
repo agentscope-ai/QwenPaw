@@ -3,7 +3,6 @@
 
 Var QwenPawCliPathCheckbox
 Var QwenPawCliPathState
-Var QwenPawCliPrepared
 Var QwenPawCliPreparedDir
 
 Page custom QWENPAW_CLI_PATH_PAGE QWENPAW_CLI_PATH_PAGE_LEAVE
@@ -109,11 +108,11 @@ Function QWENPAW_CLI_PATH_PAGE_LEAVE
 FunctionEnd
 
 Function QWENPAW_ABORT_INSTALL
-  ${If} $QwenPawCliPrepared != 1
+  ${If} $QwenPawCliPreparedDir == ""
     Return
   ${EndIf}
-  StrCpy $QwenPawCliPrepared 0
   !insertmacro QWENPAW_EXEC_POWERSHELL `-File "$PLUGINSDIR\qwenpaw-manage-install-processes.ps1" -InstallDir "$QwenPawCliPreparedDir" -Action AbortInstall`
+  StrCpy $QwenPawCliPreparedDir ""
   ${If} $0 != 0
     DetailPrint "$(qwenpawInstallIncomplete)"
     DetailPrint "$1"
@@ -193,11 +192,10 @@ FunctionEnd
 !insertmacro QWENPAW_DEFINE_INSTALL_FUNCTIONS "un." ""
 
 !macro NSIS_HOOK_PREINSTALL
-  ${If} $QwenPawCliPrepared == 1
+  ${If} $QwenPawCliPreparedDir != ""
   ${AndIf} $QwenPawCliPreparedDir != $INSTDIR
     Call QWENPAW_ABORT_INSTALL
   ${EndIf}
-  StrCpy $QwenPawCliPrepared 1
   StrCpy $QwenPawCliPreparedDir $INSTDIR
   Call QWENPAW_PREPARE_INSTALL
 !macroend
@@ -217,7 +215,7 @@ FunctionEnd
   ${If} $0 == 0
   ${AndIfNot} ${FileExists} "$INSTDIR\${MAINBINARYNAME}.exe"
     !insertmacro QWENPAW_INSTALL_ACTION CompleteUninstall
-    StrCpy $QwenPawCliPrepared 0
+    StrCpy $QwenPawCliPreparedDir ""
     RMDir "$INSTDIR\binaries\qwenpaw-backend"
     RMDir "$INSTDIR\binaries"
     RMDir "$INSTDIR"
@@ -231,7 +229,7 @@ FunctionEnd
 
 !macro NSIS_HOOK_POSTINSTALL
   !insertmacro QWENPAW_INSTALL_ACTION CompleteInstall
-  StrCpy $QwenPawCliPrepared 0
+  StrCpy $QwenPawCliPreparedDir ""
   !insertmacro QWENPAW_ADD_CLI_PATH_IF_SELECTED
   !insertmacro QWENPAW_INSTALL_DEBUG_LAUNCHER
 !macroend

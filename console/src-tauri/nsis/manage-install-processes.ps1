@@ -263,21 +263,14 @@ try {
         }
         exit 0
     }
-    if ($Action -eq "CompleteInstall") {
-        if (Test-Path -LiteralPath $cliStaged) {
-            Move-Item -LiteralPath $cliStaged -Destination $cli -Force
-        } elseif (-not (Test-Path -LiteralPath $cli)) {
-            throw "The new qwenpaw executable is missing. Run the installer again."
-        }
-        foreach ($path in @($cliBackup, $installMarker)) {
-            if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Force
+    if ($Action -in @("CompleteInstall", "CompleteUninstall")) {
+        if ($Action -eq "CompleteInstall") {
+            if (Test-Path -LiteralPath $cliStaged) {
+                Move-Item -LiteralPath $cliStaged -Destination $cli -Force
+            } elseif (-not (Test-Path -LiteralPath $cli)) {
+                throw "The new qwenpaw executable is missing. Run the installer again."
             }
         }
-        Restore-NativeHostLauncher -Root (Get-InstallRoot)
-        exit 0
-    }
-    if ($Action -eq "CompleteUninstall") {
         foreach ($path in @($cliBackup, $cliStaged, $installMarker)) {
             if (Test-Path -LiteralPath $path) {
                 Remove-Item -LiteralPath $path -Force

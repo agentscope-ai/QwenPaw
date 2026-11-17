@@ -302,27 +302,30 @@ def nsis_cli_install(tmp_path):
     )
     script = REPO_ROOT / "console/src-tauri/nsis/manage-install-processes.ps1"
 
-    def run(action):
-        return subprocess.run(
-            [
-                str(powershell),
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(script),
-                "-InstallDir",
-                str(root),
-                "-GateCli",
-                "-Action",
-                action,
-            ],
-            env={**os.environ, "USERPROFILE": str(profile)},
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=30,
-        )
+    def run(*actions, expected=0):
+        for action in actions:
+            result = subprocess.run(
+                [
+                    str(powershell),
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(script),
+                    "-InstallDir",
+                    str(root),
+                    "-GateCli",
+                    "-Action",
+                    action,
+                ],
+                env={**os.environ, "USERPROFILE": str(profile)},
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=30,
+            )
+            assert result.returncode == expected, result.stdout + result.stderr
+        return result.stdout
 
     return cli, launcher, run
 
@@ -338,41 +341,33 @@ def test_nsis_cli_gate_recovers_at_the_correct_install_phase(
     backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
     marker = cli.with_name(cli.name + ".qwenpaw-installing")
 
-    result = run("Prepare")
-    assert result.returncode == 0, result.stdout + result.stderr
+    run("Prepare")
     assert not cli.exists()
     assert backup.read_bytes() == b"old CLI"
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
     if phase != "prepare":
         staged.write_bytes(b"stale staged CLI")
-        result = run("BeginInstall")
-        assert result.returncode == 0, result.stdout + result.stderr
+        run("BeginInstall")
         assert marker.exists()
         assert not staged.exists()
         assert not cli.exists()
     if phase == "complete":
         staged.write_bytes(b"new CLI")
-        result = run("CompleteInstall")
-        assert result.returncode == 0, result.stdout + result.stderr
+        run("CompleteInstall")
         assert cli.read_bytes() == b"new CLI"
         assert not backup.exists()
         assert not marker.exists()
 
-    result = run("AbortInstall")
+    output = run("AbortInstall", expected=1 if phase == "copy" else 0)
     if phase == "copy":
-        assert result.returncode == 1
-        assert "Run the installer again" in result.stdout
+        assert "Run the installer again" in output
         assert not cli.exists()
         # A subsequent attempt can finish without restoring the old entry.
-        for action in ("Prepare", "BeginInstall"):
-            result = run(action)
-            assert result.returncode == 0, result.stdout + result.stderr
+        run("Prepare", "BeginInstall")
         staged.write_bytes(b"retried CLI")
-        result = run("CompleteInstall")
-        assert result.returncode == 0, result.stdout + result.stderr
+        run("CompleteInstall")
         assert cli.read_bytes() == b"retried CLI"
     else:
-        assert result.returncode == 0, result.stdout + result.stderr
         expected = b"old CLI" if phase == "prepare" else b"new CLI"
         assert cli.read_bytes() == expected
     assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
@@ -386,16 +381,11 @@ def test_nsis_fresh_install_requires_a_new_cli(nsis_cli_install):
     launcher.unlink()
     (root / "qwenpaw-desktop.exe").unlink()
     (cli.parent / "qwenpaw-backend.exe").unlink()
-    for action in ("Prepare", "BeginInstall"):
-        result = run(action)
-        assert result.returncode == 0, result.stdout + result.stderr
-    result = run("CompleteInstall")
-    assert result.returncode == 1
+    run("Prepare", "BeginInstall")
+    run("CompleteInstall", expected=1)
     assert not cli.exists()
     cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
-    for _ in range(2):
-        result = run("CompleteInstall")
-        assert result.returncode == 0, result.stdout + result.stderr
+    run("CompleteInstall", "CompleteInstall")
     assert cli.read_bytes() == b"new CLI"
 
 
@@ -425,9 +415,7 @@ def test_nsis_cli_gate_covers_uninstall_before_install(
     completed = phase == "complete"
     backup = cli.with_name(cli.name + ".qwenpaw-maintenance")
     marker = cli.with_name(cli.name + ".qwenpaw-installing")
-    for action in ("Prepare", "BeginInstall"):
-        result = run(action)
-        assert result.returncode == 0, result.stdout + result.stderr
+    run("Prepare", "BeginInstall")
     assert not cli.exists()
 
     # Old uninstallers remove known payload files and restore Native Host.
@@ -435,12 +423,13 @@ def test_nsis_cli_gate_covers_uninstall_before_install(
         (root / "qwenpaw-desktop.exe").unlink()
     if completed:
         (cli.parent / "qwenpaw-backend.exe").unlink()
-    result = run("Restore")
-    assert result.returncode == 0, result.stdout + result.stderr
+    run("Restore")
     assert "QWENPAW_INSTALL_MAINTENANCE" not in launcher.read_text()
 
-    result = run("CompleteUninstall" if completed else "AbortInstall")
-    assert result.returncode == (0 if completed else 1)
+    run(
+        "CompleteUninstall" if completed else "AbortInstall",
+        expected=0 if completed else 1,
+    )
     assert not cli.exists()
     assert backup.exists() is not completed
     assert marker.exists() is not completed
@@ -448,13 +437,10 @@ def test_nsis_cli_gate_covers_uninstall_before_install(
         assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
 
     # Both successful removal and an interrupted uninstall can be repaired.
-    for action in ("Prepare", "BeginInstall"):
-        result = run(action)
-        assert result.returncode == 0, result.stdout + result.stderr
+    run("Prepare", "BeginInstall")
     assert "QWENPAW_INSTALL_MAINTENANCE" in launcher.read_text()
     cli.with_name(cli.name + ".qwenpaw-new").write_bytes(b"new CLI")
-    result = run("CompleteInstall")
-    assert result.returncode == 0, result.stdout + result.stderr
+    run("CompleteInstall")
     assert cli.read_bytes() == b"new CLI"
     assert not backup.exists()
     assert not marker.exists()
@@ -493,12 +479,10 @@ def test_nsis_cli_gate_blocks_repeated_external_launches(nsis_cli_install):
     thread.start()
     try:
         assert started.wait(5)
-        result = run("Prepare")
-        assert result.returncode == 0, result.stdout + result.stderr
+        run("Prepare")
         assert blocked.wait(5)
         assert not cli.exists()
-        result = run("BeginInstall")
-        assert result.returncode == 0, result.stdout + result.stderr
+        run("BeginInstall")
         count = len(children)
         time.sleep(0.2)
         assert len(children) == count
