@@ -78,12 +78,68 @@ def worker_logs(caplog, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["relative", "absolute", "empty", "literal", "explicit"],
+)
+async def test_worker_ca_paths_preserve_origin_and_absolute_spelling(
+    tmp_path,
+    monkeypatch,
+    process,
+    kind,
+):
+    # The child starts in code_root, not this parent directory.
+    monkeypatch.chdir(tmp_path)
+    if kind == "absolute":
+        directory = str(tmp_path / "证书 CA") + os.sep + "."
+        filename = directory + os.sep + "ca.pem"
+        expected_dir, expected_file = directory, filename
+    elif kind == "empty":
+        directory = filename = expected_dir = expected_file = ""
+    else:
+        directory = "~/证书 $CA %CA%" if kind == "literal" else "证书 CA"
+        filename = directory + os.sep + "ca.pem"
+        expected_dir = str(tmp_path / directory)
+        expected_file = str(tmp_path / filename)
+    monkeypatch.setenv("SSL_CERT_DIR", directory)
+    monkeypatch.setenv("SSL_CERT_FILE", filename)
+    private = {"SSL_CERT_DIR": "./plugin 证书"} if kind == "explicit" else {}
+    if private:
+        expected_dir = "./plugin 证书"
+    spec, _ = launch(tmp_path, private_env=private)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        f"assert os.environ.get('SSL_CERT_DIR') == {expected_dir!r}\n"
+        f"assert os.environ.get('SSL_CERT_FILE') == {expected_file!r}\n"
+        + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
+    assert (await process.start(spec))["state"] == "ready"
+    assert await process.call("sample.echo", {"ca": "available"}) == {
+        "ca": "available",
+    }
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_bidirectional_ipc_logs_and_repeated_stop(
     tmp_path,
     process,
     worker_logs,
+    monkeypatch,
 ):
+    for name in ("HOME", "QWENPAW_WORKING_DIR", "QWENPAW_RUNTIME_ID"):
+        monkeypatch.setenv(name, str(tmp_path))
     spec, _ = launch(tmp_path)
+    source = spec.code_root / "worker.py"
+    source.write_text(
+        "import os\n"
+        "assert not {'HOME', 'QWENPAW_WORKING_DIR', 'QWENPAW_RUNTIME_ID'}"
+        ".intersection(os.environ)\n" + source.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    spec = replace(spec, source_revision=digest(spec.code_root))
     notices = []
     process.register_method(
         "sample.host",

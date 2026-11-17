@@ -35,4 +35,5 @@ LangString qwenpawCliPathMissing ${LANG_INDONESIAN} "qwenpaw.exe was not found; 
 LangString qwenpawCliPathUpdateFailed ${LANG_INDONESIAN} "Failed to update user PATH"
 LangString qwenpawPrepareInstallFailed ${LANG_INDONESIAN} "QwenPaw tidak dapat menyiapkan instalasi atau penghapusan.$\n$\nPeriksa detail di bawah. Tutup proses yang tercantum, lalu klik Coba Lagi setelah masalah teratasi. Klik Batal untuk membatalkan.$\n$\nHasil: $0"
 LangString qwenpawPowerShellStartFailed ${LANG_INDONESIAN} "Windows PowerShell tidak dapat dimulai. Skrip persiapan tidak dijalankan."
+LangString qwenpawInstallIncomplete ${LANG_INDONESIAN} "Instalasi belum selesai. Jalankan kembali penginstal untuk memulihkan perintah qwenpaw."
 LangString qwenpawRestoreInstallStateFailed ${LANG_INDONESIAN} "Peluncur Native Messaging tidak dapat dipulihkan; QwenPaw akan mencoba lagi saat dimulai"

@@ -2016,6 +2016,10 @@
     "selectAtLeastOneDay": "Select at least one day."
   },
   "channels": {
+    "update": {
+      "action": "Update",
+      "available": "New version available: {{version}}"
+    },
     "runtime": {
       "missing_code": "Plugin not installed"
     },
@@ -2184,7 +2188,7 @@
     "wechatBotTokenTooltip": "Bearer token obtained after QR code login. Leave empty to trigger QR code login on startup.",
     "wechatBotTokenPlaceholder": "Auto-filled after QR login, or paste manually",
     "wechatBotTokenFile": "Token File Path",
-    "wechatBotTokenFileTooltip": "Path to persist the bot token. Defaults to ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Path to the Bot Token file. Leave blank to use wechat/wechat_bot_token in this agent's workspace.",
     "wechatMediaDir": "Media Directory",
     "wechatMessageMerge": "Message Merge",
     "wechatMessageMergeTooltip": "Merge multiple reply messages into fewer messages to avoid hitting the WeChat 10-message limit per context_token. When enabled with delay 0, all text replies are merged into a single message sent at the end. A positive delay (in ms) merges adjacent messages within that time window.",
@@ -3217,6 +3221,8 @@
     "download": "Download",
     "downloadFailed": "File download failed",
     "resize": "Resize Files drawer",
+    "enterFullscreen": "Fullscreen preview",
+    "exitFullscreen": "Exit fullscreen preview",
     "loadFailed": "Failed to load the file. Check that it is still in the primary working directory of the current agent workspace.",
     "previewUnavailable": "Preview is unavailable. Metadata and download remain available.",
     "mentionInChat": "Mention in Chat",
@@ -3230,6 +3236,9 @@
     "artifactsCollapse": "Show fewer files"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Volume root selected",
+    "volumeRootWarningMessage": "{{path}} is a volume root. The sandbox cannot grant access here: its permission entry is inheritable and a volume root has no parent, so it would apply to the whole drive and can make it inaccessible. This session will run without the sandbox. Continue anyway?",
+    "workspaceUnknown": "The default workspace directory is not available yet. Try again in a moment.",
     "agentTitle": "Agent project directory",
     "agentDescription": "The Agent Files workspace uses this default directory.",
     "sessionTitle": "Session project directory",
@@ -4444,7 +4453,8 @@
     },
     "regenerate": "Regenerate",
     "regenerateUnavailable": "This older turn has no receipt ID. Send a new message to continue.",
-    "turnCanceled": "Canceled"
+    "turnCanceled": "Canceled",
+    "outputTruncated": "The model reached its output limit. This answer is incomplete. Ask it to continue or increase the output limit."
   },
   "security": {
     "parent": "Settings",
@@ -6132,6 +6142,7 @@
     "emojiRecent": "Recent",
     "emojiAll": "Default",
     "emojiCustom": "Snow Leopard",
+    "emojiAnimated": "Cute Leopard",
     "addCommentImage": "Upload image",
     "removeCommentImage": "Remove image",
     "commentImageMax": "You can add up to {{count}} images",
@@ -6148,6 +6159,7 @@
     "video": "Post video",
     "imagePreview": "Image preview",
     "editPost": "Edit",
+    "fromGithub": "From GitHub",
     "deletePost": "Delete",
     "editHelp": "Edit on Platform to preserve images, videos and formatting",
     "deleteTitle": "Delete this post?",
@@ -6168,6 +6180,9 @@
     "login": "Sign in to Platform",
     "account": "Publishing as {{name}}",
     "postTitle": "Title",
+    "githubLinkLabel": "GitHub repository",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Please enter a valid GitHub repository URL",
     "body": "Body",
     "confirm": "I reviewed the title and body and agree to publish this content publicly.",
     "publish": "Publish",

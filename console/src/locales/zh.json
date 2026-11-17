@@ -1851,6 +1851,10 @@
     "selectAtLeastOneDay": "请选择至少一天。"
   },
   "channels": {
+    "update": {
+      "action": "更新",
+      "available": "发现新版本：{{version}}"
+    },
     "runtime": {
       "missing_code": "插件未安装"
     },
@@ -2039,7 +2043,7 @@
     "wechatBotTokenTooltip": "扫码登录后获取的 Bearer Token。留空时将在启动时引导扫码登录。",
     "wechatBotTokenPlaceholder": "扫码登录后自动填入，也可手动粘贴",
     "wechatBotTokenFile": "Token 文件路径",
-    "wechatBotTokenFileTooltip": "Token 持久化存储路径，默认为 ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Bot Token 文件路径。留空时使用当前智能体工作区下的 wechat/wechat_bot_token。",
     "wechatMediaDir": "媒体文件目录",
     "wechatMessageMerge": "消息合并",
     "wechatMessageMergeTooltip": "将多条回复消息合并为更少的消息发送，避免触发微信 context_token 10 条消息的限制。开启并设置延时为 0 时，所有文本回复将在请求结束后合并为一条消息发送。设置正数延时（毫秒）则合并该时间窗口内的相邻消息。",
@@ -3070,6 +3074,8 @@
     "download": "下载",
     "downloadFailed": "文件下载失败",
     "resize": "调整文件抽屉宽度",
+    "enterFullscreen": "全屏预览",
+    "exitFullscreen": "退出全屏预览",
     "loadFailed": "文件加载失败。请确认文件仍在当前智能体工作区的主工作目录中。",
     "previewUnavailable": "暂不支持预览，仍可查看元数据并下载。",
     "mentionInChat": "在聊天中引用",
@@ -3083,6 +3089,9 @@
     "artifactsCollapse": "收起文件"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "选择的是盘符根目录",
+    "volumeRootWarningMessage": "{{path}} 是盘符根目录。沙箱无法在这里授权：它的权限条目可继承，而盘符根没有上级目录，会作用到整个磁盘并可能导致磁盘无法访问。本次会话将在没有沙箱的情况下运行。仍要继续吗？",
+    "workspaceUnknown": "暂时取不到默认工作区目录，请稍后再试。",
     "agentTitle": "Agent 项目目录",
     "agentDescription": "Agent 文件工作区默认使用此目录。",
     "sessionTitle": "当前会话项目目录",
@@ -4296,7 +4305,8 @@
     },
     "regenerate": "重新生成",
     "regenerateUnavailable": "该历史回合没有请求标识，请发送新消息继续。",
-    "turnCanceled": "已停止"
+    "turnCanceled": "已停止",
+    "outputTruncated": "模型已达到输出上限，当前回答不完整。请让模型继续回答，或提高输出上限。"
   },
   "security": {
     "parent": "设置",
@@ -6148,6 +6158,7 @@
     "emojiRecent": "最近使用",
     "emojiAll": "默认",
     "emojiCustom": "雪豹",
+    "emojiAnimated": "可爱雪豹",
     "addCommentImage": "上传图片",
     "removeCommentImage": "移除图片",
     "commentImageMax": "评论最多添加 {{count}} 张图片",
@@ -6164,6 +6175,7 @@
     "video": "帖子视频",
     "imagePreview": "图片预览",
     "editPost": "编辑",
+    "fromGithub": "源自GitHub",
     "deletePost": "删除",
     "editHelp": "在 Platform 编辑，保留图片、视频和原有格式",
     "deleteTitle": "删除这篇帖子？",
@@ -6184,6 +6196,9 @@
     "login": "登录 Platform",
     "account": "发布账号：{{name}}",
     "postTitle": "标题",
+    "githubLinkLabel": "GitHub 仓库",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "请输入一个有效的github仓库地址",
     "body": "正文",
     "confirm": "我已检查标题与正文，确认公开发布这些内容。",
     "publish": "确认发布",

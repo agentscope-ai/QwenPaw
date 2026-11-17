@@ -1320,7 +1320,8 @@
     },
     "regenerate": "Buat ulang",
     "regenerateUnavailable": "Giliran lama ini tidak memiliki ID permintaan. Kirim pesan baru untuk melanjutkan.",
-    "turnCanceled": "Dihentikan"
+    "turnCanceled": "Dihentikan",
+    "outputTruncated": "Model telah mencapai batas keluaran. Jawaban ini belum lengkap. Minta model untuk melanjutkan atau tingkatkan batas keluaran."
   },
   "modelSelector": {
     "subagentModel": "Model subagen",
@@ -1751,6 +1752,10 @@
     "updateFailed": "Pembaruan gagal"
   },
   "channels": {
+    "update": {
+      "action": "Perbarui",
+      "available": "Versi baru tersedia: {{version}}"
+    },
     "qrcodeInstallRequired": "Instal plugin untuk memindai kode QR",
     "runtime": {
       "missing_code": "Plugin belum diinstal"
@@ -1961,7 +1966,7 @@
     "voiceSetupLink": "Buka Konsol Twilio",
     "wechatBotToken": "Token bot",
     "wechatBotTokenFile": "Jalur file token",
-    "wechatBotTokenFileTooltip": "Jalur penyimpanan token. Bawaan: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Jalur file Token Bot. Kosongkan untuk memakai wechat/wechat_bot_token di ruang kerja agen ini.",
     "wechatBotTokenPlaceholder": "Diisi setelah login QR, atau tempel manual",
     "wechatBotTokenTooltip": "Token Bearer setelah login QR. Kosongkan untuk memulai login QR saat dijalankan.",
     "wechatContextTokenLimit": "WeChat iLink membatasi setiap context_token hingga 10 balasan. Nonaktifkan keluaran penalaran dan alat, atau aktifkan penggabungan pesan agar pengiriman tidak gagal.",
@@ -4216,6 +4221,9 @@
     "closeWorkspace": "Tutup workspace"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Direktori akar volume dipilih",
+    "volumeRootWarningMessage": "{{path}} adalah direktori akar volume. Sandbox tidak dapat memberikan akses di sini — entri izinnya dapat diwariskan dan akar volume tidak memiliki induk, sehingga berlaku untuk seluruh drive dan dapat membuatnya tidak dapat diakses. Sesi ini akan berjalan tanpa sandbox. Lanjutkan?",
+    "workspaceUnknown": "Direktori workspace bawaan belum tersedia. Coba lagi sebentar lagi.",
     "agentTitle": "Direktori proyek Agen",
     "sessionTitle": "Direktori proyek Sesi",
     "pathPlaceholder": "Masukkan path direktori absolut",
@@ -5054,6 +5062,7 @@
     "emojiRecent": "Terbaru",
     "emojiAll": "Bawaan",
     "emojiCustom": "Macan Tutul Salju",
+    "emojiAnimated": "Macan Tutul Salju Lucu",
     "addCommentImage": "Unggah gambar",
     "removeCommentImage": "Hapus gambar",
     "commentImageMax": "Anda dapat menambahkan hingga {{count}} gambar",
@@ -5070,6 +5079,7 @@
     "video": "Video postingan",
     "imagePreview": "Pratinjau gambar",
     "editPost": "Edit",
+    "fromGithub": "Dari GitHub",
     "deletePost": "Hapus",
     "editHelp": "Edit di Platform untuk mempertahankan gambar, video, dan format",
     "deleteTitle": "Hapus postingan ini?",
@@ -5090,6 +5100,9 @@
     "login": "Masuk ke Platform",
     "account": "Menerbitkan sebagai {{name}}",
     "postTitle": "Judul",
+    "githubLinkLabel": "Repositori GitHub",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Masukkan URL repositori GitHub yang valid",
     "body": "Isi",
     "confirm": "Saya telah meninjau judul dan isi serta setuju menerbitkan konten ini secara publik.",
     "publish": "Terbitkan",

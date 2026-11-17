@@ -30,6 +30,7 @@ from .isolated_proxy import IsolatedChannelProxy
 from .command_registry import CommandRegistry
 from .registry import get_channel_registry
 from .unified_queue_manager import EnqueueResult, UnifiedQueueManager
+from .wechat_auth_custody import release_wechat_auth, reserve_wechat_auth
 from ...config import get_available_channels
 
 if TYPE_CHECKING:
@@ -389,7 +390,6 @@ def instantiate_channel(
             identity_claims=identity_claims,
         )
         settings = row.runtime_settings
-        claims = ()
         runtime_config = ch_cfg
         connection_timeout = settings.connection_timeout
         if (
@@ -442,18 +442,15 @@ def instantiate_channel(
                 lease,
             )
             channel._runtime_lease = lease
-            channel._wechat_auth_claims = claims
+            channel._wechat_auth_claims = ()
             channel._registration = row
             channel._admission_timeout = settings.admission_timeout
             context.adopt(manager, channel)
         except BaseException:
-            from .wechat_auth_custody import release_wechat_auth
-
             evidence = RuntimeStopReceipt(
                 True,
                 "construction produced no resources",
             )
-            release_wechat_auth(plugin_registry, claims, evidence)
             plugin_registry.runtime_owners.release(
                 lease,
                 evidence,
@@ -934,7 +931,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             and channel._owner_registry is not None
         ):
             from ...plugins.ownership import RuntimeStopReceipt
-            from .wechat_auth_custody import release_wechat_auth
 
             evidence = RuntimeStopReceipt(True, "never started")
             release_wechat_auth(
@@ -1283,7 +1279,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             self._start_task_channels[task] = channel
             task.add_done_callback(self._forget_start_task)
 
-    async def _reserve_channel_auth(self, channel):
+    def _reserve_channel_auth(self, channel):
         """Acquire claims before publishing or starting an isolated proxy."""
         if not isinstance(channel, IsolatedChannelProxy):
             return
@@ -1294,59 +1290,10 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         context.validate(self, channel)
         if context.row.plugin_id != "wechat" or context.key != "wechat":
             return
-        from ...utils.io_utils import run_sync_io
-        from .wechat_auth_custody import reserve_wechat_auth_async
-
-        registry = channel._owner_registry
-        owner = context.owner
-        configured_id = context.configured_id
-        state_root = context.state_root
-        workspace_dir = context.workspace_dir
-        runtime_config = context.execution.config
-
-        def authorize():
-            context.validate(self, channel)
-
-        authorize()
-        if channel._wechat_auth_claims:
-            if any(
-                claim not in registry.runtime_owners.leases()
-                or getattr(
-                    registry.runtime_owners.resource(claim),
-                    "owner",
-                    None,
-                )
-                != owner
-                for claim in channel._wechat_auth_claims
-            ):
-                raise RuntimeError("CHANNEL_PREPARATION_STALE")
-            return
-
-        def resolve_workspace_id():
-            if configured_id:
-                return configured_id
-            from ...config.utils import load_config
-
-            profiles = load_config().agents.profiles
-            directory = Path(workspace_dir).expanduser().resolve()
-            matches = [
-                key
-                for key, profile in profiles.items()
-                if Path(profile.workspace_dir).expanduser().resolve()
-                == directory
-            ]
-            return matches[0] if len(matches) == 1 else str(directory)
-
-        workspace_id = await run_sync_io(resolve_workspace_id)
-        authorize()
-        channel._wechat_auth_claims = await reserve_wechat_auth_async(
-            registry,
-            owner=owner,
-            workspace_id=workspace_id,
-            workspace_dir=workspace_dir,
-            config=runtime_config,
-            working_dir=state_root,
-            authorize=authorize,
+        channel._wechat_auth_claims = reserve_wechat_auth(
+            channel._owner_registry,
+            owner=context.owner,
+            config=context.execution.config,
         )
 
     async def _start_existing(self, channel):
@@ -1365,7 +1312,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 return
             try:
                 self._bind_enqueue(channel)
-                await self._reserve_channel_auth(channel)
+                self._reserve_channel_auth(channel)
                 await channel.start()
                 self._started_channels.add(id(channel))
                 self._start_contexts.pop(channel, None)
@@ -1383,7 +1330,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     )
 
     async def _start_owned(self, channel):
-        await self._reserve_channel_auth(channel)
         task = asyncio.create_task(channel.start())
         self._start_tasks.add(task)
         self._start_task_channels[task] = channel
@@ -1406,7 +1352,27 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             if owner is channel and not task.done()
         }
 
-    async def _drain_channel(self, key, timeout):
+    def _log_drain_timeout(self, key, stage, pending=None):
+        channel = self._find_channel(key)
+        spec = getattr(channel, "_launch_spec", None)
+        health = (
+            channel.channel_process.health_snapshot()
+            if isinstance(channel, IsolatedChannelProxy)
+            else {}
+        )
+        logger.warning(
+            "Channel drain timeout: channel=%s stage=%s pending=%s "
+            "instance=%s generation=%s worker_state=%s platform_state=%s",
+            key,
+            stage,
+            pending,
+            getattr(spec, "instance_id", None),
+            getattr(spec, "generation", None),
+            health.get("state"),
+            health.get("platform_state"),
+        )
+
+    async def _drain_channel(self, key, timeout, *, channel_handoff=False):
         deadline = asyncio.get_running_loop().time() + timeout
         if self._enqueue_tasks:
             _, pending = await asyncio.wait(
@@ -1414,6 +1380,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 timeout=timeout,
             )
             if pending:
+                self._log_drain_timeout(key, "enqueue", len(pending))
                 return False
         if (
             self._queue_manager is not None
@@ -1422,17 +1389,26 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 timeout=max(0, deadline - asyncio.get_running_loop().time()),
             )
         ):
+            self._log_drain_timeout(key, "queue")
             return False
         tracker = getattr(self._workspace, "task_tracker", None)
         if tracker is not None:
             tasks = await tracker.snapshot_active_tasks(
                 owner=self._workspace,
                 channel_id=key,
+                channel_handoff=channel_handoff,
             )
-            return await tracker.wait_tasks_done(
+            completed = await tracker.wait_tasks_done(
                 list(tasks.values()),
                 timeout=max(0, deadline - asyncio.get_running_loop().time()),
             )
+            if not completed:
+                self._log_drain_timeout(
+                    key,
+                    "tracker",
+                    sum(not task.done() for task in tasks.values()),
+                )
+            return completed
         return True
 
     def resume_ingress(self):
@@ -1468,8 +1444,18 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             return self._stop_receipt(channel, False, str(exc))
         return None
 
-    async def quiesce(self, *, timeout=None, for_stop=False) -> bool:
-        """Close admission, drain, and optionally prepare owners to stop."""
+    async def quiesce(
+        self,
+        *,
+        timeout=None,
+        for_stop=False,
+        channel_handoff=False,
+    ) -> bool:
+        """Close admission, drain, and optionally prepare owners to stop.
+
+        ``channel_handoff`` requires the agent's delivery lock throughout
+        channel replacement; ordinary shutdown must keep its default.
+        """
         deadline = asyncio.get_running_loop().time() + (
             _CHANNEL_DRAIN_TIMEOUT if timeout is None else timeout
         )
@@ -1493,12 +1479,14 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     ),
                 )
                 if pending:
+                    self._log_drain_timeout("*", "enqueue", len(pending))
                     self.resume_ingress()
                     return False
             for channel in list(self.channels):
                 if not await self._drain_channel(
                     channel.channel,
                     max(0, deadline - asyncio.get_running_loop().time()),
+                    channel_handoff=channel_handoff,
                 ):
                     self.resume_ingress()
                     return False
@@ -1507,7 +1495,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             raise
         return True
 
-    async def stop_all(self) -> None:
+    async def stop_all(self, *, channel_handoff=False) -> None:
         """Stop consumers only after all admitted work and owners quiesce."""
         from ...plugins.lifecycle import QuiescenceError
 
@@ -1525,10 +1513,16 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 timeout=_CHANNEL_START_STOP_TIMEOUT,
             )
             self._start_tasks.difference_update(done)
-        if not await self.quiesce(for_stop=True):
+        if not await self.quiesce(
+            for_stop=True,
+            channel_handoff=channel_handoff,
+        ):
             raise QuiescenceError("CHANNEL_DRAIN_TIMEOUT")
         receipts = await asyncio.gather(
-            *(self.stop_one(ch.channel) for ch in list(self.channels)),
+            *(
+                self.stop_one(ch.channel, channel_handoff=channel_handoff)
+                for ch in list(self.channels)
+            ),
             return_exceptions=True,
         )
         for result in receipts:
@@ -1668,7 +1662,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         )
         registered = False
         try:
-            await self._reserve_channel_auth(channel)
+            self._reserve_channel_auth(channel)
             self._attach_runtime(channel)
             if self._workspace is not None:
                 channel.set_workspace(self._workspace, self._command_registry)
@@ -1711,6 +1705,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         key: str,
         *,
         expected: ChannelHandle | None = None,
+        channel_handoff: bool = False,
     ) -> StopReceipt:
         """Stop one channel, retaining its handle until stop succeeds."""
         channel = self._find_channel(key)
@@ -1750,9 +1745,16 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                 )
             from ...utils.io_utils import run_async_to_completion
 
-            return await run_async_to_completion(self._stop_one_unlocked(key))
+            return await run_async_to_completion(
+                self._stop_one_unlocked(key, channel_handoff=channel_handoff),
+            )
 
-    async def _stop_one_unlocked(self, key: str) -> StopReceipt:
+    async def _stop_one_unlocked(
+        self,
+        key: str,
+        *,
+        channel_handoff: bool = False,
+    ) -> StopReceipt:
         async with self._lock:
             channel = self._find_channel(key)
         if channel is None:
@@ -1778,7 +1780,11 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
         receipt = await self._prepare_channel_stop(channel)
         if receipt is not None:
             return receipt
-        if not await self._drain_channel(key, _CHANNEL_DRAIN_TIMEOUT):
+        if not await self._drain_channel(
+            key,
+            _CHANNEL_DRAIN_TIMEOUT,
+            channel_handoff=channel_handoff,
+        ):
             if not self._stopping:
                 self._bind_enqueue(channel)
             return self._stop_receipt(channel, False, "CHANNEL_DRAIN_TIMEOUT")
@@ -1815,8 +1821,6 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
             isinstance(channel, IsolatedChannelProxy)
             and getattr(channel, "_runtime_lease", None) is not None
         ):
-            from .wechat_auth_custody import release_wechat_auth
-
             release_wechat_auth(
                 channel._owner_registry,
                 getattr(channel, "_wechat_auth_claims", ()),
@@ -2012,6 +2016,7 @@ class ChannelManager:  # pylint: disable=too-many-public-methods
                     )
                 self._bind_enqueue(new_channel)
                 try:
+                    self._reserve_channel_auth(new_channel)
                     self._replace_binding(
                         key,
                         old,

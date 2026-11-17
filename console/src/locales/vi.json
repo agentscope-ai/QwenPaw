@@ -1303,7 +1303,8 @@
     },
     "regenerate": "Tạo lại",
     "regenerateUnavailable": "Lượt cũ này không có mã yêu cầu. Hãy gửi tin nhắn mới để tiếp tục.",
-    "turnCanceled": "Đã dừng"
+    "turnCanceled": "Đã dừng",
+    "outputTruncated": "Mô hình đã đạt giới hạn đầu ra. Câu trả lời này chưa đầy đủ. Hãy yêu cầu mô hình tiếp tục hoặc tăng giới hạn đầu ra."
   },
   "debug": {
     "title": "Gỡ lỗi",
@@ -2488,6 +2489,9 @@
     "closeWorkspace": "Đóng workspace"
   },
   "projectDirectory": {
+    "volumeRootWarningTitle": "Đã chọn thư mục gốc của ổ đĩa",
+    "volumeRootWarningMessage": "{{path}} là thư mục gốc của ổ đĩa. Sandbox không thể cấp quyền truy cập tại đây — mục quyền của nó có thể kế thừa và thư mục gốc không có thư mục cha, nên nó sẽ áp dụng cho toàn bộ ổ đĩa và có thể khiến ổ đĩa không truy cập được. Phiên này sẽ chạy không có sandbox. Vẫn tiếp tục?",
+    "workspaceUnknown": "Chưa lấy được thư mục workspace mặc định. Vui lòng thử lại sau giây lát.",
     "agentTitle": "Thư mục dự án của tác nhân",
     "sessionTitle": "Thư mục dự án của phiên",
     "pathPlaceholder": "Nhập đường dẫn thư mục tuyệt đối",
@@ -3263,6 +3267,10 @@
     "sandboxEnabled": "Bảo vệ sandbox"
   },
   "channels": {
+    "update": {
+      "action": "Cập nhật",
+      "available": "Có phiên bản mới: {{version}}"
+    },
     "qrcodeInstallRequired": "Cài đặt plugin để quét mã QR",
     "runtime": {
       "missing_code": "Chưa cài đặt plugin"
@@ -3476,7 +3484,7 @@
     "usernamePlaceholder": "Nhập tên người dùng (tùy chọn)",
     "voiceSetupGuide": "Tạo tài khoản Twilio và mua số điện thoại. Nhập Account SID, Auth Token từ bảng điều khiển. Phone Number SID nằm trong Phone Numbers → Active Numbers.",
     "voiceSetupLink": "Mở bảng điều khiển Twilio",
-    "wechatBotTokenFileTooltip": "Đường dẫn lưu mã thông báo. Mặc định: ~/.qwenpaw/wechat_bot_token",
+    "wechatBotTokenFileTooltip": "Đường dẫn tệp Bot Token. Để trống để dùng wechat/wechat_bot_token trong không gian làm việc của tác tử.",
     "wechatContextTokenLimit": "WeChat iLink giới hạn mỗi context_token ở 10 phản hồi. Tắt đầu ra suy luận, công cụ hoặc bật gộp tin nhắn để tránh gửi thất bại.",
     "wechatGetQrcode": "Lấy mã QR đăng nhập",
     "wechatLoginSuccess": "Đăng nhập WeChat thành công, đã điền mã thông báo",
@@ -4375,6 +4383,7 @@
     "emojiRecent": "Gần đây",
     "emojiAll": "Mặc định",
     "emojiCustom": "Báo tuyết",
+    "emojiAnimated": "Báo tuyết dễ thương",
     "addCommentImage": "Tải ảnh lên",
     "removeCommentImage": "Gỡ ảnh",
     "commentImageMax": "Bạn có thể thêm tối đa {{count}} ảnh",
@@ -4391,6 +4400,7 @@
     "video": "Video bài viết",
     "imagePreview": "Xem trước ảnh",
     "editPost": "Sửa",
+    "fromGithub": "Từ GitHub",
     "deletePost": "Xóa",
     "editHelp": "Sửa trên Platform để giữ ảnh, video và định dạng",
     "deleteTitle": "Xóa bài viết này?",
@@ -4411,6 +4421,9 @@
     "login": "Đăng nhập Platform",
     "account": "Đăng với tên {{name}}",
     "postTitle": "Tiêu đề",
+    "githubLinkLabel": "Kho lưu trữ GitHub",
+    "githubLinkPlaceholder": "https://github.com/owner/repo",
+    "githubLinkInvalid": "Vui lòng nhập địa chỉ kho lưu trữ GitHub hợp lệ",
     "body": "Nội dung",
     "confirm": "Tôi đã xem lại tiêu đề và nội dung và đồng ý xuất bản công khai nội dung này.",
     "publish": "Xuất bản",

@@ -14,6 +14,8 @@ import type { IAgentScopeRuntimeWebUISession } from "@agentscope-ai/chat";
 import type { ChatSource } from "../api/types/chat";
 import { useAgentStore } from "./agentStore";
 
+export const SESSION_LIST_REFRESH_EVENT = "qwenpaw:session-list-refresh";
+
 export interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   realId?: string;
   sessionId?: string;

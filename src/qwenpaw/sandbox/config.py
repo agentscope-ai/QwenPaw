@@ -103,6 +103,53 @@ class PortRule:
     allow: bool = True
 
 
+def is_volume_root(path: str) -> bool:
+    """Whether *path* is a filesystem/volume root.
+
+    That is a drive root such as ``C:\\`` on Windows, or ``/`` on POSIX.
+
+    Sandbox ACLs are inheritable, so granting one on a volume root
+    re-propagates it to every existing child of that volume.
+
+    Args:
+        path: Filesystem path to test.
+
+    Returns:
+        True if *path* names a volume root.
+    """
+    if not path:
+        return False
+    normalised = os.path.normpath(os.path.abspath(path))
+    return os.path.dirname(normalised) == normalised
+
+
+def volume_root_paths(config: "SandboxConfig") -> List[str]:
+    """Returns the configured paths that are volume roots.
+
+    A sandbox ACE must never be written on a volume root: the ACE is
+    inheritable, a volume root has no parent, and the write therefore
+    re-propagates across the whole volume. ``create_sandbox`` uses this
+    to fall back to unsandboxed execution instead of locking the volume.
+
+    Args:
+        config: Sandbox configuration to inspect.
+
+    Returns:
+        The offending paths, in configuration order.
+    """
+    found: List[str] = []
+    if is_volume_root(config.workspace_dir):
+        found.append(config.workspace_dir)
+    for mount in config.mounts:
+        if is_volume_root(mount.path):
+            found.append(mount.path)
+    for deny_path in config.deny_paths:
+        expanded = os.path.expanduser(deny_path)
+        if is_volume_root(expanded):
+            found.append(expanded)
+    return found
+
+
 @dataclass
 class SandboxConfig:
     """Complete sandbox constraint configuration.
@@ -164,6 +211,29 @@ class SandboxConfig:
     env_mode: str = "inject"
     shell_executable: Optional[str] = None
     platform_hints: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Warns about volume roots, which sandbox ACLs must never cover.
+
+        Sandbox ACLs are inheritable and are written on the workspace, on
+        every mount and on every deny path. A volume root has no parent,
+        so such a write re-propagates to every existing child of the
+        volume; if the root DACL is missing or is replaced with a
+        sandbox-only DACL, SYSTEM / Administrators / Users can vanish
+        from the subtree and the drive becomes inaccessible even to an
+        elevated Administrator.
+
+        This is only a warning. ``create_sandbox`` turns a volume-root
+        config into unsandboxed execution so the command still runs while
+        the volume stays usable (see #7943).
+        """
+        for path in volume_root_paths(self):
+            logger.warning(
+                "%s is a volume root; a sandbox ACE there can make the "
+                "whole volume inaccessible. Use a subdirectory to keep "
+                "the sandbox enabled.",
+                path,
+            )
 
 
 @dataclass
@@ -744,6 +814,21 @@ def create_sandbox(  # pylint: disable=too-many-return-statements
         # this process. Children inherit it; do not nest native sandboxes.
         logger.debug("Using the inherited Local runtime OS sandbox")
         return NoneSandbox(config)
+
+    # A volume root must never receive an inheritable sandbox ACE: it has
+    # no parent, so the write re-propagates across the whole volume and
+    # can leave the drive inaccessible even to an Administrator. Fall
+    # back to unsandboxed execution so the command still runs while the
+    # volume stays usable (see #7943).
+    roots = volume_root_paths(config)
+    if roots:
+        logger.warning(
+            "Sandbox disabled for this session: %s is a volume root, and "
+            "granting a sandbox ACE there can make the whole volume "
+            "inaccessible. Use a subdirectory to keep the sandbox on.",
+            ", ".join(roots),
+        )
+        config = replace(config, mode=SandboxMode.NONE)
 
     # Platform compatibility guard: downgrade incompatible modes to the
     # platform default to prevent crashes from missing OS-specific APIs.

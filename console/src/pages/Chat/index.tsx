@@ -103,6 +103,7 @@ import { toChatThemeHex } from "@/utils/chatThemeColor";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import { wrapChatResponseUsageStream } from "./turnUsage";
+import { SESSION_LIST_REFRESH_EVENT } from "../../stores/sessionListStore";
 import { wrapReplayFastForward } from "./replayFastForward";
 import { clearTurnStopped, markTurnStopped } from "./stoppedTurns";
 import { useTurnUsageStore } from "./turnUsageStore";
@@ -3486,7 +3487,14 @@ export default function ChatPage() {
         sessionApi.triggerResolve(localIdToResolve);
       }
 
-      return wrapChatResponseUsageStream(response, chatRef, usageTurn);
+      return wrapChatResponseUsageStream(
+        response,
+        chatRef,
+        usageTurn,
+        usesQwenPawBackend
+          ? () => document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT))
+          : undefined,
+      );
     },
     [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
   );
@@ -4464,6 +4472,10 @@ export default function ChatPage() {
             wrapReplayFastForward(response),
             chatRef,
             usageTurn,
+            usesQwenPawBackend
+              ? () =>
+                  document.dispatchEvent(new Event(SESSION_LIST_REFRESH_EVENT))
+              : undefined,
           );
         },
       },
