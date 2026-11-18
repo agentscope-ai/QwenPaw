@@ -127,7 +127,10 @@ export function PoolSkillCard({
                     icon: <Trash2 size={15} />,
                   },
                 ],
-                onClick: () => onDelete(skill),
+                onClick: ({ domEvent }) => {
+                  domEvent.stopPropagation();
+                  onDelete(skill);
+                },
               }}
             >
               <Button
