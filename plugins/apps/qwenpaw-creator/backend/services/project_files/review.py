@@ -543,7 +543,9 @@ class ReviewDecisionJournal(BaseModel):
     # replaying every FINALIZED journal after the last pending Review clears
     # would otherwise queue a second resume for an earlier decision in the
     # same round (distinct decision ids defeat message-id idempotency).
-    # ``None`` marks a legacy journal: replay it to preserve crash safety.
+    # ``None`` marks a journal written before this field existed: its
+    # follow-up ownership is inferred from the round's finalized journals,
+    # so an upgrade never replays an earlier decision's suppressed resume.
     followup_expected: bool | None = None
     created_at: datetime
     updated_at: datetime

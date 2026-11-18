@@ -40,8 +40,8 @@ router = APIRouter(
 )
 
 # Work-node kind -> the artifact slot kind it produces. A node's target_ref
-# is the slot's owner_ref, so the pair identifies the artifact version whose
-# automatic review state this node represents.
+# is the slot's owner_ref, so the (owner, kind, variant) triple identifies
+# the artifact version whose automatic review state this node represents.
 _NODE_SLOT_KINDS = {
     "visual": "visual_asset_image",
     "lineup": "cast_lineup_image",
@@ -51,18 +51,33 @@ _NODE_SLOT_KINDS = {
 }
 
 
+def _slot_variant_id(slot: Any) -> str | None:
+    """The visual Variant an artifact slot belongs to, if it names one."""
+
+    value = slot.metadata.get("variantId") if slot.metadata else None
+    return str(value) if value else None
+
+
+def _node_variant_id(node: WorkNode) -> str | None:
+    """The visual Variant a node dispatches, if it targets one."""
+
+    value = node.dispatch_arguments.get("variantId")
+    return str(value) if value else None
+
+
 def _review_skip_notes(
     project: Project,
     reports_root: Any,
-) -> dict[tuple[str, str], dict[str, str]]:
+) -> dict[tuple[str, str, str | None], dict[str, str]]:
     """Skip notes for currently selected artifact versions.
 
-    Keyed by ``(owner_ref, slot_kind)`` so a node can pick its own artifact
-    without depending on opaque slot ids. A note only applies while the
+    Keyed by ``(owner_ref, slot_kind, variant_id)`` because a visual entity
+    owns one image slot per Variant: the owner/kind pair alone would let a
+    v1 skip reason surface on v2's node. A note only applies while the
     version it names is still the slot's selected output.
     """
 
-    notes: dict[tuple[str, str], dict[str, str]] = {}
+    notes: dict[tuple[str, str, str | None], dict[str, str]] = {}
     for slot in project.assets.artifact_slots_by_id.values():
         if not slot.selected_version_id:
             continue
@@ -72,7 +87,7 @@ def _review_skip_notes(
         )
         if note is None or note["version_id"] != slot.selected_version_id:
             continue
-        notes[(slot.owner_ref, slot.kind)] = {
+        notes[(slot.owner_ref, slot.kind, _slot_variant_id(slot))] = {
             "reason": note["reason"],
             "hint": note["hint"],
         }
@@ -81,12 +96,12 @@ def _review_skip_notes(
 
 def _node_review_skip(
     node: WorkNode,
-    notes: dict[tuple[str, str], dict[str, str]],
+    notes: dict[tuple[str, str, str | None], dict[str, str]],
 ) -> dict[str, str] | None:
     slot_kind = _NODE_SLOT_KINDS.get(node.kind)
     if slot_kind is None or not node.target_ref:
         return None
-    return notes.get((node.target_ref, slot_kind))
+    return notes.get((node.target_ref, slot_kind, _node_variant_id(node)))
 
 
 def _graph_payload(project_id: str, services: CreatorFileServices) -> dict:

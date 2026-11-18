@@ -31,7 +31,7 @@ import re
 import socket
 import stat
 from typing import Any, Protocol, TYPE_CHECKING
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
 from domain.enums import (

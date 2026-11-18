@@ -344,17 +344,74 @@ describe("file-native Project Review store", () => {
     },
   );
 
-  it("stamps the reconciliation before a failed decision reaches its caller", async () => {
+  it("credits a failed keep only when the recorded decision is accepted", async () => {
     // The response can be lost after the server committed. A batch caller
-    // may only credit that keep when the awaited reconciliation says so.
-    const resolved = review("token-2", 3, {
-      status: "RESOLVED",
-      operations: [{ ...review().operations[0], decision: "ACCEPTED" }],
+    // may only credit that keep when the fresh review records this
+    // decision as accepted.
+    const op1 = review().operations[0];
+    const operation2 = {
+      ...op1,
+      json_pointer: "/story/description",
+      operation_id: "operation-2",
+    } as const;
+    const accepted = review("token-2", 3, {
+      operations: [{ ...op1, decision: "ACCEPTED" }, operation2],
     });
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new Error("response lost"))
-      .mockResolvedValueOnce(activeResponse(resolved));
+      .mockResolvedValueOnce(activeResponse(accepted));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review("token-1", 3, { operations: [op1, operation2] })]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    expect(store().reconciledDecision).toMatchObject({ reviewId: "review-1" });
+    expect(store().unconfirmedDecision).toBeNull();
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/runtime/reviews/active"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("never credits a keep another tab recorded as rejected", async () => {
+    const op1 = review().operations[0];
+    const operation2 = {
+      ...op1,
+      json_pointer: "/story/description",
+      operation_id: "operation-2",
+    } as const;
+    const rejected = review("token-2", 3, {
+      operations: [{ ...op1, decision: "REJECTED" }, operation2],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(activeResponse(rejected));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review("token-1", 3, { operations: [op1, operation2] })]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    // Leaving the pending set is not proof this keep landed: the fresh
+    // review must show it accepted, and here it shows the opposite.
+    expect(store().reconciledDecision).toBeNull();
+    expect(store().unconfirmedDecision).toBeNull();
+    expect(store().reviews[0].operations[0].decision).toBe("REJECTED");
+  });
+
+  it("marks the outcome unconfirmed when the review only left the queue", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(response(204));
     vi.stubGlobal("fetch", fetchMock);
     seed([review()]);
 
@@ -363,12 +420,9 @@ describe("file-native Project Review store", () => {
         { operation_id: "operation-1", decision: "ACCEPT" },
       ]),
     ).rejects.toThrow("response lost");
-    expect(store().reconciledDecision).toMatchObject({ reviewId: "review-1" });
-    expect(
-      fetchMock.mock.calls.filter(([input]) =>
-        String(input).includes("/runtime/reviews/active"),
-      ),
-    ).toHaveLength(1);
+    expect(store().reconciledDecision).toBeNull();
+    expect(store().unconfirmedDecision).toMatchObject({ reviewId: "review-1" });
+    expect(store().reviews).toEqual([]);
   });
 
   it("never reconciles a CAS conflict: another tab decided first", async () => {

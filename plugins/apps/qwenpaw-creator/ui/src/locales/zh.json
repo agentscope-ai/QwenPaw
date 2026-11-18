@@ -1466,6 +1466,7 @@
       "syncUnavailable": "暂时无法更新审阅状态，请稍后重试。",
       "decisionFailed": "未能保存审阅决定，请重试。",
       "decisionReconciled": "刚才的审阅决定已生效，无需重试。",
+      "decisionUnconfirmed": "上次审阅决定的结果待确认：审阅已离开待办，但未能核对本次操作是否生效，请先刷新查看。",
       "referenceImages": "参考图",
       "referencesUpdated": "参考图已更新",
       "versionRecord": "版本记录",

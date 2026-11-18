@@ -492,6 +492,24 @@ def is_reference_download_failure(message: str) -> bool:
     )
 
 
+# The object store answering 5xx says nothing about the stored grant: the
+# pre-signed URL is still valid and the same request can succeed once the
+# store recovers. Only a number tied to a status marker counts - a bare
+# three-digit number could be an image dimension (e.g. "512x512").
+_TRANSIENT_STORAGE_STATUS = re.compile(
+    r"\b(?:http(?:\s+status)?|status(?:\s+code)?)\s*[:=]?\s*5\d{2}\b"
+    r"|\b5\d{2}\s+(?:service unavailable|internal server error|"
+    r"bad gateway|gateway time-?out)\b",
+    re.IGNORECASE,
+)
+
+
+def is_transient_reference_download_failure(message: str) -> bool:
+    """Whether a download failure names a transient object-store 5xx."""
+
+    return _TRANSIENT_STORAGE_STATUS.search(message or "") is not None
+
+
 def reference_download_model_error(
     detail: str,
     model_name: str,
@@ -506,11 +524,15 @@ def reference_download_model_error(
     usable grant, so the detail is scrubbed before it reaches the task
     error, trace or log. A reference download failure is deterministic for
     the same inputs: retrying cannot succeed, so the error is never
-    retryable. Returns ``None`` when the text names no download failure.
+    retryable. The one exception is an explicit storage 5xx: that failure
+    is transient, so it is left for the caller's retryable classification.
+    Returns ``None`` when the text names no download failure.
     """
 
     scrubbed = redact_urls(detail or "")
     if not is_reference_download_failure(scrubbed):
+        return None
+    if is_transient_reference_download_failure(scrubbed):
         return None
     return ModelError(
         f"{prefix}: {scrubbed[:500]}. {REFERENCE_DOWNLOAD_ADVICE}",

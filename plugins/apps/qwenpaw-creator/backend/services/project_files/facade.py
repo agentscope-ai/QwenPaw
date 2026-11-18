@@ -546,7 +546,9 @@ class CreatorFileServices:
         A journal finalized while another Review was still pending carries
         ``followup_expected=False``: that decision deliberately published no
         ACCEPT resume, and replaying it after the last pending Review clears
-        would queue a second, non-idempotent resume for the same round.
+        would queue a second, non-idempotent resume for the same round. The
+        publication entry applies that recorded decision, so replay never
+        has to re-derive it from the live pending set.
         """
 
         project_ids = (
@@ -566,16 +568,15 @@ class CreatorFileServices:
                 )
                 continue
             for journal in journals:
-                if journal.followup_expected is False:
-                    # An earlier decision in the same round intentionally
-                    # published no resume because another Review was still
-                    # pending; replaying it now would queue a duplicate.
-                    continue
                 try:
                     self._publish_review_followup(
                         project_id=scoped_project_id,
                         review_id=journal.review_id,
                         decision_id=journal.decision_id,
+                        # Reuse the outbox already read for this pass so a
+                        # project with many legacy journals does not re-scan
+                        # every journal once per replayed decision.
+                        journals=journals,
                     )
                 except Exception:
                     logger.exception(
@@ -644,6 +645,7 @@ class CreatorFileServices:
         journal: Any,
         *,
         auto_continued: list[str] | None = None,
+        journals: list[Any] | None = None,
     ) -> str | None:
         """Render the follow-up text, or ``None`` when none is warranted."""
 
@@ -660,6 +662,13 @@ class CreatorFileServices:
         ):
             # Interrupted text changes already have a mainline-resume
             # message queued behind the review; do not duplicate it.
+            return None
+        # Only the decision recorded as owning the round's follow-up may
+        # publish. Re-deriving this from the live pending set would make a
+        # retried or replayed earlier decision eligible again once the
+        # round cleared, queueing a duplicate resume under a distinct
+        # decision id.
+        if not self._followup_expected(project_id, journal, journals=journals):
             return None
         # A batch can expose several media Reviews at once. Queue exactly
         # one continuation, after the last pending Review resolves, so a
@@ -680,6 +689,75 @@ class CreatorFileServices:
             auto_continued=auto_continued or [],
         )
 
+    def _followup_expected(
+        self,
+        project_id: str,
+        journal: Any,
+        *,
+        journals: list[Any] | None = None,
+    ) -> bool:
+        """Whether this finalized decision owns the round's follow-up.
+
+        The pending-Review gate that governs an ACCEPT resume is only
+        knowable at finalize time, so it is persisted on the journal.
+        Normal publication, idempotent retries and crash recovery all run
+        through this check instead of re-reading the live pending set.
+        """
+
+        if journal.rejection_feedback is not None:
+            return True
+        if journal.followup_expected is not None:
+            return bool(journal.followup_expected)
+        return self._legacy_followup_expected(
+            project_id,
+            journal,
+            journals=journals,
+        )
+
+    def _legacy_followup_expected(
+        self,
+        project_id: str,
+        journal: Any,
+        *,
+        journals: list[Any] | None = None,
+    ) -> bool:
+        """Infer the recorded gate for a journal written before the field.
+
+        Such a journal carries no decision of its own, so read the durable
+        outbox: the resume belongs to the decision finalized last in the
+        same Review round, and every earlier ACCEPT journal there
+        deliberately published none.
+        """
+
+        try:
+            if journals is None:
+                journals = self.reviews.finalized_followup_journals(
+                    project_id,
+                )
+        except Exception:
+            logger.exception(
+                "failed to read review followup journals for Project %s",
+                _log_safe(project_id),
+            )
+            return False
+        round_id = journal.review_before.round_id
+        same_round = [
+            item
+            for item in journals
+            if item.review_before.round_id == round_id
+        ]
+        if not same_round:
+            return False
+        owner = max(
+            same_round,
+            key=lambda item: (
+                item.updated_at,
+                item.review_id,
+                item.decision_id,
+            ),
+        )
+        return owner.decision_id == journal.decision_id
+
     def _publish_review_followup(
         self,
         *,
@@ -687,6 +765,7 @@ class CreatorFileServices:
         review_id: str,
         decision_id: str,
         auto_continued: list[str] | None = None,
+        journals: list[Any] | None = None,
     ) -> ReviewRejectionAction | None:
         """Synchronous implementation shared by HTTP and startup recovery."""
 
@@ -700,6 +779,7 @@ class CreatorFileServices:
             project_id,
             journal,
             auto_continued=auto_continued,
+            journals=journals,
         )
         if text is None:
             return None

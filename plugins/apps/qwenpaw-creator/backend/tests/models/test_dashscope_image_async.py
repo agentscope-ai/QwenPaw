@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 import models.image.dashscope_provider as dashscope_provider  # noqa: PLR0402  pylint: disable=consider-using-from-import
+from models.image.base import REFERENCE_DOWNLOAD_ERROR_CODE
 from models.image.dashscope_provider import DashScopeImageModel
 from utils.exceptions import ModelError
 
@@ -200,6 +201,7 @@ def test_request_log_keeps_routing_facts_never_the_reference_signature(
     collector = _Collector(logging.INFO)
     target.addHandler(collector)
     try:
+
         async def scenario() -> httpx.Response:
             async with httpx.AsyncClient(
                 transport=httpx.MockTransport(handler),
@@ -262,6 +264,42 @@ def test_failed_task_scrubs_reference_signature_and_stays_permanent() -> None:
     assert "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png" in message
     assert "(status 403)" in message
     assert "regenerate or reselect" in message
+
+
+def test_failed_task_keeps_storage_5xx_download_failures_retryable() -> None:
+    """A storage 5xx is transient, unlike the 403 grant expiry above.
+
+    The sync HTTP branch only classifies a reference failure as permanent
+    for a 4xx; a 5xx object-store failure stays retryable. The async
+    terminal payload carries the same prose and must reach the same
+    verdict so a recovered store can be retried.
+    """
+    signed = (
+        "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png"
+        "?OSSAccessKeyId=AK123&Signature=SECRET"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output": {
+                    "task_id": "t-1",
+                    "task_status": "FAILED",
+                    "message": f"failed to download image: {signed} (status 503)",
+                },
+            },
+        )
+
+    with pytest.raises(ModelError) as caught:
+        _poll(_model(), httpx.MockTransport(handler))
+    message = str(caught.value)
+    assert caught.value.retryable is True
+    assert caught.value.code != REFERENCE_DOWNLOAD_ERROR_CODE
+    assert "AK123" not in message
+    assert "SECRET" not in message
+    assert "https://bucket.oss-cn-hangzhou.aliyuncs.com/a.png" in message
+    assert "(status 503)" in message
 
 
 def test_failed_task_scrubs_urls_but_keeps_other_failures_retryable() -> None:

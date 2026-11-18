@@ -55,7 +55,15 @@ export interface FileProjectReviewState {
    * correction and then clear it.
    */
   reconciledDecision: { reviewId: string; at: string } | null;
+  /**
+   * Set when a failed decision left the pending list without a recorded
+   * decision value proving it landed. Consumers show a "result pending
+   * confirmation" notice and then clear it; nothing here may be credited
+   * as kept.
+   */
+  unconfirmedDecision: { reviewId: string; at: string } | null;
   clearReconciledDecision: () => void;
+  clearUnconfirmedDecision: () => void;
   reset: (projectId?: string | null) => void;
   pollOnce: (projectId: string) => Promise<void>;
   decide: (
@@ -92,6 +100,7 @@ const reviewBase = (projectId: string | null = null) => ({
   polling: false,
   consecutiveFailures: 0,
   reconciledDecision: null as { reviewId: string; at: string } | null,
+  unconfirmedDecision: null as { reviewId: string; at: string } | null,
 });
 
 function semanticEtag(value: string): string {
@@ -330,9 +339,9 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
     ): Promise<boolean> => {
       // The decision endpoint commits before its response can still fail
       // (e.g. follow-up publication errors on older builds, network reset).
-      // If a fresh poll shows the decided operations are no longer pending,
-      // the decision actually took effect: clear the error state and flag
-      // the reconciliation so the UI can correct its "failed" toast.
+      // A lost response proves nothing about what was committed, so only a
+      // recorded decision value may credit the submit as kept: the review
+      // can leave the pending list because another tab rejected it.
       try {
         const fresh = await getActiveFileProjectReview(projectId);
         if (epoch !== projectEpoch || get().projectId !== projectId)
@@ -340,21 +349,59 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
         if (fresh.kind === "not_modified") return false;
         const reviews = fresh.kind === "updated" ? fresh.reviews : [];
         const target = reviews.find((r) => r.review_id === reviewId);
-        const decidedIds = new Set(decisions.map((item) => item.operation_id));
-        const stillPending =
-          target != null &&
-          target.status === "PENDING" &&
-          target.operations.some(
+        // Verify the decision this caller requested, not merely that the
+        // operations left the pending state: another tab may have recorded
+        // the opposite outcome for them.
+        const expected = new Map(
+          decisions.map((item) => [
+            item.operation_id,
+            item.decision === "ACCEPT" ? "ACCEPTED" : "REJECTED",
+          ]),
+        );
+        const decidedOperations =
+          target?.operations.filter((operation) =>
+            expected.has(operation.operation_id),
+          ) ?? [];
+        const confirmed =
+          decidedOperations.length === expected.size &&
+          decidedOperations.every(
             (operation) =>
-              decidedIds.has(operation.operation_id) &&
-              operation.decision === "PENDING",
+              operation.decision === expected.get(operation.operation_id),
           );
-        if (stillPending) return false;
         const pendingReviews = reviews.filter((r) => r.status === "PENDING");
         const compositeToken =
           pendingReviews.length > 0
             ? pendingReviews.map((r) => r.decision_token).join("|")
             : null;
+        if (!confirmed) {
+          // Still pending means the submit has not landed yet: keep the
+          // error state so the caller may retry the same idempotent request.
+          if (
+            decidedOperations.some(
+              (operation) => operation.decision === "PENDING",
+            )
+          )
+            return false;
+          set({
+            reviews: pendingReviews,
+            etag: compositeToken ? quotedEtag(compositeToken) : null,
+            syncStatus: "healthy",
+            syncError: null,
+            consecutiveFailures: 0,
+            lastGoodAt: new Date().toISOString(),
+            // A different recorded decision is authoritative; absence is
+            // not. Only that absence has to be reported as unconfirmed.
+            ...(target == null
+              ? {
+                  unconfirmedDecision: {
+                    reviewId,
+                    at: new Date().toISOString(),
+                  },
+                }
+              : {}),
+          });
+          return false;
+        }
         set({
           reviews: pendingReviews,
           etag: compositeToken ? quotedEtag(compositeToken) : null,
@@ -363,6 +410,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
           consecutiveFailures: 0,
           lastGoodAt: new Date().toISOString(),
           reconciledDecision: { reviewId, at: new Date().toISOString() },
+          unconfirmedDecision: null,
         });
         return true;
       } catch {
@@ -603,6 +651,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
     return {
       ...reviewBase(),
       clearReconciledDecision: () => set({ reconciledDecision: null }),
+      clearUnconfirmedDecision: () => set({ unconfirmedDecision: null }),
       reset: (projectId = null) => {
         stopController();
         projectEpoch += 1;

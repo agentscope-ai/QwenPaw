@@ -1466,6 +1466,7 @@
       "syncUnavailable": "Review status could not be refreshed. Please try again.",
       "decisionFailed": "Could not save your review decision. Please try again.",
       "decisionReconciled": "Your last review decision actually took effect — no need to retry.",
+      "decisionUnconfirmed": "Your last review decision is unconfirmed: the review left the queue, but this decision could not be verified. Refresh to check the result.",
       "referenceImages": "Reference images",
       "referencesUpdated": "Reference images updated",
       "versionRecord": "Version history",
