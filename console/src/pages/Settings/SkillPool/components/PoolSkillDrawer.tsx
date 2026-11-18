@@ -1,5 +1,12 @@
 import { SettingsDrawer as Drawer } from "@/components/interaction/SettingsDrawer";
-import { Button, Form, Input, Select, Switch } from "@agentscope-ai/design";
+import {
+  Button,
+  Form,
+  Input,
+  Select,
+  Switch,
+  Tooltip,
+} from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type {
   PoolSkillDetail,
@@ -117,13 +124,25 @@ export function PoolSkillDrawer({
             <div className={styles.metaStack} style={{ marginBottom: 16 }}>
               <div className={styles.infoSection}>
                 <div className={styles.infoLabel}>{t("skillPool.status")}</div>
-                <div
-                  className={`${styles.infoBlock} ${
-                    styles[getPoolBuiltinStatusTone(activeSkill.sync_status)]
-                  }`}
+                <Tooltip
+                  title={
+                    activeSkill.sync_status === "removed"
+                      ? t("skillPool.statusRemovedHint")
+                      : undefined
+                  }
+                  trigger={["hover", "focus"]}
                 >
-                  {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
-                </div>
+                  <div
+                    className={`${styles.infoBlock} ${
+                      styles[getPoolBuiltinStatusTone(activeSkill.sync_status)]
+                    }`}
+                    tabIndex={
+                      activeSkill.sync_status === "removed" ? 0 : undefined
+                    }
+                  >
+                    {getPoolBuiltinStatusLabel(activeSkill.sync_status, t)}
+                  </div>
+                </Tooltip>
               </div>
               {isSkillBuiltin(activeSkill.source) &&
                 (activeSkill.available_builtin_languages?.length ?? 0) > 1 &&

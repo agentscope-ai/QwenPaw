@@ -1701,6 +1701,9 @@
     "name": "Nama keterampilan"
   },
   "skillPool": {
+    "statusRemoved": "Skill bawaan terdahulu",
+    "statusRemovedHint": "Versi aplikasi yang lebih baru tidak lagi menyertakan skill ini. Salinan yang sudah Anda instal tetap disimpan.",
+    "updatedAgo": "Diperbarui {{time}}",
     "description": "Kumpulan skill lokal bersama untuk skill bawaan dan unggahan workspace.",
     "broadcast": "Sebarkan ke Agen",
     "broadcastHint": "Sebarkan skill ke agen yang dipilih",

@@ -4013,6 +4013,9 @@
     "name": "Tên kỹ năng"
   },
   "skillPool": {
+    "statusRemoved": "Kỹ năng tích hợp cũ",
+    "statusRemovedHint": "Các phiên bản mới của ứng dụng không còn cung cấp kỹ năng này. Bản sao bạn đã cài đặt vẫn được giữ lại.",
+    "updatedAgo": "Cập nhật {{time}}",
     "description": "Kho kỹ năng cục bộ dùng chung cho kỹ năng tích hợp và tải lên từ workspace.",
     "broadcast": "Phân phối cho Agent",
     "broadcastHint": "Phân phối kỹ năng đến các agent được chọn",

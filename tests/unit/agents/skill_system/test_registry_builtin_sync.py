@@ -251,7 +251,7 @@ class TestPoolBuiltinSyncStatus:
             == {}
         )
 
-    def test_builtin_missing_from_the_package_is_outdated(
+    def test_builtin_missing_from_the_package_is_removed(
         self,
         packaged_root,
     ):
@@ -267,11 +267,61 @@ class TestPoolBuiltinSyncStatus:
 
         status = reg.get_pool_builtin_sync_status()
         assert status["gamma"] == {
-            "sync_status": "outdated",
+            f"sync_status": f"removed",
             "latest_version_text": "",
             "available_languages": [],
         }
         assert status["alpha"]["sync_status"] == "synced"
+
+    @pytest.mark.parametrize(
+        (f"current", f"packaged", f"expected"),
+        [
+            (f"1.0", f"2.0", f"outdated"),
+            (f"1.10", f"1.9", f"synced"),
+            (f"2.0", f"1.0", f"synced"),
+            (f"1.0", f"1.0.0", f"synced"),
+            (f"v1.0", f"1.0", f"synced"),
+            (f"1.0rc1", f"1.0", f"outdated"),
+            (f"1.0", f"1.0rc1", f"synced"),
+            (f"custom", f"1.0", f"conflict"),
+            (f"", f"1.0", f"conflict"),
+            (f"custom", f"custom", f"synced"),
+        ],
+    )
+    def test_version_status_agrees_with_import_candidates(
+        self,
+        packaged_root,
+        current,
+        packaged,
+        expected,
+    ):
+        _packaged_variant(packaged_root, f"alpha", f"en", packaged)
+        _write_manifest(
+            {
+                f"builtin_skill_names": [f"alpha"],
+                f"skills": {
+                    f"alpha": {
+                        f"name": f"alpha",
+                        f"source": f"builtin",
+                        f"builtin_language": f"en",
+                        f"version_text": current,
+                    },
+                },
+            },
+        )
+
+        sync = reg.get_pool_builtin_sync_status()[f"alpha"]
+        candidate = reg.list_builtin_import_candidates()[0]
+
+        assert sync[f"sync_status"] == expected
+        assert candidate[f"status"] == (
+            f"current" if expected == f"synced" else expected
+        )
+        assert sync[f"latest_version_text"] == (
+            packaged if expected == f"outdated" else f""
+        )
+        notice = reg.get_pool_builtin_update_notice()
+        assert bool(notice[f"updated"]) == (expected != f"synced")
 
 
 # ---------------------------------------------------------------------------
