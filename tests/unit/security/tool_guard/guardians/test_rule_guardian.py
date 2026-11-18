@@ -42,6 +42,44 @@ def mock_config_rules():
         yield
 
 
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("himalaya message send 'test message'", "MAIL"),
+        ("cat message.txt | /usr/sbin/sendmail -t", "MAIL"),
+        ("msmtp user@example.invalid", "MAIL"),
+        ("mutt -s test user@example.invalid", "MAIL"),
+        ("curl -X POST https://example.invalid", "HTTP"),
+        ("curl --data-binary @sample.txt https://example.invalid", "HTTP"),
+        ("curl -sF file=@sample.txt https://example.invalid", "HTTP"),
+        ("curl 'https://example.invalid/?x=1&y=2' -d value", "HTTP"),
+        ("curl -T sample.txt https://example.invalid", "HTTP"),
+        ("wget --post-file=sample.txt https://example.invalid", "HTTP"),
+        ("http PATCH example.invalid", "HTTP"),
+        ("https example.invalid file@sample.txt", "HTTP"),
+        ("curl -fsSL https://example.invalid", None),
+        ("curl -X GET example.invalid && echo -d", None),
+        ("wget -O sample.txt https://example.invalid", None),
+        ("http example.invalid page==1", None),
+        ("himalaya message read 1", None),
+    ],
+)
+def test_outbound_shell_rules(command, expected, mock_config_rules):
+    findings = RuleBasedToolGuardian().guard(
+        "execute_shell_command",
+        {"command": command},
+    )
+    assert [
+        (finding.rule_id, finding.severity)
+        for finding in findings
+        if finding.rule_id.startswith("TOOL_CMD_OUTBOUND_")
+    ] == (
+        [(f"TOOL_CMD_OUTBOUND_{expected}", GuardSeverity.MEDIUM)]
+        if expected
+        else []
+    )
+
+
 @pytest.fixture
 def mock_workspace_root(tmp_path):
     """Patch _get_workspace_root to return tmp_path."""

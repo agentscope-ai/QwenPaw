@@ -1943,6 +1943,31 @@ class TestRawParamsScanning:
 class TestDefaultDetectionRules:
     """Tests for the governance ↔ tool_guard detection-rule bridge."""
 
+    @pytest.mark.parametrize("level", ["auto", "smart"])
+    @pytest.mark.parametrize(
+        "command,rule_id",
+        [
+            ("himalaya message send 'test message'", "TOOL_CMD_OUTBOUND_MAIL"),
+            ("curl -X POST https://example.invalid", "TOOL_CMD_OUTBOUND_HTTP"),
+            (
+                "curl --data-binary @sample.txt https://example.invalid",
+                "TOOL_CMD_OUTBOUND_HTTP",
+            ),
+        ],
+    )
+    def test_outbound_shell_requires_approval(
+        self,
+        tmp_path,
+        command,
+        rule_id,
+        level,
+    ):
+        policy = _create_default_policy(workspace_dir=str(tmp_path))
+        policy.execution_level = level
+        decision = policy.evaluate(_tc("Bash", command))
+        assert decision.action is GovernanceAction.ASK
+        assert rule_id in {finding.rule_id for finding in decision.findings}
+
     def test_bundled_rules_loaded_on_cold_start(self, tmp_path):
         """Cold start (no policy.yaml) should include bundled rules."""
         policy = _create_default_policy(workspace_dir=str(tmp_path))
