@@ -116,6 +116,35 @@ Register tasks, connections, threads, and processes with `context.resources`. Li
 protection covers managed resources, not arbitrary global threads or external services
 that the author never registered.
 
+### Cancellation and locks around custom synchronous work
+
+`resources.run_sync()` requires SDK 1.2.0. Cancelling its waiter propagates
+`CancelledError`, but the synchronous function may continue. The resource scope
+retains the thread and waits for its actual termination during cleanup. This does
+not retain locks held by the caller: cancellation of a `run_sync()` await inside
+`async with asyncio_lock` can release that lock while the thread still writes.
+
+Keep acquisition, synchronous IO and release in the same synchronous function:
+
+```python
+def write_locked(path, lock, text):
+    with lock:
+        path.write_text(text, encoding="utf-8")
+
+
+async def save(call, shared_lock, text):
+    path = call.storage.path("state.txt")
+    await call.resources.run_sync(write_locked, path, shared_lock, text)
+```
+
+`shared_lock` is a `threading.Lock()` owned by the plugin instance and shared by
+calls accessing the same data scope, not a new lock per invocation. It coordinates
+this process only; it is not an interprocess file lock. Resolve the path through
+the current storage scope before starting. This example demonstrates the lock
+boundary, not atomic replacement; prefer SDK storage methods for ordinary
+persistence. If a critical section also includes asynchronous steps, this pattern
+alone is insufficient. Never synchronously wait for this lock on the event loop.
+
 ## Build Channels and PawApps using only the SDK
 
 Declare the `channels` capability. This backend logs outgoing events to demonstrate the
@@ -172,6 +201,61 @@ plugin = Plugin()
 Handlers receive public `AppContext/HttpRequest` values. Use context methods for models,
 chat, tasks, approvals, and scoped workspace delegation. Call `app.enable_standard_capabilities()`
 before registration when the app needs the standard frontend capabilities.
+
+### Enter a fresh App call scope in background work
+
+Declare `apps`, `resources` and `storage` in the manifest for this example. The HTTP
+request submits work; the plugin's root resource scope owns the coroutine, which
+enters a fresh call through the retained identity delegation when it executes.
+
+```python
+from uuid import uuid4
+
+from qwenpaw.plugins.apps import ChatRequest, HttpResponse, PawApp
+
+
+class Plugin:
+    def register(self, plugin):
+        app = PawApp("Summaries", app_id="summaries")
+
+        @app.route("/summaries/{workspace}", methods=("POST",))
+        async def submit(call, request):
+            workspace_id = request.path_params["workspace"]
+            job_id = str(uuid4())
+            delegate = call.for_workspace
+
+            async def run():
+                async with delegate(workspace_id) as target:
+                    reply = await target.chat(
+                        ChatRequest(
+                            "Summarize this workspace.",
+                            session_id=job_id,
+                        ),
+                    )
+                    await target.storage.awrite_json(
+                        f"summary-{job_id}.json", {"text": reply.text},
+                    )
+
+            plugin.resources.task(run(), "workspace summary")
+            return HttpResponse({"job_id": job_id}, status=202)
+
+        app.register(plugin)
+
+
+plugin = Plugin()
+```
+
+After the HTTP request ends, do not directly use the old `call` for chat, storage
+or resources. `delegate` retains only `for_workspace()` delegation. Entry rechecks
+the plugin generation and target workspace, preserving the original user, channel
+and App identity. Background work uses `target` services; exit releases that call's
+resources.
+
+`202` acknowledges submission, not target availability or business success. This
+is not a durable queue: host restart does not resume it. Disable and reload still
+coordinate cancellation and cleanup; failures appear in root resource diagnostics.
+Prefer `start_task()` when the SDK's existing chat-task status, streaming and
+cancellation interfaces fit the operation.
 
 ## Test independently and reload safely
 

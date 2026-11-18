@@ -101,6 +101,32 @@ App 和 Channel 还包含相应调用身份。工作区使用真实 ID，不根�
 任务、连接、线程和进程应交给 `context.resources` 托管。SDK 只能保证受管资源的生命周期，
 不能替作者停止未登记的全局线程、第三方服务或任意外部资源。
 
+### 自定义同步操作的取消与锁
+
+`resources.run_sync()` 从 SDK 1.2.0 提供。取消等待者会传播 `CancelledError`，
+但同步函数可能继续执行；资源作用域保留线程归属，关闭时等待实际线程结束。
+这不等于替调用者保留外层锁：如果在 `async with asyncio_lock` 内等待
+`run_sync()`，取消可能先退出锁，线程却还在写入。
+
+对完整的同步临界区，把获取锁、读写和释放锁放进同一个同步函数：
+
+```python
+def write_locked(path, lock, text):
+    with lock:
+        path.write_text(text, encoding="utf-8")
+
+
+async def save(call, shared_lock, text):
+    path = call.storage.path("state.txt")
+    await call.resources.run_sync(write_locked, path, shared_lock, text)
+```
+
+`shared_lock` 是由插件实例持有、供同一数据范围的调用共享的 `threading.Lock()`，
+不能每次调用重新创建；它只协调当前进程，不是跨进程文件锁。示例中的路径先通过
+当前存储作用域解析。这里展示自定义同步写入的锁边界，不提供原子替换；普通持久化
+优先使用 SDK 存储方法。锁还要覆盖其他异步步骤时，不能直接套用此模式，也不要在
+事件循环中同步等待这个锁。
+
 ## 只用 SDK 开发 Channel 和 PawApp
 
 渠道清单声明 `channels` 能力。以下后端仅记录发送事件，用于展示协议，实际平台发送和
@@ -153,6 +179,56 @@ plugin = Plugin()
 
 处理器只接收公开 `AppContext/HttpRequest`；模型、聊天、任务、审批和跨工作区委托使用
 上下文方法。需要宿主标准前端能力时调用 `app.enable_standard_capabilities()`，再注册应用。
+
+### 在后台重新进入 App 调用作用域
+
+下例清单声明 `apps`、`resources`、`storage` 能力。HTTP 请求只提交工作；
+后台协程由插件根资源作用域持有，在执行时通过保留的同身份委托进入新作用域。
+
+```python
+from uuid import uuid4
+
+from qwenpaw.plugins.apps import ChatRequest, HttpResponse, PawApp
+
+
+class Plugin:
+    def register(self, plugin):
+        app = PawApp("Summaries", app_id="summaries")
+
+        @app.route("/summaries/{workspace}", methods=("POST",))
+        async def submit(call, request):
+            workspace_id = request.path_params["workspace"]
+            job_id = str(uuid4())
+            delegate = call.for_workspace
+
+            async def run():
+                async with delegate(workspace_id) as target:
+                    reply = await target.chat(
+                        ChatRequest(
+                            "Summarize this workspace.",
+                            session_id=job_id,
+                        ),
+                    )
+                    await target.storage.awrite_json(
+                        f"summary-{job_id}.json", {"text": reply.text},
+                    )
+
+            plugin.resources.task(run(), "workspace summary")
+            return HttpResponse({"job_id": job_id}, status=202)
+
+        app.register(plugin)
+
+
+plugin = Plugin()
+```
+
+HTTP 请求结束后不再直接调用旧 `call` 的聊天、存储或资源方法。`delegate` 只保留
+`for_workspace()` 委托；进入时重新校验插件代次及目标工作区，保留原用户、渠道和
+App 身份。后台工作使用 `target` 的服务，退出时释放本次调用资源。
+
+`202` 仅表示任务已提交，不保证目标仍可用或业务已成功。该任务不是持久化队列；
+宿主重启不会自动恢复它。插件停用或重载仍会协调其取消和清理，失败可从插件根资源
+诊断中查看。需要 SDK 已有的聊天任务状态、流与取消接口时，优先使用 `start_task()`。
 
 ## 独立测试与安全重载
 

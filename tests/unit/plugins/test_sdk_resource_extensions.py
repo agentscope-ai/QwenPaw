@@ -117,6 +117,69 @@ async def test_cancelled_run_sync_releases_after_worker_exits():
         assert resources._handles == []
 
 
+async def test_cancelled_run_sync_keeps_lock_until_write_finishes(tmp_path):
+    resources = scope()
+    lock = threading.Lock()
+    entered, release = threading.Event(), threading.Event()
+    attempted = threading.Event()
+    path = tmp_path / "state.txt"
+    path.write_text("initial", encoding="utf-8")
+    events = []
+    acquired_early = []
+
+    def write_locked():
+        with lock:
+            entered.set()
+            if not release.wait(10):
+                raise TimeoutError("Write was not released")
+            path.write_text("completed", encoding="utf-8")
+            events.append("written")
+
+    def read_locked():
+        acquired = lock.acquire(blocking=False)
+        acquired_early.append(acquired)
+        if acquired:
+            lock.release()
+        attempted.set()
+        with lock:
+            value = path.read_text(encoding="utf-8")
+            events.append("read")
+            return value
+
+    writing = asyncio.create_task(resources.run_sync(write_locked))
+    reading = None
+    try:
+        assert await asyncio.to_thread(entered.wait, 3)
+        writing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await writing
+        reading = asyncio.create_task(resources.run_sync(read_locked))
+        assert await asyncio.to_thread(attempted.wait, 3)
+        assert acquired_early == [False]
+        assert events == []
+        assert resources.snapshot()["resources"] == (
+            "run_sync",
+            "run_sync",
+        )
+    finally:
+        release.set()
+        try:
+            await resources.close()
+        finally:
+            waiters = [writing] if reading is None else [writing, reading]
+            await asyncio.gather(*waiters, return_exceptions=True)
+
+    assert reading.result() == "completed"
+    assert events == ["written", "read"]
+    assert resources.snapshot() == {
+        "owner": resources.owner,
+        "closed": True,
+        "resources": (),
+        "errors": (),
+        "cleanup_errors": (),
+    }
+
+
 async def test_run_sync_waits_for_thread_local_cleanup():
     resources = scope()
     finishing, release = threading.Event(), threading.Event()
