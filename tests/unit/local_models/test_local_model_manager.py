@@ -238,6 +238,7 @@ class _FakeLlamaCppBackend:
         model_name: str,
         max_context_length: int | None = None,
         port: int | None = None,
+        before_restart=None,
     ) -> LlamaCppServerSetupResult:
         self.calls.append(
             (
@@ -304,8 +305,12 @@ class _FakeModelManager:
     def cancel_download(self) -> None:
         self.calls.append(("cancel", None))
 
-    def remove_downloaded_model(self, model_name: str) -> None:
-        self.calls.append(("remove", model_name))
+    def remove_downloaded_model(
+        self,
+        model_name: str,
+        running_model_id: str | None = None,
+    ) -> None:
+        self.calls.append(("remove", (model_name, running_model_id)))
 
 
 @pytest.mark.asyncio
@@ -336,6 +341,7 @@ async def test_local_model_manager_forwards_sync_calls(tmp_path) -> None:
     )
     assert manager.get_model_download_progress() == {"status": "pending"}
     manager.cancel_model_download()
+    fake_llamacpp_backend.server_running = True
     manager.remove_downloaded_model("downloaded-model")
 
     assert fake_llamacpp_backend.calls == [
@@ -351,6 +357,7 @@ async def test_local_model_manager_forwards_sync_calls(tmp_path) -> None:
         ),
         ("progress", None),
         ("cancel", None),
+        ("server_status", None),
     ]
     assert fake_model_manager.calls == [
         ("recommended", None),
@@ -359,7 +366,7 @@ async def test_local_model_manager_forwards_sync_calls(tmp_path) -> None:
         ("download_model", ("demo-model", DownloadSource.MODELSCOPE)),
         ("progress", None),
         ("cancel", None),
-        ("remove", "downloaded-model"),
+        ("remove", ("downloaded-model", "demo")),
     ]
 
 
@@ -440,9 +447,18 @@ async def test_set_port_persists_local_model_config(
 @pytest.mark.asyncio
 async def test_start_llamacpp_download_stops_running_server_first(
     tmp_path,
+    monkeypatch,
 ) -> None:
     fake_llamacpp_backend = _FakeLlamaCppBackend()
     fake_llamacpp_backend.server_running = True
+    caller = threading.get_ident()
+    download = fake_llamacpp_backend.download
+
+    def prepare(base_url, tag):
+        assert threading.get_ident() != caller
+        download(base_url, tag)
+
+    monkeypatch.setattr(fake_llamacpp_backend, "download", prepare)
     manager = make_manager(
         data_dir=tmp_path,
         model_manager=cast(ModelManager, _FakeModelManager()),
@@ -463,3 +479,40 @@ async def test_start_llamacpp_download_stops_running_server_first(
             ),
         ),
     ]
+
+
+async def test_cancelled_config_write_preserves_write_order(
+    tmp_path,
+    monkeypatch,
+):
+    manager = make_manager(
+        data_dir=tmp_path,
+        model_manager=cast(ModelManager, _FakeModelManager()),
+        llamacpp_backend=cast(LlamaCppBackend, _FakeLlamaCppBackend()),
+    )
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    release = threading.Event()
+    write = manager._write_config_file
+
+    def delayed_write(path, payload):
+        if payload["port"] == 8001:
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5)
+        write(path, payload)
+
+    monkeypatch.setattr(manager, "_write_config_file", delayed_write)
+    first = asyncio.create_task(manager.set_port(8001))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        first.cancel()
+        await asyncio.sleep(0)
+        assert not first.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        await manager.set_port(8002)
+    finally:
+        release.set()
+        await asyncio.gather(first, return_exceptions=True)
+    assert manager._load_config().port == manager.get_config().port == 8002

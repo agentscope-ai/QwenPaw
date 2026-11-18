@@ -7,6 +7,7 @@ import subprocess
 import io
 import socket
 import tarfile
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -173,7 +174,7 @@ async def test_failed_start_cleans_up_and_allows_retry(
 
 @pytest.mark.parametrize(
     "next_request",
-    ["reuse", "invalid", "crashed", "runtime_download"],
+    ["reuse", "invalid", "crashed", "runtime_download", "busy_port"],
 )
 async def test_setup_preserves_existing_service_behavior(
     monkeypatch,
@@ -184,6 +185,14 @@ async def test_setup_preserves_existing_service_behavior(
     model = tmp_path / "model.gguf"
     model.write_bytes(b"GGUF")
     processes = []
+    caller = threading.get_ident()
+    resolve_model = downloader._resolve_model_file
+
+    def prepare(model_path):
+        assert threading.get_ident() != caller
+        return resolve_model(model_path)
+
+    monkeypatch.setattr(downloader, "_resolve_model_file", prepare)
 
     async def create(**_kwargs):
         process = _FakeServerProcess()
@@ -210,6 +219,19 @@ async def test_setup_preserves_existing_service_behavior(
     elif next_request == "invalid":
         with pytest.raises(FileNotFoundError):
             await downloader.setup_server(tmp_path / "missing.gguf", "B")
+    elif next_request == "busy_port":
+
+        def reject_restart(pid):
+            assert pid == original.pid
+            raise RuntimeError("running model is in use")
+
+        with pytest.raises(RuntimeError, match="is in use"):
+            await downloader.setup_server(
+                model,
+                "A",
+                port=43111,
+                before_restart=reject_restart,
+            )
     else:
         if next_request == "crashed":
             original.returncode = 1
@@ -1239,6 +1261,31 @@ def test_resolve_model_file_returns_model_and_mmproj(
 
     assert resolved_model == model_file.resolve()
     assert resolved_mmproj == mmproj_file.resolve()
+
+
+def test_resolve_model_file_prefers_weights_from_the_selected_directory(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    downloader = _build_downloader(monkeypatch)
+    root = tmp_path / "owner"
+    weights = root / "standalone.gguf"
+    projection = root / "vision" / "mmproj.gguf"
+    other = root / "repo"
+    other.mkdir(parents=True)
+    projection.parent.mkdir()
+    for path in (
+        weights,
+        projection,
+        other / "model.gguf",
+        other / "mmproj.gguf",
+    ):
+        path.touch()
+
+    assert downloader._resolve_model_file(root) == (
+        weights.resolve(),
+        projection.resolve(),
+    )
 
 
 def test_resolve_model_file_rejects_mmproj_only_repository(

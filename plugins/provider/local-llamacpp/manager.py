@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError
@@ -136,8 +136,8 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             pass
 
     async def _save_config(self) -> None:
-        """Persist local runtime settings to disk without blocking the loop."""
-        await asyncio.to_thread(
+        """Finish the write before releasing the settings lock."""
+        await run_io(
             self._write_config_file,
             self._config_path,
             self._config.model_dump(),
@@ -179,7 +179,8 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
             if server_was_running:
                 await self._llamacpp_backend.shutdown_server()
 
-            self._llamacpp_backend.download(
+            await run_io(
+                self._llamacpp_backend.download,
                 self.DEFAULT_LLAMA_CPP_BASE_URL,
                 self.DEFAULT_LLAMA_CPP_RELEASE_TAG,
             )
@@ -246,11 +247,18 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
 
     def remove_downloaded_model(self, model_id: str) -> None:
         """Delete a downloaded local model by repo id or directory name."""
-        self._model_manager.remove_downloaded_model(model_id)
+        status = self.get_server_status()
+        self._model_manager.remove_downloaded_model(
+            model_id,
+            running_model_id=status["model_name"]
+            if status["running"]
+            else None,
+        )
 
     async def ensure_server(
         self,
         model_id: str,
+        before_restart: Callable[[int], None] | None = None,
     ) -> LlamaCppServerSetupResult:
         """Start the llama.cpp server for the specified model."""
         async with self._server_lifecycle_lock:
@@ -259,6 +267,7 @@ class LocalModelManager:  # pylint: disable=too-many-public-methods
                 model_name=model_id,
                 max_context_length=self._config.max_context_length,
                 port=self._config.port,
+                before_restart=before_restart,
             )
 
     async def stop_server(self) -> None:

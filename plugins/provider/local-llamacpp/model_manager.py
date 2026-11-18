@@ -15,6 +15,8 @@ from typing import Any, Optional
 
 import httpx
 
+from qwenpaw.plugins import SDKError
+
 from . import hardware as system_info
 from .model_types import (
     DownloadSource,
@@ -259,15 +261,45 @@ class ModelManager(ModelDownloads):
 
         return models
 
-    def remove_downloaded_model(self, model_id: str) -> None:
+    def remove_downloaded_model(
+        self,
+        model_id: str,
+        running_model_id: str | None = None,
+    ) -> None:
         """Delete a downloaded local model by repo id or directory name."""
-        model_path = self.get_model_dir(model_id)
-        if model_path.exists():
-            self._cleanup_path(model_path)
-            self._cleanup_empty_parent_dirs(model_path.parent)
-            return
+        model_dirs = self._iter_downloaded_model_dirs()
+        model_dir = next(
+            (
+                path
+                for path in model_dirs
+                if self._infer_repo_id_from_path(path) == model_id
+            ),
+            None,
+        )
+        if model_dir is None:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
 
-        raise ValueError(f"Downloaded local model not found: {model_id}")
+        root = self._model_dir.resolve()
+        model_path = root / model_dir.relative_to(self._model_dir)
+        if model_path.resolve() != model_path:
+            raise ValueError(f"Downloaded local model not found: {model_id}")
+        if any(
+            path != model_dir and path.is_relative_to(model_dir)
+            for path in model_dirs
+        ):
+            raise SDKError(
+                "Cannot delete a directory that contains another model",
+            )
+        if running_model_id is not None:
+            running_path = self.get_model_dir(running_model_id).resolve()
+            if model_path.is_relative_to(running_path) or any(
+                path.exists() and path.samefile(model_path)
+                for path in (running_path, *running_path.parents)
+            ):
+                raise SDKError("Cannot delete a model while it is running")
+
+        shutil.rmtree(model_path)
+        self._cleanup_empty_parent_dirs(model_path.parent, root)
 
     def start_download(
         self,
@@ -599,7 +631,14 @@ class ModelManager(ModelDownloads):
                 continue
             if self._is_temporary_download_dir(entry):
                 continue
-            if not any(entry.rglob("*.gguf")):
+            # A standalone model has its own weights at the top level.
+            pattern = (
+                "*.gguf" if entry.parent == self._model_dir else "**/*.gguf"
+            )
+            if not any(
+                path.is_file() and not path.name.lower().startswith("mmproj")
+                for path in entry.glob(pattern)
+            ):
                 continue
             if not self._looks_like_model_root(entry):
                 continue
@@ -607,7 +646,12 @@ class ModelManager(ModelDownloads):
 
         selected: list[Path] = []
         for candidate in sorted(candidates, key=lambda item: len(item.parts)):
-            if any(candidate.is_relative_to(parent) for parent in selected):
+            # An owner/model repo can share its owner directory with a
+            # standalone model. Deeper paths can belong to a model already found.
+            depth = len(candidate.relative_to(self._model_dir).parts)
+            if depth > 2 and any(
+                candidate.is_relative_to(parent) for parent in selected
+            ):
                 continue
             selected.append(candidate)
         return selected
@@ -629,8 +673,9 @@ class ModelManager(ModelDownloads):
         relative_path = model_dir.relative_to(self._model_dir)
         return "/".join(relative_path.parts)
 
-    def _cleanup_empty_parent_dirs(self, path: Path) -> None:
-        while path != self._model_dir and path.exists():
+    @staticmethod
+    def _cleanup_empty_parent_dirs(path: Path, root: Path) -> None:
+        while path != root and path.exists():
             if any(path.iterdir()):
                 return
             path.rmdir()

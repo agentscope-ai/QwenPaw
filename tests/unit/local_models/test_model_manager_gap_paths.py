@@ -889,15 +889,18 @@ class TestOnDiskDiscovery:
         with pytest.raises(ValueError):
             manager.remove_downloaded_model("org/ghost")
 
-    def test_cleanup_stops_at_non_empty_parent(self, manager: ModelManager):
+    def test_delete_preserves_non_empty_parent(self, manager: ModelManager):
         org = manager._model_dir / "org"
         keep = org / "keep"
         keep.mkdir(parents=True)
+        (org / "README.md").touch()
         (keep / "x.gguf").write_bytes(b"x")
-        empty_child = org / "empty"
-        empty_child.mkdir()
+        model = org / "remove"
+        model.mkdir()
+        (model / "weights.gguf").write_bytes(b"x")
 
-        manager._cleanup_empty_parent_dirs(empty_child)
+        manager.remove_downloaded_model("org/remove")
 
-        assert not empty_child.exists()
-        assert org.exists()
+        assert not model.exists()
+        assert (org / "README.md").is_file()
+        assert (keep / "x.gguf").is_file()

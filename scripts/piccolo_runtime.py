@@ -165,7 +165,9 @@ def build(target, work, output, jobs):
     options = [
         "-DCMAKE_BUILD_TYPE=Release",
         "-DGGML_NATIVE=OFF",
+        # QwenPaw provides the UI and uses llama-server's HTTP API.
         "-DLLAMA_BUILD_UI=OFF",
+        "-DLLAMA_USE_PREBUILT_UI=OFF",
         "-DLLAMA_OPENSSL=OFF",
         "-DGGML_BACKEND_DL=ON",
         "-DBUILD_SHARED_LIBS=ON",

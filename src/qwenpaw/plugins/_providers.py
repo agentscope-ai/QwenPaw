@@ -6,7 +6,7 @@
 
 import asyncio
 import inspect
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from contextvars import ContextVar
 from copy import copy, deepcopy
 from dataclasses import asdict, fields, replace
@@ -33,27 +33,37 @@ def model_values(model):
 
 
 class ProviderTurn:
-    """Retain provider uses and suspended streams until the Agent turn ends."""
+    """Retain plugin admission and suspended streams for one Agent turn."""
 
     def __init__(self):
         self.task = asyncio.current_task()
-        self.leases = []
+        self._admissions = ExitStack()
+        self._contexts = set()
         self.producers = set()
-        self.lock = asyncio.Lock()
         self.closed = False
         self.token = _turn_usage.set(self)
+
+    def guard(self):
+        if self.closed:
+            raise StaleContextError("The owning Agent turn has ended")
+
+    def retain(self, context):
+        self.guard()
+        if context not in self._contexts:
+            self._admissions.enter_context(context._admission(owner=self.task))
+            self._contexts.add(context)
 
     async def close(self):
         if (
             self.closed
             and not self.producers
-            and not self.leases
+            and not self._contexts
             and self.token is None
         ):
             return
         self.closed = True
         try:
-            if self.producers or self.leases:
+            if self.producers or self._contexts:
                 from ..utils.io_utils import run_async_to_completion
 
                 await run_async_to_completion(self._close_resources())
@@ -72,9 +82,8 @@ class ProviderTurn:
 
         for producer in tuple(self.producers):
             await stop_task(producer, "provider-inference")
-        while self.leases:
-            await self.leases[-1].__aexit__(None, None, None)
-            self.leases.pop()
+        self._admissions.close()
+        self._contexts.clear()
 
 
 class ProviderBinding:
@@ -240,20 +249,13 @@ class ProviderBinding:
     async def connect(self, model_id):
         self.guard()
         turn = _turn_usage.get()
-        if turn is None:
-            async with self._lease(
-                model_id,
-                asyncio.current_task(),
-            ) as endpoint:
-                yield endpoint
-            return
-        async with turn.lock:
-            if turn.closed:
-                raise StaleContextError("The owning Agent turn has ended")
-            lease = self._lease(model_id, turn.task)
-            endpoint = await lease.__aenter__()
-            turn.leases.append(lease)
-        yield endpoint
+        if turn is not None:
+            turn.guard()
+        owner = turn.task if turn is not None else asyncio.current_task()
+        async with self._lease(model_id, owner) as endpoint:
+            if turn is not None:
+                turn.retain(self.context)
+            yield endpoint
 
     async def call(self, model, *args, **kwargs):
         """Keep the native formatter and response stream, including aclose."""
@@ -271,8 +273,8 @@ class ProviderBinding:
         turn = _turn_usage.get()
 
         async def produce():
-            if turn is not None and turn.closed:
-                raise StaleContextError("The owning Agent turn has ended")
+            if turn is not None:
+                turn.guard()
             token = _turn_usage.set(turn)
             producer = asyncio.current_task()
             if turn is not None:
@@ -403,15 +405,35 @@ def register_native(context, spec):
             timeout=60,
             image_only=False,
         ):
-            async with binding.connect(model_id) as endpoint:
-                provider = self.configuration_snapshot()
-                provider.base_url = endpoint
-                return await OpenAIProvider.probe_model_multimodal(
-                    provider,
+            async with self._multimodal_probe(model_id) as probe:
+                return await probe(
+                    self,
                     model_id,
                     timeout,
                     image_only=image_only,
                 )
+
+        @asynccontextmanager
+        async def _multimodal_probe(self, model_id):
+            self.validate_chat_model(model_id)
+            async with binding.connect(model_id) as endpoint:
+
+                async def probe(
+                    provider,
+                    model_id,
+                    timeout=60,
+                    image_only=False,
+                ):
+                    prepared = provider.configuration_snapshot()
+                    prepared.base_url = endpoint
+                    return await OpenAIProvider.probe_model_multimodal(
+                        prepared,
+                        model_id,
+                        timeout,
+                        image_only=image_only,
+                    )
+
+                yield probe
 
         async def fetch_models(self, timeout=5):
             if spec.discover is None:

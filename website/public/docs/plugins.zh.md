@@ -316,7 +316,7 @@ asyncio.run(main())
 
 自定义推理使用 `generate`，或声明 `protocol="openai-chat"` 复用宿主的 OpenAI 兼容传输。
 可选的 `connect(ctx, model_id)` 返回异步上下文管理器，yield 服务的 base URL。
-宿主在每次调用前进入它，在所属 turn 结束时退出；独立调用在调用或流关闭时退出。
+宿主在每次调用前进入它，并在该调用结束或流关闭时退出。宿主保留插件使用权直到所属 turn 结束。
 
 以下句柄方法均需 `await`：
 

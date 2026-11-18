@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from qwenpaw.plugins import SDKError
+
 from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
@@ -282,6 +284,7 @@ def test_get_model_dir_preserves_repo_id_path() -> None:
     ("repo_id", "model_type", "name"),
     [
         ("Qwen/Qwen3-0.6B-GGUF", "chat", "Qwen/Qwen3-0.6B-GGUF"),
+        ("custom-model", "chat", "custom-model"),
         ("agentscope-ai/Piccolo-27B", "decision", "Piccolo-27B"),
         ("agentscope-ai/Piccolo-4B-Q8_0", "decision", "Piccolo-4B-Q8_0"),
         ("agentscope-ai/Piccolo-4B-BF16", "decision", "Piccolo-4B-BF16"),
@@ -336,6 +339,87 @@ def test_list_downloaded_models_ignores_temporary_download_dirs(
     models = downloader.list_downloaded_models()
 
     assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]
+
+
+def test_delete_rejects_non_model_directories(tmp_path: Path) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    repo = manager.get_model_dir("owner/model")
+    repo.mkdir(parents=True)
+    weights = repo / "model.gguf"
+    weights.touch()
+    (repo.parent / "README.md").touch()
+    notes = manager.get_model_dir("notes")
+    notes.mkdir()
+    (notes / "keep.txt").touch()
+
+    for model_id in ("", "owner", "notes"):
+        with pytest.raises(
+            ValueError,
+            match="Downloaded local model not found",
+        ):
+            manager.remove_downloaded_model(model_id)
+    assert weights.is_file()
+    assert (repo.parent / "README.md").is_file()
+    assert (notes / "keep.txt").is_file()
+
+    for running_model_id in ("owner/model/model.gguf", "owner"):
+        with pytest.raises(
+            SDKError,
+            match="Cannot delete a model while it is running",
+        ):
+            manager.remove_downloaded_model("owner/model", running_model_id)
+    assert weights.is_file()
+
+
+def test_delete_rejects_symlink_to_directory_outside_models(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    outside = tmp_path / "external"
+    outside.mkdir()
+    weights = outside / "model.gguf"
+    weights.touch()
+    alias = manager.get_model_dir("linked-model")
+    alias.parent.mkdir()
+    try:
+        alias.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Directory symlinks are unavailable")
+
+    with pytest.raises(ValueError, match="Downloaded local model not found"):
+        manager.remove_downloaded_model("linked-model")
+    assert weights.is_file()
+    assert alias.is_symlink()
+
+
+def test_delete_preserves_a_separate_model_in_a_child_directory(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    child = manager.get_model_dir("owner/model")
+    child.mkdir(parents=True)
+    parent_weights = child.parent / "standalone.gguf"
+    child_weights = child / "model.gguf"
+    parent_weights.touch()
+    child_weights.touch()
+    projection = child.parent / "vision" / "mmproj.gguf"
+    projection.parent.mkdir()
+    projection.touch()
+
+    assert {model.id for model in manager.list_downloaded_models()} == {
+        "owner",
+        "owner/model",
+    }
+    with pytest.raises(SDKError, match="contains another model"):
+        manager.remove_downloaded_model("owner")
+    assert parent_weights.is_file()
+    assert child_weights.is_file()
+
+    manager.remove_downloaded_model("owner/model")
+    assert not child.exists()
+    assert parent_weights.is_file()
+    manager.remove_downloaded_model("owner")
+    assert not projection.exists()
 
 
 def test_download_worker_reports_completion(

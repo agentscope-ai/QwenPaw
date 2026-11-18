@@ -11,7 +11,7 @@ from agentscope.message import Msg
 from agentscope.tool import ToolChoice
 from openai import AsyncOpenAI, InternalServerError
 
-from qwenpaw.plugins import SDKError, StaleContextError
+from qwenpaw.plugins import PluginBusyError, SDKError, StaleContextError
 from qwenpaw.plugins._providers import ProviderTurn
 from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.plugins.testing import PluginTestHost
@@ -489,7 +489,9 @@ async def test_provider_selection_is_scoped_and_preserves_other_defaults(
         assert manager.load_active_model() == cloud
 
 
-async def test_preparation_is_per_call_and_release_is_per_turn(tmp_path):
+async def test_connection_releases_per_call_and_plugin_releases_per_turn(
+    tmp_path,
+):
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(
             make_plugin(tmp_path, SOURCE, ["providers", "resources"]),
@@ -506,7 +508,10 @@ async def test_preparation_is_per_call_and_release_is_per_turn(tmp_path):
                 for _ in range(3):
                     async with binding.connect("model-A") as endpoint:
                         assert endpoint == "https://prepared.test/v1"
-                assert plugin.active == 3
+                        assert plugin.active == 1
+                    assert plugin.active == 0
+                with pytest.raises(PluginBusyError):
+                    await host.unload("extension-contract")
             finally:
                 await turn.close()
             assert plugin.active == 0

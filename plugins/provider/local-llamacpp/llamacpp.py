@@ -11,7 +11,7 @@ import subprocess
 import uuid
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import httpx
 
@@ -131,10 +131,11 @@ class LlamaCppBackend(BinaryDownloads):
 
     async def has_update(self, latest_version: str) -> bool:
         """Check if there is a newer version of llama.cpp available."""
-        if not self.check_llamacpp_installation()[0]:
+        installed, _ = await run_io(self.check_llamacpp_installation)
+        if not installed:
             return False
         if latest_version == RELEASE["release"]:
-            metadata = read_runtime_metadata(self.target_dir)
+            metadata = await run_io(read_runtime_metadata, self.target_dir)
             return not (
                 matches_release(metadata)
                 and metadata.get("target") == self._runtime_target()
@@ -225,6 +226,7 @@ class LlamaCppBackend(BinaryDownloads):
         model_name: str,
         max_context_length: int | None = None,
         port: int | None = None,
+        before_restart: Callable[[int], None] | None = None,
     ) -> LlamaCppServerSetupResult:
         """Setup llama.cpp server and return the runtime port and model info.
 
@@ -233,19 +235,10 @@ class LlamaCppBackend(BinaryDownloads):
             model_name: Name of the model to be used in the server
             max_context_length: Optional context window passed to llama.cpp
             port: Optional fixed server port. None means auto select.
+            before_restart: Check whether the running process can be replaced.
         """
-        if self._is_download_active():
-            raise RuntimeError(
-                "Wait for the inference engine update to finish before "
-                "starting a model.",
-            )
-        installed, message = self.check_llamacpp_installation()
-        if not installed:
-            raise RuntimeError(message or "llama.cpp server is not installed")
-        if not model_path.exists():
-            raise FileNotFoundError(f"Model path not found: {model_path}")
-
-        resolved_model_path, resolved_mmproj_path = self._resolve_model_file(
+        resolved_model_path, resolved_mmproj_path = await run_io(
+            self._prepare_model_files,
             model_path,
         )
         model_info = self._build_model_info(
@@ -276,7 +269,10 @@ class LlamaCppBackend(BinaryDownloads):
                     self._server_model_name,
                     self._server_process.poll(),
                 )
-        if self._server_process and self._server_process.poll() is None:
+        process = self._server_process
+        if process is not None and process.poll() is None:
+            if before_restart is not None:
+                before_restart(process.pid)
             await self.shutdown_server()
 
         self._server_transitioning = True
@@ -518,6 +514,23 @@ class LlamaCppBackend(BinaryDownloads):
 
         return path
 
+    def _prepare_model_files(
+        self,
+        model_path: Path,
+    ) -> tuple[Path, Path | None]:
+        """Validate the runtime and resolve the model files before switching."""
+        if self._is_download_active():
+            raise RuntimeError(
+                "Wait for the inference engine update to finish before "
+                "starting a model.",
+            )
+        installed, message = self.check_llamacpp_installation()
+        if not installed:
+            raise RuntimeError(message or "llama.cpp server is not installed")
+        if not model_path.exists():
+            raise FileNotFoundError(f"Model path not found: {model_path}")
+        return self._resolve_model_file(model_path)
+
     def _resolve_model_file(
         self,
         model_path: Path,
@@ -560,6 +573,22 @@ class LlamaCppBackend(BinaryDownloads):
                 "Model repository at "
                 f"{model_path} does not contain any model .gguf files.",
             )
+
+        direct_models = [
+            path for path in model_files if path.parent == model_path
+        ]
+        if direct_models:
+            child_models = {
+                path.relative_to(model_path).parts[0]
+                for path in model_files
+                if path.parent != model_path
+            }
+            model_files = direct_models
+            mmproj_files = [
+                path
+                for path in mmproj_files
+                if path.relative_to(model_path).parts[0] not in child_models
+            ]
 
         return (
             model_files[0].resolve(),

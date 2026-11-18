@@ -352,7 +352,8 @@ Import `ProviderSpec` and `ProviderHandle` from `qwenpaw.plugins.providers`.
 Declare `generate` for custom inference, or `protocol="openai-chat"` for the host's
 OpenAI-compatible transport. Optional `connect(ctx, model_id)` returns an async
 context manager yielding the base URL. The host enters it before each call and
-exits it when the owning turn ends, or when a standalone call or stream closes.
+exits when that call ends or its stream closes. The plugin remains in use until
+the owning turn ends.
 
 Await the following handle methods:
 

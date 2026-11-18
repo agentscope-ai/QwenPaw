@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from qwenpaw.plugins import PluginBusyError
+from qwenpaw.plugins import PluginBusyError, SDKError
 from qwenpaw.plugins._providers import ProviderTurn
 from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.plugins.testing import PluginTestHost
@@ -40,6 +40,8 @@ class Backend:
         self.starts = 0
         self.served = None
         self.fail_close = False
+        self.port = 43111
+        self.removed = []
 
     async def start(self, data_dir):
         self.data_dir = data_dir
@@ -48,7 +50,8 @@ class Backend:
         return {
             "running": self.served is not None,
             "model_name": self.served,
-            "port": 43111 if self.served is not None else None,
+            "port": self.port if self.served is not None else None,
+            "pid": self.starts if self.served is not None else None,
         }
 
     def list_downloaded_models(self):
@@ -72,12 +75,14 @@ class Backend:
         self.served = None
         return was_running
 
-    async def ensure_server(self, model_id):
+    async def ensure_server(self, model_id, before_restart=None):
         if model_id != self.served:
+            if self.served is not None and before_restart is not None:
+                before_restart(self.starts)
             self.starts += 1
             self.served = model_id
         return LocalServerInfo(
-            port=43111,
+            port=self.port,
             model_info=LocalModelInfo(
                 id=model_id,
                 name=model_id,
@@ -87,6 +92,11 @@ class Backend:
                 probe_source="probed",
             ),
         )
+
+    def remove_downloaded_model(self, model_id):
+        if model_id == self.served:
+            raise SDKError("Cannot delete a model while it is running")
+        self.removed.append(model_id)
 
     async def stop_server(self):
         self.served = None
@@ -196,7 +206,7 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
     from qwenpaw.runtime.runtime import Runtime
 
     async with PluginTestHost(tmp_path / "host") as host:
-        binding, local = await load_backend(host, tmp_path)
+        binding, _local = await load_backend(host, tmp_path)
 
         async def hook(phase, _context):
             if phase == Phase.PRE_DISPATCH:
@@ -222,7 +232,7 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
         runtime = Runtime(workspace=workspace, app_services=None)
         stream = runtime.run({"session_id": "test"})
         await anext(stream)
-        assert local._users
+        assert host.resource_snapshot("local-llamacpp")["active_calls"] == 1
 
         async def finish():
             if early_close:
@@ -239,13 +249,11 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
                 await finish()
         finally:
             await stream.aclose()
-        assert not local._users
+        assert host.resource_snapshot("local-llamacpp")["active_calls"] == 0
         assert (await host.unload("local-llamacpp")).quiescent
 
 
 async def test_local_crash_and_model_switch_use_existing_backend(tmp_path):
-    from qwenpaw.plugins.errors import SDKError
-
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
         turn = ProviderTurn()
@@ -264,6 +272,127 @@ async def test_local_crash_and_model_switch_use_existing_backend(tmp_path):
             await turn.close()
         with pytest.raises(SDKError, match="Cannot delete"):
             await runtime.remove_downloaded_model("local-B")
+
+
+async def test_running_stream_prevents_replacing_its_model(tmp_path):
+    async with PluginTestHost(tmp_path / "host") as host:
+        binding, runtime = await load_backend(host, tmp_path)
+
+        async def native():
+            async def chunks():
+                yield "one"
+                yield "two"
+
+            return chunks()
+
+        turn = ProviderTurn()
+        stream = await call_model(
+            SimpleNamespace(
+                model="local-A",
+                client=SimpleNamespace(base_url="old"),
+                stream=True,
+            ),
+            native,
+        )
+        try:
+            assert await anext(stream) == "one"
+            async with binding.connect("local-A") as endpoint:
+                assert endpoint == "http://127.0.0.1:43111/v1"
+            assert runtime._manager.starts == 1
+            with pytest.raises(PluginBusyError):
+                async with binding.connect("local-B"):
+                    pytest.fail("The active model was replaced")
+            response = await host.request(
+                "POST",
+                "/api/local-models/server",
+                json={"model_id": "local-B"},
+            )
+            assert response.status == 409
+            assert runtime._manager.served == "local-A"
+            assert await anext(stream) == "two"
+            await stream.aclose()
+            async with binding.connect("local-B"):
+                assert runtime._manager.served == "local-B"
+        finally:
+            await stream.aclose()
+            await turn.close()
+
+
+async def test_cancelled_model_switch_keeps_the_new_endpoint(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.providers import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        binding, runtime = await load_backend(host, tmp_path)
+        first = await runtime.ensure_server("local-A")
+        runtime._manager.port = first.port + 1
+        endpoint = f"http://127.0.0.1:{first.port + 1}/v1"
+        manager = ProviderManager.get_instance()
+        update = manager._update_provider_async_locked
+        entered, resume = asyncio.Event(), asyncio.Event()
+
+        async def publish(provider_id, config):
+            if config.get("base_url") == endpoint:
+                entered.set()
+                await resume.wait()
+            return await update(provider_id, config)
+
+        monkeypatch.setattr(manager, "_update_provider_async_locked", publish)
+        request = asyncio.create_task(runtime.ensure_server("local-B"))
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+        finally:
+            request.cancel()
+            resume.set()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+
+        assert binding.provider().base_url == endpoint
+        async with binding.connect("local-B") as prepared:
+            assert prepared == endpoint
+        assert runtime._manager.starts == 2
+
+
+async def test_multimodal_probe_persists_result_after_runtime_restarts(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.providers.multimodal_prober import ProbeResult
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        binding, runtime = await load_backend(host, tmp_path)
+        await runtime.ensure_server("local-A")
+        runtime._manager.served = None
+        runtime._manager.port = 43112
+        endpoint = "http://127.0.0.1:43112/v1"
+
+        async def probe(provider, model_id, _timeout, image_only):
+            assert provider.base_url == endpoint
+            assert model_id == "local-A"
+            assert image_only
+            return ProbeResult(supports_image=False)
+
+        monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", probe)
+        manager = ProviderManager.get_instance()
+        result = await asyncio.wait_for(
+            manager.probe_model_multimodal(
+                "qwenpaw-local",
+                "local-A",
+                image_only=True,
+            ),
+            timeout=5,
+        )
+        assert result["supports_image"] is False
+        provider = manager.get_provider("qwenpaw-local")
+        assert provider.base_url == endpoint
+        assert provider.get_model_info("local-A").supports_image is False
+        async with binding.connect("local-A") as prepared:
+            assert prepared == endpoint
+        assert runtime._manager.starts == 2
 
 
 async def test_turn_lease_survives_between_model_calls(tmp_path):
@@ -612,15 +741,13 @@ async def test_management_routes_follow_plugin_lifecycle(tmp_path):
             )
             assert switched.status == 200
             assert runtime._manager.served == "local-B"
-            removed = []
-            runtime._manager.remove_downloaded_model = removed.append
             assert (
                 await host.request(
                     "DELETE",
                     "/api/local-models/models/local-C",
                 )
             ).status == 200
-            assert removed == ["local-C"]
+            assert runtime._manager.removed == ["local-C"]
             assert (
                 await host.request(
                     "DELETE",
@@ -699,6 +826,47 @@ async def test_stopping_service_clears_only_local_default_selection(
             assert manager.load_active_model() == expected
         finally:
             await turn.close()
+
+
+async def test_cancelled_runtime_download_setup_keeps_provider_in_sync(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.providers import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        binding, runtime = await load_backend(host, tmp_path)
+        await runtime.ensure_server("local-A")
+        await runtime.handle.select("local-A")
+        manager = await runtime.manager()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def start_download():
+            await manager.stop_server()
+            entered.set()
+            await release.wait()
+            return True
+
+        monkeypatch.setattr(manager, "start_runtime_download", start_download)
+        request = asyncio.create_task(
+            host.request("POST", "/api/local-models/server/download"),
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            request.cancel()
+            await asyncio.sleep(0)
+            assert not request.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+        finally:
+            release.set()
+            await asyncio.gather(request, return_exceptions=True)
+
+        assert manager.served is None
+        assert binding.provider().base_url == ""
+        assert ProviderManager.get_instance().load_active_model() is None
 
 
 async def test_model_list_and_download_progress_do_not_publish_provider_state(

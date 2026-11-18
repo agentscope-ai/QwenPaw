@@ -1092,12 +1092,14 @@ class ProviderManager(
                 will remain at its previous value (not updated).
         """
         provider_id = self._normalize_provider_id(provider_id)
-        if (await run_sync_io(self.get_provider, provider_id)) is None:
+        provider = await run_sync_io(self.get_provider, provider_id)
+        if provider is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
         async def probe_model(candidate: Provider) -> Any:
             candidate.validate_chat_model(model_id)
-            probe_result = await candidate.probe_model_multimodal(
+            probe_result = await probe(
+                candidate,
                 model_id,
                 image_only=image_only,
             )
@@ -1106,13 +1108,13 @@ class ProviderManager(
                     continue
                 if (
                     probe_result.supports_image is not None
-                    and f"supports_image" not in model.config_overrides
+                    and "supports_image" not in model.config_overrides
                 ):
                     model.supports_image = probe_result.supports_image
                 if (
                     not image_only
                     and probe_result.supports_video is not None
-                    and f"supports_video" not in model.config_overrides
+                    and "supports_video" not in model.config_overrides
                 ):
                     model.supports_video = probe_result.supports_video
                 values = (model.supports_image, model.supports_video)
@@ -1131,10 +1133,12 @@ class ProviderManager(
                 break
             return probe_result
 
-        result = await self._mutate_provider_async(
-            provider_id,
-            probe_model,
-        )
+        # Preparing a plugin endpoint can publish its new connection.
+        async with provider._multimodal_probe(model_id) as probe:
+            result = await self._mutate_provider_async(
+                provider_id,
+                probe_model,
+            )
         if result is None:
             return {"error": f"Provider '{provider_id}' not found"}
 

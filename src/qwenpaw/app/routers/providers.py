@@ -29,6 +29,7 @@ from ...config.config import (
     update_agent_config_async,
 )
 from ...hub.model_service.runtime_policy import require_model_route
+from ...plugins.activity import PluginBusyError
 from ...providers.thinking import ThinkingControl
 from ...providers.model_pool import (
     ModelPoolPage,
@@ -851,7 +852,10 @@ async def probe_model_multimodal(
     model_id: str = Path(...),
 ) -> ProbeMultimodalResponse:
     """Probe image and video support by sending lightweight test requests."""
-    result = await manager.probe_model_multimodal(provider_id, model_id)
+    try:
+        result = await manager.probe_model_multimodal(provider_id, model_id)
+    except PluginBusyError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return ProbeMultimodalResponse(**result)

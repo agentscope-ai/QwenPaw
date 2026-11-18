@@ -7,7 +7,7 @@ from pathlib import Path
 
 from qwenpaw.plugins import PluginBusyError, SDKError
 from qwenpaw.plugins.providers import ModelInfo
-from .io_helpers import PROVIDER_CLOSE_SECONDS, run_io
+from .io_helpers import PROVIDER_CLOSE_SECONDS, finish, run_io
 
 
 class LocalProvider:
@@ -83,23 +83,26 @@ class LocalProvider:
 
     async def _publish(self, result, *, model_type=None):
         model = result.model_info
-        await self.handle.update(
-            base_url=f"http://127.0.0.1:{result.port}/v1",
-            models=(
-                ModelInfo(
-                    id=model.id,
-                    name=model.name,
-                    max_input_length=None,
-                    is_free=None,
-                    supports_multimodal=model.supports_multimodal,
-                    supports_image=model.supports_image,
-                    supports_video=model.supports_video,
-                    probe_source=model.probe_source,
-                    model_type=model_type,
-                ),
-            ),
+        info = ModelInfo(
+            id=model.id,
+            name=model.name,
+            max_input_length=None,
+            is_free=None,
+            supports_multimodal=model.supports_multimodal,
+            supports_image=model.supports_image,
+            supports_video=model.supports_video,
+            probe_source=model.probe_source,
+            model_type=model_type,
         )
-        self._server_info = result
+
+        async def publish():
+            await self.handle.update(
+                base_url=f"http://127.0.0.1:{result.port}/v1",
+                models=(info,),
+            )
+            self._server_info = result
+
+        await finish(publish())
         return result
 
     async def _stopped(self):
@@ -111,7 +114,10 @@ class LocalProvider:
 
     async def ensure_server(self, model_id):
         async with self._operation() as manager:
-            result = await manager.ensure_server(model_id)
+            result = await manager.ensure_server(
+                model_id,
+                before_restart=self._check_restart,
+            )
             await self._publish(
                 result,
                 model_type=result.model_info.model_type,
@@ -126,9 +132,14 @@ class LocalProvider:
 
     async def start_runtime_download(self):
         async with self._operation() as manager:
-            stopped = await manager.start_runtime_download()
-            if stopped:
-                await self._stopped()
+
+            async def start():
+                if await manager.start_runtime_download():
+                    await self._stopped()
+
+            # Finish applying the stopped state before releasing the lock
+            # if the request is cancelled during runtime download setup.
+            await finish(start())
 
     async def cancel_runtime_download(self):
         async with self._operation() as manager:
@@ -144,10 +155,12 @@ class LocalProvider:
 
     async def remove_downloaded_model(self, model_id):
         async with self._operation() as manager:
-            status = manager.get_server_status()
-            if status["running"] and status["model_name"] == model_id:
-                raise SDKError("Cannot delete a model while it is running")
             await run_io(manager.remove_downloaded_model, model_id)
+
+    def _check_restart(self, pid):
+        active = sum(current == pid for current in self._users.values())
+        if active:
+            raise PluginBusyError(self.context.plugin_id, active)
 
     async def _ensure_server(self, model_id):
         status = self._manager.get_server_status()
@@ -155,9 +168,14 @@ class LocalProvider:
             status["running"]
             and status["model_name"] == model_id
             and self._server_info is not None
+            and self._server_info.port == status["port"]
+            and self._server_info.model_info.id == model_id
         ):
             return self._server_info
-        result = await self._manager.ensure_server(model_id)
+        result = await self._manager.ensure_server(
+            model_id,
+            before_restart=self._check_restart,
+        )
         return await self._publish(result)
 
     @asynccontextmanager
@@ -171,17 +189,17 @@ class LocalProvider:
                         "Local Model Management first",
                     )
                 result = await self._ensure_server(model_id)
-                self._users[key] = model_id
+                self._users[key] = self._manager.get_server_status()["pid"]
             yield f"http://127.0.0.1:{result.port}/v1"
         finally:
             self._users.pop(key, None)
 
     async def close(self):
-        if self.closed:
-            return
-        if self._users:
-            raise PluginBusyError(self.context.plugin_id, len(self._users))
         async with self._lock:
+            if self.closed:
+                return
+            if self._users:
+                raise PluginBusyError(self.context.plugin_id, len(self._users))
             self._failed = True
             if self._manager is not None:
                 await self._manager.close()
