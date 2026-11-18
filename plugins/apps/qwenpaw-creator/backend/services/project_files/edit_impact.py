@@ -236,6 +236,7 @@ def _invalidate_r2v_outputs(
 
 _R2V_VIDEO_ONLY_FIELDS = {
     "video_prompt",
+    "generate_audio",
     "video_reference_version_ids",
 }
 _EDIT_METADATA_FIELDS = {"intent", "reason"}
@@ -389,12 +390,12 @@ def _apply_element_path(  # pylint: disable=too-many-branches
     ):
         return
 
-    if creation_type == "r2v":
-        include_storyboard = True
+    if creation_type in {"r2v", "t2v", "i2v"}:
+        include_storyboard = creation_type == "r2v"
         generated_input_changed = False
         if suffix[0] == "creation":
             generated_input_changed = True
-            include_storyboard = not (
+            include_storyboard = creation_type == "r2v" and not (
                 len(suffix) >= 2 and suffix[1] in _R2V_VIDEO_ONLY_FIELDS
             )
         elif suffix[:2] == ("span", "duration_tick"):

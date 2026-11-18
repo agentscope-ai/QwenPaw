@@ -125,6 +125,42 @@ def _rewrite_project_relative_uris(project_json: Path) -> int:
             changed += 1
     if not changed:
         return 0
+    runtime = project_json.parent / "runtime"
+    if (runtime / "state.json").exists() or (
+        runtime / "transactions"
+    ).is_dir():
+        # The source ETag is still the archive's authority. Recover any
+        # interrupted publication before changing it, then commit the URI
+        # edit normally so historical receipts retain their original hashes.
+        from .commit import ProjectCommitBoundary
+        from .recovery import ProjectCommitRecoveryCoordinator
+        from .store import ProjectStore
+
+        try:
+            store = ProjectStore(project_json.parent.parent.resolve())
+            project_id = project_json.parent.name
+            original = store.read(project_id)
+            if original.project.project_id != project_id:
+                raise ValueError(
+                    "archive directory and Project identity differ"
+                )
+            ProjectCommitRecoveryCoordinator(store).recover_project(
+                project_id
+            ).raise_for_integrity()
+            original = store.read(project_id)
+            candidate = original.project.model_dump(mode="json")
+            for file_id, indexed in candidate["assets"]["files_by_id"].items():
+                indexed["relative_uri"] = files_by_id[file_id]["relative_uri"]
+            ProjectCommitBoundary(store).commit(
+                base=original,
+                candidate=candidate,
+                origin="runtime_task",
+            )
+        except Exception as exc:
+            raise BadRequestError(
+                "Could not reconcile Windows paths with the archived Project history"
+            ) from exc
+        return changed
     # Match the canonical on-disk form (serialization.canonical_json_bytes
     # with pretty=True): indent=2 plus a final newline.
     payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"

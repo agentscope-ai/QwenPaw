@@ -233,8 +233,7 @@ def test_qwen3_chunking_applies_cumulative_offsets(
         return f"oss://dashscope-instant/{path.name}"
 
     monkeypatch.setattr(
-        asr_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         fake_upload,
     )
     respx.post(ENDPOINT).mock(
@@ -537,8 +536,7 @@ def test_asr_audio_url_token_plan_refuses_local_audio(
         raise AssertionError("Token Plan audio reached the upload API")
 
     monkeypatch.setattr(
-        asr_model,
-        "upload_local_file_to_dashscope_temp",
+        "models.media_transport.upload_local_file_to_dashscope_temp",
         refuse_upload,
     )
     with pytest.raises(ValueError, match="公网"):

@@ -211,32 +211,18 @@ export default function ProjectLayout() {
   const lastConsumedEvent = useRef(0);
   const currentProjectId = useRef(id);
   currentProjectId.current = id;
-  const productionRequest = useRef<{
-    projectId: string;
-    promise: Promise<void>;
-  } | null>(null);
   const refreshProduction = useCallback((): Promise<void> => {
     if (!id || currentProjectId.current !== id) return Promise.resolve();
-    if (productionRequest.current?.projectId === id)
-      return productionRequest.current.promise;
     const tasks = useCreatorTaskViewStore.getState();
     const graph = useWorkGraphStore.getState();
-    // Join this shell's current read and respect reads already started by a
-    // workbench. A slow request must not accumulate overlapping interval/SSE
-    // requests; each store also fences responses across project changes.
+    // Each collection can finish independently. A slow read must only block
+    // the next poll of that same collection.
     const requests: Promise<void>[] = [];
     if (tasks.projectId !== id || !tasks.loading)
       requests.push(refreshTasks(id));
     if (graph.projectId !== id || !graph.loading)
       requests.push(graph.refresh(id));
-    const promise = Promise.allSettled(requests)
-      .then(() => undefined)
-      .finally(() => {
-        if (productionRequest.current?.promise === promise)
-          productionRequest.current = null;
-      });
-    productionRequest.current = { projectId: id, promise };
-    return promise;
+    return Promise.allSettled(requests).then(() => undefined);
   }, [id, refreshTasks]);
 
   useEffect(() => {
@@ -333,8 +319,14 @@ export default function ProjectLayout() {
     pendingEvents.forEach((event) =>
       useCreatorTaskViewStore.getState().consumeEvent(event),
     );
+    // A replay tail can share a batch with the first live completion. Only the
+    // latter should move the user to a pending review.
+    const replayBoundary = useCreatorSessionStore.getState().replayUntilSeq;
     const completedReviewIds = pendingEvents
-      .filter((event) => event.type === "agent.run.completed")
+      .filter(
+        (event) =>
+          event.type === "agent.run.completed" && event.seq > replayBoundary,
+      )
       .flatMap((event) => reviewIdsFromEvent(event.data));
     const completedReviewId = completedReviewIds.at(-1);
     if (completedReviewId) {

@@ -906,6 +906,30 @@ def test_etag_mismatch_is_reported_without_overwriting_current_or_last_good(
         report.raise_for_integrity()
 
 
+def test_first_migrated_publication_finishes_runtime_after_a_crash(
+    tmp_path, monkeypatch
+):
+    store, base = make_store(tmp_path)
+    raw = base.project.model_dump(mode="json")
+    raw["schema_version"] = 9
+    store.project_path("project-1").write_bytes(canonical_json_bytes(raw))
+    base = store.read("project-1")
+    _crash_with_project_replaced(
+        store,
+        base,
+        monkeypatch,
+        transaction_id="first-upgrade",
+        round_id="upgrade-round",
+    )
+    report = recover(store)
+    assert report.outcomes[0].action is RecoveryAction.FINALIZED_RUNTIME
+    assert read_state(store).last_project_etag == store.read("project-1").etag
+    assert (
+        read_round(store, "upgrade-round").status
+        is TransactionStatus.COMMITTED
+    )
+
+
 def test_legacy_schema_transaction_recovers_without_fail_closing(
     tmp_path,
     monkeypatch,

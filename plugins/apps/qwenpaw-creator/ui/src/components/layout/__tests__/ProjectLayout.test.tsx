@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { CREATOR_ROUTE_OBJECTS } from "@/app/router";
 import type { FileProjectReviewRecord } from "@/contracts/creator";
+import { ev } from "@/test/sessionEventBuilders";
 import ProjectLayout from "@/components/layout/ProjectLayout";
 import { NavigationRuntime } from "@/routing/navigation";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
@@ -160,6 +161,78 @@ describe("ProjectLayout visible shell", () => {
     useProjectSnapshotStore.getState().reset();
     useFileProjectReviewStore.getState().reset();
     seedProject();
+  });
+
+  it("ignores the replay tail for navigation and still handles a live completion", async () => {
+    installMockFetch([
+      {
+        match: "/projects/p1/session",
+        response: {
+          json: {
+            session: { ...sessionState, lastEventSeq: 5 },
+            agentStatusBar: status,
+          },
+        },
+      },
+      ...commonRoutes(elementReview()),
+    ]);
+    const router = renderShell("replay-navigation");
+    await waitFor(() =>
+      expect(useCreatorSessionStore.getState().replayUntilSeq).toBe(5),
+    );
+    await waitFor(() =>
+      expect(useFileProjectReviewStore.getState().reviews).toHaveLength(1),
+    );
+    const completion = (seq: number) =>
+      ev(seq, "agent.run.completed", {
+        runId: "run-element-1",
+        reviewIds: ["review-element-1"],
+      });
+    await act(async () =>
+      useCreatorSessionStore.getState().ingestEvents([completion(5)]),
+    );
+    expect(useCreatorSessionStore.getState().isReplaying).toBe(false);
+    expect(router.state.location.search).toBe("");
+    await act(async () =>
+      useCreatorSessionStore.getState().ingestEvents([completion(6)]),
+    );
+    await waitFor(() =>
+      expect(router.state.location.search).toContain("review=1"),
+    );
+  });
+
+  it("keeps discovering tasks while a graph poll is pending", async () => {
+    const { calls, fetchMock } = installMockFetch(commonRoutes());
+    renderShell("slow-graph");
+    await waitFor(() =>
+      expect(useCreatorSessionStore.getState().session).not.toBeNull(),
+    );
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const original = fetchMock.getMockImplementation()!;
+    let graphFetches = 0;
+    fetchMock.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/work-graph")) {
+        graphFetches++;
+        await pending;
+      }
+      return original(input, init);
+    });
+    try {
+      const count = () =>
+        calls.filter((call) => call.url.endsWith("/tasks")).length;
+      const initial = count();
+      for (let i = 0; i < 3; i++)
+        await act(async () => {
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+      expect(count()).toBe(initial + 3);
+      expect(graphFetches).toBe(1);
+    } finally {
+      await act(async () => finish());
+    }
   });
 
   it("preserves the 58px shell and default-open 340px left AgentDock beside the Element Plan", async () => {

@@ -22,7 +22,7 @@ from urllib.parse import urlparse, urlsplit
 import httpx
 
 from models import config
-from models.media_transport import upload_local_file_to_dashscope_temp
+from models.media_transport import upload_reference_file_for_provider
 from services.runtime_files.media_probe import probe_media
 from services.runtime_files.runtime_dependencies import resolve_ffmpeg
 from utils.logger import setup_logger
@@ -232,11 +232,13 @@ async def _asr_audio_url(
             "/api/v1/uploads）。请把音频放到公网 HTTP(S) URL，或把 ASR 模"
             "型切到百炼直连端点后再用本地音频。",
         )
-    return await upload_local_file_to_dashscope_temp(
+    return await upload_reference_file_for_provider(
         path,
         api_key=api_key,
         model_name=model,
         media_type=media_type,
+        base_url=config.get_asr_base_url(),
+        protocol=config.get_asr_protocol(),
     )
 
 
@@ -859,7 +861,7 @@ def _prepare_qwen3_chunks(
 def _qwen3_sentences(body: Mapping[str, Any]) -> list[str]:
     choices = body.get("output", {}).get("choices") or ()
     if not choices:
-        return []
+        return _qwen_audio_sentences(body)
     content = choices[0].get("message", {}).get("content") or ()
     sentences: list[str] = []
     for item in content:
@@ -871,7 +873,7 @@ def _qwen3_sentences(body: Mapping[str, Any]) -> list[str]:
             text = ""
         if text:
             sentences.append(text)
-    return sentences
+    return sentences or _qwen_audio_sentences(body)
 
 
 def _qwen_audio_sentences(body: Mapping[str, Any]) -> list[str]:

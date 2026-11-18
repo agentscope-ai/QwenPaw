@@ -825,3 +825,83 @@ def test_copy_member_counts_written_bytes_not_declared_ones(tmp_path):
             member_bytes=16,
         )
     assert not refused.exists()
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_windows_uri_rewrite_preserves_archived_transaction(
+    tmp_path, monkeypatch, interrupted
+):
+    from services.project_files.commit import ProjectCommitBoundary
+    from services.project_files.recovery import (
+        ProjectCommitRecoveryCoordinator,
+    )
+
+    original = ProjectStore(tmp_path / "original")
+    project = Project.new(project_id="project-archive", name="Archive")
+    uri = "assets/source-intelligence/source:camera/index.json"
+    project.assets.files_by_id["sidecar"] = IndexedFile(
+        file_id="sidecar",
+        kind="source_intelligence",
+        relative_uri=uri,
+        sha256=hashlib.sha256(b"{}").hexdigest(),
+        size_bytes=2,
+        media_type="application/json",
+        created_at=project.created_at,
+    )
+    base = original.create(project)
+    source = original.project_root(project.project_id) / uri
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"{}")
+    boundary = ProjectCommitBoundary(original)
+    candidate = base.project.model_dump(mode="json")
+    candidate["description"] = "Existing edit"
+
+    def commit():
+        boundary.commit(
+            base=base,
+            candidate=candidate,
+            origin="frontend_edit",
+            transaction_id="archive-edit",
+        )
+
+    if interrupted:
+
+        def interrupt(**_kwargs):
+            raise RuntimeError("interrupted after publication")
+
+        monkeypatch.setattr(boundary, "_record_review", interrupt)
+        with pytest.raises(
+            RuntimeError, match="interrupted after publication"
+        ):
+            commit()
+    else:
+        commit()
+    zip_path = tmp_path / "bundle.zip"
+    project_archive.write_project_archive(
+        original.project_root(project.project_id),
+        original.read(project.project_id).project,
+        zip_path,
+    )
+    destination = tmp_path / "expanded"
+    monkeypatch.setattr(
+        project_archive, "sys", SimpleNamespace(platform="win32")
+    )
+    project_archive.extract_archive(zip_path, destination)
+    imported = ProjectStore(destination)
+    recovered = ProjectCommitRecoveryCoordinator(imported).recover_project(
+        project.project_id
+    )
+    assert recovered.ok
+    snapshot = imported.read(project.project_id)
+    assert snapshot.project.description == "Existing edit"
+    assert snapshot.project.assets.files_by_id[
+        "sidecar"
+    ].relative_uri == uri.replace("source:camera", "source_camera")
+    journal = (
+        imported.project_root(project.project_id)
+        / "runtime"
+        / "transactions"
+        / "archive-edit"
+        / "journal.json"
+    )
+    assert json.loads(journal.read_text())["state"] == "RUNTIME_FINALIZED"

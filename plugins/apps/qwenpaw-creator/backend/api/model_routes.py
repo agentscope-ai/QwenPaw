@@ -1844,20 +1844,23 @@ async def _upload_asr_probe_sample(
 ) -> str:
     """Upload the silent sample; return the URL the ASR route will fetch.
 
-    Uses the same model-bound temporary OSS upload production uses, so a
+    Uses the provider-bound transport selected by production, so a
     probe that passes has exercised the upload half of the real chain too,
     and one that fails has failed for a reason production would also hit.
     """
-    from models.media_transport import upload_local_file_to_dashscope_temp
+
+    from models.media_transport import upload_reference_file_for_provider
 
     with tempfile.TemporaryDirectory(prefix="creator-asr-probe-") as raw:
         sample = Path(raw) / "creator-probe.wav"
         await asyncio.to_thread(sample.write_bytes, _silent_wav_bytes())
-        return await upload_local_file_to_dashscope_temp(
+        return await upload_reference_file_for_provider(
             sample,
             api_key=body.api_key,
             model_name=body.model_name,
             media_type="audio/wav",
+            base_url=body.base_url,
+            protocol=body.protocol,
         )
 
 
