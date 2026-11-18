@@ -85,7 +85,11 @@ async def test_send_retries_only_unsent_connection_attempts(
     )
     driver = module("wechat").WeChatDriver()
     peer, identity = bind("wechat", driver, tmp_path)
-    platform = module("wechat", "platform").WeChatPlatform({}, None, None)
+    platform = module("wechat", "platform").WeChatPlatform(
+        {"workspace_dir": str(tmp_path)},
+        None,
+        None,
+    )
     platform._client = client
     driver._platform, driver._connected = platform, True
     opened = await peer.methods["channel.response.open"](

@@ -275,6 +275,9 @@ describe("useSkillPool — install/upload refreshes list", () => {
       await result.current.handleDelete(poolSkill({ name: "delete-me" }));
     });
 
+    expect(hoisted.modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({ cancelText: "common.cancel" }),
+    );
     expect(apiMocks.deleteSkillPoolSkill).toHaveBeenCalledWith("delete-me");
     expect(invalidateSkillCacheMock).toHaveBeenCalledWith({ pool: true });
     expect(messageMock.success).toHaveBeenCalled();
