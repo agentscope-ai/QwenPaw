@@ -60,7 +60,10 @@ def test_sse_deltas_hide_a_thinking_block_split_across_events() -> None:
     )
 
     assert visible == "the answer"
-    assert states == {}
+    # 12th review: the scanner has to live for the whole message, so its
+    # state stays until the message completes instead of being dropped once
+    # a single delta happens to look clean.
+    assert set(states) == {"scaffold:m1:0"}
 
 
 def test_sse_whole_message_event_hides_scaffolding() -> None:

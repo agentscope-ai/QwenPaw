@@ -192,6 +192,9 @@ class MessageRenderer:
         *,
         semantic: bool,
     ) -> List[SemanticContentPart]:
+        from qwenpaw.agents.context.scroll.scaffold_filter import (
+            ScaffoldFilter,
+        )
         from qwenpaw.agents.context.scroll.serialize import (
             strip_headline,
             strip_injected_context,
@@ -438,6 +441,11 @@ class MessageRenderer:
         def append(part: _OutgoingPart, role: str = "message") -> None:
             result.append(SemanticContentPart(part, role))
 
+        # A message may split one reasoning block across several text blocks.
+        # The scan state is per message so a block that ends mid-reasoning and
+        # the block that closes it are filtered as one stream.
+        scaffold_state = ScaffoldFilter()
+
         suppressed_tool_data = False
         suppressed_scaffolding = False
         for c in content:
@@ -452,7 +460,7 @@ class MessageRenderer:
                 # Reasoning that a model inlined into plain text is
                 # model-facing as well: drop balanced blocks, truncated
                 # tails and cut-off tool shells before rendering.
-                text = strip_model_scaffolding(text)
+                text = strip_model_scaffolding(text, state=scaffold_state)
                 if not text:
                     # The block held only model-facing bytes, so this message
                     # has no reply to show; do not fall back to the
@@ -538,6 +546,11 @@ class MessageRenderer:
                             ),
                             "rendered",
                         )
+        # Release a trailing partial tag that never became one; an unfinished
+        # reasoning block stays suppressed, exactly as in the streaming path.
+        tail = scaffold_state.flush()
+        if tail:
+            append(TextContent(text=tail))
         if (
             not result
             and msg_type

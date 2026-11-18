@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from abc import ABC
 from pathlib import Path
@@ -51,6 +52,13 @@ EnqueueCallback = Optional[Callable[[Any], None]]
 OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
+
+# Cheap pre-check so non-content events only pay for a payload walk when they
+# can actually contain scaffolding or an injected context note.
+_SCAFFOLD_MARKERS_RE = re.compile(
+    r"thinking|think|analysis|reasoning|system-[a-z0-9_-]+|parameter\s",
+    re.IGNORECASE,
+)
 
 
 _TOOL_OUTPUT_MESSAGE_TYPES = {
@@ -721,6 +729,43 @@ class BaseChannel(ABC):
         )
         return True
 
+    _DISPLAY_FILTERS_KEY = "_display_filters"
+    _DISPLAY_BUFFERS_KEY = "_display_buffers"
+
+    @staticmethod
+    def _display_filters(send_meta: Dict[str, Any]) -> Dict[str, Any]:
+        return send_meta.setdefault(
+            BaseChannel._DISPLAY_FILTERS_KEY,
+            {},
+        )
+
+    @staticmethod
+    def _display_buffers(send_meta: Dict[str, Any]) -> Dict[str, str]:
+        return send_meta.setdefault(
+            BaseChannel._DISPLAY_BUFFERS_KEY,
+            {},
+        )
+
+    def _display_state(self, send_meta: Dict[str, Any], stream_type: str):
+        """Return this message's display filter, creating it on first use."""
+        from qwenpaw.agents.context.scroll.scaffold_filter import (
+            ScaffoldDeltaState,
+        )
+
+        filters = self._display_filters(send_meta)
+        state = filters.get(stream_type)
+        if not isinstance(state, ScaffoldDeltaState):
+            state = ScaffoldDeltaState()
+            filters[stream_type] = state
+        return state
+
+    def _pop_display_state(
+        self,
+        send_meta: Dict[str, Any],
+        stream_type: str,
+    ):
+        return self._display_filters(send_meta).pop(stream_type, None)
+
     async def _on_stream_content_delta(
         self,
         request: "AgentRequest",
@@ -759,14 +804,20 @@ class BaseChannel(ABC):
         ):
             # Finalize current streaming box before starting a new one
             await self._await_stream_flush(send_meta, stream_type)
-            accumulated = streaming_buffers.pop(stream_type, "")
+            streaming_buffers.pop(stream_type, "")
+            from qwenpaw.agents.context.scroll.serialize import strip_headline
+
+            display = self._display_buffers(send_meta).pop(stream_type, "")
+            state = self._pop_display_state(send_meta, stream_type)
+            if state is not None:
+                display += state.flush()
             await self.on_streaming_end(
                 request,
                 to_handle,
                 event,
                 send_meta,
                 stream_type,
-                accumulated_text=accumulated,
+                accumulated_text=strip_headline(display) or "",
             )
             # Start a new streaming box
             streaming_buffers[stream_type] = ""
@@ -783,6 +834,13 @@ class BaseChannel(ABC):
         delta_text = getattr(event, "text", "") or ""
         streaming_buffers[stream_type] = (
             streaming_buffers.get(stream_type, "") + delta_text
+        )
+        # The filter is fed the raw delta; only its output reaches the
+        # display buffer, so the event and the stored text stay untouched.
+        visible = self._display_state(send_meta, stream_type).feed(delta_text)
+        display_buffers = self._display_buffers(send_meta)
+        display_buffers[stream_type] = (
+            display_buffers.get(stream_type, "") + visible
         )
 
         # --- Non-blocking flush with in-flight guard ---
@@ -808,7 +866,12 @@ class BaseChannel(ABC):
         flush_meta["last_ts"] = now
         from qwenpaw.agents.context.scroll.serialize import strip_headline
 
-        display_text = strip_headline(streaming_buffers[stream_type]) or ""
+        display_text = (
+            strip_headline(
+                self._display_buffers(send_meta).get(stream_type, ""),
+            )
+            or ""
+        )
         timeout = self._stream_flush_timeout()
         deadline = (
             None
@@ -858,10 +921,20 @@ class BaseChannel(ABC):
             await self._await_stream_flush(send_meta, stream_type)
 
             buf = streaming_buffers.pop(stream_type, "")
-            accumulated = self._extract_text_from_event(event) or buf
-            from qwenpaw.agents.context.scroll.serialize import strip_headline
+            raw_accumulated = self._extract_text_from_event(event) or buf
+            from qwenpaw.agents.context.scroll.serialize import (
+                strip_headline,
+                strip_model_scaffolding,
+            )
 
-            accumulated = strip_headline(accumulated) or ""
+            display = self._display_buffers(send_meta).pop(stream_type, "")
+            state = self._pop_display_state(send_meta, stream_type)
+            if state is not None:
+                display += state.flush()
+            if not display and raw_accumulated:
+                # No delta reached this channel, so clean the snapshot once.
+                display = strip_model_scaffolding(raw_accumulated) or ""
+            accumulated = strip_headline(display) or ""
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -1122,7 +1195,6 @@ class BaseChannel(ABC):
             ScaffoldDeltaState,
             strip_headline,
             strip_headline_delta,
-            strip_injected_context,
             strip_model_scaffolding,
             strip_scaffold_delta,
         )
@@ -1155,10 +1227,11 @@ class BaseChannel(ABC):
                 raw_text,
                 state=scaffold_state,
             )
-            if scaffold_state.suppressing or scaffold_state.pending:
-                headline_stream_states[scaffold_key] = scaffold_state
-            else:
-                headline_stream_states.pop(scaffold_key, None)
+            # Keep the scanner for the whole message. Dropping it whenever a
+            # delta happened to look clean lost the open backtick run and the
+            # open fence, so the next fragment was filtered as if it started
+            # a fresh block and valid code came out empty.
+            headline_stream_states[scaffold_key] = scaffold_state
 
             state = headline_stream_states.get(
                 stream_key,
@@ -1183,18 +1256,30 @@ class BaseChannel(ABC):
             # text can be cleaned in one pass.
             whole = payload.get("text") or ""
             if whole:
-                whole = strip_injected_context(whole) or ""
                 payload["text"] = strip_model_scaffolding(whole) or ""
 
-        def walk(node: Any) -> Any:
+        # Content events were already handled above: deltas through the
+        # stateful filter, whole blocks through one pass. Re-running a
+        # stateless pass over the same bytes would strip valid code, so only
+        # message/response snapshots get the whole-text treatment.
+        filter_snapshots = not is_content_event
+
+        def walk(node: Any, key: str | None = None) -> Any:
             if isinstance(node, str):
-                return strip_headline(node)
+                cleaned = strip_headline(node)
+                # Non-content events (message completion, response output) and
+                # third-party deltas carry the same bytes under a ``text``
+                # key; filter them here so no output channel sees raw
+                # scaffolding or injected notes.
+                if filter_snapshots and key == "text" and cleaned:
+                    cleaned = strip_model_scaffolding(cleaned) or ""
+                return cleaned
             if isinstance(node, dict):
-                for key, value in list(node.items()):
-                    node[key] = walk(value)
+                for name, value in list(node.items()):
+                    node[name] = walk(value, name)
                 return node
             if isinstance(node, list):
-                return [walk(value) for value in node]
+                return [walk(value, key) for value in node]
             return node
 
         payload = walk(payload)
@@ -1223,6 +1308,12 @@ class BaseChannel(ABC):
                 or "〚" in data
                 or bool(headline_stream_states)
                 or is_content_event
+                # Non-content events (message completion, response output)
+                # can carry the same scaffolding under a ``text`` field.
+                or (
+                    "<" in data
+                    and _SCAFFOLD_MARKERS_RE.search(data) is not None
+                )
             )
             if hasattr(event, "model_dump") and should_strip:
                 data = self._strip_event_headlines(
@@ -2381,7 +2472,19 @@ class BaseChannel(ABC):
                 None,
             ):
                 parts.append(c.refusal)
-        return "".join(parts)
+        text = "".join(parts)
+        if not text:
+            return text
+        # This is the default reply path for channels that do not render
+        # message parts themselves, so it is a separate egress from the SSE
+        # serializer and the renderer; filter it here as well.
+        from qwenpaw.agents.context.scroll.serialize import (
+            strip_injected_context,
+            strip_model_scaffolding,
+        )
+
+        text = strip_injected_context(text) or ""
+        return strip_model_scaffolding(text) or ""
 
     def clone(self, config) -> "BaseChannel":
         """Clone a new channel instance with updated config, cloning
