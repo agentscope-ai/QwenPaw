@@ -274,6 +274,64 @@ class TestPoolBuiltinSyncStatus:
         assert status["alpha"]["sync_status"] == "synced"
 
     @pytest.mark.parametrize(
+        (f"current", f"packaged"),
+        [(f"1.0", f"2.0"), (f"2.0", f"1.0")],
+    )
+    @pytest.mark.parametrize(f"source_name_only", [False, True])
+    def test_removed_language_preserves_the_installed_copy(
+        self,
+        packaged_root,
+        current,
+        packaged,
+        source_name_only,
+    ):
+        removed_dir = _packaged_variant(
+            packaged_root,
+            f"alpha",
+            f"zh",
+            current,
+        )
+        _packaged_variant(packaged_root, f"alpha", f"en", packaged)
+        reg.import_builtin_skills(
+            [{f"skill_name": f"alpha", f"language": f"zh"}],
+        )
+        manifest = _read_manifest()
+        if source_name_only:
+            del manifest[f"skills"][f"alpha"][f"builtin_language"]
+            _write_manifest(manifest)
+        pool_md = reg.get_skill_pool_dir() / f"alpha" / f"SKILL.md"
+        installed_content = pool_md.read_bytes()
+        (removed_dir / f"SKILL.md").unlink()
+        removed_dir.rmdir()
+        reg.refresh_packaged_builtin_registry()
+
+        reg.ensure_skill_pool_initialized()
+
+        assert _read_manifest() == manifest
+        assert reg.get_pool_builtin_sync_status()[f"alpha"] == {
+            f"sync_status": f"removed",
+            f"latest_version_text": f"",
+            f"available_languages": [f"en"],
+        }
+        candidate = reg.list_builtin_import_candidates()[0]
+        assert candidate[f"current_language"] == f"zh"
+        assert candidate[f"status"] == f"removed"
+        assert candidate[f"languages"][f"en"][f"status"] == f"removed"
+        notice = reg.get_pool_builtin_update_notice()
+        assert notice[f"added"] == []
+        assert notice[f"updated"] == []
+        assert [item[f"name"] for item in notice[f"removed"]] == [f"alpha"]
+        assert notice[f"actionable_skill_names"] == []
+        assert notice[f"total_changes"] == 1
+
+        result = reg.import_builtin_skills(
+            [{f"skill_name": f"alpha", f"language": f"en"}],
+        )
+
+        assert result[f"conflicts"][0][f"status"] == f"language_switch"
+        assert pool_md.read_bytes() == installed_content
+
+    @pytest.mark.parametrize(
         (f"current", f"packaged", f"expected"),
         [
             (f"1.0", f"2.0", f"outdated"),

@@ -460,17 +460,14 @@ def _resolve_pool_builtin_language(
         return ""
 
     configured = str(entry.get("builtin_language", "") or "").strip().lower()
-    if configured in variants:
+    # Preserve recorded identity even when its packaged language was removed.
+    if configured in BUILTIN_SKILL_LANGUAGES:
         return configured
 
     source_identity = _parse_builtin_skill_identity(
         str(entry.get("builtin_source_name", "") or "").strip(),
     )
-    if (
-        source_identity is not None
-        and source_identity.name == canonical_name
-        and source_identity.language in variants
-    ):
+    if source_identity is not None and source_identity.name == canonical_name:
         return source_identity.language
 
     # Migration fallback: match pool SKILL.md content against packaged
@@ -541,7 +538,11 @@ def _build_builtin_language_spec(
                 current_variant.version_text,
             )
         else:
-            status = "conflict"
+            status = (
+                f"removed"
+                if current_language in BUILTIN_SKILL_LANGUAGES
+                else f"conflict"
+            )
     return {
         "language": language,
         "description": variant.description,
@@ -876,7 +877,10 @@ def migrate_pool_builtin_language_fields() -> bool:
                     if preferred_language in variants
                     else sorted(variants.keys())[0]
                 )
-            source_name = variants[language].source_name
+            variant = variants.get(language)
+            if variant is None:
+                continue
+            source_name = variant.source_name
             if entry.get("builtin_language") != language:
                 entry["builtin_language"] = language
                 changed = True
@@ -1538,11 +1542,14 @@ def get_pool_builtin_update_notice() -> dict[str, Any]:
             registry=registry,
             preferred_language=pref,
         )
+        candidate_status = str(candidate.get(f"status", f"") or f"")
+        if candidate_status == f"removed":
+            removed.append(candidate)
+            continue
         if name not in previous_builtin_names:
             added.append(candidate)
             continue
 
-        candidate_status = str(candidate.get("status", "") or "")
         if candidate_status == "missing":
             missing.append(candidate)
             continue
