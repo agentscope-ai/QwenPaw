@@ -7,12 +7,10 @@ from __future__ import annotations
 import copy
 import logging
 import time
+from importlib import import_module
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types as genai_types
 from pydantic import Field
 
 from qwenpaw.providers.multimodal_prober import (
@@ -207,10 +205,12 @@ class GeminiProvider(Provider):
         return dict(self.custom_headers) if self.custom_headers else {}
 
     def _client(self, timeout: float = 10) -> Any:
+        from google import genai
+
         headers = self._build_default_headers() or None
         return genai.Client(
             api_key=self.api_key,
-            http_options=genai_types.HttpOptions(
+            http_options=genai.types.HttpOptions(
                 timeout=int(timeout * 1000),
                 headers=headers,
             ),
@@ -259,6 +259,7 @@ class GeminiProvider(Provider):
 
     async def check_connection(self, timeout: float = 10) -> tuple[bool, str]:
         """Check if Google Gemini provider is reachable."""
+        genai_errors = await run_sync_io(import_module, "google.genai.errors")
         client = None
         response = None
         try:
@@ -314,6 +315,7 @@ class GeminiProvider(Provider):
                 message="Empty model ID",
             )
 
+        genai_errors = await run_sync_io(import_module, "google.genai.errors")
         client = None
         response = None
         try:
@@ -467,6 +469,8 @@ class GeminiProvider(Provider):
         )
         start_time = time.monotonic()
         client = await run_sync_io(self._client, timeout=timeout)
+        from google.genai import errors as genai_errors, types as genai_types
+
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
             response = await client.aio.models.generate_content(
@@ -531,6 +535,8 @@ class GeminiProvider(Provider):
         )
         start_time = time.monotonic()
         client = await run_sync_io(self._client, timeout=timeout)
+        from google.genai import errors as genai_errors, types as genai_types
+
         try:
             response = await client.aio.models.generate_content(
                 model=model_id,
@@ -610,6 +616,8 @@ class _GeminiChatModelCompat:
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
         if default_headers:
+            from google.genai import types as genai_types
+
             client_kwargs = dict(kwargs.get("client_kwargs") or {})
             client_kwargs["http_options"] = genai_types.HttpOptions(
                 headers=default_headers,

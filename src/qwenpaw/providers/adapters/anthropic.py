@@ -4,7 +4,6 @@
 from datetime import datetime
 from typing import Any, Dict
 
-import anthropic
 from agentscope.model import AnthropicChatModel
 
 from .cache_policy import mark_stable_prefix
@@ -93,6 +92,8 @@ class AnthropicModel(AnthropicChatModel):
             and not self._qp_cached_client.is_closed()
         ):
             return self._qp_cached_client
+
+        import anthropic
 
         client_kwargs: Dict[str, Any] = {
             "base_url": anthropic_base_url(self.credential.base_url),

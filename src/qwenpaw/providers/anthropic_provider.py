@@ -6,10 +6,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, ClassVar, Dict, List
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List
 
 from agentscope.model import ChatModelBase
-import anthropic
 from pydantic import Field
 
 from .model_info import release_date
@@ -40,6 +39,9 @@ from .adapters.anthropic import (
 )
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
+
+if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +100,16 @@ class AnthropicProvider(Provider):
     def _get_strip_http_client(self) -> Any:
         """Use the SDK's client type and strip API keys before sending."""
         if self._strip_http_client is None:
-            self._strip_http_client = anthropic.DefaultAsyncHttpxClient(
+            from anthropic import DefaultAsyncHttpxClient
+
+            self._strip_http_client = DefaultAsyncHttpxClient(
                 event_hooks={f"request": [strip_api_key_header]},
             )
         return self._strip_http_client
 
-    def _client(self, timeout: float = 5) -> anthropic.AsyncAnthropic:
+    def _client(self, timeout: float = 5) -> AsyncAnthropic:
+        import anthropic
+
         default_headers = self._build_default_headers()
         if self.auth_mode == "auth_token":
             return anthropic.AsyncAnthropic(
@@ -122,7 +128,7 @@ class AnthropicProvider(Provider):
 
     async def _close_client(
         self,
-        client: anthropic.AsyncAnthropic,
+        client: AsyncAnthropic,
     ) -> None:
         """Close one SDK client without closing a shared HTTP client."""
         if self.auth_mode == "auth_token":
@@ -189,6 +195,8 @@ class AnthropicProvider(Provider):
         pass the connection test.
         """
         client = await run_sync_io(self._client, timeout=timeout)
+        import anthropic
+
         try:
             await client.models.list()
             return True, ""
@@ -211,9 +219,11 @@ class AnthropicProvider(Provider):
 
     async def _check_connection_via_messages(
         self,
-        client: anthropic.AsyncAnthropic,
+        client: AsyncAnthropic,
     ) -> tuple[bool, str]:
         """Fallback: check reachability via messages.create."""
+        import anthropic
+
         model = self.models[0].id if self.models else "claude-opus-4-5"
         try:
             await client.messages.create(
@@ -276,6 +286,8 @@ class AnthropicProvider(Provider):
             "stream": True,
         }
         client = await run_sync_io(self._client, timeout=timeout)
+        import anthropic
+
         try:
             resp = await client.messages.create(**body)
             try:
@@ -481,6 +493,8 @@ class AnthropicProvider(Provider):
         """
         log_model = sanitize_log_value(model_id)
         client = await run_sync_io(self._client, timeout=timeout)
+        import anthropic
+
         try:
             resp = await client.messages.create(
                 model=model_id,
@@ -586,6 +600,8 @@ class AnthropicProvider(Provider):
         )
         start_time = time.monotonic()
         client = await run_sync_io(self._client, timeout=timeout)
+        import anthropic
+
         try:
             resp = await client.messages.create(
                 model=model_id,

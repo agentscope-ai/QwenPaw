@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from typing import Literal
 
-import anthropic
 import httpx
 import openai
 
@@ -26,10 +26,6 @@ ModelErrorKind = Literal[
     "unknown",
 ]
 
-_SDK_RATE_LIMIT_ERRORS = (
-    openai.RateLimitError,
-    anthropic.RateLimitError,
-)
 _SDK_TRANSIENT_ERRORS = (
     httpx.NetworkError,
     httpx.TimeoutException,
@@ -37,20 +33,34 @@ _SDK_TRANSIENT_ERRORS = (
     openai.APIConnectionError,
     openai.APITimeoutError,
     openai.InternalServerError,
-    anthropic.APIConnectionError,
-    anthropic.APITimeoutError,
-    anthropic.InternalServerError,
 )
+
+
+def _is_anthropic_error(exc: Exception, *names: str) -> bool:
+    """Check SDK types without importing it for errors from other providers."""
+    sdk = sys.modules.get("anthropic")
+    # Another thread may still be importing the SDK and its error classes.
+    return sdk is not None and any(
+        isinstance(exc, vars(sdk).get(name, ())) for name in names
+    )
 
 
 def _is_sdk_rate_limit(exc: Exception) -> bool:
     """Return whether an installed SDK identifies a rate-limit error."""
-    return isinstance(exc, _SDK_RATE_LIMIT_ERRORS)
+    return isinstance(exc, openai.RateLimitError) or _is_anthropic_error(
+        exc,
+        "RateLimitError",
+    )
 
 
 def _is_sdk_transient(exc: Exception) -> bool:
     """Return whether an installed SDK identifies a transient failure."""
-    return isinstance(exc, _SDK_TRANSIENT_ERRORS)
+    return isinstance(exc, _SDK_TRANSIENT_ERRORS) or _is_anthropic_error(
+        exc,
+        "APIConnectionError",
+        "APITimeoutError",
+        "InternalServerError",
+    )
 
 
 @dataclass(frozen=True, slots=True)
