@@ -16,7 +16,11 @@ from typing import Any
 
 from utils.logger import setup_logger
 
-from .models import CURRENT_PROJECT_SCHEMA_VERSION
+from .models import (
+    CURRENT_PROJECT_SCHEMA_VERSION,
+    is_pet_os_bubble,
+    is_subtitle_overlay,
+)
 
 
 class ProjectMigrationError(ValueError):
@@ -742,6 +746,52 @@ def _migrate_v8_to_v9(document: dict[str, Any]) -> dict[str, Any]:
 PROJECT_MIGRATIONS[8] = _migrate_v8_to_v9
 
 
+def _migrate_v9_to_v10(document: dict[str, Any]) -> dict[str, Any]:
+    """v9 -> v10: stamp ``caption_role`` on overlay Elements.
+
+    Legacy overlays with non-empty ``text`` (caption cards) that lack a
+    ``caption_role`` default to ``"dialogue"``.  Text-free overlays
+    (decorations / media stickers) stay untouched, and so do pet-OS
+    bubbles: the prompts tell the author to leave their ``caption_role``
+    empty because they use a dedicated layout, so stamping ``dialogue``
+    here would drag a bubble to the bottom-centre subtitle position.
+    """
+
+    content_type = _raw_content_type(document)
+    timelines = document.get("timelines")
+    items = timelines.get("items") if isinstance(timelines, dict) else None
+    if isinstance(items, dict):
+        for timeline in items.values():
+            if not isinstance(timeline, dict):
+                continue
+            elements = timeline.get("elements_by_id")
+            if not isinstance(elements, dict):
+                continue
+            for element in elements.values():
+                if not isinstance(element, dict):
+                    continue
+                creation = element.get("creation")
+                if (
+                    isinstance(creation, dict)
+                    and creation.get("type") == "overlay"
+                    and "caption_role" not in creation
+                ):
+                    text = creation.get("text", "")
+                    if not (isinstance(text, str) and text.strip()):
+                        continue
+                    if is_pet_os_bubble(
+                        vibe=str(creation.get("vibe") or "chill"),
+                        content_type=content_type,
+                    ):
+                        continue
+                    creation["caption_role"] = "dialogue"
+    document["schema_version"] = 10
+    return document
+
+
+PROJECT_MIGRATIONS[9] = _migrate_v9_to_v10
+
+
 def _repair_v9_missing_audio_roles(document: dict[str, Any]) -> dict[str, Any]:
     """Same-version repair: stamp audio roles on pre-merge v9 documents.
 
@@ -754,6 +804,113 @@ def _repair_v9_missing_audio_roles(document: dict[str, Any]) -> dict[str, Any]:
     """
 
     return _stamp_missing_audio_roles(document, step="v9-repair")
+
+
+def _raw_content_type(document: Mapping[str, Any]) -> str | None:
+    """Read ``settings.content_type`` out of a raw Project document."""
+
+    settings = document.get("settings")
+    if not isinstance(settings, Mapping):
+        return None
+    value = settings.get("content_type")
+    return value if isinstance(value, str) else None
+
+
+def _repair_v10_caption_locations(document: dict[str, Any]) -> dict[str, Any]:
+    """Same-version repair: pull burnt-in caption boxes back inside the frame.
+
+    The agent prompt used to teach a handwritten ``y=0.88, height=0.18``
+    centre-anchored box, whose bottom edge reaches 0.97 and clears every
+    size floor the compose-time validator checks.  Nothing re-reads a stored
+    location on load, so projects written with it keep burning the last line
+    of each card into the frame edge.  This repair rewrites only boxes that
+    leave the 0.04/0.96 safe area, replacing each with the preset for its own
+    ``caption_role`` (the generic subtitle box when it carries no role).
+
+    ``CAPTION_TEMPLATE_VERSION`` deliberately does not move: the frame cache
+    key carries the box width and height but never x/y, and the dialogue
+    preset covers the same pixels as the generic box, so a conforming
+    document passes through byte-identical and no caption is re-rendered
+    unless its geometry really was illegal.
+
+    Two groups are left alone.  Pet-OS bubbles keep their authored geometry
+    because that box is the bubble layout rather than a subtitle position,
+    and full-canvas caption overlays (the informal-launch template writes
+    ``width=1, height=1``) are exempt from the safe-area rule at design time
+    as well.  Rolled-back ``snapshot:`` timelines are frozen history.
+    """
+
+    # Lazy import: the schema layer must not depend on the render layer at
+    # module import time (see facade.py for the same convention).
+    from services.media_files.motion_templates import (
+        CAPTION_ROLE_LOCATIONS,
+        DEFAULT_CAPTION_LOCATION,
+        caption_box_out_of_safe_area,
+    )
+
+    content_type = _raw_content_type(document)
+    repaired = dict(document)
+    timelines = dict(repaired.get("timelines") or {})
+    items = dict(timelines.get("items") or {})
+    for timeline_id, timeline in list(items.items()):
+        if not isinstance(timeline, Mapping):
+            continue
+        if str(timeline_id).startswith("snapshot:"):
+            continue
+        elements = dict(timeline.get("elements_by_id") or {})
+        touched = False
+        for element_id, element in list(elements.items()):
+            if not isinstance(element, dict):
+                continue
+            creation = element.get("creation")
+            if (
+                not isinstance(creation, dict)
+                or creation.get("type") != "overlay"
+            ):
+                continue
+            text = creation.get("text")
+            role = creation.get("caption_role")
+            if not is_subtitle_overlay(
+                text=text if isinstance(text, str) else "",
+                vibe=str(creation.get("vibe") or "chill"),
+                caption_role=role if isinstance(role, str) else None,
+                content_type=content_type,
+            ):
+                continue
+            location = element.get("location")
+            if not isinstance(location, dict):
+                continue
+            if (
+                float(location.get("width", 1.0) or 0) >= 1
+                and float(location.get("height", 1.0) or 0) >= 1
+            ):
+                continue
+            if not caption_box_out_of_safe_area(location):
+                continue
+            replacement = (
+                CAPTION_ROLE_LOCATIONS.get(role)
+                if isinstance(role, str)
+                else None
+            ) or DEFAULT_CAPTION_LOCATION
+            updated_element = dict(element)
+            updated_element["location"] = dict(replacement)
+            elements[element_id] = updated_element
+            touched = True
+            logger.warning(
+                "v10-repair: caption element %s/%s sits outside the safe "
+                "area; its location was replaced with the %s preset",
+                timeline_id,
+                element_id,
+                role if isinstance(role, str) else "default",
+            )
+        if not touched:
+            continue
+        updated_timeline = dict(timeline)
+        updated_timeline["elements_by_id"] = elements
+        items[timeline_id] = updated_timeline
+    timelines["items"] = items
+    repaired["timelines"] = timelines
+    return repaired
 
 
 _MIN_UTC = datetime.min.replace(tzinfo=timezone.utc)
@@ -957,12 +1114,15 @@ def migrate_project_document(raw: Mapping[str, Any]) -> dict[str, Any]:
     # Same-version repair: documents already stamped with the current
     # schema_version may still predate a required field when two schema
     # lineages merged under one number. Repairs are idempotent and leave
-    # already-conforming documents untouched. The narration de-conflict
-    # then mutes earlier takes a later narration overlaps, so a document
-    # authored before the double-voice gate still opens instead of failing
-    # validation. The write path is unaffected: it validates directly and
-    # keeps rejecting any newly stacked narration.
+    # already-conforming documents untouched. The caption location repair
+    # then pulls boxes that reach past the safe area back onto their role
+    # preset, because a burnt-in frame edge is invisible until the video is
+    # watched. The narration de-conflict then mutes earlier takes a later
+    # narration overlaps, so a document authored before the double-voice gate
+    # still opens instead of failing validation. The write path is unaffected:
+    # it validates directly and keeps rejecting any newly stacked narration.
     repaired = _repair_v9_missing_audio_roles(document)
+    repaired = _repair_v10_caption_locations(repaired)
     return _deconflict_overlapping_narration(repaired, step="v9-repair")
 
 

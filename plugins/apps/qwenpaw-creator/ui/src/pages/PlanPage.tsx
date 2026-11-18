@@ -11,7 +11,9 @@ import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useTimelineStore } from "@/store/timelineStore";
 import { renderTimeline } from "@/api/creator";
+import { setSubtitleStyle, toggleSubtitles } from "@/api/creator";
 import {
+  isSubtitleOverlay,
   overlayContentKind,
   resolveTimelineRender,
   selectPrimaryTimeline,
@@ -21,6 +23,7 @@ import {
 import { resolveElementPlayback } from "@/selectors/elementPlaybackSelectors";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 import { useProjectDraft } from "@/lib/useProjectDraft";
+import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import { useNarrowWorkspace } from "@/lib/useNarrowWorkspace";
 import TimelineCanvas from "@/components/timeline/TimelineCanvas";
@@ -30,7 +33,10 @@ import WorkbenchModal from "@/components/workbench/WorkbenchModal";
 import PageSkeleton from "@/components/PageSkeleton";
 import PageLoadError from "@/components/PageLoadError";
 import SaveAsTemplateDialog from "@/components/creator/SaveAsTemplateDialog";
-import type { TimelineElementDocument } from "@/contracts/creator";
+import type {
+  SubtitleStyleUpdateRequest,
+  TimelineElementDocument,
+} from "@/contracts/creator";
 import { useTranslation } from "react-i18next";
 
 function sec(tick: number, ticksPerSecond: number): string {
@@ -104,6 +110,8 @@ export default function PlanPage() {
   >(null);
   const [composeFailed, setComposeFailed] = useState(false);
   const [saveAsTemplateOpen, setSaveAsTemplateOpen] = useState(false);
+  const [subtitleToggling, setSubtitleToggling] = useState(false);
+  const [subtitleStyleBusy, setSubtitleStyleBusy] = useState(false);
   const [comparePreviewOpen, setComparePreviewOpen] = useState(true);
   const composeAttemptedGeneration = useRef<number | null>(null);
   const hadPendingReviews = useRef(false);
@@ -129,6 +137,164 @@ export default function PlanPage() {
       )
     : 1;
   const clampedPlayheadTick = Math.min(playheadTick, displayDurationTick);
+
+  // Subtitle element stats for the toolbar toggle button.  The count has to
+  // follow the same predicate the backend toggle applies, or the button would
+  // advertise a number of subtitles it never touches: a pet-OS bubble carries
+  // no caption_role and is not a subtitle.
+  const subtitleStats = useMemo(() => {
+    if (!timeline) return { count: 0, enabledCount: 0 };
+    let count = 0;
+    let enabledCount = 0;
+    const contentType = project?.settings.content_type;
+    for (const element of Object.values(timeline.elements_by_id)) {
+      if (
+        element.creation.type === "overlay" &&
+        isSubtitleOverlay(element.creation, contentType)
+      ) {
+        count++;
+        if (element.enabled) enabledCount++;
+      }
+    }
+    return { count, enabledCount };
+  }, [project, timeline]);
+  const hasSubtitles = subtitleStats.count > 0;
+  const subtitlesAllEnabled =
+    subtitleStats.enabledCount === subtitleStats.count;
+
+  const handleToggleSubtitles = useCallback(async () => {
+    setSubtitleToggling(true);
+    try {
+      await toggleSubtitles(id, !subtitlesAllEnabled);
+      await pollOnce(id);
+      message.success(
+        subtitlesAllEnabled ? t("plan.subtitleRemove") : t("plan.subtitleAdd"),
+      );
+      message.info(t("plan.subtitleToggleRecompose"), 4);
+    } catch (error) {
+      message.error(
+        t("plan.subtitleToggleFailed", {
+          detail: (error as Error).message,
+        }),
+      );
+    } finally {
+      setSubtitleToggling(false);
+    }
+  }, [id, subtitlesAllEnabled, pollOnce, t]);
+
+  // The switch lives in the timeline itself (the subtitle lane's row header),
+  // so the page only hands down what it knows best: whether every subtitle is
+  // currently on, how many the backend toggle will reach, and the action.
+  const subtitleToggle = hasSubtitles
+    ? {
+        enabled: subtitlesAllEnabled,
+        count: subtitleStats.count,
+        busy: subtitleToggling,
+        onToggle: () => void handleToggleSubtitles(),
+      }
+    : undefined;
+
+  // A single caption is toggled through a direct one-operation patch instead of
+  // the element draft: the draft derives its operations from React state, so
+  // applying it in the same tick as the mutation would submit nothing.
+  const handleToggleElementSubtitle = useCallback(
+    async (element: TimelineElementDocument, enabled: boolean) => {
+      const timelineId = timeline?.timeline_id;
+      if (!timelineId) return;
+      const before =
+        timeline?.elements_by_id[element.element_id]?.enabled ?? true;
+      if (before === enabled) return;
+      try {
+        await patchProject(id, [
+          {
+            op: "replace",
+            path: projectJsonPointer(
+              "timelines",
+              "items",
+              timelineId,
+              "elements_by_id",
+              element.element_id,
+              "enabled",
+            ),
+            before,
+            value: enabled,
+          },
+        ]);
+        await pollOnce(id);
+        message.success(
+          enabled ? t("plan.subtitleAdd") : t("plan.subtitleRemove"),
+        );
+        message.info(t("plan.subtitleToggleRecompose"), 4);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleToggleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      }
+    },
+    [id, timeline, patchProject, pollOnce, t],
+  );
+
+  // One confirmed pick may be two backend calls (the project-wide pack and
+  // overrides, then this caption's motion), and each of them keeps the
+  // setting, the burned-in caption documents and every 动效描述 in step, so
+  // the page reports what the whole batch actually reached.
+  const handleApplySubtitleStyle = useCallback(
+    async (requests: SubtitleStyleUpdateRequest[]) => {
+      if (!requests.length) return;
+      setSubtitleStyleBusy(true);
+      try {
+        let syncedPrompts = 0;
+        let redrawnDocuments = 0;
+        let skippedNonTemplate = 0;
+        for (const request of requests) {
+          const result = await setSubtitleStyle(id, request);
+          syncedPrompts += result.syncedPrompts;
+          redrawnDocuments += result.redrawnDocuments;
+          skippedNonTemplate += result.skippedNonTemplate;
+        }
+        // A caption whose look was designed independently keeps it: reporting
+        // "updated" for a pick that reached nothing would be the same lie the
+        // style switch was built to remove.
+        const nothingButSkips =
+          skippedNonTemplate > 0 && !syncedPrompts && !redrawnDocuments;
+        if (nothingButSkips) {
+          message.warning(
+            t("plan.subtitleStyleSkippedDesign", { count: skippedNonTemplate }),
+          );
+        } else {
+          if (syncedPrompts || redrawnDocuments) {
+            message.success(
+              t("plan.subtitleStyleSynced", {
+                prompts: syncedPrompts,
+                documents: redrawnDocuments,
+              }),
+            );
+          }
+          if (skippedNonTemplate) {
+            message.warning(
+              t("plan.subtitleStyleSkippedDesign", {
+                count: skippedNonTemplate,
+              }),
+            );
+          }
+          message.info(t("plan.subtitleStyleApplied"), 4);
+        }
+        await pollOnce(id);
+      } catch (error) {
+        message.error(
+          t("plan.subtitleStyleFailed", {
+            detail: (error as Error).message,
+          }),
+        );
+      } finally {
+        setSubtitleStyleBusy(false);
+      }
+    },
+    [id, pollOnce, t],
+  );
+
   // Any playhead motion (transport keys, scrub, playback, seeks) returns the
   // panel to follow mode so it can never describe a stale selection.
   const movePlayhead = useCallback((tick: number) => {
@@ -620,7 +786,14 @@ export default function PlanPage() {
           if (draft) mutator(draft);
         })
       }
-      onApply={() => void applyElementDraft()}
+      onApply={applyElementDraft}
+      onToggleSubtitleEnabled={(element, enabled) =>
+        void handleToggleElementSubtitle(element, enabled)
+      }
+      subtitleStyleBusy={subtitleStyleBusy}
+      onApplySubtitleStyle={(requests) =>
+        void handleApplySubtitleStyle(requests)
+      }
       onDiscard={elementDraft.discard}
       onAcceptConflicts={elementDraft.acceptConflicts}
       onOpenWorkbench={openElementWorkbench}
@@ -808,6 +981,7 @@ export default function PlanPage() {
                 selectedElementId={selectedElementId}
                 previewOpen={comparePreviewOpen}
                 tasks={tasks}
+                subtitleToggle={subtitleToggle}
                 onPreviewOpenChange={setComparePreviewOpen}
                 onPlayheadChange={(tick) =>
                   movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))
@@ -889,6 +1063,7 @@ export default function PlanPage() {
             selectedElementId={selectedElementId}
             previewOpen
             tasks={tasks}
+            subtitleToggle={subtitleToggle}
             onPreviewOpenChange={() => {}}
             onPlayheadChange={(tick) =>
               movePlayhead(Math.max(0, Math.min(displayDurationTick, tick)))

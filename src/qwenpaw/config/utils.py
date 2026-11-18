@@ -52,19 +52,6 @@ _config_lock = threading.RLock()
 _agent_config_cache: dict[str, Any] = {}
 _agent_config_lock = threading.RLock()
 _last_dispatch_lock = threading.Lock()
-_root_publication_revision = 0
-_agent_publication_revision = 0
-
-
-def config_publication_revision() -> tuple[int, int]:
-    """Snapshot supported config publications without filesystem I/O."""
-    return _root_publication_revision, _agent_publication_revision
-
-
-def _record_agent_config_publication() -> None:
-    """Called after publication while holding _agent_config_lock."""
-    global _agent_publication_revision
-    _agent_publication_revision += 1
 
 
 # Unknown root fields are normally discarded on save. These non-secret keys
@@ -730,7 +717,7 @@ def strict_validate_config_file(
 
 def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     """Atomically save a detached config and publish it to the cache."""
-    global _config_cache, _config_mtime, _root_publication_revision
+    global _config_cache, _config_mtime
 
     if config_path is None:
         config_path = get_config_path()
@@ -753,7 +740,6 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
             config_path,
             payload,
         )
-        _root_publication_revision += 1
         _config_cache = candidate.model_copy(deep=True)
         try:
             _config_mtime = config_path.stat().st_mtime
@@ -767,7 +753,7 @@ def isolate_legacy_root_mcp(
     backup_path: Path,
 ) -> None:
     """Archive the exact input before removing unresolved MCP from use."""
-    global _config_cache, _root_publication_revision
+    global _config_cache
 
     with _config_lock:
         original = config_path.read_bytes().decode("utf-8")
@@ -791,7 +777,6 @@ def isolate_legacy_root_mcp(
                 )
         write_json_atomic(config_path, {**expected, "mcp": {"clients": {}}})
         _config_cache = None
-        _root_publication_revision += 1
 
 
 def mutate_config(

@@ -156,6 +156,8 @@ def silence_stdout() -> None:
     """Point fd 1 at devnull so interpreter exit cannot flush a dead pipe."""
     try:
         descriptor = sys.stdout.fileno()
+        if descriptor != 1:
+            return
         devnull = os.open(os.devnull, os.O_WRONLY)
         try:
             os.dup2(devnull, descriptor)

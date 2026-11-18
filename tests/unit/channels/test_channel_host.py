@@ -43,6 +43,46 @@ def _runtime_identity():
     }
 
 
+@pytest.mark.asyncio
+async def test_drain_timeout_retains_tracked_work_and_reports_stage(caplog):
+    from types import SimpleNamespace
+    from qwenpaw.app.channels.manager import ChannelManager
+    from qwenpaw.app.task_tracker import TaskTracker
+
+    tracker, release = TaskTracker(), asyncio.Event()
+    workspace = SimpleNamespace(task_tracker=tracker)
+    channel = SimpleNamespace(channel="wechat", set_enqueue=lambda _: None)
+    manager = ChannelManager([channel])
+    manager._workspace = workspace
+
+    async def stream(_):
+        await release.wait()
+        yield "data: done\n\n"
+
+    await tracker.attach_or_start(
+        "cron",
+        None,
+        stream,
+        owner=workspace,
+        channel_id="wechat",
+        channel_handoff_safe=True,
+    )
+    try:
+        # Transferability applies only to reload. An ordinary drain still
+        # waits without cancelling the producer or discarding its owner.
+        assert not await manager.quiesce(timeout=0.01)
+        assert await tracker.get_status("cron") == "running"
+        assert manager.channels == [channel]
+        assert any(
+            "stage=tracker" in r.getMessage() and "pending=1" in r.getMessage()
+            for r in caplog.records
+        )
+    finally:
+        release.set()
+        await tracker.wait_all_done(1)
+    assert await manager.quiesce(timeout=0.01)
+
+
 @pytest_asyncio.fixture
 async def host(tmp_path, monkeypatch):
     case = await Host.create(tmp_path, monkeypatch)

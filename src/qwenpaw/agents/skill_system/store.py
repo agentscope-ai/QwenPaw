@@ -26,6 +26,7 @@ import yaml
 
 from ...exceptions import SkillImportCancelled, SkillsError
 from ...security.skill_scanner import scan_skill_directory
+from ...utils.io_utils import rename_or_copy_directory
 from ..utils.file_handling import (
     read_text_file_with_encoding_fallback,
     single_line_log_value,
@@ -462,6 +463,29 @@ def copy_skill_dir(source: Path, target: Path) -> None:
         target,
         ignore=_ignore,
         copy_function=_checked_copy2,
+    )
+
+
+def install_staged_skill_dir(staged_dir: Path, target_dir: Path) -> None:
+    """Install an already-scanned staged skill at *target_dir*.
+
+    A rename replaces the second full copy of a large skill with one directory
+    operation; a refused rename falls back to ``copy_skill_dir`` unchanged. An
+    interrupted install can leave *target_dir* absent, which the caller's
+    rollback restores.
+
+    The stage must already be clean: renaming is only equivalent to
+    ``copy_skill_dir`` when that function produced it, because its artifact
+    filtering and symlink dereferencing happen during a copy, not a rename.
+    """
+    ensure_not_cancelled()
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    if target_dir.exists():
+        shutil.rmtree(target_dir)
+    rename_or_copy_directory(
+        staged_dir,
+        target_dir,
+        copy_directory=copy_skill_dir,
     )
 
 
