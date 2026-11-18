@@ -405,6 +405,18 @@ class QwenPawACPAgent(Agent):
         """Prepare once at explicit use, never while processing a normal turn."""
         from ...app.mcp import feature_gate
 
+        def unavailable_error() -> RequestError:
+            details = str(feature_gate.MCPUnavailableError())
+            return RequestError(
+                code=-32603,
+                message=details,
+                data={
+                    "code": feature_gate.MCPUnavailableError.code,
+                    "details": details,
+                    "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
+                },
+            )
+
         agent_id = self._agent_id or getattr(self._workspace, "agent_id", None)
         if agent_id is None:
             agent_id = await run_sync_io(self._resolve_agent_id)
@@ -438,13 +450,7 @@ class QwenPawACPAgent(Agent):
             if not await feature_gate.prepare_mcp_for_use(
                 self._mcp_loader,
             ):
-                raise RequestError.internal_error(
-                    {
-                        "code": feature_gate.MCPUnavailableError.code,
-                        "details": str(feature_gate.MCPUnavailableError()),
-                        "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
-                    },
-                )
+                raise unavailable_error()
             from ...app.mcp_plugin_upgrade import get_coordinator
 
             coordinator = get_coordinator(self._mcp_loader)
@@ -463,13 +469,7 @@ class QwenPawACPAgent(Agent):
                     if not self._workspace_ready:
                         # Admission owns only this unbootstrapped candidate.
                         self._workspace = None
-                    raise RequestError.internal_error(
-                        {
-                            "code": feature_gate.MCPUnavailableError.code,
-                            "details": str(feature_gate.MCPUnavailableError()),
-                            "official_plugins_path": feature_gate.OFFICIAL_PLUGIN_PATH,
-                        },
-                    )
+                    raise unavailable_error()
 
     def on_connect(self, conn: Client) -> None:
         self._conn = conn
