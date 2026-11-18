@@ -153,7 +153,7 @@ def check_release(
     dry_run=False,
     baseline=None,
 ):
-    """Preflight all identities, reserve atomically, then publish immutable ZIPs."""
+    """Preflight all identities, reserve them, then publish immutable ZIPs."""
     candidates, legacy_host = _release_candidates(artifacts_root, project_root)
     if not candidates:
         if legacy_host:
@@ -269,14 +269,10 @@ class OSSStore:
             endpoint,
             bucket_name,
         )
-        # OSS ignores forbid-overwrite on versioned buckets. Never claim safety there.
-        if self.bucket.get_bucket_versioning().status in {
+        self._versioned = self.bucket.get_bucket_versioning().status in {
             "Enabled",
             "Suspended",
-        }:
-            raise ValueError(
-                "Plugin identity bucket must enforce non-overwriting creates"
-            )
+        }
 
     def read(self, key):
         try:
@@ -285,7 +281,7 @@ class OSSStore:
             return None
 
     def create(self, key, data, *, public=False):
-        headers = {"x-oss-forbid-overwrite": "true"}
+        headers = {}
         if public:
             headers.update(
                 {
@@ -293,6 +289,14 @@ class OSSStore:
                     "Cache-Control": "public, max-age=31536000, immutable",
                 }
             )
+        if self._versioned:
+            # OSS ignores forbid-overwrite on versioned buckets. This fallback
+            # relies on publishers sharing the plugins-release concurrency group.
+            existing = self.read(key)
+            if existing is not None:
+                return existing
+        else:
+            headers["x-oss-forbid-overwrite"] = "true"
         try:
             self.bucket.put_object(key, data, headers=headers)
             return data
