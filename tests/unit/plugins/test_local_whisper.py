@@ -71,11 +71,7 @@ async def install(service):
     assert not service.error
 
 
-@pytest.mark.parametrize("restart", [False, True])
-async def test_uninstall_stays_missing_with_dependencies_present(
-    setup,
-    restart,
-):
+async def test_uninstall_stays_missing_with_dependencies_present(setup):
     """Regression: dependencies survive, but the plugin must not resurrect."""
     host, service, _ = setup
     select()
@@ -83,9 +79,9 @@ async def test_uninstall_stays_missing_with_dependencies_present(
     await service.task
     assert local.get_status()["available"] is True
     await uninstall(host._loader)
-    if restart:
-        await service.close()
-        await service.start()
+    assert local.get_status()["state"] == "missing"
+    await service.close()
+    await service.start()
     assert (
         host._loader.registry.get_transcription_backend("local_whisper")
         is None
@@ -505,12 +501,9 @@ async def test_import_failure_and_metadata_less_dependency_recover_through_http(
                 await service.close()
 
 
-@pytest.mark.parametrize("text,expected", [("  hello  ", "hello"), ("  ", "")])
 async def test_optional_plugin_model_cache_and_empty_result(
     tmp_path,
     monkeypatch,
-    text,
-    expected,
     whisper_dependency_inventory,
 ):
     import sys
@@ -526,19 +519,23 @@ async def test_optional_plugin_model_cache_and_empty_result(
     )
 
     model = MagicMock()
-    model.transcribe.return_value = {"text": text}
+    model.transcribe.side_effect = [
+        {"text": "  hello  "},
+        {"text": "  "},
+        {"text": "hello"},
+    ]
     whisper = SimpleNamespace(load_model=MagicMock(return_value=model))
     monkeypatch.setitem(sys.modules, "whisper", whisper)
     monkeypatch.setattr("shutil.which", lambda name: "/test/ffmpeg")
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(optional_source)
         whisper.load_model.assert_not_called()
-        for _ in range(2):
+        for expected in (
+            TranscriptionResult("hello", ""),
+            TranscriptionResult("", "empty"),
+        ):
             result = await host.transcribe("local_whisper", "/audio.wav")
-            assert result == TranscriptionResult(
-                expected,
-                "" if expected else "empty",
-            )
+            assert result == expected
         whisper.load_model.assert_called_once_with("base")
         assert (await host.unload("local-whisper")).quiescent
         await host.load(optional_source)

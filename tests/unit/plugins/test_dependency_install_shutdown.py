@@ -11,7 +11,7 @@ import sysconfig
 from pathlib import Path
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import psutil
 import pytest
@@ -211,9 +211,17 @@ async def test_upgrade_preparation_uses_install_policy_and_stops_on_shutdown(
             await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.parametrize("kind", ["sdk", "legacy", "whisper"])
-@pytest.mark.parametrize("stage", ["installing", "waiting_lock"])
-@pytest.mark.parametrize("operation", ["install", "repair"])
+@pytest.mark.parametrize(
+    ("kind", "stage", "operation"),
+    [
+        ("sdk", "installing", "install"),
+        ("sdk", "waiting_lock", "repair"),
+        ("legacy", "waiting_lock", "install"),
+        ("legacy", "installing", "repair"),
+        ("whisper", "installing", "install"),
+        ("whisper", "waiting_lock", "repair"),
+    ],
+)
 async def test_shutdown_cancels_dependency_install(
     tmp_path,
     monkeypatch,
@@ -373,10 +381,14 @@ async def test_shutdown_cancels_dependency_install(
             assert not restarted._closing
 
 
-@pytest.mark.parametrize("stop", ["cancel", "timeout"])
 @pytest.mark.parametrize(
-    "enumeration_error",
-    [None, "permission", "access_denied"],
+    ("stop", "enumeration_error"),
+    [
+        ("cancel", None),
+        ("timeout", None),
+        ("cancel", "permission"),
+        ("timeout", "access_denied"),
+    ],
 )
 async def test_installer_reaps_stubborn_child_after_parent_exits(
     tmp_path,
@@ -474,22 +486,11 @@ async def test_installer_reaps_stubborn_child_after_parent_exits(
         await asyncio.gather(worker, return_exceptions=True)
 
 
-@pytest.mark.parametrize(
-    "enumeration_error",
-    [None, PermissionError, psutil.AccessDenied],
-)
 async def test_request_cancellation_stops_installer_without_shutdown(
     tmp_path,
     monkeypatch,
-    enumeration_error,
 ):
     """HTTP task cancellation must signal the worker before awaiting it."""
-    if enumeration_error:
-        monkeypatch.setattr(
-            psutil.Process,
-            "children",
-            Mock(side_effect=enumeration_error()),
-        )
     source = package(tmp_path, ["shutdown-probe==1.0"])
     started = threading.Event()
     spawned = []

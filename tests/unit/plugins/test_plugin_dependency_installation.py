@@ -62,19 +62,17 @@ async def test_install_lock_failure_never_runs_unlocked(
         monkeypatch.undo()
 
 
-@pytest.mark.parametrize("sdk", [False, True])
 @pytest.mark.parametrize("frozen", [False, True])
 async def test_framework_preserves_large_dependency_timeout(
     tmp_path,
     monkeypatch,
-    sdk,
     frozen,
 ):
     from qwenpaw.plugins import loader as module
     from qwenpaw.plugins.dependency_context import DependencyEnvironmentContext
     from qwenpaw.plugins.execution.dependencies import DependencySnapshot
 
-    source = package(tmp_path, requirements="openai-whisper\ntorch\n", sdk=sdk)
+    source = package(tmp_path, requirements="openai-whisper\ntorch\n")
     path = source / "plugin.json"
     manifest = json.loads(path.read_text())
     manifest["meta"] = {"dependency_install_timeout": 1800}

@@ -1124,6 +1124,12 @@ async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
     manifest = json.loads(path.read_text())
     manifest["dependencies"] = ["b01-probe-missing==1.0"]
     path.write_text(json.dumps(manifest))
+    marker = tmp_path / "incoming-module-executed"
+    entry = two / "main.py"
+    entry.write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).touch()\n"
+        + entry.read_text(),
+    )
     async with PluginTestHost(tmp_path / "host") as host:
         assert (await host.install(one)).ok
         with pytest.raises(SDKError, match="attempted installation"):
@@ -1131,6 +1137,7 @@ async def test_upgrade_rejection_keeps_old_tool_callable(tmp_path, installer):
         assert await text_result(host) == "1.0.0::1"
         assert (await host.reload("extension-contract")).ok
         assert await text_result(host) == "1.0.0::2"
+        assert not marker.exists()
     assert len(installer) == 1
 
 
