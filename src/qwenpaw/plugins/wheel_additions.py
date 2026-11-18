@@ -166,6 +166,11 @@ def _parsed_bytes(content: bytes | memoryview) -> bytes:
     return bytes(content)
 
 
+def decode_wheel_record(content: bytes | memoryview) -> str:
+    """Decode a bounded wheel RECORD from either payload representation."""
+    return _parsed_bytes(content).decode("utf-8")
+
+
 # lark-oapi 1.7.1 has over 11,000 installed non-pyc files.
 def _members(addition: WheelAddition, store=None) -> WheelFiles:
     path = Path(addition.path)
@@ -253,9 +258,7 @@ def _validate_record(
     files: Mapping[str, bytes | memoryview],
     record: str,
 ) -> None:
-    rows = list(
-        csv.reader(io.StringIO(_parsed_bytes(files[record]).decode("utf-8"))),
-    )
+    rows = list(csv.reader(io.StringIO(decode_wheel_record(files[record]))))
     seen = set()
     for row in rows:
         if len(row) != 3 or row[0] in seen or row[0] not in files:

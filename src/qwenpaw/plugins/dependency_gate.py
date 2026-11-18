@@ -721,7 +721,11 @@ async def prepare_shared_dependencies(
 ):
     """Coordinate, audit, query current usage and publish safe additions."""
     from .install_lock import canonical_environment_path as canonical
-    from .wheel_additions import WheelFiles, validate_additions
+    from .wheel_additions import (
+        WheelFiles,
+        decode_wheel_record,
+        validate_additions,
+    )
     from .execution.dependencies import (
         _complete_dependency_top_levels,
         _dependency_closure,
@@ -941,8 +945,8 @@ async def prepare_shared_dependencies(
                         record = (
                             origin.relative_to(target) / "RECORD"
                         ).as_posix()
-                        planned_records[str(origin)] = files[record].decode(
-                            "utf-8",
+                        planned_records[str(origin)] = decode_wheel_record(
+                            files[record],
                         )
                 added = tuple(
                     f"{name}=={row['version']}"

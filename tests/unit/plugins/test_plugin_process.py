@@ -1722,12 +1722,22 @@ def test_policy_change_blocks_verify_and_publish(tmp_path, dependency_files):
         assert not maintenance.repair_marker(files.site).exists()
 
 
-@pytest.mark.parametrize("scripts", ["bin", "Scripts"])
+@pytest.mark.parametrize(
+    ("scripts", "file_backed_record"),
+    [("bin", False), ("Scripts", False), ("bin", True)],
+)
 def test_native_launcher_publish_and_exact_rollback(
     tmp_path,
+    monkeypatch,
     dependency_files,
     scripts,
+    file_backed_record,
 ):
+    if file_backed_record:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.wheel_additions._IN_MEMORY_BYTES",
+            128,
+        )
     files = dependency_files
     files.site.rename(files.prefix / "site-packages")
     files.site = files.prefix / "site-packages"

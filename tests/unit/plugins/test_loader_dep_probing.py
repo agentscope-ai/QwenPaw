@@ -2514,10 +2514,15 @@ sys.stdout.buffer.flush()
         await following.unload_plugin("publication-probe")
 
 
-@pytest.mark.parametrize("shadows_loaded_module", [False, True])
+@pytest.mark.parametrize(
+    ("shadows_loaded_module", "file_backed_record"),
+    [(False, False), (True, False), (False, True)],
+)
 async def test_additions_keep_dependency_inspection_scope_stable(
     tmp_path,
+    monkeypatch,
     shadows_loaded_module,
+    file_backed_record,
 ):
     """A newly reachable dependency is inspected equally before/after writes."""
     import hashlib
@@ -2535,6 +2540,11 @@ async def test_additions_keep_dependency_inspection_scope_stable(
     from qwenpaw.plugins.wheel_additions import WheelAddition
     from .test_manifest_dependencies import write_wheel
 
+    if file_backed_record:
+        monkeypatch.setattr(
+            "qwenpaw.plugins.wheel_additions._IN_MEMORY_BYTES",
+            128,
+        )
     site = tmp_path / "site"
     owner = write_wheel(
         tmp_path,
