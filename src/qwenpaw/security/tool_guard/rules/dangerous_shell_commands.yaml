@@ -243,6 +243,46 @@
   description: "Command uses $IFS variable which could bypass security validation"
   remediation: "Reject commands containing IFS manipulation. Legitimate commands do not need to reference $IFS directly."
 
+# Outbound shell actions. Keep short options case-sensitive (curl -f
+# is common on read-only probes). Stop at shell command separators.
+- id: TOOL_CMD_OUTBOUND_MAIL
+  tools: [execute_shell_command]
+  params: [command]
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    - '(?:^|[\s/|&;(])(?:sendmail|msmtp|mutt|neomutt)(?:\.exe)?(?=[\s<>|&;)]|$)'
+    - '(?:^|[\s/|&;(])himalaya(?:\.exe)?[ \t]+(?:[^;&|\n]*?[ \t]+)?message[ \t]+send\b'
+  description: "Shell command invokes an email sender"
+  remediation: "Confirm the recipients and message before sending email."
+
+- id: TOOL_CMD_OUTBOUND_HTTP
+  tools: [execute_shell_command]
+  params: [command]
+  category: data_exfiltration
+  severity: MEDIUM
+  patterns:
+    # curl body, form, upload and explicit write-method options.
+    - |-
+      (?x)(?:^|[\s/|&;('"])curl(?:\.exe)?[ \t]+
+      (?:(?:[^\s;&|"'\\]|\\.|"[^"]*"|'[^']*')+[ \t]+)*
+      (?:
+        --(?:data(?:-ascii|-binary|-raw|-urlencode)?|json|form(?:-string)?|upload-file)(?=[=\s]|$)
+        | -(?-i:[fsSLvk]*[dFT])
+        | (?:-(?-i:[fsSLvk]*X)[ \t]*|--request[= \t]+)["']?(?:POST|PUT|PATCH|DELETE)\b
+      )
+    - |-
+      (?x)(?:^|[\s/|&;('"])wget(?:\.exe)?[ \t]+
+      (?:(?:[^\s;&|"'\\]|\\.|"[^"]*"|'[^']*')+[ \t]+)*
+      (?:--(?:post|body)-(?:data|file)(?=[=\s]|$)|--method[= \t]+["']?(?:POST|PUT|PATCH|DELETE)\b)
+    # HTTPie supports an explicit method or implicit POST with body fields.
+    - |-
+      (?x)(?:^|[\s/|&;('"])https?[ \t]+
+      (?:(?:[^\s;&|"'\\]|\\.|"[^"]*"|'[^']*')+[ \t]+)*
+      (?:["']?(?:POST|PUT|PATCH|DELETE)["']?(?=\s)|--(?:raw|form|multipart)(?=[=\s]|$)|["']?(?:@|[\w.-]+(?:@|:=|=(?!=))))
+  description: "Shell command can send request data or modify a remote resource"
+  remediation: "Confirm the destination and any data being sent."
+
 # ── Control Character ─────────────────────────────
 # Non-printable control characters (0x00-0x08, 0x0B-0x0C, 0x0E-0x1F,
 # 0x7F) have no legitimate use in shell commands. Bash silently drops
