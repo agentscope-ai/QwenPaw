@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
 
+from api import file_session_routes
 from api.dependencies import creator_error_handler, project_file_services
 from api.file_execution_routes import router as execution_router
 from api.file_session_routes import router as session_router, stream_events
 from api.project_file_routes import router as project_router
-from domain.enums import SpecialistRole, TaskKind, TaskStatus
+from domain.enums import (
+    SpecialistRole,
+    SpecialistRunStatus,
+    TaskKind,
+    TaskStatus,
+)
 from domain.errors import CreatorError
 from services.project_files import frontend_edit_hold
 from services.project_files.json_pointer import hash_json_value
@@ -100,9 +107,21 @@ def test_file_session_message_is_idempotent_and_visible(
 )
 def test_event_stream_replays_pages_and_handles_file_changes(
     tmp_path,
-    caplog,
+    monkeypatch,
     change,
 ):
+    # Uses a lifecycle type, not a streaming delta: the replay filter drops
+    # historical deltas on purpose, and this test is about cursor progress
+    # and fail-closed behaviour when the durable file changes underneath it.
+    # The plugin logger does not propagate to the root logger, so caplog
+    # can never see it; record the warning at its call site instead.
+    notices: list[str] = []
+
+    # pylint: disable-next=unused-argument
+    def record_warning(message, *args, **kwargs):
+        notices.append(message % args if args else str(message))
+
+    monkeypatch.setattr(file_session_routes.logger, "warning", record_warning)
     _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
     store = services.sessions
 
@@ -110,7 +129,7 @@ def test_event_stream_replays_pages_and_handles_file_changes(
         store.append_event(
             "project-1",
             "session-1",
-            event_type="agent.message_delta",
+            event_type="workspace.head_changed",
             actor="agent",
             payload={"value": value},
         )
@@ -157,7 +176,316 @@ def test_event_stream_replays_pages_and_handles_file_changes(
         range(4, 207 if change == "append" else 204),
     )
     if change != "append":
-        assert "Event replay stopped" in caplog.text
+        assert any("Event replay stopped" in line for line in notices)
+
+
+def test_live_streaming_delta_past_the_replay_boundary_is_delivered(
+    tmp_path,
+) -> None:
+    """A live delta must survive a long-lived SSE connection.
+
+    Review #243 blocking #1: ``replay_noise_line`` was passed to the
+    reader without a boundary, so it kept dropping every streaming
+    delta for the whole life of the connection -- a returning user saw
+    the replay up to the tail seq, then silence while a fresh reply
+    generated in front of them. The fix scopes the filter to the tail
+    at connect time; anything appended after that point reaches the
+    client verbatim.
+    """
+
+    _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
+    store = services.sessions
+
+    def append(event_type, payload):
+        return store.append_event(
+            "project-1",
+            "session-1",
+            event_type=event_type,
+            actor="agent",
+            payload=payload,
+        )
+
+    # Pre-replay: a lifecycle event + an old delta that the filter is
+    # allowed to drop. Boundary is the tail at connect time (=2).
+    append("agent.run.started", {"runId": "run-old"})
+    append(
+        "agent.message_delta",
+        {
+            "runId": "run-old",
+            "messageId": "m-old",
+            "deltaIndex": 0,
+            "delta": "旧",
+        },
+    )
+
+    class Connection:
+        polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            # Keep the SSE loop open past the initial replay so the
+            # live append below has a chance to be picked up; the
+            # body exits as soon as the test's iteration stops.
+            return self.polls > 40
+
+    async def scenario() -> list[tuple[int, str]]:
+        response = await stream_events(
+            "project-1",
+            Connection(),
+            after=0,
+            last_event_id=None,
+            services=services,
+        )
+
+        seen: list[tuple[int, str]] = []
+        iterator = response.body_iterator.__aiter__()
+        # Drain the replay (lifecycle event) before firing the live append
+        # so the reader has definitely crossed the boundary.
+        first = await iterator.__anext__()
+        seq, kind = _parse_sse_id_type(first)
+        seen.append((seq, kind))
+
+        append(
+            "agent.message_delta",
+            {
+                "runId": "run-live",
+                "messageId": "m-live",
+                "deltaIndex": 0,
+                "delta": "live",
+            },
+        )
+        try:
+            while True:
+                chunk = await iterator.__anext__()
+                seq, kind = _parse_sse_id_type(chunk)
+                seen.append((seq, kind))
+                if kind.startswith("agent.message_delta"):
+                    break
+        except StopAsyncIteration:
+            pass
+        return seen
+
+    events = asyncio.run(scenario())
+    # The historical delta at seq 2 stayed filtered (replay), but the live
+    # delta at seq 3 must reach the client even though it is the same
+    # event type the filter is trained to drop.
+    kinds = [kind for _, kind in events]
+    assert (
+        "agent.message_delta" in kinds
+    ), f"live streaming delta was filtered out of the SSE body: {events}"
+    assert kinds[0] == "agent.run.started"
+
+
+def _parse_sse_id_type(chunk: str) -> tuple[int, str]:
+    seq = 0
+    kind = ""
+    for line in chunk.splitlines():
+        if line.startswith("id: "):
+            seq = int(line.removeprefix("id: "))
+        elif line.startswith("event: "):
+            kind = line.removeprefix("event: ")
+    return seq, kind
+
+
+def test_replay_deltas_of_an_active_run_survive_the_byte_layer_filter(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A pre-connect delta of an in-flight run must reach the client.
+
+    Review #243 follow-up P2: the replay-boundary fix stopped the filter
+    from eating live deltas, but on the pre-boundary side the classifier
+    still dropped every delta before the post-parse exemption could
+    see it -- a returning user watched the reply missing its opening
+    stretch until ``message.completed`` arrived. Both layers must
+    agree: the byte-level classifier spares deltas whose ``runId`` is
+    in the active set, and the parse-time filter spares the same set.
+
+    The active-run delta here is the reviewer's exact shape (seq 1 =
+    ``run.started``, seq 2 = delta with the prefix), and a sibling
+    delta from a settled run at seq 3 stays filtered to prove the
+    exemption is bounded by ``active_run_ids``.
+    """
+
+    _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
+    store = services.sessions
+
+    def append(event_type, payload):
+        return store.append_event(
+            "project-1",
+            "session-1",
+            event_type=event_type,
+            actor="agent",
+            payload=payload,
+        )
+
+    append(
+        "agent.run.started",
+        {"runId": "run-active"},
+    )
+    append(
+        "agent.message_delta",
+        {
+            "runId": "run-active",
+            "messageId": "m-active",
+            "deltaIndex": 0,
+            "delta": "prefix",
+        },
+    )
+    # Same boundary-internal delta from a run that is NOT in the active
+    # set at connect -- still should be dropped as replay noise.
+    append(
+        "agent.message_delta",
+        {
+            "runId": "run-settled",
+            "messageId": "m-settled",
+            "deltaIndex": 0,
+            "delta": "should-stay-dropped",
+        },
+    )
+
+    monkeypatch.setattr(
+        file_session_routes,
+        "_active_specialist_run_ids",
+        lambda *_args, **_kwargs: {"run-active"},
+    )
+
+    class Connection:
+        polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            return self.polls > 4
+
+    async def scenario() -> list[tuple[int, str, str]]:
+        response = await stream_events(
+            "project-1",
+            Connection(),
+            after=0,
+            last_event_id=None,
+            services=services,
+        )
+        seen: list[tuple[int, str, str]] = []
+        async for chunk in response.body_iterator:
+            seq, kind = _parse_sse_id_type(chunk)
+            data = ""
+            for line in chunk.splitlines():
+                if line.startswith("data: "):
+                    data = line.removeprefix("data: ")
+            seen.append((seq, kind, data))
+        return seen
+
+    events = asyncio.run(scenario())
+    seqs = [seq for seq, _, _ in events]
+    assert 1 in seqs  # run.started, always kept
+    # The active run's delta is delivered (fix). Without the change,
+    # seq 2 was filtered here while the parse-time exemption never
+    # got to run.
+    active_delta = next(
+        (data for seq, kind, data in events if seq == 2),
+        None,
+    )
+    assert active_delta is not None, (
+        f"active-run delta was dropped before the parse-time filter "
+        f"could exempt it: {events}"
+    )
+    assert "prefix" in active_delta
+    # The settled run's delta at seq 3 stays filtered -- the exemption
+    # is scoped to ``active_run_ids``, not a blanket "keep every
+    # delta" reversal.
+    assert 3 not in seqs
+
+
+def test_lifecycle_event_embedding_an_event_record_survives_the_filter(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A tool_completed whose result carries a whole event is delivered.
+
+    Review #243 r4548690038 follow-up: the byte-level classifier used to
+    substring-match ``"event_type":"<type>"`` (then even with an adjacent
+    ``message_id``), so a ``subagent.tool_completed`` whose ``result``
+    legitimately embeds an event record -- the reviewer's exact probe:
+    ``{"event_type":"agent.message_delta","message_id":"nested-example"}``
+    -- was dropped as noise at the byte layer, before the parse-time
+    filter (which reads the real outer event type and would have kept
+    it) ever ran. The client lost the persistent tool state it rebuilds
+    its ToolCallCard from. The classifier now inspects only the
+    envelope's own record at depth 1.
+    """
+
+    _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
+    store = services.sessions
+
+    def append(event_type, payload):
+        return store.append_event(
+            "project-1",
+            "session-1",
+            event_type=event_type,
+            actor="agent",
+            payload=payload,
+        )
+
+    append("agent.run.started", {"runId": "run-1"})
+    append(
+        "subagent.tool_completed",
+        {
+            "runId": "run-1",
+            "toolCallId": "call-1",
+            # A result that embeds a full event record, so the line
+            # reproduces both keys in canonical order -- the exact
+            # shape the loose matcher used to fall for.
+            "result": {
+                "event_seq": 99,
+                "event_type": "agent.message_delta",
+                "message_id": "nested-example",
+                "delta": "copied",
+            },
+        },
+    )
+    append("agent.run.completed", {"runId": "run-1"})
+    # A genuine historical delta with no active run is still dropped,
+    # proving the fix did not just disable the classifier.
+    append(
+        "agent.message_delta",
+        {"runId": "run-settled", "messageId": "m", "delta": "gone"},
+    )
+
+    monkeypatch.setattr(
+        file_session_routes,
+        "_active_specialist_run_ids",
+        lambda *_args, **_kwargs: set(),
+    )
+
+    class Connection:
+        polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            return self.polls > 4
+
+    async def scenario() -> list[tuple[int, str]]:
+        response = await stream_events(
+            "project-1",
+            Connection(),
+            after=0,
+            last_event_id=None,
+            services=services,
+        )
+        seen: list[tuple[int, str]] = []
+        async for chunk in response.body_iterator:
+            seq, kind = _parse_sse_id_type(chunk)
+            seen.append((seq, kind))
+        return seen
+
+    events = asyncio.run(scenario())
+    kinds = [kind for _, kind in events]
+    assert "subagent.tool_completed" in kinds, (
+        f"a tool_completed embedding an event record was dropped as "
+        f"replay noise: {events}"
+    )
+    # The genuine settled-run delta with no active run is still filtered.
+    assert "agent.message_delta" not in kinds
 
 
 def test_interrupt_is_persisted_before_process_local_cancellation(
@@ -255,6 +583,75 @@ def test_interrupt_response_does_not_wait_for_terminal_task_cleanup(
     stopped = services.sessions.get_project_session("project-1")
     assert stopped.status.value == "CANCELLED"
     release_cleanup.set()
+
+
+@pytest.mark.parametrize(
+    "task_status",
+    [TaskStatus.RUNNING, TaskStatus.CANCELLED],
+)
+def test_stop_cleanup_settles_media_run_after_worker_is_gone(
+    tmp_path,
+    task_status,
+) -> None:
+    from api.file_session_routes import _cancel_active_project_tasks_sync
+
+    _app_instance, services, snapshot, _bootstrap = _app(tmp_path)
+    executions = ProjectExecutionStore(services.root)
+    run = executions.create_run(
+        SpecialistRunRecord(
+            run_id="run-stopped-image",
+            project_id="project-1",
+            round_id="round-image",
+            role=SpecialistRole.R2V_GENERATION_DIRECTOR,
+            input_generation=snapshot.generation,
+            input_etag=snapshot.etag,
+            metadata={"commandType": "GENERATE_STORYBOARD_IMAGE"},
+        ),
+    )
+    executions.transition_run(
+        "project-1",
+        run.run_id,
+        expected_status=SpecialistRunStatus.QUEUED,
+        status=SpecialistRunStatus.RUNNING_MODEL,
+    )
+    executions.transition_run(
+        "project-1",
+        run.run_id,
+        expected_status=SpecialistRunStatus.RUNNING_MODEL,
+        status=SpecialistRunStatus.WAITING_RUNTIME,
+    )
+    task = executions.create_task(
+        TaskRecord(
+            task_id="task-stopped-image",
+            project_id="project-1",
+            run_id=run.run_id,
+            round_id=run.round_id,
+            input_generation=snapshot.generation,
+            input_etag=snapshot.etag,
+            kind=TaskKind.IMAGE_GENERATION,
+            request_fingerprint="stopped-image",
+        ),
+    )
+    executions.transition_task(
+        "project-1",
+        task.task_id,
+        expected_status=TaskStatus.QUEUED,
+        status=task_status,
+    )
+
+    # No worker remains to execute its finally block. Repeated stop must also
+    # repair a Task already cancelled by a previous interrupted cleanup.
+    _cancel_active_project_tasks_sync(services, "project-1")
+    _cancel_active_project_tasks_sync(services, "project-1")
+
+    assert (
+        executions.get_task("project-1", task.task_id).status
+        is TaskStatus.CANCELLED
+    )
+    stopped_run = executions.get_run("project-1", run.run_id)
+    assert stopped_run.status is SpecialistRunStatus.CANCELLED
+    assert stopped_run.final_marker == "CANCELLED"
+    assert services.projects.read("project-1").etag == snapshot.etag
 
 
 def test_message_history_pages_backward_with_tail_and_before(
@@ -382,6 +779,7 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
         started = asyncio.Event()
         release = asyncio.Event()
         calls: list[tuple[str, str]] = []
+        prechecks: list[dict] = []
 
         async def fake_execute(
             _services,
@@ -404,7 +802,7 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
         )
         monkeypatch.setattr(
             "services.media_files.local_execution.validate_local_media_execution",
-            lambda *_args, **_kwargs: None,
+            lambda _services, **kwargs: prechecks.append(kwargs),
         )
 
         first = await client.post(
@@ -418,9 +816,9 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
         )
         release.set()
         await asyncio.sleep(0)
-        return first, second, calls
+        return first, second, calls, prechecks
 
-    first, second, calls = run_scenario(app, scenario)
+    first, second, calls, prechecks = run_scenario(app, scenario)
     assert first.status_code == 202
     assert first.json()["taskId"] == "task-compose-1"
     assert first.json()["replayed"] is False
@@ -428,6 +826,12 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
     assert second.json()["taskId"] == "task-compose-1"
     assert second.json()["replayed"] is True
     assert calls == [("project-1", "timeline:timeline:main")]
+    # The precheck must not enforce the scene gate: stale locks are
+    # repaired by the auto-rereview inside the dispatch it precedes.
+    assert prechecks
+    assert all(
+        precheck["enforce_scene_gate"] is False for precheck in prechecks
+    )
 
 
 def test_file_execution_authorization_can_be_polled_and_approved(
@@ -589,7 +993,10 @@ def test_legacy_specialist_uses_saved_prompt_instead_of_old_tool_argument(
             "arguments": {"prompt": "旧工具参数A", "ratio": "16:9"},
         }
         rebound = approved_specialist_arguments(current, approved, arguments)
-        assert rebound["arguments"] == {"prompt": "用户保存的提示词B", "ratio": "16:9"}
+        assert rebound["arguments"] == {
+            "prompt": "用户保存的提示词B",
+            "ratio": "16:9",
+        }
         assert arguments["arguments"]["prompt"] == "旧工具参数A"
         # An unrelated write moves the ETag but not the approved prompt: the
         # approval stays usable instead of re-asking the user.
@@ -980,3 +1387,192 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
         assert executions.list_tasks("project-1") == []
 
     run_scenario(app, scenario)
+
+
+def test_sse_replay_drops_historical_deltas_and_keeps_lifecycle(tmp_path):
+    """The replay exists to rebuild lifecycle state (CR #7), but streaming
+    deltas inside it are discarded by the client by design. The endpoint must
+    stop shipping the noise without ever losing a lifecycle event."""
+    _app_value, services, _snapshot, _bootstrap = _app(tmp_path)
+    store = services.sessions
+    for event_type, payload in (
+        ("agent.run.started", {"runId": "run-1"}),
+        ("agent.message_delta", {"runId": "run-1", "delta": "x"}),
+        ("subagent.message_delta", {"runId": "run-1", "delta": "y"}),
+        ("message.completed", {"runId": "run-1", "text": "xy"}),
+        ("agent.tool_completed", {"runId": "run-1", "toolCallId": "c-1"}),
+    ):
+        store.append_event(
+            "project-1",
+            "session-1",
+            event_type=event_type,
+            actor="agent",
+            payload=payload,
+        )
+
+    class Connection:
+        polls = 0
+
+        async def is_disconnected(self):
+            self.polls += 1
+            return self.polls > 2
+
+    async def scenario():
+        response = await stream_events(
+            "project-1",
+            Connection(),
+            after=0,
+            last_event_id=None,
+            services=services,
+        )
+        types, seqs = [], []
+        async for chunk in response.body_iterator:
+            for line in chunk.splitlines():
+                if line.startswith("event: "):
+                    types.append(line[len("event: ") :])
+                elif line.startswith("id: "):
+                    seqs.append(int(line[len("id: ") :]))
+        return types, seqs
+
+    types, seqs = asyncio.run(scenario())
+    assert types == [
+        "agent.run.started",
+        "message.completed",
+        "agent.tool_completed",
+    ]
+    # Gaps are expected and safe: the client cursor compares with `>`.
+    assert seqs == [1, 4, 5]
+
+
+def test_preflight_scene_review_surfaces_a_failed_repair(
+    monkeypatch,
+) -> None:
+    """A repair that cannot finish must answer the caller, not the log.
+
+    Review #243: the route answered 202 with a Task id that never came into
+    existence, because the repair runs later and its failure had nowhere to
+    go -- polling that id returns 404 forever.
+    """
+
+    # pylint: disable=protected-access
+    import api.file_execution_routes as routes
+    from services.render_review import scene_review
+
+    calls: list[str] = []
+
+    class _Projects:
+        def read(self, _project_id):
+            return SimpleNamespace(
+                project=SimpleNamespace(
+                    timelines=SimpleNamespace(items={"main": object()}),
+                ),
+            )
+
+    services = SimpleNamespace(projects=_Projects())
+    monkeypatch.setattr(
+        scene_review,
+        "collect_scene_review_targets",
+        lambda _timeline: (["scene:hall"], []),
+    )
+
+    async def failing(*_args, **_kwargs):
+        calls.append("reviewed")
+        raise RuntimeError("VLM unavailable")
+
+    monkeypatch.setattr(scene_review, "auto_review_stale_scenes", failing)
+
+    with pytest.raises(RuntimeError, match="VLM unavailable"):
+        asyncio.run(
+            routes._preflight_scene_review(services, "project-1", "main"),
+        )
+    assert calls == ["reviewed"]
+
+    # Nothing stale means no repair call: the precheck must not add work to
+    # an export that does not need it.
+    calls.clear()
+    monkeypatch.setattr(
+        scene_review,
+        "collect_scene_review_targets",
+        lambda _timeline: ([], []),
+    )
+    asyncio.run(routes._preflight_scene_review(services, "project-1", "main"))
+    assert not calls
+
+    # An exhausted budget now also refuses admission (review #243 P1-3
+    # remaining half): wait_for cancels ``auto_review_stale_scenes``, so
+    # the scenes it had not reached stay blocked, the drive's scene gate
+    # still rejects the export, and no Task exists to carry that later
+    # failure. Admitting anyway reproduced the 202-plus-phantom-Task
+    # defect the whole preflight was introduced to close.
+    monkeypatch.setattr(
+        scene_review,
+        "collect_scene_review_targets",
+        lambda _timeline: (["scene:hall"], []),
+    )
+
+    async def slow(*_args, **_kwargs):
+        calls.append("slow")
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(scene_review, "auto_review_stale_scenes", slow)
+    monkeypatch.setattr(routes, "ADMISSION_REVIEW_BUDGET_SECONDS", 0.01)
+    from domain.errors import ConflictError
+
+    with pytest.raises(ConflictError) as timeout_refusal:
+        asyncio.run(
+            routes._preflight_scene_review(services, "project-1", "main"),
+        )
+    assert calls == ["slow"]
+    assert timeout_refusal.value.details["code"] == "SCENE_REVIEW_TIMEOUT"
+    assert timeout_refusal.value.details["scenes"] == ["scene:hall"]
+
+
+def test_preflight_scene_review_refuses_when_scenes_are_still_blocked(
+    monkeypatch,
+) -> None:
+    """``auto_review`` returning a non-empty list is also a refusal.
+
+    The repair gathers per-scene work with ``return_exceptions=True``, so a
+    VLM outage that used to escape as an exception now lands in the returned
+    ``remaining`` list. The route used to discard that value, and the drive's
+    scene gate would still reject the compose -- leaving the user holding a
+    202 receipt for a Task id that never materialised (review #243 P1).
+    """
+
+    # pylint: disable=protected-access
+    import api.file_execution_routes as routes
+    from domain.errors import ConflictError
+    from services.render_review import scene_review
+
+    class _Projects:
+        def read(self, _project_id):
+            return SimpleNamespace(
+                project=SimpleNamespace(
+                    timelines=SimpleNamespace(items={"main": object()}),
+                ),
+            )
+
+    services = SimpleNamespace(projects=_Projects())
+    monkeypatch.setattr(
+        scene_review,
+        "collect_scene_review_targets",
+        lambda _timeline: (["scene:hall"], []),
+    )
+
+    async def swallows_one(*_args, **_kwargs):
+        # The real auto_review gathers with return_exceptions=True and
+        # puts the still-broken scene id into its result, exactly like this.
+        return ["scene:hall"]
+
+    monkeypatch.setattr(scene_review, "auto_review_stale_scenes", swallows_one)
+
+    with pytest.raises(ConflictError) as captured:
+        asyncio.run(
+            routes._preflight_scene_review(services, "project-1", "main"),
+        )
+
+    assert captured.value.details == {
+        "code": "SCENE_REVIEW_INCOMPLETE",
+        "scenes": ["scene:hall"],
+    }
+    assert "scene:hall" in str(captured.value)

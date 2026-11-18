@@ -5,6 +5,8 @@ import type {
   TaskView,
 } from "@/contracts/creator";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { ev } from "@/test/sessionEventBuilders";
+import { makeRun } from "@/test/agentFixtures";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -26,6 +28,45 @@ describe("creator task view refresh ordering", () => {
   beforeEach(() => {
     useCreatorTaskViewStore.getState().reset();
   });
+
+  it.each([
+    { taskStatus: "CANCELLED", delegated: false, expected: "CANCELLED" },
+    { taskStatus: "RUNNING", delegated: false, expected: "WAITING_RUNTIME" },
+    { taskStatus: "CANCELLED", delegated: true, expected: "WAITING_RUNTIME" },
+  ] as const)(
+    "reconciles cancelled media without hiding live Tasks or chat delegations: %j",
+    async ({ taskStatus, delegated, expected }) => {
+      const run = makeRun({
+        status: "WAITING_RUNTIME",
+        taskRefs: ["task-1"],
+        metadata: {
+          commandType: "GENERATE_STORYBOARD_IMAGE",
+          ...(delegated ? { parentActionId: "delegate-action" } : {}),
+        },
+      });
+      const task: TaskView = {
+        id: "task-1",
+        projectId: "p1",
+        transactionId: null,
+        specialistRunId: run.id,
+        kind: "image_generation",
+        targetRef: "element:one",
+        status: taskStatus,
+        progress: null,
+        resultRefs: [],
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string) =>
+          response({
+            items: url.endsWith("/tasks") ? [task] : [run],
+          }),
+        ),
+      );
+      await useCreatorTaskViewStore.getState().refresh("p1");
+      expect(useCreatorTaskViewStore.getState().runs[0].status).toBe(expected);
+    },
+  );
 
   it("does not let an older pending snapshot overwrite a newer terminal refresh", async () => {
     const oldRuns = deferred<Response>();
@@ -100,6 +141,47 @@ describe("creator task view refresh ordering", () => {
       finalMarker: "SUCCESS",
     });
     expect(useCreatorTaskViewStore.getState().loading).toBe(false);
+  });
+
+  it("preserves newer live rows across a slow poll and older events", async () => {
+    const pending = deferred<Response>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/tasks")
+          ? pending.promise
+          : Promise.resolve(response({ items: [] })),
+      ),
+    );
+    const stale: TaskView = {
+      id: "t1",
+      projectId: "p1",
+      transactionId: null,
+      specialistRunId: null,
+      kind: "compose",
+      targetRef: "project:p1",
+      status: "QUEUED",
+      progress: null,
+      resultRefs: [],
+      updatedAt: "2026-10-20T12:00:00Z",
+    };
+    const terminal: TaskView = {
+      ...stale,
+      status: "SUCCEEDED",
+      updatedAt: "2026-10-20T12:01:00Z",
+    };
+    const legacy = { ...stale, id: "t2", updatedAt: undefined };
+    const store = useCreatorTaskViewStore.getState();
+    const poll = store.refresh("p1");
+    store.consumeEvent(ev(3, "task.updated", { task: terminal }));
+    store.consumeEvent(ev(4, "task.updated", { task: legacy }));
+    pending.resolve(response({ items: [stale] }));
+    await poll;
+    store.consumeEvent(ev(2, "task.updated", { task: stale }));
+    expect(useCreatorTaskViewStore.getState().tasks).toEqual([
+      legacy,
+      terminal,
+    ]);
   });
 
   it("drops a cancel response after switching projects", async () => {

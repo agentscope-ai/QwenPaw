@@ -277,6 +277,129 @@ describe("bounded frontend caches", () => {
     unsubscribe();
   });
 
+  it("keeps replay within the loaded tail while preserving live messages and backward paging", async () => {
+    const tail = Array.from({ length: 50 }, (_, index) =>
+      msg({ messageId: `m${951 + index}`, messageSeq: 951 + index }),
+    );
+    const routes = bootstrapRoutes({
+      messages: tail,
+      session: { lastMessageSeq: 1000, lastEventSeq: 10_000, status: "IDLE" },
+    });
+    routes[0].response.json = { items: tail, nextBefore: 951 } as never;
+    const live = msg({ messageId: "m1001", messageSeq: 1001 });
+    const older = msg({ messageId: "m950", messageSeq: 950 });
+    const { calls } = installMockFetch([
+      { match: "messages?after=1000", response: { json: { items: [live] } } },
+      { match: "messages?before=951", response: { json: { items: [older] } } },
+      ...routes,
+    ]);
+    await store().bootstrap("p1");
+    ingest(
+      ev(1, "agent.message_delta", {
+        messageId: "old",
+        deltaIndex: 0,
+        delta: "历史内容",
+      }),
+      ev(2, "message.completed", { messageId: "old", messageSeq: 2 }),
+      ev(3, "message.appended", {
+        message: msg({ messageId: "old2", messageSeq: 3 }),
+      }),
+      ev(10_000, "subagent.started", {
+        parentActionId: "detached",
+        runId: "still-running",
+        role: "visual_development_agent",
+      }),
+    );
+    expect(store().messages).toEqual(tail);
+    expect(store().streamingAssistantMessages).toEqual({});
+    expect(store().hasMoreMessages).toBe(true);
+    expect(store().isReplaying).toBe(false);
+    expect(store().subagentActivities.detached.completed).toBe(false);
+    expect(calls.filter((call) => call.url.includes("/messages"))).toHaveLength(
+      1,
+    );
+
+    ingest(
+      ev(10_001, "message.completed", { messageId: "m1001", messageSeq: 1001 }),
+    );
+    await waitFor(() => expect(store().messages.at(-1)).toEqual(live));
+    await store().loadOlderMessages();
+    expect(store().messages[0]).toEqual(older);
+    expect(store().messages).toHaveLength(52);
+    expect(calls.some((call) => /[?&]after=(?:0|1)&/u.test(call.url))).toBe(
+      false,
+    );
+  });
+
+  it("keeps a replayed delta prefix for a run whose message is not yet durable", async () => {
+    // Review #243 P2: the backend deliberately keeps an active run's
+    // historical deltas because those messages have no durable projection
+    // yet. The frontend's replay filter was discarding them anyway, so a
+    // returning user saw the reply missing its opening stretch -- replay
+    // delta0 "Hello " was dropped and only live delta1 "world" survived.
+    const routes = bootstrapRoutes({
+      messages: [],
+      session: { lastMessageSeq: 0, lastEventSeq: 2, status: "RUNNING" },
+    });
+    routes[0].response.json = { items: [], nextBefore: null } as never;
+    installMockFetch(routes);
+    await store().bootstrap("p1");
+    expect(store().isReplaying).toBe(true);
+    expect(store().lastEventSeq).toBe(0);
+
+    ingest(
+      ev(1, "agent.run.started", { runId: "run-1" }),
+      ev(2, "agent.message_delta", {
+        messageId: "assistant-partial",
+        runId: "run-1",
+        deltaIndex: 0,
+        delta: "Hello ",
+      }),
+    );
+    expect(store().isReplaying).toBe(false);
+
+    ingest(
+      ev(3, "agent.message_delta", {
+        messageId: "assistant-partial",
+        runId: "run-1",
+        deltaIndex: 1,
+        delta: "world",
+      }),
+    );
+    const streaming = store().streamingAssistantMessages["assistant-partial"];
+    expect(streaming.deltas[0]).toBe("Hello ");
+    expect(streaming.deltas[1]).toBe("world");
+  });
+
+  it("still folds a replayed delta whose message is already durable", () => {
+    // The historicalReplay filter had a real job: not build a streaming
+    // bubble on top of a message the tail load already contains. That
+    // path is guarded here so removing the broader replay filter (above)
+    // does not let duplication back in.
+    seed({
+      messages: [
+        msg({
+          messageId: "already-durable",
+          messageSeq: 1,
+          role: "assistant",
+        }),
+      ],
+      isReplaying: true,
+      replayUntilSeq: 10,
+      events: [],
+    });
+    ingest(
+      ev(1, "agent.message_delta", {
+        messageId: "already-durable",
+        deltaIndex: 0,
+        delta: "duplicate tail",
+      }),
+    );
+    expect(
+      store().streamingAssistantMessages["already-durable"],
+    ).toBeUndefined();
+  });
+
   it("does not confuse a concrete Task progress number with AgentStatusBar progress", () => {
     const progress = {
       phase: "timeline_edit" as const,
@@ -696,5 +819,40 @@ describe("bounded frontend caches", () => {
       messages: {},
       tools: {},
     });
+  });
+
+  it("keeps the snapshot error and head while older failures replay", () => {
+    const error = { code: "CURRENT", message: "current failure", retryable: true };
+    seed({ isReplaying: true, replayUntilSeq: 10, session: sessionView({ lastEventSeq: 10, error }) });
+    ingest(ev(1, "agent.run.failed", { error: { ...error, code: "OLDER" } }));
+    expect(store().session).toMatchObject({ lastEventSeq: 10, error });
+    ingest(ev(11, "agent.run.failed", { error: { ...error, code: "NEW" } }));
+    expect(store().session).toMatchObject({ lastEventSeq: 11, error: { code: "NEW" } });
+  });
+
+  it("does not let replayed status history flip the live session status", () => {
+    // The flicker this guards: a first view replays the run's own
+    // session.status_changed events. Writing them into the live session made
+    // the failure notice under the conversation -- whose condition is
+    // status === ERROR -- unmount and remount 8 times inside 830 ms on a real
+    // Project, which users report as "this part keeps refreshing". The
+    // authoritative status already arrived with the snapshot the stream was
+    // opened from, so in-boundary transitions are history, not news.
+    seed({
+      isReplaying: true,
+      replayUntilSeq: 10,
+      session: sessionView({ status: "ERROR" }),
+    });
+
+    ingest(
+      ev(1, "session.status_changed", { status: "RUNNING" }),
+      ev(2, "session.status_changed", { status: "WAITING_EXECUTION_AUTH" }),
+    );
+
+    expect(store().session?.status).toBe("ERROR");
+
+    // Past the boundary a transition is news again.
+    ingest(ev(11, "session.status_changed", { status: "IDLE" }));
+    expect(store().session?.status).toBe("IDLE");
   });
 });

@@ -343,16 +343,6 @@ def test_token_plan_media_stays_on_the_inline_budget(tmp_path, monkeypatch):
 
     maas = "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
     monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_base_url",
-        lambda: maas,
-    )
-    monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_protocol",
-        lambda: "Aliyun Token Plan",
-    )
-    monkeypatch.setattr(
         media_transport,
         "upload_local_file_to_dashscope_temp",
         refuse_upload,
@@ -370,6 +360,8 @@ def test_token_plan_media_stays_on_the_inline_budget(tmp_path, monkeypatch):
             image,
             api_key="sk-token-plan",
             model_name="qwen3-vl-plus",
+            base_url=maas,
+            protocol="Aliyun Token Plan",
         ),
     )
 
@@ -402,9 +394,6 @@ def test_oversized_local_video_is_refused_before_its_bytes_are_read(
         "get_vlm_max_inline_bytes",
         lambda: 1024,
     )
-    # Pin the section to an inline transport: the DashScope branch uploads
-    # instead and never reaches the budget this case is about.
-    monkeypatch.setattr(vlm_model, "uses_dashscope_transport", lambda: False)
     reads: list[str] = []
     real_read_bytes = _Path.read_bytes
 
@@ -421,6 +410,8 @@ def test_oversized_local_video_is_refused_before_its_bytes_are_read(
                 api_key="vlm-key",
                 model_name="qwen-vl-max",
                 media_type="video/mp4",
+                base_url="https://openai-compatible.example/v1",
+                protocol="\u81ea\u5b9a\u4e49",
             ),
         )
 

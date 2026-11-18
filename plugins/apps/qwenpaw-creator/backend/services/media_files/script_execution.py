@@ -221,11 +221,29 @@ def _request_fingerprint(
     timeline: Timeline,
     *,
     guidance: str,
+    source: str = "generate",
+    legacy_fingerprint: bool = False,
 ) -> str:
-    # Every persisted input that reaches the prompt must be covered here;
-    # otherwise an edited input silently replays a stale version. The user's
-    # explicit rewrite guidance is an input too — identical retries of the
-    # same guidance still replay, but new guidance must reach the model.
+    if source == "timeline":
+        content = "\x1f".join(
+            ("timeline-script", timeline.timeline_id, timeline.description),
+        )
+        return "sha256:" + hashlib.sha256(content.encode("utf-8")).hexdigest()
+    # Preserve fingerprints recorded by the shared linear workflow.
+    project_inputs = (
+        [
+            project.name,
+            project.description,
+            project.scenario,
+            (
+                str(project.settings.target_duration_seconds or "")
+                if not timeline.planned_duration_seconds
+                else ""
+            ),
+        ]
+        if not legacy_fingerprint
+        else []
+    )
     digest = hashlib.sha256(
         "\x1f".join(
             [
@@ -234,12 +252,13 @@ def _request_fingerprint(
                 timeline.synopsis,
                 timeline.description,
                 str(timeline.planned_duration_seconds or ""),
+                *project_inputs,
                 project.strategy.creative_brief,
                 project.strategy.audience,
                 project.strategy.creative_direction,
                 project.strategy.constraints,
-                # The prompt embeds the whole narrative structure (episode
-                # list + branch edges); new episodes/edges must re-draft.
+                # The prompt embeds the live outline and this node's
+                # incident edges, not branches between distant endings.
                 _narrative_context(project, timeline.timeline_id),
                 guidance,
                 *_intelligence_version_ids(project),
@@ -295,6 +314,8 @@ def _publish_script_version(
     idempotency_key: str,
     fingerprint: str,
     provenance_refs: list[str],
+    guidance: str,
+    source: str,
 ) -> FileScriptExecutionResult:
     """落盘 markdown 文件并通过提交边界写回索引（commit 时全量校验）。"""
 
@@ -308,8 +329,18 @@ def _publish_script_version(
 
     with services.projects.lifecycle_lock(project_id):
         base = services.projects.read(project_id)
-        if timeline_id not in base.project.timelines.items:
+        if timeline_id not in narrative_timeline_ids(base.project):
             raise ValidationError(f"timeline 已不存在: {timeline_id}")
+        if (
+            _request_fingerprint(
+                base.project,
+                base.project.timelines.items[timeline_id],
+                guidance=guidance,
+                source=source,
+            )
+            != fingerprint
+        ):
+            raise ValidationError("剧本生成期间创作依据已变更，旧结果未发布")
         working = base.project.model_copy(deep=True)
         version = add_script_version(
             working,
@@ -326,6 +357,7 @@ def _publish_script_version(
             provenance_refs=provenance_refs,
             input_fingerprint=fingerprint,
         )
+        version.metadata = {**version.metadata, "scriptSource": source}
         indexed = working.assets.files_by_id[version.file_id]
         if version.file_id == file_id:
             staged = file_store.stage_bytes(
@@ -384,11 +416,29 @@ async def execute_file_script_command(
     snapshot = await asyncio.to_thread(services.projects.read, project_id)
     project = snapshot.project
     timeline = project.timelines.items.get(timeline_id)
-    if timeline is None:
+    if timeline is None or timeline_id not in narrative_timeline_ids(project):
         raise ValidationError(f"timeline 不存在: {timeline_id}")
 
     guidance = str(arguments.get("guidance") or "").strip()
-    fingerprint = _request_fingerprint(project, timeline, guidance=guidance)
+    source = str(arguments.get("source") or "generate")
+    if source not in {"generate", "timeline"}:
+        raise ValidationError("不支持的剧本来源")
+    if source == "timeline" and (guidance or not timeline.description.strip()):
+        raise ValidationError("正文同步需要已有剧本，修改意见请通过剧本生成提交")
+    slot = project.assets.artifact_slots_by_id.get(
+        timeline_script_slot_id(timeline_id),
+    )
+    selected = (
+        project.assets.artifact_versions_by_id.get(slot.selected_version_id)
+        if slot is not None and slot.selected_version_id
+        else None
+    )
+    fingerprint = _request_fingerprint(
+        project,
+        timeline,
+        guidance=guidance,
+        source=source,
+    )
     # Stale re-drafts share the node's dispatch idempotency key but must not
     # reuse a previous publish transaction. Staleness triggers on more inputs
     # than the fingerprint covers (e.g. element edits), so scope the durable
@@ -396,9 +446,6 @@ async def execute_file_script_command(
     # re-draft of identical prompt inputs is still a fresh transaction.
     # Identical fresh inputs never reach publish: the semantic replay below
     # returns the existing version first.
-    slot = project.assets.artifact_slots_by_id.get(
-        timeline_script_slot_id(timeline_id),
-    )
     revision = len(slot.version_ids) if slot is not None else 0
     idempotency_key = f"{idempotency_key}:{fingerprint[:16]}:r{revision}"
     replay = _existing_replay(
@@ -409,6 +456,29 @@ async def execute_file_script_command(
         etag=snapshot.etag,
         generation=snapshot.generation,
     )
+    if (
+        replay is None
+        and selected is not None
+        and not selected.stale
+        and not selected.metadata.get("scriptSource")
+    ):
+        # Before scriptSource was recorded, linear projects hashed only the
+        # authored timeline, strategy and source intelligence. Recognize these
+        # unchanged outputs without issuing another model request.
+        replay = _existing_replay(
+            services,
+            project,
+            timeline_id,
+            _request_fingerprint(
+                project,
+                timeline,
+                guidance=guidance,
+                source=source,
+                legacy_fingerprint=True,
+            ),
+            etag=snapshot.etag,
+            generation=snapshot.generation,
+        )
     if replay is not None:
         logger.info(
             "script draft semantic replay: project=%s timeline=%s version=%s",
@@ -418,33 +488,35 @@ async def execute_file_script_command(
         )
         return replay
 
-    intelligence_digest, intelligence_refs = await asyncio.to_thread(
-        _intelligence_digest,
-        services,
-        project,
-    )
-    prompt = _build_script_prompt(project, timeline, intelligence_digest)
-    if guidance:
-        prompt += f"\n\n额外修改意见（必须遵循）：{guidance}"
-    from services.file_agent_runtime.manual_regeneration_hold import (
-        mark_untracked_admission,
-    )
+    if source == "timeline":
+        markdown_text = timeline.description
+        intelligence_refs = []
+    else:
+        intelligence_digest, intelligence_refs = await asyncio.to_thread(
+            _intelligence_digest,
+            services,
+            project,
+        )
+        prompt = _build_script_prompt(project, timeline, intelligence_digest)
+        if guidance:
+            prompt += f"\n\n额外修改意见（必须遵循）：{guidance}"
+        from services.file_agent_runtime.manual_regeneration_hold import (
+            mark_untracked_admission,
+        )
 
-    await asyncio.to_thread(
-        mark_untracked_admission,
-        services.root,
-        project_id,
-    )
-    raw = await text_model.chat_completion(
-        prompt,
-        system_prompt=_SCRIPT_SYSTEM_PROMPT,
-        temperature=0.4,
-    )
-    # 归一化到约定块格式：解析/序列化双向无损，保证前端块级渲染与
-    # 块级 diff 有稳定基线。
-    markdown_text = serialize_script_blocks(parse_script_markdown(raw))
-    if not markdown_text.strip():
-        raise ValidationError("剧本起草结果为空，请调整策略/梗概后重试")
+        await asyncio.to_thread(
+            mark_untracked_admission,
+            services.root,
+            project_id,
+        )
+        raw = await text_model.chat_completion(
+            prompt,
+            system_prompt=_SCRIPT_SYSTEM_PROMPT,
+            temperature=0.4,
+        )
+        markdown_text = serialize_script_blocks(parse_script_markdown(raw))
+        if not markdown_text.strip():
+            raise ValidationError("剧本起草结果为空，请调整策略/梗概后重试")
 
     return await asyncio.to_thread(
         _publish_script_version,
@@ -455,6 +527,8 @@ async def execute_file_script_command(
         idempotency_key=idempotency_key,
         fingerprint=fingerprint,
         provenance_refs=intelligence_refs,
+        guidance=guidance,
+        source=source,
     )
 
 

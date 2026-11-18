@@ -666,6 +666,7 @@ export function useProjectLaunch(options?: {
         // Resolve the stage from the saved permission mode on the server,
         // so a stale client snapshot cannot override the user's choice.
         name: resolvedProjectName,
+        nameSource: projectName.trim() ? ("user" as const) : ("auto" as const),
         description: projectDescription.trim(),
         scenario,
         resolution,

@@ -84,6 +84,7 @@ export interface ProjectCreateRequest {
   productionStage?: "script" | "media";
   clientRequestId: string;
   name: string;
+  nameSource?: "user" | "auto";
   description?: string;
   scenario: CreatorScenario;
   aspectRatio: string;
@@ -150,6 +151,11 @@ export interface ProjectSummary {
   finalVideoVersionId?: string | null;
   /** Current session status, null when no runtime session exists. */
   status?: CreatorSessionStatus | null;
+  /**
+   * Some Task is QUEUED or RUNNING. The card badge used to derive this from one
+   * /tasks request per Project; the listing answers it for the whole page.
+   */
+  hasActiveTask?: boolean;
 }
 
 export interface ProjectListResponse {

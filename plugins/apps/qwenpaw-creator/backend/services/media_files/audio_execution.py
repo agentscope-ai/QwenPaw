@@ -28,6 +28,7 @@ from domain.errors import ConflictError, ValidationError
 from models import config as model_config
 from models import tts_model
 from models.tts_capabilities import require_capability, resolve_system_voice
+from services.media_files import media_gate
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
 from services.project_files.commit import ProjectCommitError
 from services.project_files.facade import CreatorFileServices
@@ -538,7 +539,7 @@ def _extracted_video_audio_bytes(payload: bytes, *, suffix: str) -> bytes:
         output = Path(tmp) / "sample.wav"
         source.write_bytes(payload)
         try:
-            result = subprocess.run(
+            result = media_gate.run(
                 [
                     executable,
                     "-hide_banner",

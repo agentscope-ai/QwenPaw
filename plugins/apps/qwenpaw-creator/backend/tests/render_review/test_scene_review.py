@@ -89,6 +89,54 @@ def test_gate_skips_unplanned_blocks_draft_and_stale_passes_fresh() -> None:
         validate_scene_ledger_locked(drifted)
 
 
+def test_precheck_can_skip_the_gate_that_auto_rereview_repairs(
+    monkeypatch,
+) -> None:
+    """An expired lock may only block the render itself, never the precheck.
+
+    ``auto_review_stale_scenes`` repairs stale locks inside the dispatch
+    path; a caller that runs ahead of it must resolve without the gate, or
+    every user-initiated export is rejected with 422 before the repair ever
+    gets a turn.
+    """
+    from domain.enums import CreatorCommandType
+    from services.media_files import local_execution
+
+    stale = SceneLedgerRow(
+        scene_id="scene-1",
+        element_ids=["el-1"],
+        status="locked",
+        locked_fingerprint="sha256:stale",
+    )
+    project, _timeline = _timeline_with_scene(edit_plan=_plan([stale]))
+    gated: list[str] = []
+    monkeypatch.setattr(
+        scene_review_module,
+        "validate_scene_ledger_locked",
+        lambda _timeline: gated.append("gate"),
+    )
+    monkeypatch.setattr(
+        local_execution,
+        "_timeline_execution",
+        lambda **_kwargs: "resolved",
+    )
+
+    def _resolve(**overrides):
+        return local_execution._resolve_execution(
+            snapshot=SimpleNamespace(project=project),
+            command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+            target_ref="timeline:timeline:main",
+            arguments={},
+            **overrides,
+        )
+
+    assert _resolve() == "resolved"
+    assert gated == ["gate"]
+    gated.clear()
+    assert _resolve(enforce_scene_gate=False) == "resolved"
+    assert not gated
+
+
 def _checks_payload(**overrides) -> str:
     keys = (
         "devices type_fonts composition_safety "

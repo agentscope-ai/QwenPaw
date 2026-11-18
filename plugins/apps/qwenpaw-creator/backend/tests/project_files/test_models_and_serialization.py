@@ -254,10 +254,8 @@ def test_legacy_document_etag_survives_in_memory_schema_migration():
         mode="json",
     )
     raw["schema_version"] = 3
-    # A v3 document predates the interactive presentation field entirely: it is
-    # one of the fields a migration adds in memory, so the source document the
-    # historical runtime hashed cannot have carried it.
-    raw.pop("interactive_presentation", None)
+    # v3 files predate title provenance and later schema additions.
+    raw.pop("name_source", None)
     del raw["visual"]["entities"]["items"]["char:hero"]["required_variant_ids"]
     # Legacy documents predate the character voice field entirely.
     del raw["visual"]["entities"]["items"]["char:hero"]["voice"]
@@ -440,3 +438,81 @@ def test_subtitle_predicate_is_the_single_classification(
         )
         is expected
     )
+
+
+def _cache_probe_document(project_id: str):
+    project = Project.new(
+        project_id=project_id,
+        name="Cached",
+        now=datetime(2026, 8, 3, 12, 0, tzinfo=timezone.utc),
+    )
+    raw = project.model_dump(mode="json")
+    return raw, load_project_document(raw)
+
+
+def test_document_etag_cache_returns_the_same_digest_and_canonicalizes_once(
+    monkeypatch,
+):
+    from services.project_files import serialization
+
+    raw, validated = _cache_probe_document("project-cached")
+    payload = json.dumps(raw, ensure_ascii=False).encode("utf-8")
+    calls: list[int] = []
+    # The spy has to reach the canonicalizer itself: counting it is the point.
+    # pylint: disable=protected-access
+    original = serialization._source_document_data
+
+    def spy(value, model_value):
+        calls.append(1)
+        return original(value, model_value)
+
+    monkeypatch.setattr(serialization, "_source_document_data", spy)
+
+    first = serialization.project_document_etag(
+        raw,
+        project=validated,
+        source_payload=payload,
+    )
+    canonicalized = len(calls)
+    assert canonicalized > 0  # the walk is recursive, one call per container
+
+    second = serialization.project_document_etag(
+        raw,
+        project=validated,
+        source_payload=payload,
+    )
+
+    assert first == second
+    assert len(calls) == canonicalized  # the repeat read hit the cache
+    # The cached value is the same digest the uncached path produces, so
+    # journals and If-Match comparisons keep addressing identical bytes.
+    assert first == serialization.project_document_etag(raw, project=validated)
+
+
+def test_document_etag_cache_keys_on_the_exact_stored_bytes(monkeypatch):
+    from services.project_files import serialization
+
+    raw, validated = _cache_probe_document("project-cache-miss")
+    calls: list[int] = []
+    # pylint: disable=protected-access
+    original = serialization._source_document_data
+
+    def spy(value, model_value):
+        calls.append(1)
+        return original(value, model_value)
+
+    monkeypatch.setattr(serialization, "_source_document_data", spy)
+
+    serialization.project_document_etag(
+        raw,
+        project=validated,
+        source_payload=b"{...revision-one...}",
+    )
+    canonicalized = len(calls)
+    serialization.project_document_etag(
+        raw,
+        project=validated,
+        source_payload=b"{...revision-two...}",
+    )
+
+    assert len(calls) > canonicalized  # different bytes must not share a slot

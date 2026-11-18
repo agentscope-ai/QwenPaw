@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from domain.enums import CreatorCommandType, CreatorSessionStatus, TaskStatus
@@ -78,6 +79,10 @@ _TRANSIENT_RETRY_LIMIT = 2
 # spend stays bounded.
 _TRANSIENT_RETRY_HARD_CAP = 6
 _TRANSIENT_RETRY_COOLDOWN_SECONDS = 300.0
+# Reopening a dispatch that never reached an attempt costs nothing, so it gets
+# its own counter instead of sharing the paid-retry budget: the stranded-node
+# case is precisely the one where that budget is already exhausted.
+_ZERO_ATTEMPT_REOPEN_CAP = 6
 
 # Preparation validation retries: when the LLM generates a prompt that
 # fails contract checks (aspect ratio, reference format), feed the error
@@ -138,6 +143,48 @@ def _quarantined_stale_targets(tasks: Sequence[Any]) -> set[str]:
         ):
             continue
         if not isinstance(getattr(task, "result", None), dict):
+            continue
+        metadata = getattr(task, "metadata", None) or {}
+        input_refs = getattr(task, "input_refs", None) or []
+        target = str(
+            metadata.get("targetRef") or (input_refs[0] if input_refs else ""),
+        )
+        if target:
+            targets.add(target)
+    return targets
+
+
+# A dispatch coroutine admits its run and task before the first provider
+# attempt is recorded. If it then dies on a fault the ledger classes as
+# permanent, nothing recognises the stranded QUEUED task: the graph reads
+# the node as running (so it never re-enters the ready set), the
+# regeneration and quarantined-stale re-entry paths key off other statuses,
+# and the manual dispatch gate answers a running node with dispatched=false.
+# Field case 2026-11-06: one r2v node sat QUEUED with zero attempts for 69
+# hours and held the whole compose behind it. Only a never-claimed QUEUED
+# task past the grace window qualifies, so a task with real progress is
+# never reopened.
+_ABANDONED_QUEUED_GRACE = timedelta(minutes=15)
+
+
+def _abandoned_queued_targets(
+    tasks: Sequence[Any],
+    *,
+    now: datetime | None = None,
+) -> set[str]:
+    """Target refs whose QUEUED task was never claimed by an executor."""
+
+    moment = now or datetime.now(UTC)
+    targets: set[str] = set()
+    for task in tasks:
+        if getattr(task.status, "value", None) != TaskStatus.QUEUED.value:
+            continue
+        if int(getattr(task, "last_attempt_seq", 0) or 0) != 0:
+            continue
+        updated = getattr(task, "updated_at", None)
+        if not isinstance(updated, datetime):
+            continue
+        if moment - updated < _ABANDONED_QUEUED_GRACE:
             continue
         metadata = getattr(task, "metadata", None) or {}
         input_refs = getattr(task, "input_refs", None) or []
@@ -306,6 +353,8 @@ class WorkGraphScheduler:
         self._dispatched: set[tuple[str, str, str]] = set()
         self._transient_retries: dict[tuple[str, str, str], int] = {}
         self._transient_last: dict[tuple[str, str, str], float] = {}
+        self._zero_attempt_reopens: dict[tuple[str, str, str], int] = {}
+        self._zero_attempt_last: dict[tuple[str, str, str], float] = {}
         self._inflight: dict[str, set[str]] = {}
         self._dispatch_tasks: dict[str, set[asyncio.Task[Any]]] = {}
         self._preparation_tasks: dict[str, asyncio.Task[None]] = {}
@@ -495,6 +544,16 @@ class WorkGraphScheduler:
         self._transient_last = {
             key: value
             for key, value in self._transient_last.items()
+            if key[0] != project_id
+        }
+        self._zero_attempt_reopens = {
+            key: value
+            for key, value in self._zero_attempt_reopens.items()
+            if key[0] != project_id
+        }
+        self._zero_attempt_last = {
+            key: value
+            for key, value in self._zero_attempt_last.items()
             if key[0] != project_id
         }
         self._deterministic_failure_nodes = {
@@ -751,7 +810,11 @@ class WorkGraphScheduler:
             if capacity <= 0:
                 break
             if node.node_id in manually_held:
-                logger.info(
+                # Debug, not info: this fires once per held node per tick, so a
+                # Project whose storyboard is parked for manual regeneration
+                # wrote hundreds of identical lines per minute during the
+                # startup sweep and drowned the lines that actually matter.
+                logger.debug(
                     "work-graph node %s held pending manual regeneration",
                     node.node_id,
                 )
@@ -1224,6 +1287,48 @@ class WorkGraphScheduler:
             recheck,
         )
 
+    def _reopen_abandoned_queued_admissions(
+        self,
+        project_id: str,
+        graph: WorkGraph,
+        tasks: Sequence[Any],
+        candidates: list[WorkNode],
+        inflight: set[str],
+    ) -> None:
+        """Re-enter nodes whose admitted task was never claimed.
+
+        Bounded by the same transient budget as the other rescue paths, and
+        skipped when the node already re-enters through ready or rescue —
+        appending it twice would double-dispatch once the ledger is cleared.
+        """
+
+        abandoned = _abandoned_queued_targets(tasks)
+        if not abandoned:
+            return
+        for node in graph.nodes:
+            if node.status.value != "running" or node.command is None:
+                continue
+            if node.target_ref not in abandoned:
+                continue
+            if node.node_id in inflight:
+                continue
+            if any(
+                candidate.node_id == node.node_id for candidate in candidates
+            ):
+                continue
+            fingerprint = self._ledger_fingerprint(node)
+            ledger_key = (project_id, node.node_id, fingerprint)
+            if not self._transient_budget_available(ledger_key):
+                continue
+            self._note_transient_retry(ledger_key)
+            self._dispatched.discard(ledger_key)
+            logger.warning(
+                "work-graph node %s requeued: its task stayed QUEUED with no "
+                "attempt, which had locked it out of the ledger",
+                node.node_id,
+            )
+            candidates.append(node)
+
     def _dispatch_candidates(
         self,
         project_id: str,
@@ -1263,6 +1368,13 @@ class WorkGraphScheduler:
                     continue
                 self._note_transient_retry(ledger_key)
                 self._dispatched.discard(ledger_key)
+        self._reopen_abandoned_queued_admissions(
+            project_id,
+            graph,
+            tasks,
+            candidates,
+            inflight,
+        )
         recorded_keys = tuple(
             str(getattr(task, "idempotency_key", "") or "") for task in tasks
         )
@@ -1506,6 +1618,96 @@ class WorkGraphScheduler:
                 ),
             )
 
+    def _node_unclaimed_admission(
+        self,
+        project_id: str,
+        target_ref: str,
+    ) -> bool:
+        """Whether a task exists for this target but was never claimed.
+
+        Three cases have to stay apart. No task at all means the failure came
+        before admission, which the existing recordless reopen already owns.
+        An attempt means the provider may have been paid, so the mark must
+        stay. Only the middle case — admitted, then left with zero attempts —
+        is the stranded node that no re-entry path recognises.
+        """
+
+        if not target_ref:
+            return False
+        admitted = False
+        for task in self.executions.list_tasks(project_id):
+            metadata = getattr(task, "metadata", None) or {}
+            input_refs = getattr(task, "input_refs", None) or []
+            found = str(
+                getattr(task, "target_ref", "")
+                or metadata.get("targetRef")
+                or (input_refs[0] if input_refs else ""),
+            )
+            if found != target_ref:
+                continue
+            admitted = True
+            if int(getattr(task, "last_attempt_seq", 0) or 0) > 0:
+                return False
+        return admitted
+
+    async def _reopen_zero_attempt_admission(
+        self,
+        project_id: str,
+        node: WorkNode,
+        ledger_key: tuple[str, str, str],
+        error_code: Any,
+    ) -> None:
+        """Un-mark a dispatch that was admitted but never claimed.
+
+        Deterministic codes are excluded: they fail in validation before any
+        attempt, and their "no retry until the inputs change" guarantee is
+        exactly what the mark enforces. The reopen keeps its own counter so it
+        never charges the paid-retry budget, but it respects the same cooldown
+        — reopening every tick would spin and flood the log. Past the cap the
+        node stays marked on purpose and one error line says so.
+        """
+
+        if error_code in _DETERMINISTIC_ERROR_CODES:
+            return
+        if not await asyncio.to_thread(
+            self._node_unclaimed_admission,
+            project_id,
+            node.target_ref or "",
+        ):
+            return
+        reopens = self._zero_attempt_reopens.get(ledger_key, 0)
+        if reopens >= _ZERO_ATTEMPT_REOPEN_CAP:
+            if reopens == _ZERO_ATTEMPT_REOPEN_CAP:
+                # Announce once instead of every tick.
+                self._zero_attempt_reopens[ledger_key] = reopens + 1
+                logger.error(
+                    "work-graph dispatch still leaves no attempt project=%s "
+                    "node=%s target=%s after %d reopens; the node stays "
+                    "marked and needs attention",
+                    project_id,
+                    node.node_id,
+                    node.target_ref,
+                    _ZERO_ATTEMPT_REOPEN_CAP,
+                )
+            return
+        if (
+            time.monotonic() - self._zero_attempt_last.get(ledger_key, 0.0)
+            < _TRANSIENT_RETRY_COOLDOWN_SECONDS
+        ):
+            return
+        self._zero_attempt_reopens[ledger_key] = reopens + 1
+        self._zero_attempt_last[ledger_key] = time.monotonic()
+        self._dispatched.discard(ledger_key)
+        logger.warning(
+            "work-graph dispatch left no attempt project=%s node=%s "
+            "target=%s: ledger reopened for the next tick (reopen %d/%d)",
+            project_id,
+            node.node_id,
+            node.target_ref,
+            reopens + 1,
+            _ZERO_ATTEMPT_REOPEN_CAP,
+        )
+
     async def _dispatch(
         self,
         project_id: str,
@@ -1630,6 +1832,17 @@ class WorkGraphScheduler:
                     project_id,
                     node.node_id,
                     exc,
+                )
+                # Field case 2026-11-06: a dispatch can die after admitting
+                # the run and task but before any executor claims them. The
+                # ledger mark was kept anyway, and no re-entry path recognises
+                # that state, so the node stranded as "running" for 69 hours
+                # and held the whole compose behind it.
+                await self._reopen_zero_attempt_admission(
+                    project_id,
+                    node,
+                    ledger_key,
+                    error_code,
                 )
         finally:
             self._inflight.get(project_id, set()).discard(node.node_id)

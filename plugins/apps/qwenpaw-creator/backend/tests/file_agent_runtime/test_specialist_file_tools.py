@@ -53,6 +53,9 @@ def test_specialist_registry_owns_role_specific_media_tools(tmp_path) -> None:
     assert "ai_edit" not in editing
     assert "compose_final_video" not in editing
     assert {"read_project", "jq_project"} <= editing
+    # Prompt-sync confirmation moves provenance for a whole stage, so it stays
+    # with the main Agent instead of any Specialist manifest.
+    assert "confirm_prompt_sync" not in editing
     assert "transcribe_source_audio" in source
     assert "commit_source_intelligence" in source
     assert {"read_project", "read_project_file"} <= source

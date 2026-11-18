@@ -32,7 +32,10 @@ import {
 } from "@/lib/agentProgressModel";
 import { reviewPendingUnits } from "./FileProjectReviewPanel";
 import AgentActivityIndicator from "./AgentActivityIndicator";
-import { WorkGraphManualHoldNotice } from "./WorkGraphPanel";
+import {
+  WorkGraphManualHoldNotice,
+  WorkGraphStrandedNotice,
+} from "./WorkGraphPanel";
 
 type ProgressFilter = "all" | AgentProgressPhase;
 const filters: ProgressFilter[] = [
@@ -518,6 +521,7 @@ export default function AgentProgressOverview({
   return (
     <>
       <WorkGraphManualHoldNotice projectId={projectId} />
+      <WorkGraphStrandedNotice projectId={projectId} />
       {overview}
     </>
   );

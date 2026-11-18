@@ -822,11 +822,27 @@ def test_storyboard_waits_for_all_referenced_entities_not_just_bindings() -> (
     assert graph.by_id["storyboard:elem:one"].status is WorkNodeStatus.READY
 
 
-def test_stale_final_render_reopens_compose() -> None:
-    # Render review revises an overlay after the master render: edit
-    # impact marks the final_video version stale. The compose node must
-    # drop back to READY so the unattended loop re-renders the corrected
-    # cut instead of reporting DONE one compose short.
+@pytest.mark.parametrize("delegated", [False, True])
+def test_stale_final_render_recompose_follows_mode(
+    monkeypatch,
+    delegated,
+) -> None:
+    # Render review revises an overlay after the master render: edit impact
+    # marks the final_video version stale. Delegated (YOLO) runs drop back to
+    # READY so the unattended loop re-renders the corrected cut — unattended
+    # delivery is the point of that mode. Every other mode marks it STALE and
+    # waits for someone to press 成片: auto-composing under a stream of edits
+    # produced five renders inside five minutes on 2026-11-05, four discarded
+    # as PROJECT_INPUT_SNAPSHOT_STALE because the timeline moved again before
+    # the render landed.
+    from models import config as models_config
+
+    if delegated:
+        monkeypatch.setattr(
+            models_config,
+            "get_execution_mode",
+            lambda: models_config.EXECUTION_MODE_DELEGATED,
+        )
     project = _project()
     _add_element(project, _element("elem:one"))
     _select_slot(
@@ -857,13 +873,32 @@ def test_stale_final_render_reopens_compose() -> None:
     project.assets.artifact_versions_by_id["art:final"].stale = True
     graph = derive_work_graph(project)
     compose = graph.by_id["compose:timeline:main"]
-    assert compose.status is WorkNodeStatus.READY
-    assert compose in graph.ready_media_nodes()
+    expected = WorkNodeStatus.READY if delegated else WorkNodeStatus.STALE
+    assert compose.status is expected
+    assert (compose in graph.ready_media_nodes()) is delegated
+    # STALE must not leak back through the regeneration path either: that one
+    # additionally requires a regeneration_of marker a compose node never has.
+    assert compose not in graph.regeneration_nodes()
 
 
-def test_superseded_render_source_reopens_compose_without_stale_flag() -> None:
-    """Frozen selections are authoritative even if impact missed stale."""
+@pytest.mark.parametrize("delegated", [False, True])
+def test_superseded_render_source_recompose_follows_mode(
+    monkeypatch,
+    delegated,
+) -> None:
+    """Frozen selections are authoritative even if impact missed stale.
 
+    Whether that reopens the compose follows the same mode split as the
+    stale-flag path: READY for delegated runs, STALE-and-wait otherwise.
+    """
+    from models import config as models_config
+
+    if delegated:
+        monkeypatch.setattr(
+            models_config,
+            "get_execution_mode",
+            lambda: models_config.EXECUTION_MODE_DELEGATED,
+        )
     project = _project()
     _add_element(project, _element("elem:one"))
     _select_slot(
@@ -911,8 +946,9 @@ def test_superseded_render_source_reopens_compose_without_stale_flag() -> None:
     assert not project.assets.artifact_versions_by_id["art:final"].stale
     graph = derive_work_graph(project)
     compose = graph.by_id["compose:timeline:main"]
-    assert compose.status is WorkNodeStatus.READY
-    assert compose in graph.ready_media_nodes()
+    expected = WorkNodeStatus.READY if delegated else WorkNodeStatus.STALE
+    assert compose.status is expected
+    assert (compose in graph.ready_media_nodes()) is delegated
 
 
 def test_budget_dropped_reference_does_not_stale_the_artifact() -> None:
@@ -1359,8 +1395,14 @@ def test_stale_script_version_marks_script_node_stale() -> None:
     assert node not in graph.ready_media_nodes()
     assert node in graph.regeneration_nodes()
     assert node.regeneration_of == "art:script-ep2"
+    assert node.dispatch_arguments == {"source": "timeline"}
+    assert node in graph.model_required_nodes()
     assert node not in graph.model_required_nodes(automatic_regeneration=True)
     assert node in graph.model_required_nodes(automatic_regeneration=False)
+
+    project.timelines.items["timeline:ep2"].description = ""
+    generated = derive_work_graph(project).by_id["script:timeline:ep2"]
+    assert generated.dispatch_arguments == {}
 
 
 @pytest.mark.parametrize("body", ["已发布正文：孙老四端茶，说完台词。", "", "  \n"])

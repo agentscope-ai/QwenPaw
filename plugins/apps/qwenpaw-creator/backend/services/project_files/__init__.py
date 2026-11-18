@@ -3,12 +3,14 @@
 
 from .agent_tools import (
     AGENT_PROJECT_TOOL_SCHEMAS,
+    CONFIRM_PROMPT_SYNC_TOOL_NAME,
     ELEMENTS_AT_TOOL_NAME,
     JQ_PROJECT_TOOL_NAME,
     READ_PROJECT_TOOL_NAME,
     AgentProjectCommitResult,
     AgentElementsAtResult,
     AgentProjectSnapshotResult,
+    AgentPromptSyncConfirmResult,
     AgentProjectToolBoundary,
     AgentProjectToolContext,
     AgentProjectToolError,
@@ -77,6 +79,7 @@ from .store import (
 
 __all__ = [
     "AGENT_PROJECT_TOOL_SCHEMAS",
+    "CONFIRM_PROMPT_SYNC_TOOL_NAME",
     "CURRENT_PROJECT_SCHEMA_VERSION",
     "DEFAULT_TIMELINE_ID",
     "DEFAULT_TIMELINE_TICKS_PER_SECOND",
@@ -89,6 +92,7 @@ __all__ = [
     "AgentProjectCommitResult",
     "AgentElementsAtResult",
     "AgentProjectSnapshotResult",
+    "AgentPromptSyncConfirmResult",
     "AgentProjectToolBoundary",
     "AgentProjectToolContext",
     "AgentProjectToolError",

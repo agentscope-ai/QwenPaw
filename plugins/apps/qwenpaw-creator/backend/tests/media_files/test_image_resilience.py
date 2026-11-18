@@ -176,7 +176,7 @@ def test_late_manual_hold_closes_running_image_and_allows_explicit_retry(
         response = await routes.dispatch_work_graph_node(
             PROJECT_ID,
             node_id,
-            services,
+            services=services,
         )
         assert response["dispatched"]
         assert provider.calls == initial_calls + 1

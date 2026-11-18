@@ -172,6 +172,8 @@ Open **Apps** in the QwenPaw console, find **QwenPaw Creator**, and select Insta
 
 Creator uses a few local tools without changing your system installation: `ffmpeg` handles media processing and composition (set `CREATOR_FFMPEG_PATH`, otherwise it falls back to system `ffmpeg` or `imageio-ffmpeg`); `jq` supports structured Agent edits to project files (`CREATOR_JQ_PATH` or `PATH`). If a dependency is missing, Creator starts in degraded mode; inspect `GET /api/qwenpaw-creator/health` for details.
 
+Creator limits concurrent FFmpeg processes using the CPU and memory available to the runtime. Set `QWENPAW_FFMPEG_CONCURRENCY` to choose a fixed limit. If background file work delays requests, `CREATOR_IO_THREADS` can set the worker count on an event loop that has no executor configured. By default Creator uses the host executor.
+
 ### Context budget for long sessions
 
 Before every model request Creator measures the input once. When it is too

@@ -33,6 +33,10 @@ _DATA_URL = f"data:image/png;base64,{_PNG_B64}"
 
 class _StubResponse:
     status_code = 200
+    # A real httpx response always carries both, and the submit path reads them
+    # to decide whether a failure is worth another paid attempt.
+    text = ""
+    headers: dict = {}
 
     def __init__(self, payload: dict):
         self._payload = payload

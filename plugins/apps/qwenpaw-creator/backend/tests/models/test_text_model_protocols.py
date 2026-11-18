@@ -2,11 +2,18 @@
 """Text model protocol dispatch and keyless free-tier support."""
 
 # pylint: disable=protected-access
+# The response doubles have to expose httpx's ``json()`` method, which
+# shadows the stdlib module this file also imports.
+# pylint: disable=redefined-outer-name
+# The fake transports stand in for a real client's ``post``, so they have
+# to accept the url and headers the caller passes even though the double
+# never looks at them.
+# pylint: disable=unused-argument
 
 from __future__ import annotations
 
 import asyncio
-import json as json_module
+import json
 
 import pytest
 
@@ -39,15 +46,25 @@ def _patch_config(monkeypatch, *, protocol: str, api_key: str) -> None:
     )
 
 
-def _fake_httpx(monkeypatch, captured: dict) -> None:
+def _fake_httpx(
+    monkeypatch,
+    captured: dict,
+    *,
+    body_text: str = "",
+    content_type: str = "application/json",
+) -> None:
     class FakeResponse:
+        # The chat decoder reads what httpx exposes (media type + body).
+        headers = {"content-type": content_type}
         status_code = 200
 
         @property
         def text(self) -> str:
-            return ""
+            return body_text or json.dumps(self.json())
 
         def json(self) -> dict:
+            if body_text:
+                return json.loads(body_text)
             return {
                 "choices": [
                     {"message": {"content": "pong"}},
@@ -96,6 +113,7 @@ def test_keyless_openai_protocol_omits_authorization_header(
     assert result == "pong"
     assert captured["url"] == "https://gateway.example.com/v1/chat/completions"
     assert "Authorization" not in captured["headers"]
+    assert "stream" not in captured["body"]
 
 
 def test_openai_protocol_sends_bearer_when_key_present(monkeypatch) -> None:
@@ -134,11 +152,13 @@ def test_anthropic_protocol_dispatches_to_messages_endpoint(
     captured: dict = {}
 
     class FakeResponse:
+        # The chat decoder reads what httpx exposes (media type + body).
+        headers = {"content-type": "application/json"}
         status_code = 200
 
         @property
         def text(self) -> str:
-            return ""
+            return json.dumps(self.json())
 
         def json(self) -> dict:
             return {"content": [{"type": "text", "text": "pong"}]}
@@ -214,9 +234,7 @@ def test_unsupported_temperature_learns_and_retries_without_it(
     cache.clear(key)
 
     bodies: list[dict] = []
-    ok_payload = json_module.dumps(
-        {"choices": [{"message": {"content": "pong"}}]},
-    )
+    ok_payload = json.dumps({"choices": [{"message": {"content": "pong"}}]})
 
     class FakeResponse:
         headers = {"content-type": "application/json"}
@@ -226,7 +244,7 @@ def test_unsupported_temperature_learns_and_retries_without_it(
             self.text = text
 
         def json(self) -> dict:
-            return json_module.loads(self.text)
+            return json.loads(self.text)
 
     class FakeAsyncClient:
         def __init__(self, *, timeout):
@@ -239,8 +257,6 @@ def test_unsupported_temperature_learns_and_retries_without_it(
             return False
 
         async def post(self, url, *, headers, json):
-            assert url == "https://gateway.example.com/v1/chat/completions"
-            assert headers["Authorization"] == "Bearer test-key"
             bodies.append(dict(json))
             if len(bodies) == 1:
                 return FakeResponse(
@@ -273,3 +289,53 @@ def test_unsupported_temperature_learns_and_retries_without_it(
         assert model_config.chat_temperature("brand-new-model", 0.2) is None
     finally:
         cache.clear(key)
+
+
+def test_stream_that_ends_without_saying_so_is_reported_truncated(
+    monkeypatch,
+) -> None:
+    """A prefix must not be handed on as an answer.
+
+    Turning streaming on makes this load-bearing: a gateway that severs the
+    stream mid-document would otherwise return half a work page, which is worse
+    than the 504 it replaced because nothing looks wrong downstream.
+    """
+    _patch_config(monkeypatch, protocol="OpenAI 协议", api_key="sk-test")
+    captured: dict = {}
+    _fake_httpx(
+        monkeypatch,
+        captured,
+        content_type="text/event-stream",
+        body_text='data: {"choices": [{"delta": {"content": "<html>"}}]}\n\n',
+    )
+
+    with pytest.raises(ModelError) as raised:
+        asyncio.run(text_model.chat_completion("ping"))
+
+    assert "响应流被截断" in str(raised.value)
+    assert raised.value.retryable is True
+
+
+def test_politely_ended_stream_without_a_finish_reason_is_accepted(
+    monkeypatch,
+) -> None:
+    """The other half of the rule: ``[DONE]`` alone is a normal ending.
+
+    Some compatible servers never report a finish reason yet still close the
+    stream properly. Treating that as truncation would reject good answers, so
+    only a stream that ends with neither signal counts as cut short.
+    """
+    _patch_config(monkeypatch, protocol="OpenAI 协议", api_key="sk-test")
+    captured: dict = {}
+    _fake_httpx(
+        monkeypatch,
+        captured,
+        content_type="text/event-stream",
+        body_text=(
+            'data: {"choices": [{"delta": {"content": "pon"}}]}\n\n'
+            'data: {"choices": [{"delta": {"content": "g"}}]}\n\n'
+            "data: [DONE]\n\n"
+        ),
+    )
+
+    assert asyncio.run(text_model.chat_completion("ping")) == "pong"

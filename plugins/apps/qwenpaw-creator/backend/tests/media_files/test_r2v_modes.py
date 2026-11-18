@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import subprocess
 
 import pytest
 
@@ -26,6 +27,7 @@ from services.project_files.models import (
     I2VCreation,
     Project,
     S2VCreation,
+    T2VCreation,
     TimelineElement,
     TimelineSpan,
 )
@@ -60,8 +62,9 @@ class _ImageProvider:
 class _CapturingR2VProvider:
     """Succeeds immediately and records the submit kwargs it received."""
 
-    def __init__(self) -> None:
+    def __init__(self, content: bytes | None = None) -> None:
         self.submits: list[dict] = []
+        self.content = content or _MP4
 
     async def submit(self, **kwargs) -> str:
         self.submits.append(dict(kwargs))
@@ -69,7 +72,7 @@ class _CapturingR2VProvider:
 
     async def poll(self, provider_task_id: str):
         path = unique_task_work_path("video", ".mp4", prefix="mode-test-")
-        path.write_bytes(_MP4)
+        path.write_bytes(self.content)
         return {
             "task_id": provider_task_id,
             "status": "SUCCEEDED",
@@ -332,6 +335,158 @@ def test_i2v_dispatch_resolves_first_frame_version(tmp_path, monkeypatch):
     submitted = provider.submits[0]
     assert submitted["mode"] == "i2v"
     assert submitted["first_frame_url"].startswith("file://")
+
+
+@pytest.mark.parametrize("mode", ["r2v", "t2v", "i2v"])
+def test_authored_silence_reaches_video_provider(
+    tmp_path,
+    monkeypatch,
+    mode,
+    video_with_audio,
+):
+    from services.file_agent_runtime.work_graph import derive_work_graph
+    from services.file_agent_runtime.workgraph_execution import (
+        requested_work_node,
+    )
+
+    creation = (
+        T2VCreation(video_prompt="静音海面", generate_audio=False)
+        if mode == "t2v"
+        else I2VCreation(video_prompt="静音海面", generate_audio=False)
+        if mode == "i2v"
+        else None
+    )
+    services = _services(tmp_path, monkeypatch, extra_creation=creation)
+    storyboard = _generate_storyboard(services) if mode != "t2v" else None
+    element_id = ELEMENT_ID if mode == "r2v" else MODE_ELEMENT_ID
+    base = services.projects.read(PROJECT_ID)
+    candidate = base.project.model_copy(deep=True)
+    authored = (
+        candidate.timelines.items["timeline:main"]
+        .elements_by_id[element_id]
+        .creation
+    )
+    authored.generate_audio = False
+    if mode == "i2v":
+        authored.first_frame_version_id = storyboard
+    from services.runtime_files.models import ChangeOrigin
+
+    services.commits.commit(
+        base=base,
+        candidate=candidate.model_dump(mode="json"),
+        origin=ChangeOrigin.FRONTEND_EDIT,
+    )
+    snapshot = services.projects.read(PROJECT_ID)
+    node = derive_work_graph(snapshot.project).by_id[f"video:{element_id}"]
+    request = requested_work_node(snapshot, node)
+    assert request.parameters["generateAudio"] is False
+    provider = _CapturingR2VProvider(video_with_audio)
+    task = _run_video(
+        services,
+        provider,
+        element_id=element_id,
+        # Direct manual dispatch must also honor persisted audio intent.
+        arguments={"mode": mode},
+        idempotency_key=f"silent-{mode}",
+    )
+    assert task.status.value == "SUCCEEDED"
+    assert len(provider.submits) == 1
+    assert provider.submits[0]["generate_audio"] is False
+    from services.runtime_files.media_probe import probe_media
+
+    clips = list(
+        services.projects.project_root(PROJECT_ID).glob(
+            "assets/artifacts/*.mp4",
+        ),
+    )
+    assert len(clips) == 1
+    assert probe_media(clips[0]).has_audio is False
+
+
+@pytest.fixture(scope="module", name="video_with_audio")
+def _video_with_audio(tmp_path_factory):
+    from services.runtime_files.runtime_dependencies import resolve_ffmpeg
+
+    executable = resolve_ffmpeg()
+    if executable is None:
+        pytest.skip("ffmpeg is required for the silent publication contract")
+    path = tmp_path_factory.mktemp("silent-provider") / "provider.mp4"
+    subprocess.run(
+        [
+            executable,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x36:r=12:d=4",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=4",
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-shortest",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    return path.read_bytes()
+
+
+@pytest.mark.parametrize("sound", ["preserve", "mute", " MUTE "])
+def test_local_render_applies_sound_intent_to_existing_clips(
+    tmp_path,
+    video_with_audio,
+    sound,
+):
+    from domain.enums import CreatorCommandType
+    from services.media_files.local_execution import (
+        FfmpegLocalMediaRunner,
+        LocalMediaExecutionSpec,
+        LocalMediaInput,
+    )
+    from services.runtime_files.media_probe import probe_media
+
+    source = tmp_path / "existing-provider.mp4"
+    source.write_bytes(video_with_audio)
+    output = tmp_path / "final.mp4"
+    spec = LocalMediaExecutionSpec(
+        command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
+        target_ref="timeline:main",
+        task_id="silent-local",
+        work_dir=tmp_path,
+        output_path=output,
+        inputs=(
+            LocalMediaInput(
+                version_id="source-1",
+                file_id="file-1",
+                checksum=hashlib.sha256(video_with_audio).hexdigest(),
+                media_type="video/mp4",
+                path=source,
+                source_ref="element:shot",
+                start_seconds=0,
+                end_seconds=4,
+                duration_seconds=4,
+                playback_rate=2,
+                original_sound=sound,
+            ),
+        ),
+        transitions=(),
+        audio_plan="",
+        expected_duration_seconds=2,
+        canvas_size=(64, 36),
+    )
+    asyncio.run(FfmpegLocalMediaRunner().render(spec))
+    assert probe_media(output).has_audio is (sound == "preserve")
+    assert source.read_bytes() == video_with_audio
 
 
 def test_video_edit_rejected_for_wan_models(tmp_path, monkeypatch) -> None:

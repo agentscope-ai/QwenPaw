@@ -70,9 +70,14 @@ from .json_pointer import (
 )
 from .locator_map import derive_ui_locator
 from .models import CURRENT_PROJECT_SCHEMA_VERSION, Project
-from .serialization import project_etag
+from .linear_document import without_empty_extensions
+from .serialization import project_edit_document, project_etag
 from .review_bookkeeping import is_human_review_change
 from .store import ProjectSnapshot, ProjectStore
+from .transaction_index import (
+    plan_transaction_scan,
+    record_transaction_scan,
+)
 
 logger = logging.getLogger("qwenpaw.creator.project_files.commit")
 
@@ -279,7 +284,7 @@ def _snapshot_document(snapshot: ProjectSnapshot) -> dict[str, Any]:
         and source.get("schema_version") == CURRENT_PROJECT_SCHEMA_VERSION
     ):
         return copy.deepcopy(dict(source))
-    return _json(snapshot.project)
+    return without_empty_extensions(_json(snapshot.project))
 
 
 def _snapshot_store(path: Path) -> AtomicJsonRecordStore[dict[str, Any]]:
@@ -448,7 +453,8 @@ class ProjectCommitBoundary:
         # as base.json below.
         base_data = _json(base.project)
         candidate_data = copy.deepcopy(dict(candidate))
-        candidate_etag = _candidate_hash(candidate_data)
+        stored_candidate = without_empty_extensions(candidate_data)
+        candidate_etag = _candidate_hash(stored_candidate)
         requested = diff_json(base_data, candidate_data)
         protected = sorted(
             {
@@ -521,6 +527,7 @@ class ProjectCommitBoundary:
                     round_record=round_record,
                     base_etag=base.etag,
                     candidate_etag=candidate_etag,
+                    candidate=stored_candidate,
                     advance_accepted_baseline=advance_accepted_baseline,
                 )
             aggregate_round_store = AtomicJsonRecordStore(
@@ -556,7 +563,11 @@ class ProjectCommitBoundary:
             transactions_root = transaction_root.parent
             transactions_root.mkdir(parents=True, exist_ok=True)
             staging_root = runtime_root / "temp" / "transactions"
-            staging_root.mkdir(mode=0o700, exist_ok=True)
+            if is_link_path(staging_root.parent):
+                raise ProjectCommitError(
+                    "Runtime temp path must be a real directory"
+                )
+            staging_root.mkdir(mode=0o700, exist_ok=True, parents=True)
             if is_link_path(staging_root) or not staging_root.is_dir():
                 raise ProjectCommitError(
                     "Project transaction staging path must be a real directory",
@@ -575,7 +586,7 @@ class ProjectCommitBoundary:
                 )
                 _snapshot_store(
                     staged_transaction / "candidate.json",
-                ).write(candidate_data)
+                ).write(stored_candidate)
                 AtomicJsonRecordStore(
                     staged_transaction / "journal.json",
                     ProjectCommitJournal,
@@ -745,7 +756,7 @@ class ProjectCommitBoundary:
                         merged,
                         context={"reject_retired_authoring_fields": True},
                     )
-                    final_data = _json(final_project)
+                    final_data = without_empty_extensions(_json(final_project))
                     pre_publish_etag = latest.etag
                     expected_final_etag = project_etag(final_project)
                     _snapshot_store(
@@ -1037,6 +1048,7 @@ class ProjectCommitBoundary:
         round_record: ChangeRoundRecord,
         base_etag: str,
         candidate_etag: str,
+        candidate: dict[str, Any],
         advance_accepted_baseline: bool,
     ) -> None:
         entry_stat = transaction_root.lstat()
@@ -1071,12 +1083,26 @@ class ProjectCommitBoundary:
             or journal.project_id != project_id
             or journal.round_id != round_record.round_id
             or journal.base_etag != base_etag
-            or journal.candidate_etag != candidate_etag
             or journal.advance_accepted_baseline != advance_accepted_baseline
         ):
             raise ProjectCommitError(
                 f"Project transaction already exists: {transaction_id}",
             )
+        if journal.candidate_etag != candidate_etag:
+            # An old writer hashed its full editing view. Verify its original
+            # hash before comparing the two candidates using today's defaults.
+            previous = _snapshot_store(
+                transaction_root / "candidate.json"
+            ).read()
+            if (
+                not isinstance(previous, dict)
+                or _candidate_hash(previous) != journal.candidate_etag
+                or _candidate_hash(project_edit_document(previous))
+                != _candidate_hash(project_edit_document(candidate))
+            ):
+                raise ProjectCommitError(
+                    f"Project transaction already exists: {transaction_id}"
+                )
         archive_root = runtime_root / "transaction-history" / "aborted"
         archive_root.mkdir(parents=True, exist_ok=True)
         archive = archive_root / f"{transaction_id}.{uuid4().hex}"
@@ -1155,28 +1181,47 @@ class ProjectCommitBoundary:
         current_transaction_id: str,
         authority_etag: str,
     ) -> None:
+        # Reading every transaction journal made this grow with project history
+        # (72 ms at 242 transactions, on the path of every agent patch).  The
+        # index caches which journals are known to be non-terminal; a disagreeing
+        # listing falls back to the full scan below, so a stale cache can only
+        # cost time, never miss a transaction that needs recovery.
         transactions_root = runtime_root / "transactions"
         if not transactions_root.is_dir():
             return
-        for entry in sorted(
-            transactions_root.iterdir(),
-            key=lambda item: item.name,
-        ):
-            if (
-                entry.name.startswith(".")
-                or entry.name == current_transaction_id
-                or not entry.is_dir()
-            ):
-                continue
+        plan = plan_transaction_scan(
+            transactions_root,
+            current_transaction_id=current_transaction_id,
+        )
+        observed_states: dict[str, str] = {}
+        for name in plan.read_ids:
+            entry = transactions_root / name
             journal_store = AtomicJsonRecordStore(
                 entry / "journal.json",
                 ProjectCommitJournal,
             )
             journal = journal_store.read_or_none()
             if journal is None:
+                # Review #243 r4548690102: the GC removes a transaction
+                # directory with ``shutil.rmtree`` without holding the
+                # project-commit-order lock, so the whole directory can
+                # disappear between ``list_transaction_ids`` and the
+                # journal read below. That is not an integrity failure;
+                # it just means the sweep reclaimed a settled history
+                # while this scan was still looking at the previous
+                # listing. Only raise when the directory is still on
+                # disk and the journal inside it is genuinely missing.
+                # The stale ``directory_count`` in the cached index
+                # costs the next commit one more full scan, not
+                # correctness.
+                try:
+                    entry.lstat()
+                except FileNotFoundError:
+                    continue
                 raise PendingProjectRecoveryError(
-                    f"Runtime transaction has no journal: {entry.name}",
+                    f"Runtime transaction has no journal: {name}",
                 )
+            observed_states[name] = journal.state.value
             if journal.state is CommitJournalState.PROJECT_REPLACED:
                 # If final_etag doesn't match current authority_etag, the
                 # project
@@ -1198,6 +1243,7 @@ class ProjectCommitBoundary:
                         },
                     )
                     journal_store.write(aborted_journal)
+                    observed_states[name] = CommitJournalState.ABORTED.value
                     continue
                 raise PendingProjectRecoveryError(
                     f"Project transaction requires recovery: {journal.transaction_id}",
@@ -1214,6 +1260,7 @@ class ProjectCommitBoundary:
                     f"Prepared Project publication requires recovery: "
                     f"{journal.transaction_id}",
                 )
+        record_transaction_scan(transactions_root, plan, observed_states)
 
     def _finalize_no_change(
         self,

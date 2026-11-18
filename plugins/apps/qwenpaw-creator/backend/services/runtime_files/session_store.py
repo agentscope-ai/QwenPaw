@@ -96,6 +96,10 @@ _REVIEW_MUTATING_CLASSIFICATIONS = frozenset(
         MessageClassification.WORKSPACE_COMMAND,
     },
 )
+# Recovery and idempotency have to walk the whole durable message stream, but
+# they do not have to hold it: replaying one page at a time keeps the work
+# bounded to a page of memory instead of the session's entire history.
+_MESSAGE_REPLAY_PAGE = 200
 
 
 class SessionStoreError(RuntimeFileError):
@@ -879,10 +883,15 @@ class ProjectRuntimeSessionStore:
                 raise SessionStateConflict(
                     "Goal root_message_seq must reference a durable message",
                 )
-            root_message = self._message_records_unlocked(
+            root_message = self._message_record_at_unlocked(
                 project_id,
                 session_id,
-            )[root_message_seq - 1]
+                root_message_seq,
+            )
+            if root_message is None:
+                raise SessionStateConflict(
+                    "Goal root_message_seq must reference a durable message",
+                )
             if root_message.conversation_id != conversation_id:
                 raise SessionStateConflict(
                     "Goal root message belongs to another Conversation",
@@ -1359,13 +1368,136 @@ class ProjectRuntimeSessionStore:
         *,
         after_seq: int = 0,
         limit: int | None = None,
+        conversation_id: str | None = None,
     ) -> list[CreatorMessageRecord]:
         project_id, session_id = self._safe_session_ids(project_id, session_id)
         _validate_window(after_seq, limit)
         with self._project_lock_read(project_id):
             self._read_session_snapshot_unlocked(project_id, session_id)
-            records = self._message_records_unlocked(project_id, session_id)
-            return _window(records, after_seq=after_seq, limit=limit)
+            # Cursor read: the stream is contiguous, so paging forward from a
+            # recent seq no longer parses every message the session wrote just
+            # to slice off the first page.
+            return self._messages_store(
+                project_id,
+                session_id,
+            ).read_records_after(
+                after_seq,
+                limit=limit,
+                where=(
+                    None
+                    if conversation_id is None
+                    else lambda record: record.conversation_id
+                    == conversation_id
+                ),
+            )
+
+    def last_message_seq(self, project_id: str, session_id: str) -> int:
+        """Head seq of the message stream, without parsing the stream.
+
+        Fuse bookkeeping only needs to know whether *anything* was appended
+        since an earlier decision; the tail envelope answers that in O(1),
+        where ``list_messages`` would rebuild every record the session wrote.
+        The session itself is not validated here.
+        """
+
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        with self._project_lock_read(project_id):
+            return self._messages_store(project_id, session_id).last_seq()
+
+    def list_recent_messages(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        limit: int,
+        conversation_id: str | None = None,
+        before_seq: int | None = None,
+    ) -> list[CreatorMessageRecord]:
+        """The last *limit* messages, oldest-first, without a full scan.
+
+        Opening a conversation page asks for the newest handful, optionally
+        older than a cursor. Reading every record and slicing in Python made
+        that cost the whole session history (observed: 284 MB and ~1.1 GB RSS
+        for 1112 messages), so the filter and the stop condition both live in
+        the backwards reader instead.
+        """
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self._project_lock_read(project_id):
+            self._read_session_snapshot_unlocked(project_id, session_id)
+
+            def keep(record: CreatorMessageRecord) -> bool:
+                if before_seq is not None and record.message_seq >= before_seq:
+                    return False
+                return (
+                    conversation_id is None
+                    or record.conversation_id == conversation_id
+                )
+
+            return self._messages_store(
+                project_id,
+                session_id,
+            ).read_tail(limit, where=keep)
+
+    def message_at(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        message_seq: int,
+    ) -> CreatorMessageRecord | None:
+        """Return the one message at *message_seq* without reading the stream.
+
+        Callers that already name the seq they want -- a review's originating
+        request, an interrupted run's causing message -- used to answer that by
+        parsing every record the Session ever wrote, and the Streams that make
+        that expensive are the pathological ones: old records carry Project
+        echoes of hundreds of kilobytes each.  Seqs are line numbers, so this
+        costs one line.  A seq below 1 names nothing and is answered without
+        touching the disk.
+        """
+
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        if message_seq < 1:
+            return None
+        with self._project_lock_read(project_id):
+            self._read_session_snapshot_unlocked(project_id, session_id)
+            return self._message_record_at_unlocked(
+                project_id,
+                session_id,
+                message_seq,
+            )
+
+    def find_recent_message(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        where: Callable[[CreatorMessageRecord], bool],
+        max_scan: int | None = None,
+    ) -> CreatorMessageRecord | None:
+        """Return the newest message satisfying *where*, walked back from EOF.
+
+        ``has a pause notice already been filed for this key`` and ``has this
+        run already been resumed`` are existence questions, not history reads.
+        Leaving ``max_scan`` unset keeps the walk exhaustive, so ``None`` means
+        the record is genuinely absent -- the same answer a full read gave, at
+        one record's worth of peak heap.
+        """
+
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        with self._project_lock_read(project_id):
+            self._read_session_snapshot_unlocked(project_id, session_id)
+            found = self._messages_store(
+                project_id,
+                session_id,
+            ).read_tail(
+                1,
+                where=where,
+                max_scan=max_scan,
+            )
+            return found[-1] if found else None
 
     def append_event(
         self,
@@ -1449,18 +1581,68 @@ class ProjectRuntimeSessionStore:
             records = store.read_records_after(after_seq, limit=limit)
             return records
 
+    def list_recent_events(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        limit: int,
+        event_type: str | None = None,
+        message_id: str | None = None,
+        max_scan: int | None = None,
+    ) -> list[SessionEventRecord]:
+        """The last *limit* events, oldest-first, optionally filtered.
+
+        The send path asks a tail question -- "did this admission already get
+        its ``message.accepted``" -- and used to answer it by parsing the whole
+        ``events.jsonl`` (99 MB on a long session) for every message sent.
+
+        ``max_scan`` bounds the events read rather than the events returned, so
+        a caller can treat "not in the tail" as an answer and take its own
+        fallback instead of paying a full scan for a miss.
+        """
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        if max_scan is not None and max_scan < 1:
+            raise ValueError("max_scan must be positive")
+        with self._project_lock_read(project_id):
+
+            def keep(record: SessionEventRecord) -> bool:
+                if event_type is not None and record.event_type != event_type:
+                    return False
+                return message_id is None or record.message_id == message_id
+
+            return self._events_store(
+                project_id,
+                session_id,
+            ).read_tail(limit, where=keep, max_scan=max_scan)
+
     def event_reader(
         self,
         project_id: str,
         session_id: str,
         *,
         after_seq: int = 0,
+        skip_noise: Callable[[bytes], bool] | None = None,
+        replay_boundary_seq: int | None = None,
     ) -> JsonlReadCursor[SessionEventRecord]:
-        """Keep one forward cursor for a live SSE connection's replay."""
+        """Keep one forward cursor for a live SSE connection's replay.
+
+        ``skip_noise`` discards streaming noise on the raw bytes, before
+        parsing; see ``replay_filter.replay_noise_line``. The filter is
+        scoped to ``replay_boundary_seq`` -- lines at or beyond that seq
+        are live appends the client needs verbatim (review #243
+        blocking #1: leaving the boundary unset made the filter outlive
+        the replay it was supposed to shorten and dropped every real
+        streaming delta on a persistent connection).
+        """
         project_id, session_id = self._safe_session_ids(project_id, session_id)
         _validate_window(after_seq, None)
         return self._events_store(project_id, session_id).forward_reader(
             after_seq,
+            skip_noise=skip_noise,
+            replay_boundary_seq=replay_boundary_seq,
         )
 
     def append_queued_message(
@@ -1962,7 +2144,7 @@ class ProjectRuntimeSessionStore:
         session_id: str,
     ) -> CreatorSessionRecord:
         session = self._read_session_unlocked(project_id, session_id)
-        messages = self._message_records_unlocked(project_id, session_id)
+        messages_store = self._messages_store(project_id, session_id)
         # The event stream dominates the aggregate size (streaming deltas
         # append thousands of records per run).  Re-parsing and re-validating
         # every event here — under the exclusive project lock — made each
@@ -1980,14 +2162,24 @@ class ProjectRuntimeSessionStore:
             item.state is QueuedMessageState.QUEUED
             for item in latest_queued.values()
         )
-        message_head = len(messages)
-        for message in messages:
-            if message.review_boundary is not None:
-                self._ensure_review_boundary_unlocked(
-                    project_id,
-                    session_id,
-                    message.review_boundary,
-                )
+        # Same argument as the event stream above: message seqs are contiguous
+        # from 1, so the durable tail seq is the head pointer and a torn crash
+        # tail is repaired by the next locked append.  ``len(messages)`` would
+        # also work, but only after materializing every record in the stream --
+        # observed at 853 MB of Python heap for one 285 MB messages file, inside
+        # the exclusive Project lock.
+        message_head = messages_store.last_seq()
+        # Review boundaries still have to be re-asserted from history, so the
+        # stream is walked -- one page at a time, keeping nothing but the page.
+        cursor = messages_store.forward_reader(0)
+        while page := cursor.read(_MESSAGE_REPLAY_PAGE):
+            for message in page:
+                if message.review_boundary is not None:
+                    self._ensure_review_boundary_unlocked(
+                        project_id,
+                        session_id,
+                        message.review_boundary,
+                    )
         if (
             session.last_message_seq == message_head
             and session.last_event_seq == event_head
@@ -2008,18 +2200,22 @@ class ProjectRuntimeSessionStore:
         )
         return self._write_session_unlocked(recovered)
 
-    def _message_records_unlocked(
+    def _message_record_at_unlocked(
         self,
         project_id: str,
         session_id: str,
-    ) -> list[CreatorMessageRecord]:
-        records = self._messages_store(project_id, session_id).read_records()
-        _assert_internal_sequence(
-            records,
-            attribute="message_seq",
-            stream_name="messages",
+        message_seq: int,
+    ) -> CreatorMessageRecord | None:
+        """Read one message by durable seq without materializing the stream.
+
+        Seqs are line numbers, so this costs one line instead of the session's
+        whole history -- which ``read_records()[message_seq - 1]`` paid on every
+        goal creation, inside the exclusive Project lock.
+        """
+
+        return self._messages_store(project_id, session_id).read_record_at(
+            message_seq,
         )
-        return records
 
     def _event_records_unlocked(
         self,
@@ -2066,17 +2262,24 @@ class ProjectRuntimeSessionStore:
         session_id: str,
         client_message_id: str,
     ) -> CreatorMessageRecord | None:
-        return next(
-            (
-                item
-                for item in self._message_records_unlocked(
-                    project_id,
-                    session_id,
-                )
-                if item.client_message_id == client_message_id
-            ),
-            None,
-        )
+        # Idempotency lookup: "absent" has to mean "absent everywhere", so the
+        # walk cannot stop at a window -- but it must not hold the whole history
+        # either, so it replays one page at a time.
+        #
+        # Forward, not backwards from EOF: measured on a 285 MB session whose
+        # old records are single multi-megabyte lines, the reverse walk cost
+        # 29 s against 0.9 s for the whole-file parse, because 8 KiB blocks
+        # reassemble each giant line. Inside the exclusive Project lock that
+        # would turn a dedupe check into lock starvation and 503s.
+        cursor = self._messages_store(
+            project_id,
+            session_id,
+        ).forward_reader(0)
+        while page := cursor.read(_MESSAGE_REPLAY_PAGE):
+            for message in page:
+                if message.client_message_id == client_message_id:
+                    return message
+        return None
 
     def _existing_bootstrap_unlocked(
         self,

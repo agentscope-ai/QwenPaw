@@ -587,7 +587,7 @@ def read_trace_records(  # pylint: disable=too-many-branches
             lines = path.read_text(encoding="utf-8").splitlines()
         except OSError:
             continue
-        for line in lines:
+        for line_no, line in enumerate(lines, start=1):
             try:
                 record = json.loads(line)
             except (json.JSONDecodeError, TypeError):
@@ -597,6 +597,11 @@ def read_trace_records(  # pylint: disable=too-many-branches
                 for key, value in wanted.items()
             ):
                 sequence += 1
+                # The platform's feedback record keeps a pointer, not the
+                # jsonl body, so a reader needs the file and the line back.
+                # ``sequence`` counts matches and is no such thing.
+                record["traceFile"] = path.name
+                record["traceLine"] = line_no
                 candidate = (
                     str(record.get("timestamp") or ""),
                     sequence,

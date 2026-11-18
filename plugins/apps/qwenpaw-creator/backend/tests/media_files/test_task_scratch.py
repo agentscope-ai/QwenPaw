@@ -892,6 +892,7 @@ def test_profile_splits_scratch_and_transactions_at_the_baseline(
     assert entry["taskWorkBytes"] == _tree_bytes(fresh)
     # A finished Task whose scratch outlived the grace window is reclaimable,
     # counted as the media a release would take rather than the kept docs.
+    assert entry["pendingReclaimBytes"] > entry["taskWorkReclaimableBytes"]
     assert entry["taskWorkReclaimableBytes"] == _media_bytes(fresh)
     assert entry["taskWorkReclaimableBytes"] < _tree_bytes(fresh)
     assert entry["transactionsLegacyBytes"] == _tree_bytes(old_tx)
@@ -899,3 +900,15 @@ def test_profile_splits_scratch_and_transactions_at_the_baseline(
     assert project_storage_profile(_services(tmp_path))["totals"][
         "taskWorkReclaimableBytes"
     ] == _media_bytes(fresh)
+
+
+def test_background_sweep_honors_shutdown(tmp_path):
+    import threading
+    from services.media_files.task_scratch import budget_from_environment
+
+    stop = threading.Event()
+    budget = budget_from_environment(stop_event=stop)
+    assert budget.has_room()
+    stop.set()
+    assert not budget.may_spend(1)
+    assert budget.stopped_early

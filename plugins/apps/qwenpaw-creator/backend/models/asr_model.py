@@ -65,7 +65,7 @@ def asr_route(model_name: str, provider: str) -> str:
     """
     if (provider or "").casefold() == "whisper":
         return "whisper"
-    if (model_name or "").casefold().startswith(("qwen3-asr", "qwen-audio")):
+    if (model_name or "").casefold().startswith("qwen3-asr") or is_qwen_audio_asr_model(model_name):
         return "qwen3-asr"
     return "fun-asr"
 
@@ -77,7 +77,8 @@ def is_qwen_audio_asr_model(model_name: str) -> bool:
     rejects ``result_format=message`` (400), answers ``output.text`` and
     takes ``format``/``sample_rate`` instead.
     """
-    return (model_name or "").casefold().startswith("qwen-audio")
+    folded = (model_name or "").casefold()
+    return folded.startswith("qwen-audio") and "asr" in folded
 
 
 # Provider verdicts meaning "the audio simply contains no speech"; they
@@ -859,7 +860,7 @@ def _prepare_qwen3_chunks(
 def _qwen3_sentences(body: Mapping[str, Any]) -> list[str]:
     choices = body.get("output", {}).get("choices") or ()
     if not choices:
-        return []
+        return _qwen_audio_sentences(body)
     content = choices[0].get("message", {}).get("content") or ()
     sentences: list[str] = []
     for item in content:
@@ -886,11 +887,19 @@ def _qwen_audio_sentences(body: Mapping[str, Any]) -> list[str]:
     if text:
         return [text]
     sentence = output.get("sentence")
+    if isinstance(sentence, list):
+        return [
+            str(item["text"]).strip()
+            for item in sentence
+            if isinstance(item, Mapping)
+            and str(item.get("text") or "").strip()
+        ]
     if isinstance(sentence, Mapping):
         sentence_text = str(sentence.get("text") or "").strip()
         if sentence_text:
             return [sentence_text]
-    return []
+    top_level = str(body.get("text") or "").strip()
+    return [top_level] if top_level else []
 
 
 def _spread_segments(
@@ -923,11 +932,10 @@ async def _qwen3_transcribe_url(
     model: str,
     file_url: str,
 ) -> list[str]:
-    # qwen-audio-3.0-asr-flash (Token Plan) speaks the same multimodal
-    # endpoint but rejects result_format=message (400) and answers with
-    # output.text/output.sentence; it takes format/sample_rate instead.
-    is_qwen_audio = is_qwen_audio_asr_model(model)
-    if is_qwen_audio:
+    if is_qwen_audio_asr_model(model):
+        # qwen-audio-3.0-asr-flash (Token Plan) rejects
+        # result_format=message with a 400 and answers output.text;
+        # it takes format/sample_rate instead.
         parameters: dict[str, Any] = {
             "format": "wav",
             "sample_rate": "16000",
@@ -952,8 +960,6 @@ async def _qwen3_transcribe_url(
         "X-DashScope-OssResourceResolve": "enable",
     }
     body = await _post_with_retry(client, endpoint, payload, headers=headers)
-    if is_qwen_audio:
-        return _qwen_audio_sentences(body)
     return _qwen3_sentences(body)
 
 

@@ -21,11 +21,13 @@ from domain.errors import (
     ConflictError,
     CreatorError,
     RuntimeBusyError,
+    RuntimePreparingError,
     ValidationError,
 )
 from services.project_files.facade import (
     CreatorFileServices,
     creator_file_services,
+    runtime_is_preparing,
 )
 from services.project_files.store import InvalidProjectId
 from services.observability import (
@@ -42,8 +44,17 @@ logger = logging.getLogger("qwenpaw.creator.api.errors")
 
 
 def project_file_services() -> CreatorFileServices:
-    """Return the process-shared filesystem Project authority and poll cache."""
+    """Return the process-shared filesystem Project authority and poll cache.
 
+    While boot-time recovery is still scanning the tree, the registry lock is
+    held by the recovery thread; queueing a request behind it produced minutes
+    of dead socket, so the honest answer is a retryable 503.
+    """
+
+    if runtime_is_preparing():
+        raise RuntimePreparingError(
+            "Creator runtime is still recovering its Projects; retry shortly",
+        )
     return creator_file_services(require_creator_data_root())
 
 

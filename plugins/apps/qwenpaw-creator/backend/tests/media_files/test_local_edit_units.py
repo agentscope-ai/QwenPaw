@@ -353,7 +353,7 @@ def test_materialize_keyframe_persists_and_reuses_deterministic_jpeg(
         Path(command[-1]).write_bytes(b"JPEG@" + command[6].encode("ascii"))
         return subprocess.CompletedProcess(command, 0, "", "")
 
-    monkeypatch.setattr(keyframe_cache.subprocess, "run", fake_run)
+    monkeypatch.setattr(keyframe_cache.media_gate, "run", fake_run)
     first = _materialize_keyframe(project_root, source, 4.5004)
     replay = _materialize_keyframe(project_root, source, 4.5)
 

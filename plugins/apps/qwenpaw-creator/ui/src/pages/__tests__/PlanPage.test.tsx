@@ -8,6 +8,7 @@ import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useCreatorSessionStore } from "@/store/creatorSessionStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { projectDocument } from "@/test/creatorFixtures";
 import { installMockFetch } from "@/test/mockFetch";
@@ -112,6 +113,7 @@ function installTimelineRect(chart: Element) {
 
 describe("PlanPage Timeline/Element frontend", () => {
   beforeEach(() => {
+    useWorkGraphStore.getState().reset();
     useProjectSnapshotStore.getState().reset();
     useCreatorTaskViewStore.getState().reset();
     useCreatorInteractionStore.getState().reset();
@@ -301,6 +303,37 @@ describe("PlanPage Timeline/Element frontend", () => {
     expect(
       container.querySelector("[data-preview-source-chip]"),
     ).toHaveTextContent(chip);
+  });
+
+  it.each(["stale", "held"] as const)("waits for an explicit compose click on a %s cut", async (condition) => {
+    vi.useFakeTimers();
+    try {
+      if (condition === "stale") {
+        const project = cloneProject();
+        project.assets.artifact_versions_by_id["final-v1"].stale = true;
+        seedProject(project);
+      } else {
+        seedWithoutFinal();
+        useWorkGraphStore.setState({
+          projectId: "p1",
+          graph: {
+            projectId: "p1", generation: 3, counts: {}, mediaCalls: 0, mediaCallBudget: 20,
+            nodes: [], manualHold: { revision: 1, nodeIds: ["compose:timeline:main"] },
+          },
+        });
+      }
+      const { calls } = installMockFetch(pollRoutes());
+      renderPage();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+      const composeRequests = () => calls.filter((call) => call.method === "POST" && call.url.endsWith("/render"));
+      expect(composeRequests()).toHaveLength(0);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "合成成片" }));
+      });
+      expect(composeRequests()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("auto-composes the final render once all compose elements are ready", async () => {

@@ -10,7 +10,7 @@ import hashlib
 import json
 import os
 import re
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Final, Mapping, Sequence
 
 from services.project_files.model_view import (
     json_bytes,
@@ -987,6 +987,12 @@ def _snapshot_content(content: Any) -> Mapping[str, Any] | None:
         return None
     if not isinstance(content, str):
         return None
+    # Every project view carries a quoted ``etag`` and every ordinary tool
+    # answer does not, so one C-level substring scan replaces parsing the
+    # megabytes of scene reviews and file listings that make up most of a
+    # long history. Nothing that could pass the checks below lacks the key.
+    if '"etag"' not in content:
+        return None
     try:
         payload = json.loads(content)
     except ValueError:
@@ -1181,6 +1187,23 @@ def _render_archived_index(
     )
 
 
+#: Metadata keys a turn keeps through compaction. Everything else on a
+#: durable message is streaming/raw argument diagnostics that belong to
+#: tracing, not context. ``demotedMedia`` stays because a pointer is the only
+#: place a demoted attachment can be found from afterwards.
+_COMPACTION_METADATA_KEYS: Final = frozenset(
+    {
+        "toolName",
+        "tool",
+        "resultKind",
+        "transactionId",
+        "reviewId",
+        "status",
+        DEMOTED_MEDIA_METADATA_KEY,
+    },
+)
+
+
 def plan_history_compaction(
     history: list[dict[str, Any]],
     *,
@@ -1193,56 +1216,111 @@ def plan_history_compaction(
     the dropped slice (via ``render_archived_evidence``) and ask the model for
     a continuation summary before the compacted view is serialized, without
     re-walking the budget by hand and risking drift against it.
+
+    Cost is bounded by the budget, not by the history. Measuring a turn means
+    serializing it, and the field's largest conversation is 640 MB over 3.4k
+    turns: a whole-history measurement holds the GIL for seconds on every
+    model turn, which is the stall the home page used to sit behind. The fit
+    probe stops as soon as the running total passes ``max_bytes``, and the cut
+    is found from the newest end, so turns older than it are never serialized
+    at all -- they are classified from dict fields alone.
     """
     result = deepcopy(history)
-    latest_snapshot: int | None = None
-    for index, item in enumerate(result):
-        # Streaming/raw argument diagnostics belong to tracing, not context.
+    for item in result:
         item["metadata"] = {
             key: value
             for key, value in (item.get("metadata") or {}).items()
-            if key
-            in {
-                "toolName",
-                "tool",
-                "resultKind",
-                "transactionId",
-                "reviewId",
-                "status",
-                # A pointer is the only place a demoted attachment can be
-                # found from, so compaction must not strip it on the way.
-                DEMOTED_MEDIA_METADATA_KEY,
-            }
+            if key in _COMPACTION_METADATA_KEYS
         }
-        for part in item.get("content") or []:
+    # The newest project view must survive, and older views are receipts by
+    # the time they reach here, so the first hit walking from the end is the
+    # one to protect: a history that ends with a snapshot never walks the
+    # rest of itself.
+    latest_snapshot: int | None = None
+    for index in range(len(result) - 1, -1, -1):
+        for part in result[index].get("content") or []:
             if isinstance(part, dict) and _snapshot_content(part.get("text")):
                 latest_snapshot = index
-    if _media_aware_bytes(result, budget_bytes=max_bytes) <= max_bytes and (
-        max_tokens is None or estimate_input_tokens(result) <= max_tokens
-    ):
+                break
+        if latest_snapshot is not None:
+            break
+    total = len(result)
+    # Serialized size and token cost are both plain sums over list items, so
+    # the budget can be walked turn by turn; archiving one turn replaces it
+    # with a ``null`` (four bytes) and leaves the separating commas alone.
+    # Neither measurement is repeated: whatever the probe or the cut looks at
+    # is cached for the other.
+    measured: dict[int, tuple[int, int, int]] = {}
+
+    def measure(index: int) -> tuple[int, int, int]:
+        cached = measured.get(index)
+        if cached is None:
+            item = result[index]
+            cached = (
+                json_bytes(item),
+                _inline_media_relief(item, budget_bytes=max_bytes),
+                0 if max_tokens is None else estimate_input_tokens(item),
+            )
+            measured[index] = cached
+        return cached
+
+    # Prove the whole view fits, stopping the moment it cannot: nothing after
+    # an over-budget running total can bring it back down. A short history
+    # pays the full walk it must pay anyway; a huge one pays one turn of it.
+    spent = 2 + max(total - 1, 0)
+    spent_tokens = 0
+    for index in range(total):
+        item_bytes, relief_bytes, item_tokens = measure(index)
+        spent += item_bytes - relief_bytes
+        spent_tokens += item_tokens
+        if spent > max_bytes or (
+            max_tokens is not None and spent_tokens > max_tokens
+        ):
+            break
+    else:
         return result, []
     # Preserve every human goal/constraint and the newest state. Runtime
     # feedback also uses the user role; retaining every old review would make
     # a long production exceed the hard budget even after all tools are gone.
     # The current request/notification batch is outside this history view.
-    removed = 0
-    archived: list[dict[str, Any]] = []
-    # Relief is a plain sum over list items and an elided slot contributes
-    # zero, so carry it across the loop instead of re-walking every message
-    # on each pass; json_bytes stays the loop's only full traversal, exactly
-    # as it was before inline media entered the budget.
-    relief = _inline_media_relief(result, budget_bytes=max_bytes)
-    for index, item in enumerate(result):
-        human_input = (
+    keeps = [
+        (
             item.get("role") == "user"
             and item.get("source") not in _AUTOMATED_HISTORY_SOURCES
         )
-        if human_input or index == latest_snapshot:
+        or index == latest_snapshot
+        for index, item in enumerate(result)
+    ]
+    archiveable = [index for index in range(total) if not keeps[index]]
+    # The loop this replaces archived the oldest turns in order and stopped
+    # at the first one that would leave the view above ``max_bytes - 256``;
+    # that is exactly the longest suffix that still fits. Walking that suffix
+    # in from the newest end is what keeps the cost bounded, and the null
+    # placeholders the archived prefix leaves behind are carried as overhead.
+    spent = 2 + max(total - 1, 0) + 4 * len(archiveable)
+    spent_tokens = 0
+    for index in range(total):
+        if not keeps[index]:
             continue
-        if json_bytes(result) - relief <= max_bytes - 256 and (
-            max_tokens is None or estimate_input_tokens(result) <= max_tokens
+        item_bytes, relief_bytes, item_tokens = measure(index)
+        spent += item_bytes - relief_bytes
+        spent_tokens += item_tokens
+    for index in reversed(archiveable):
+        item_bytes, relief_bytes, item_tokens = measure(index)
+        kept_bytes = spent + item_bytes - relief_bytes - 4
+        kept_tokens = spent_tokens + item_tokens
+        if kept_bytes > max_bytes - 256 or (
+            max_tokens is not None and kept_tokens > max_tokens
         ):
             break
+        spent = kept_bytes
+        spent_tokens = kept_tokens
+        keeps[index] = True
+    archived: list[dict[str, Any]] = []
+    for index in archiveable:
+        if keeps[index]:
+            continue
+        item = result[index]
         seq = item.get("messageSeq")
         archived.append(
             {
@@ -1252,13 +1330,10 @@ def plan_history_compaction(
                 "content": item.get("content"),
             },
         )
-        result[index] = None
-        relief -= _inline_media_relief(item, budget_bytes=max_bytes)
-        removed += 1
     elision: dict[str, Any] = {
         "role": "system",
         "source": "context_compaction",
-        "elidedMessageCount": removed,
+        "elidedMessageCount": len(archived),
     }
     history_map, seq_lo, seq_hi = _render_archived_index(archived)
     if history_map:
@@ -1272,7 +1347,7 @@ def plan_history_compaction(
         elision["recoverableSeqRange"] = [seq_lo, seq_hi]
     return [
         elision,
-        *(item for item in result if item is not None),
+        *(result[index] for index in range(total) if keeps[index]),
     ], archived
 
 

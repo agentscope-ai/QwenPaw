@@ -19,6 +19,11 @@ from services.file_agent_runtime.work_graph import (
     derive_work_graph,
 )
 from services.project_files.facade import CreatorFileServices
+from services.project_files.agent_tools import (
+    AgentProjectToolContext,
+    AgentProjectToolError,
+    AgentProjectTools,
+)
 from services.project_files.models import (
     ElementLocation,
     Project,
@@ -482,3 +487,107 @@ def test_confirm_current_makes_storyboard_eligible_without_new_image(
         assert service.status(PID, TID, EID)["narrative"] == edited_plan
 
     asyncio.run(run())
+
+
+def _agent_tools(services):
+    return AgentProjectTools(
+        services.projects,
+        context=AgentProjectToolContext(origin="runtime_task"),
+    )
+
+
+def test_agent_confirm_prompt_sync_clears_stage_gate_without_editing_text(
+    services,
+):
+    """An Agent can record "checked, unchanged" instead of re-reading.
+
+    The plan/prompt gate had no Agent-side exit: a narrative edit staled the
+    storyboard stage baseline and only rewriting prompt text could clear it,
+    so the model kept re-reading the same shots until the resume fuse tripped.
+    """
+    asyncio.run(PromptSyncService(services).confirm_current(PID, TID, EID))
+    edit(services, "narrative", UPDATED["narrative"])
+    assert _storyboard_node(services).prompt_sync_required is True
+
+    tools = _agent_tools(services)
+    tools.invoke("read_project", {"projectId": PID})
+    before = services.projects.read(PID)
+    result = tools.invoke(
+        "confirm_prompt_sync",
+        {
+            "projectId": PID,
+            "timelineId": TID,
+            "elementId": EID,
+            "stage": "storyboard",
+            "basis": "叙述已加入台词，分镜提示词已含对应声音意图，无需改写",
+        },
+    )
+
+    assert result["statusBefore"] == "needs_update"
+    assert result["statusAfter"] == "current"
+    assert any(
+        "/creation/prompt_sync/" in pointer
+        for pointer in result["changedPointers"]
+    )
+    after = services.projects.read(PID)
+    assert after.generation == before.generation + 1
+    ready = _storyboard_node(services)
+    assert ready.status is WorkNodeStatus.READY
+    assert ready.prompt_sync_required is False
+    old = before.project.timelines.items[TID].elements_by_id[EID].creation
+    new = after.project.timelines.items[TID].elements_by_id[EID].creation
+    assert (old.narrative, old.storyboard_prompt, old.video_prompt) == (
+        new.narrative,
+        new.storyboard_prompt,
+        new.video_prompt,
+    )
+
+
+def test_agent_confirm_prompt_sync_is_idempotent_and_needs_an_observed_read(
+    services,
+):
+    tools = _agent_tools(services)
+    with pytest.raises(AgentProjectToolError) as unobserved:
+        tools.invoke(
+            "confirm_prompt_sync",
+            {
+                "projectId": PID,
+                "timelineId": TID,
+                "elementId": EID,
+                "basis": "没有读过就确认",
+            },
+        )
+    assert unobserved.value.code == "PROMPT_SYNC_NOT_OBSERVED"
+
+    asyncio.run(PromptSyncService(services).confirm_current(PID, TID, EID))
+    tools.invoke("read_project", {"projectId": PID})
+    before = services.projects.read(PID)
+    result = tools.invoke(
+        "confirm_prompt_sync",
+        {
+            "projectId": PID,
+            "timelineId": TID,
+            "elementId": EID,
+            "stage": "storyboard",
+            "basis": "已核对，分镜与叙述仍然一致",
+        },
+    )
+    # Already aligned: no write, so a repeated confirm cannot inflate history.
+    assert result["changedPointers"] == []
+    assert services.projects.read(PID).generation == before.generation
+
+
+def test_agent_confirm_prompt_sync_refuses_untracked_legacy(services):
+    tools = _agent_tools(services)
+    tools.invoke("read_project", {"projectId": PID})
+    with pytest.raises(AgentProjectToolError) as legacy:
+        tools.invoke(
+            "confirm_prompt_sync",
+            {
+                "projectId": PID,
+                "timelineId": TID,
+                "elementId": EID,
+                "basis": "未建立基线时确认",
+            },
+        )
+    assert legacy.value.code == "PROMPT_SYNC_LEGACY"

@@ -22,7 +22,6 @@ import type {
   TimelineSpanDocument,
 } from "@/contracts/creator";
 import { getArtifactVersionMediaUrl } from "@/api/creator";
-import { renderTimeline } from "@/api/creator/tasks";
 import {
   elementsAtTick,
   groupDisplayTracks,
@@ -160,6 +159,15 @@ export default function TimelineCanvas({
   const patch = useProjectSnapshotStore((state) => state.patch);
   const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
   const commitChain = useRef<Promise<void>>(Promise.resolve());
+  // A compare view mounts two canvases side by side with different
+  // ``durationTick``; their playhead fractions differ every frame. The
+  // rAF clock and the scrub effects used to publish the fraction on
+  // ``document.documentElement``, so both canvases read the last
+  // writer's value and at least one head was misplaced (review #243
+  // important -- r4548690168). Scope the variable to this canvas's own
+  // DOM subtree; descendants inherit via the cascade while siblings
+  // never see each other's writes.
+  const playheadScopeRef = useRef<HTMLElement | null>(null);
   // Undo/redo stacks hold committed edit entries; replays run through the
   // same serialized commit chain. Entries only leave a stack once the
   // replay patch succeeded, so a failed request never loses history.
@@ -379,11 +387,11 @@ export default function TimelineCanvas({
       if (response.editImpact?.regenerationRequired) {
         message.success(t("timeline.timingAppliedRegenRequired"));
       } else if (response.editImpact?.renderTimelineIds.length) {
-        message.success(t("timeline.timingAppliedRecomposing"));
-        // Auto-trigger recompose so the final render stays in sync
-        void renderTimeline(project.project_id, timeline.timeline_id).catch(
-          () => undefined,
-        );
+        // Never compose from here, in any mode: this path only runs because
+        // the user just dragged something, and there is no way to tell when
+        // they are done. Delegated runs still auto-compose, but through the
+        // scheduler on the first unattended pass — not on every edit.
+        message.success(t("timeline.timingAppliedComposeWaiting"));
       } else {
         message.success(t("timeline.timingApplied"));
       }
@@ -683,6 +691,7 @@ export default function TimelineCanvas({
 
   return (
     <section
+      ref={playheadScopeRef}
       data-timeline-panel
       className={
         split
@@ -766,6 +775,7 @@ export default function TimelineCanvas({
               playing={playing}
               muted={muted}
               tasks={tasks}
+              playheadScopeRef={playheadScopeRef}
               onPlayheadChange={onPlayheadChange}
               onPlayingChange={setPlaying}
             />
@@ -1045,6 +1055,7 @@ export default function TimelineCanvas({
           selectedElementId={selectedElementId}
           playbackStates={playbackStates}
           agentWorking={agentWorking.working}
+          playheadScopeRef={playheadScopeRef}
           subtitleToggle={subtitleToggle}
           onPlayheadChange={onPlayheadChange}
           onSelectElement={onSelectElement}

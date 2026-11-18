@@ -8,6 +8,7 @@ export * from "./projects";
 export * from "./scripts";
 export * from "./sessions";
 export * from "./skills";
+export * from "./storage";
 export * from "./tasks";
 export * from "./timelines";
 export * from "./videoTemplates";

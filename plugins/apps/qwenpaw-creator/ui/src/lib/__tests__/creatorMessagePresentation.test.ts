@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { CreatorEvent, CreatorMessage } from "@/contracts/creator";
+import type {
+  CreatorEvent,
+  CreatorMessage,
+  ProjectDocument,
+} from "@/contracts/creator";
 import {
   actionAwareConversationContent,
   actionEnvelopeFromStreamText,
@@ -7,6 +11,7 @@ import {
   deduplicateReviewFeedbackMessages,
   isReviewFeedbackMessage,
   isUserAuthorityMessage,
+  publicAssistantText,
   shouldRenderConversationMessage,
   toolCallPresentations,
 } from "@/lib/creatorMessagePresentation";
@@ -15,6 +20,7 @@ import i18n from "@/i18n";
 import {
   creatorToolLabel,
   getToolRunningLabel,
+  humanizeCreatorRefs,
 } from "@/lib/creatorPresentation";
 
 function creatorMessage(overrides: Partial<CreatorMessage>): CreatorMessage {
@@ -56,6 +62,76 @@ const actionMeta = (tool: string, args: Record<string, unknown>) => ({
 });
 
 describe("Creator conversation presentation", () => {
+  it("resolves only referenced names and updates them with a new project snapshot", async () => {
+    const project = {
+      timelines: {
+        items: {
+          main: {
+            elements_by_id: {
+              "scene-one": { label: "序章" },
+              "scene-unnamed": { label: "scene-unnamed" },
+            },
+          },
+        },
+      },
+      visual: { entities: { items: {} } },
+      assets: {
+        artifact_versions_by_id: new Proxy(
+          {
+            "video-one": { name: "献诏片段" },
+            "video-unnamed": { name: "" },
+          },
+          {
+            ownKeys: () => {
+              throw new Error("Do not enumerate unrelated generated versions");
+            },
+          },
+        ),
+        source_versions_by_id: {},
+      },
+    } as unknown as ProjectDocument;
+    const raw =
+      "检查 scene-one 和 `video-one`，保留《scene-one》和 https://example.com/scene-one。";
+    expect(publicAssistantText(raw, { project })).toBe(
+      "检查 序章 和 献诏片段，保留《scene-one》和 https://example.com/scene-one。",
+    );
+    const renamed = {
+      ...project,
+      timelines: {
+        ...project.timelines,
+        items: {
+          ...project.timelines.items,
+          main: {
+            ...project.timelines.items.main,
+            elements_by_id: {
+              ...project.timelines.items.main.elements_by_id,
+              "scene-one": {
+                ...project.timelines.items.main.elements_by_id["scene-one"],
+                label: "新序章",
+              },
+            },
+          },
+        },
+      },
+    };
+    expect(publicAssistantText("scene-one", { project: renamed })).toBe(
+      "新序章",
+    );
+    expect(publicAssistantText("scene-one", { project })).toBe("序章");
+    const originalLanguage = i18n.language;
+    try {
+      await i18n.changeLanguage("en");
+      expect(humanizeCreatorRefs("scene-unnamed", project)).toBe(
+        i18n.t("presentation.targets.timelineContent"),
+      );
+      expect(publicAssistantText("`video-unnamed`", { project })).toBe(
+        i18n.t("presentation.targets.genResult"),
+      );
+    } finally {
+      await i18n.changeLanguage(originalLanguage);
+    }
+  });
+
   it.each([
     ["AUTHORIZATION_REJECTED", "cancelled"],
     ["AUTHORIZATION_EXPIRED", "not_started"],
@@ -109,6 +185,20 @@ describe("Creator conversation presentation", () => {
       expect(isUserAuthorityMessage(message)).toBe(isUser);
       expect(shouldRenderConversationMessage(message)).toBe(isUser);
     }
+  });
+
+  it("shows execution pause notices without granting user authority", () => {
+    const notice = creatorMessage({
+      role: "assistant",
+      source: "creator_execution_notice",
+      content: text("【自动执行已暂停】项目仍有待处理事项，请检查后继续。"),
+      metadata: { executionPause: { reason: "no_committed_progress" } },
+    });
+    expect(shouldRenderConversationMessage(notice)).toBe(true);
+    expect(isUserAuthorityMessage(notice)).toBe(false);
+    expect(shouldRenderConversationMessage({ ...notice, role: "user" })).toBe(
+      false,
+    );
   });
 
   it("renders one review feedback message per durable decision", () => {

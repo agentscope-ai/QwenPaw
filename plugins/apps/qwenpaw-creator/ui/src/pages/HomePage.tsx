@@ -25,13 +25,16 @@ import {
   listProjects,
   listTasks,
   getArtifactVersionMediaUrl,
+  getStorageProfile,
   CreatorHttpError,
   newClientId,
 } from "@/api/creator";
+import type { ProjectStorageProfile } from "@/api/creator";
 import { useModelConfigStore } from "@/store/modelConfigStore";
 import { useRecreateStore } from "@/store/recreateStore";
 import { useRouter, useSearchParams } from "@/routing/navigation";
 import ModelBadges from "@/components/creator/ModelBadges";
+import StorageReclaimNotice from "@/components/creator/StorageReclaimNotice";
 import ModelConfigModal from "@/components/creator/ModelConfigModal";
 import { SCENARIO_OPTIONS } from "@/components/creator/useProjectLaunch";
 import { creatorStatusLabel } from "@/lib/creatorPresentation";
@@ -54,11 +57,13 @@ import i18n from "@/i18n";
 interface ProjectCardProps {
   project: ProjectSummary;
   hasActiveTasks: boolean;
+  storage?: ProjectStorageProfile;
   onOpen: (id: string) => void;
   onDelete: (project: ProjectSummary) => void;
   onCopy: (project: ProjectSummary) => void;
   onRecreate: (project: ProjectSummary) => void;
   onPreview: (project: ProjectSummary) => void;
+  onReclaimConfirmed: () => void;
   formatDate: (dateStr: string) => string;
 }
 
@@ -87,11 +92,13 @@ function statusDotColor(status: string | null | undefined): string {
 const ProjectCard = memo(function ProjectCard({
   project,
   hasActiveTasks,
+  storage,
   onOpen,
   onDelete,
   onCopy,
   onRecreate,
   onPreview,
+  onReclaimConfirmed,
   formatDate,
 }: ProjectCardProps) {
   const { t } = useTranslation();
@@ -103,6 +110,8 @@ const ProjectCard = memo(function ProjectCard({
     projectScenarioLabel = found ? t(found.labelKey) : project.scenario;
   }
   const canPreview = Boolean(project.finalVideoVersionId);
+  const awaitingReclaim =
+    storage !== undefined && storage.pendingReclaimBytes > 0;
   // When there are active background tasks, override the session status
   // to match the in-project live status display.
   const displayStatus =
@@ -140,6 +149,14 @@ const ProjectCard = memo(function ProjectCard({
         <p className="line-clamp-2 min-h-[36px] text-xs leading-[18px] text-[var(--color-text-tertiary)]">
           {project.description}
         </p>
+        {awaitingReclaim && (
+          <StorageReclaimNotice
+            projectId={project.projectId}
+            projectName={project.name}
+            pendingBytes={storage.pendingReclaimBytes}
+            onConfirmed={onReclaimConfirmed}
+          />
+        )}
       </div>
       <div className="flex flex-col gap-1.5 text-xs leading-[18px] text-[var(--color-text-tertiary)]">
         <div className="flex items-center justify-between gap-2">
@@ -257,6 +274,10 @@ export default function HomePage() {
   const modelConfig = useModelConfigStore((state) => state.config);
   const refreshModelConfig = useModelConfigStore((state) => state.refresh);
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  // Reclaimable bytes are advisory; the project list loads independently.
+  const [storageByProject, setStorageByProject] = useState<
+    Record<string, ProjectStorageProfile>
+  >({});
 
   useEffect(() => {
     void refreshModelConfig();
@@ -267,35 +288,38 @@ export default function HomePage() {
     modelConfig === null ||
     Boolean(modelConfig.llm.enabled && modelConfig.llm.model_name);
 
+  const latestList = useRef(0);
+  const latestStorage = useRef(0);
   const fetchProjects = useCallback(
     async (sort: SortField = sortBy, order: "asc" | "desc" = sortOrder) => {
+      const requestId = ++latestList.current;
       try {
         const data = await listProjects(100, 0, sort, order);
+        if (requestId !== latestList.current) return;
         const projectList = data.items || [];
+        // One response carries both the cards and the "working" badge: the
+        // listing answers hasActiveTask for every Project, so the page renders
+        // as soon as it arrives instead of waiting on a per-Project /tasks
+        // round trip for each card.
         setProjects(projectList);
-        // Fetch tasks for each project to determine if there's active background work.
-        // This ensures the status display matches the in-project live status.
-        const activeTaskProjects = new Set<string>();
-        await Promise.all(
-          projectList.map(async (project) => {
-            try {
-              const tasksData = await listTasks(project.projectId);
-              const hasActiveTask = (tasksData.items || []).some(
-                (task) => task.status === "QUEUED" || task.status === "RUNNING",
-              );
-              if (hasActiveTask) {
-                activeTaskProjects.add(project.projectId);
-              }
-            } catch {
-              // Ignore task fetch errors for individual projects
-            }
-          }),
+        const active = new Set(
+          projectList.filter((project) => project.hasActiveTask).map((project) => project.projectId),
         );
-        setProjectsWithActiveTasks(activeTaskProjects);
+        // A pre-summary server does not return this flag. Only those rows need a task lookup.
+        await Promise.all(projectList.filter((project) => project.hasActiveTask == null).map(async (project) => {
+          try {
+            const tasks = await listTasks(project.projectId);
+            if (tasks.items.some((task) => task.status === "QUEUED" || task.status === "RUNNING"))
+              active.add(project.projectId);
+          } catch {
+            // A failed task lookup must not hide the project card.
+          }
+        }));
+        if (requestId === latestList.current) setProjectsWithActiveTasks(active);
       } catch {
-        message.error(t("home.loadFailed"));
+        if (requestId === latestList.current) message.error(t("home.loadFailed"));
       } finally {
-        setLoading(false);
+        if (requestId === latestList.current) setLoading(false);
       }
     },
     [sortBy, sortOrder, t],
@@ -304,6 +328,39 @@ export default function HomePage() {
   useEffect(() => {
     void fetchProjects();
   }, [fetchProjects]);
+
+  const fetchStorage = useCallback(async () => {
+    const requestId = ++latestStorage.current;
+    try {
+      const profile = await getStorageProfile();
+      if (requestId !== latestStorage.current) return;
+      setStorageByProject(
+        Object.fromEntries(profile.projects.map((row) => [row.projectId, row])),
+      );
+    } catch {
+      // The notice is advisory: a profile failure must not disturb the list.
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchStorage();
+  }, [fetchStorage]);
+
+  // A reclaim can also finish outside this tab (the confirm route from a
+  // script or another tab), and nothing else re-reads the
+  // profile, so coming back to the window refreshes the notice instead of
+  // leaving a button for space that is already gone.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void fetchStorage();
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [fetchStorage]);
 
   // Set which view to display based on a search parameter. Strip the param
   // after consuming it, but bail when it's absent so the strip-induced
@@ -441,16 +498,14 @@ export default function HomePage() {
     (e: React.ChangeEvent<HTMLSelectElement>) => {
       const value = e.target.value as SortField;
       setSortBy(value);
-      fetchProjects(value, sortOrder);
     },
-    [fetchProjects, sortOrder],
+    [],
   );
 
   const handleSortOrderToggle = useCallback(() => {
     const newOrder = sortOrder === "asc" ? "desc" : "asc";
     setSortOrder(newOrder);
-    fetchProjects(sortBy, newOrder);
-  }, [fetchProjects, sortBy, sortOrder]);
+  }, [sortOrder]);
 
   const formatDate = useCallback((dateStr: string) => {
     const date = new Date(dateStr);
@@ -653,13 +708,26 @@ export default function HomePage() {
             </section>
 
             {loading ? (
+              /* Same grid as the real cards, so the list neither reflows when
+                 the response lands nor reads as a dead page: measured, this
+                 region stayed blank for 11-12s under load with a single line
+                 of text, which users read as a hang. */
               <div
                 data-onboarding-id="project-list"
-                className="flex items-center justify-center rounded-lg border border-[#EAE9E7] bg-white py-28 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
+                data-project-skeleton="1"
+                aria-hidden
+                className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
               >
-                <div className="text-sm text-[var(--color-text-secondary)]">
-                  {t("common.loading")}
-                </div>
+                {Array.from({ length: 8 }, (_, index) => (
+                  <div
+                    key={index}
+                    className="animate-pulse rounded-lg border border-[#EAE9E7] bg-white p-4 dark:border-[var(--color-border)] dark:bg-[var(--color-bg-card)]"
+                  >
+                    <div className="mb-3 h-[132px] rounded bg-[var(--color-bg-secondary)]" />
+                    <div className="mb-2 h-4 w-3/4 rounded bg-[var(--color-bg-secondary)]" />
+                    <div className="h-3 w-1/2 rounded bg-[var(--color-bg-secondary)]" />
+                  </div>
+                ))}
               </div>
             ) : projects.length === 0 ? (
               <div
@@ -685,11 +753,13 @@ export default function HomePage() {
                     hasActiveTasks={projectsWithActiveTasks.has(
                       project.projectId,
                     )}
+                    storage={storageByProject[project.projectId]}
                     onOpen={handleOpen}
                     onDelete={handleDelete}
                     onCopy={handleCopy}
                     onRecreate={handleRecreate}
                     onPreview={setPreviewProject}
+                    onReclaimConfirmed={fetchStorage}
                     formatDate={formatDate}
                   />
                 ))}

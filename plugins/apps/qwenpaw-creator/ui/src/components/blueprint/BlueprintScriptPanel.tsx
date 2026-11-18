@@ -436,6 +436,10 @@ export default function BlueprintScriptPanel({
               </span>
               {script.selected.stale && (
                 <span
+                  title={
+                    script.selected.stale_reason ||
+                    t("blueprint.scriptSyncExplanation")
+                  }
                   className={`shrink-0 rounded px-1.5 text-[10px] font-semibold leading-[18px] ${TONE_CHIP.wait}`}
                 >
                   {t("blueprint.scriptStaleChip")}
@@ -469,6 +473,23 @@ export default function BlueprintScriptPanel({
           </button>
         </div>
       </div>
+
+      {script?.selected?.stale && (
+        <div
+          role="status"
+          data-script-sync-notice
+          className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-5 py-3 text-xs leading-relaxed text-[var(--color-text-secondary)]"
+        >
+          <p>{t("blueprint.scriptSyncExplanation")}</p>
+          {script.selected.stale_reason && (
+            <p className="mt-1">
+              {t("blueprint.scriptSyncReason", {
+                reason: script.selected.stale_reason,
+              })}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="blueprint-script-columns grid min-h-0 flex-1">
         <div className="blueprint-script-document min-h-0 overflow-y-auto bg-[var(--color-bg-primary)] px-6 py-5">

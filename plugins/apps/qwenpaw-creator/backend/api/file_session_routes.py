@@ -24,7 +24,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
-from domain.enums import TaskStatus
+from domain.enums import TERMINAL_SPECIALIST_STATUSES, TaskStatus
 from domain.errors import (
     ConflictError,
     NotFoundError,
@@ -46,6 +46,12 @@ from services.file_agent_runtime import (
 )
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.errors import JsonlCorruptionError
+from services.runtime_files.replay_filter import (
+    filter_replay_events,
+    make_replay_noise_line,
+    replay_filter_enabled,
+    replay_result_max_bytes,
+)
 from services.runtime_files.models import (
     MessageChannel,
     MessageClassification,
@@ -65,6 +71,7 @@ from services.runtime_files.session_store import (
     SessionStateConflict,
     SessionStoreError,
 )
+from services.runtime_files.reconciliation import reconcile_terminal_task_runs
 from services.runtime_files.status_projection import build_agent_status_bar
 
 from .dependencies import (
@@ -75,6 +82,11 @@ from .dependencies import (
 from .file_execution_routes import _cancel_task_sync
 
 logger = logging.getLogger("qwenpaw.creator.api.file_session_routes")
+
+# Events scanned when looking for the admission's own ``message.accepted``.
+# Generous next to a single send, bounded next to a session's whole history; a
+# miss still falls back to the full scan.
+_ACCEPTED_EVENT_TAIL_WINDOW = 200
 
 
 def _log_safe(value: Any) -> str:
@@ -134,6 +146,12 @@ def _cancel_active_project_tasks_sync(
         # Process-local workers were synchronously signalled before this
         # detached durable pass. No event-loop notification is needed here.
         _ = cancelled
+
+    # Workers have already been cancelled and may never reach their normal
+    # Run finalizer. Settle the derived execution heads too, including Tasks
+    # cancelled by an earlier stop whose detached cleanup was interrupted.
+    # This only reconciles durable terminal results; it cannot submit work.
+    reconcile_terminal_task_runs(services.root, [project_id])
 
 
 def _cancel_detached_project_tasks(
@@ -244,6 +262,28 @@ def _event_payload(event: SessionEventRecord) -> dict[str, Any]:
         "creatorSessionId": event.creator_session_id,
         "at": event.created_at.isoformat(),
         "data": dict(event.payload),
+    }
+
+
+def _active_specialist_run_ids(
+    services: CreatorFileServices,
+    project_id: str,
+) -> set[str] | None:
+    """Runs still in flight, so their deltas are the only text they have.
+
+    Taken once per connection and deliberately generous: a stale extra id
+    costs a few deltas, a missing one blanks an in-flight message.
+    """
+    try:
+        runs = ProjectExecutionStore(services.root).list_specialist_runs(
+            project_id,
+        )
+    except Exception:  # noqa: BLE001 - preserve the raw replay on uncertainty
+        return None
+    return {
+        run.run_id
+        for run in runs
+        if run.status not in TERMINAL_SPECIALIST_STATUSES
     }
 
 
@@ -364,7 +404,9 @@ async def create_conversation(
                 conversation_id,
             )
             if conversation.title != request.title.strip():
-                raise ConflictError("Idempotency-Key 已用于不同的 Conversation 请求")
+                raise ConflictError(
+                    "Idempotency-Key 已用于不同的 Conversation 请求",
+                )
         except RuntimeConversationNotFound:
             conversation = await asyncio.to_thread(
                 store.create_conversation,
@@ -415,33 +457,41 @@ async def list_messages(
             session.session_id,
             conversation_id,
         )
-        messages = await asyncio.to_thread(
-            store.list_messages,
-            project_id,
-            session.session_id,
-            after_seq=0 if backward else after,
-            limit=None,
-        )
+        # Over-fetch by one so "is there an older/newer page" stays answerable
+        # without reading the whole stream: the cursor reads below stop as soon
+        # as the window is full.
+        if backward:
+            messages = await asyncio.to_thread(
+                store.list_recent_messages,
+                project_id,
+                session.session_id,
+                limit=limit + 1,
+                conversation_id=conversation_id,
+                before_seq=before,
+            )
+        else:
+            messages = await asyncio.to_thread(
+                store.list_messages,
+                project_id,
+                session.session_id,
+                after_seq=after,
+                limit=limit + 1,
+                conversation_id=conversation_id,
+            )
     except BaseException as error:
         _translate_runtime_error(error)
-    matching = [
-        item for item in messages if item.conversation_id == conversation_id
-    ]
-    next_after: int | None = None
-    next_before: int | None = None
-    if backward:
-        older = (
-            matching
-            if before is None
-            else [item for item in matching if item.message_seq < before]
-        )
-        page = older[-limit:]
-        if page and len(older) > limit:
-            next_before = page[0].message_seq
-    else:
-        page = matching[:limit]
-        if len(matching) > limit:
-            next_after = page[-1].message_seq
+    has_more = len(messages) > limit
+    if has_more:
+        # Backward paging wants the newest `limit` of what it read, forward
+        # wants the oldest, and the extra record tells both that more exist.
+        messages = messages[:limit] if not backward else messages[-limit:]
+    page = messages
+    next_after: int | None = (
+        page[-1].message_seq if has_more and not backward and page else None
+    )
+    next_before: int | None = (
+        page[0].message_seq if has_more and backward and page else None
+    )
     return {
         "items": [
             {
@@ -531,22 +581,46 @@ async def post_message(
                 goal_id="goal-" + sha256(key.encode("utf-8")).hexdigest()[:24],
                 metadata={"source": "agentdock"},
             )
-        events = await asyncio.to_thread(
-            store.list_events,
+        # The admission just happened, so its event sits at the durable tail.
+        # Reading the whole stream per message cost the session's full history
+        # (99 MB observed). The full scan remains as an explicit fallback so a
+        # window that was too small can never turn into a duplicate
+        # ``message.accepted`` write.
+        window = await asyncio.to_thread(
+            store.list_recent_events,
             project_id,
             session.session_id,
-            after_seq=0,
-            limit=None,
+            limit=1,
+            event_type="message.accepted",
+            message_id=admitted.message.message_id,
+            max_scan=_ACCEPTED_EVENT_TAIL_WINDOW,
         )
-        event = next(
-            (
-                item
-                for item in events
-                if item.event_type == "message.accepted"
-                and item.message_id == admitted.message.message_id
-            ),
-            None,
-        )
+        event = window[-1] if window else None
+        if event is None:
+            # Exhaustive, but bounded in memory: walk the stream backwards one
+            # record at a time instead of materializing it.  The fallback used
+            # to parse every event the Session ever wrote -- and the send path
+            # runs it per message -- which is exactly what a long session
+            # cannot afford.  The answer is unchanged: a miss here still means
+            # the admission has no ``message.accepted`` anywhere.
+            found = await asyncio.to_thread(
+                store.list_recent_events,
+                project_id,
+                session.session_id,
+                limit=1,
+                event_type="message.accepted",
+                message_id=admitted.message.message_id,
+                max_scan=None,
+            )
+            event = found[-1] if found else None
+            if event is not None:
+                logger.warning(
+                    "message.accepted found beyond the %d-event tail window "
+                    "project=%s message=%s",
+                    _ACCEPTED_EVENT_TAIL_WINDOW,
+                    _log_safe(project_id),
+                    admitted.message.message_id,
+                )
         if event is None:
             event = await asyncio.to_thread(
                 store.append_event,
@@ -624,11 +698,66 @@ async def stream_events(
         _translate_runtime_error(error)
 
     async def body() -> AsyncIterator[str]:
+        # Historical streaming deltas are dropped and oversized tool results
+        # summarized, because the client discards both by design while it
+        # genuinely needs every lifecycle event. See replay_filter's module
+        # docstring for the measured breakdown. The drop also happens inside
+        # the reader: parsing 70,942 deltas only to discard them held the
+        # interpreter for 90+ seconds per replay and starved every other
+        # endpoint in the process.
+        #
+        # Two correctness guards frame the drop.
+        #
+        # * Replay boundary: anything appended after connect is a live
+        #   event and must reach the client (review #243 blocking #1).
+        # * Active-run exemption: deltas belonging to a run that was
+        #   still in flight when this connection opened have no durable
+        #   message yet, so dropping them blanks a partially written
+        #   reply (review #243 P2). The exemption used to live only in
+        #   the post-parse filter, but the byte-level classifier fired
+        #   first and the exempt events never reached it -- a returning
+        #   user still lost the prefix. Computing the active set before
+        #   constructing the reader lets both layers agree on what to
+        #   spare.
+        filter_enabled = replay_filter_enabled()
+        active_run_ids: set[str] = set()
+        if filter_enabled:
+            specialist_ids = await asyncio.to_thread(
+                _active_specialist_run_ids,
+                services,
+                project_id,
+            )
+            if specialist_ids is None:
+                filter_enabled = False
+            else:
+                active_run_ids = specialist_ids
+            # The mainline agent run carries ``agent.message_delta``
+            # events with its own runId, and session.status stays
+            # non-terminal for the whole turn. Terminal states
+            # (IDLE / CANCELLED / ERROR) do clear active_run_id soon
+            # enough that this guard is on the safe side of "too
+            # large": including one extra run means a few extra bytes
+            # on the wire, missing one blanks an in-flight reply.
+            if session.active_run_id is not None and session.status not in {
+                "IDLE",
+                "CANCELLED",
+                "ERROR",
+            }:
+                active_run_ids = active_run_ids | {session.active_run_id}
         reader = store.event_reader(
             project_id,
             session.session_id,
             after_seq=cursor,
+            skip_noise=(
+                make_replay_noise_line(active_run_ids)
+                if filter_enabled
+                else None
+            ),
+            replay_boundary_seq=(
+                session.last_event_seq if filter_enabled else None
+            ),
         )
+        result_max_bytes = replay_result_max_bytes()
         idle_ticks = 0
         while not await request.is_disconnected():
             try:
@@ -651,6 +780,33 @@ async def stream_events(
                 return
             if events:
                 idle_ticks = 0
+                if filter_enabled:
+                    # ``filter_replay_events`` shares skip_noise's scope:
+                    # it drops historical deltas for runs that are not
+                    # currently active, and summarizes oversized tool
+                    # results. Applied past the boundary it would silently
+                    # discard live deltas from a run that started after
+                    # connect -- the same defect review #243 blocking #1
+                    # named for the byte-level filter. Split the batch
+                    # along the replay boundary and only filter the left
+                    # half.
+                    boundary = session.last_event_seq
+                    replayed = [
+                        event
+                        for event in events
+                        if event.event_seq <= boundary
+                    ]
+                    live = [
+                        event for event in events if event.event_seq > boundary
+                    ]
+                    events = (
+                        filter_replay_events(
+                            replayed,
+                            active_run_ids=active_run_ids,
+                            result_max_bytes=result_max_bytes,
+                        )
+                        + live
+                    )
                 for event in events:
                     yield _sse(event)
                 continue

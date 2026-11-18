@@ -31,6 +31,8 @@ from pydantic import (
     model_validator,
 )
 
+from .linear_document import without_empty_extensions
+
 CURRENT_PROJECT_SCHEMA_VERSION = 10
 DEFAULT_TIMELINE_ID = "timeline:main"
 DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
@@ -871,6 +873,10 @@ class R2VCreation(StrictModel):
         default_factory=list,
     )
     video_prompt: str = ""
+    generate_audio: bool = Field(
+        default=True,
+        description="Generate native video audio. Set false for silent footage.",
+    )
     prompt_sync: R2VPromptSync | None = None
     video_reference_version_ids: list[EntityId] = Field(default_factory=list)
 
@@ -917,6 +923,10 @@ class T2VCreation(StrictModel):
     narrative: str = ""
     continuity: str = ""
     video_prompt: str = ""
+    generate_audio: bool = Field(
+        default=True,
+        description="Generate native video audio. Set false for silent footage.",
+    )
     recipe: GenerationRecipe | None = None
 
 
@@ -933,6 +943,10 @@ class I2VCreation(StrictModel):
     continuity: str = ""
     first_frame_version_id: EntityId | None = None
     video_prompt: str = ""
+    generate_audio: bool = Field(
+        default=True,
+        description="Generate native video audio. Set false for silent footage.",
+    )
     recipe: GenerationRecipe | None = None
 
 
@@ -1494,12 +1508,22 @@ def narrative_timeline_ids(project: "Project") -> tuple[str, ...]:
 
 
 class Project(StrictModel):
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_linear_documents(cls, value: Any) -> Any:
+        return (
+            without_empty_extensions(value)
+            if isinstance(value, dict)
+            else value
+        )
+
     schema_version: Literal[10] = CURRENT_PROJECT_SCHEMA_VERSION
     project_id: EntityId
     generation: int = Field(default=0, ge=0)
     created_at: UtcDateTime
     updated_at: UtcDateTime
     name: str = Field(min_length=1)
+    name_source: Literal["user", "auto"] | None = None
     description: str = ""
     scenario: Literal["short_drama", "video_edit", "general"] = "general"
     settings: ProjectSettings = Field(default_factory=ProjectSettings)

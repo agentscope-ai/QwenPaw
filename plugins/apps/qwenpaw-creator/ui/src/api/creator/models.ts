@@ -49,7 +49,8 @@ export function getHostProviders(): Promise<HostProviderInfo[]> {
 }
 
 export function getModelConfig(): Promise<ModelConfigData> {
-  return creatorRequest("/models/config");
+  // Review decisions must use the saved policy, never an HTTP-cached mode.
+  return creatorRequest("/models/config", { cache: "no-store" });
 }
 
 export interface ResolvedModels {
@@ -99,6 +100,8 @@ export interface TtsModelCapability {
   transport: "http" | "websocket";
   systemVoices: string[];
   supportsDesign: boolean;
+  /** Endpoints that actually serve this model. */
+  providers?: string[];
 }
 
 export interface TtsCapabilities {

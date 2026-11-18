@@ -1349,7 +1349,15 @@ def approve(runtime, record):
     )
 
 
-def fake_dispatch(runtime, calls, *, release=None, started=None):
+def fake_dispatch(
+    runtime,
+    calls,
+    *,
+    release=None,
+    started=None,
+    failure=False,
+    raise_after_admission=False,
+):
     async def dispatch(project_id, node, fingerprint, **kwargs):
         snapshot = runtime.services.projects.read(project_id)
         assert kwargs["expected_object_versions"] == (
@@ -1384,8 +1392,97 @@ def fake_dispatch(runtime, calls, *, release=None, started=None):
             project_id,
             task.task_id,
             expected_status=TaskStatus.RUNNING,
-            status=TaskStatus.SUCCEEDED,
+            status=TaskStatus.FAILED if failure else TaskStatus.SUCCEEDED,
+            updates=(
+                {
+                    "error": {
+                        "message": "Output rejected: forbidden HTML tag",
+                        "retryable": False,
+                    },
+                }
+                if failure
+                else None
+            ),
         )
+        if raise_after_admission:
+            error = RuntimeError("Output rejected: forbidden HTML tag")
+            error.creator_task_id = task.task_id
+            raise error
         return SimpleNamespace(task_id=task.task_id)
 
     runtime.work_scheduler.dispatch_node = dispatch
+
+
+@pytest.mark.parametrize("raise_after_admission", [False, True])
+def test_admitted_failure_is_reported_to_agent_with_task_identity(
+    tmp_path,
+    monkeypatch,
+    raise_after_admission,
+):
+    pin(monkeypatch)
+
+    async def scenario():
+        services = create(tmp_path)
+        observed = []
+
+        async def model(messages, _tools):
+            tool_messages = [m for m in messages if m.get("role") == "tool"]
+            if tool_messages:
+                observed.append(json.loads(tool_messages[-1]["content"]))
+                return AgentModelTurn(
+                    content="The generation failed and needs correction.",
+                )
+            return AgentModelTurn(
+                tool_calls=(
+                    AgentToolCall(
+                        call_id="failure-call",
+                        name="request_workgraph_execution",
+                        arguments={
+                            "projectId": "probe-project",
+                            "targetRefs": ["asset:hero"],
+                            "kinds": ["visual"],
+                        },
+                    ),
+                ),
+            )
+
+        runtime = FileCreatorAgentRuntime(
+            services,
+            model_client=CallbackAgentChatClient(model),
+            poll_interval_seconds=0.01,
+        )
+        calls = []
+        fake_dispatch(
+            runtime,
+            calls,
+            failure=True,
+            raise_after_admission=raise_after_admission,
+        )
+        try:
+            await runtime.start()
+            runtime.notify("probe-project")
+            await wait_for(
+                lambda: runtime.executions.list_execution_authorizations(
+                    "probe-project",
+                ),
+            )
+            approve(
+                runtime,
+                runtime.executions.list_execution_authorizations(
+                    "probe-project",
+                )[0],
+            )
+            await wait_for(lambda: observed)
+            await runtime.wait_until_idle("probe-project")
+            item = observed[0]["items"][0]
+            assert item["status"] == "FAILED"
+            assert item["taskId"] == "paid-task-1"
+            assert (
+                item["error"]["message"]
+                == "Output rejected: forbidden HTML tag"
+            )
+            assert len(calls) == 1
+        finally:
+            await runtime.stop()
+
+    asyncio.run(scenario())

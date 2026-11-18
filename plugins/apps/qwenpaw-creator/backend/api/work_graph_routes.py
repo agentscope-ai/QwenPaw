@@ -10,7 +10,8 @@ a person clicking retry is an explicit instruction.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Sequence
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
@@ -23,7 +24,10 @@ from models.config import (
 )
 from services.file_agent_runtime import manual_regeneration_hold
 from services.file_agent_runtime.work_graph import derive_work_graph
-from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
+from services.file_agent_runtime.work_scheduler import (
+    WorkGraphScheduler,
+    _abandoned_queued_targets,
+)
 from services.media_files.call_budget import media_call_count
 from services.project_files.facade import CreatorFileServices
 from services.project_files.store import ProjectNotFound
@@ -145,6 +149,47 @@ async def resume_work_graph(
     return {"ok": True}
 
 
+def _task_admission_detail(
+    tasks: Sequence[Any],
+    target_ref: str | None,
+) -> dict[str, Any]:
+    """Describe the task behind a running node so the caller can tell a real
+    render apart from an admission that no executor ever claimed."""
+
+    if not target_ref:
+        return {}
+    for task in tasks:
+        metadata = getattr(task, "metadata", None) or {}
+        input_refs = getattr(task, "input_refs", None) or []
+        found = str(
+            getattr(task, "target_ref", "")
+            or metadata.get("targetRef")
+            or (input_refs[0] if input_refs else ""),
+        )
+        if found != target_ref:
+            continue
+        updated = getattr(task, "updated_at", None)
+        age = None
+        if isinstance(updated, datetime):
+            age = round(
+                (datetime.now(UTC) - updated).total_seconds(),
+                1,
+            )
+        return {
+            "taskId": getattr(task, "task_id", None),
+            "taskStatus": getattr(
+                getattr(task, "status", None),
+                "value",
+                None,
+            ),
+            "lastAttemptSeq": int(
+                getattr(task, "last_attempt_seq", 0) or 0,
+            ),
+            "ageSeconds": age,
+        }
+    return {}
+
+
 @router.post("/work-graph/nodes/{node_id:path}/dispatch")
 async def dispatch_work_graph_node(
     project_id: str,
@@ -174,7 +219,10 @@ async def dispatch_work_graph_node(
         raise NotFoundError(f"work-graph 节点不存在: {node_id}")
     if node.command is None:
         raise ValidationError(f"节点 {node_id} 不支持直接派发")
-    if node.status.value == "running":
+    if (
+        node.status.value == "running"
+        and node.target_ref not in _abandoned_queued_targets(tasks)
+    ):
         # An in-flight execution is provider spend already committed; the
         # click races the run instead of authorizing a second one.
         return {
@@ -182,6 +230,12 @@ async def dispatch_work_graph_node(
             "nodeId": node_id,
             "status": node.status.value,
             "dispatched": False,
+            "reason": (
+                "already_running"
+                if node.status.value == "running"
+                else "already_done"
+            ),
+            **_task_admission_detail(tasks, node.target_ref),
         }
     if node.missing:
         raise ValidationError(

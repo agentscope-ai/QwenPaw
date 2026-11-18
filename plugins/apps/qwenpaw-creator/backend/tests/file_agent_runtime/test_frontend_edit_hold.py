@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 """Frontend auto-save grace: edited elements are not auto-dispatched."""
+
 from __future__ import annotations
 
 import asyncio
@@ -119,7 +120,7 @@ def _scheduler_env(
     monkeypatch.setattr(
         work_scheduler,
         "derive_work_graph",
-        lambda project, tasks=(), *, media_models=None: _element_graph(),
+        lambda *args, **kwargs: _element_graph(),
     )
     dispatch = _RecordingDispatch()
     scheduler = WorkGraphScheduler(services, image_dispatch=dispatch)

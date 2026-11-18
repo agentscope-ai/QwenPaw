@@ -14,6 +14,8 @@ import type {
   WorkGraphNode,
   WorkNodeStatus,
 } from "@/contracts/creator/workGraph";
+import type { TaskView } from "@/contracts/creator/tasks";
+import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { navigateToLocator } from "@/routing/locators";
 import { creatorWorkNodeLabel } from "@/lib/creatorPresentation";
 import { taskProgressPercent } from "@/lib/taskPresentation";
@@ -216,6 +218,65 @@ export default function WorkGraphPanel({ projectId }: { projectId: string }) {
           <NodeRow key={node.id} node={node} projectId={projectId} />
         ))}
       </ul>
+    </div>
+  );
+}
+
+const STRANDED_ADMISSION_MS = 15 * 60 * 1000;
+const NO_TASKS: TaskView[] = [];
+
+/**
+ * A node can read as "running" while its task was admitted but never claimed
+ * by an executor (field case 2026-11-06: 69 hours behind a queue label). The
+ * queue copy is then a lie, so name the state and offer the manual dispatch
+ * gate, which reuses the durable idempotency slot instead of paying twice.
+ */
+export function WorkGraphStrandedNotice({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
+  const graph = useWorkGraphStore((state) =>
+    state.projectId === projectId ? state.graph : null,
+  );
+  const tasks = useCreatorTaskViewStore((state) =>
+    state.projectId === projectId ? state.tasks : NO_TASKS,
+  );
+  const dispatchNode = useWorkGraphStore((state) => state.dispatchNode);
+  const dispatching = useWorkGraphStore((state) => state.dispatching);
+  const now = Date.now();
+  const stranded = (graph?.nodes ?? []).filter((node) => {
+    if (node.status !== "running" || !node.taskId) return false;
+    const task = tasks.find((item) => item.id === node.taskId);
+    if (!task || task.status !== "QUEUED") return false;
+    if (task.lastAttemptSeq !== 0) return false;
+    const updated = Date.parse(task.updatedAt ?? "");
+    return Number.isFinite(updated) && now - updated > STRANDED_ADMISSION_MS;
+  });
+  if (stranded.length === 0) return null;
+  return (
+    <div className="shrink-0 border-t border-[var(--color-border)] px-3 py-2 text-[11px]">
+      <div role="status" className="flex flex-wrap items-center gap-1.5">
+        <AlertCircle
+          aria-hidden
+          className="h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]"
+        />
+        <span className="flex-1 text-[var(--color-text-secondary)]">
+          {t("workGraph.strandedAdmission", { count: stranded.length })}
+        </span>
+        {stranded.slice(0, 3).map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            className="agent-work-action disabled:cursor-wait disabled:opacity-50"
+            disabled={Boolean(dispatching[node.id])}
+            onClick={() =>
+              void dispatchNode(projectId, node.id).catch(() =>
+                message.error(t("agentActivity.failureHint")),
+              )
+            }
+          >
+            {t("workGraph.strandedResubmit")}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

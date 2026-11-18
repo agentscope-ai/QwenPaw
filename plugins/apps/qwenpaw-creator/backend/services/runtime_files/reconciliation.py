@@ -11,6 +11,7 @@ replays provider work or changes a Task result.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -44,6 +45,18 @@ _SUCCESS_BRIDGE_STATUSES = frozenset(
     },
 )
 
+# Admission states whose Run can never be dispatched again once the process
+# that admitted it is gone.  WAITING_AUTHORIZATION is deliberately absent: a
+# person may still approve that Run in a later session.
+_ORPHANED_QUEUED_STATUSES = frozenset(
+    {
+        SpecialistRunStatus.QUEUED,
+        SpecialistRunStatus.QUEUED_CAPACITY,
+        SpecialistRunStatus.WAITING_RUNTIME,
+    },
+)
+ORPHANED_QUEUED_RUN_GRACE = timedelta(minutes=5)
+
 
 @dataclass(frozen=True, slots=True)
 class TerminalTaskRunReconciliationReport:
@@ -54,6 +67,16 @@ class TerminalTaskRunReconciliationReport:
     @property
     def repaired_count(self) -> int:
         return len(self.repaired_run_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanedQueuedRunReport:
+    scanned_projects: tuple[str, ...]
+    cancelled_run_ids: tuple[str, ...]
+
+    @property
+    def cancelled_count(self) -> int:
+        return len(self.cancelled_run_ids)
 
 
 def _text_from_mapping(value: Mapping[str, Any] | None) -> str | None:
@@ -172,7 +195,72 @@ def reconcile_terminal_task_runs(
     )
 
 
+def reconcile_orphaned_queued_runs(
+    data_root: str | Path,
+    project_ids: Sequence[str],
+    *,
+    now: datetime | None = None,
+    grace: timedelta = ORPHANED_QUEUED_RUN_GRACE,
+) -> OrphanedQueuedRunReport:
+    """Fail enqueued Runs no executor can ever pick up again.
+
+    A Run head is admitted before its Task.  A process that dies in that
+    window leaves a QUEUED Run with no Task behind, and only R2V video Runs
+    carry the stable identity needed to rebuild the missing Task at the next
+    boot (see the admission-gap recovery, which runs first and either rebuilds
+    or fails those).  Every other orphan would sit in the progress projection
+    as "waiting" forever: nothing alive can dispatch it, and nothing alive
+    will ever terminalize it.  CANCELLED, not FAILED: no attempt was made, so
+    nothing failed -- recovery simply stops pretending it will run.
+
+    Runs younger than ``grace`` are left alone so a restart loop cannot reap
+    an admission whose Task write is merely slow.
+    """
+
+    moment = now or datetime.now(UTC)
+    executions = ProjectExecutionStore(Path(data_root))
+    normalized_projects = tuple(sorted(dict.fromkeys(project_ids)))
+    cancelled: list[str] = []
+    for project_id in normalized_projects:
+        claimed = {
+            task.run_id
+            for task in executions.list_tasks(project_id)
+            if task.run_id
+        }
+        for run in executions.list_specialist_runs(project_id):
+            if run.status not in _ORPHANED_QUEUED_STATUSES:
+                continue
+            if run.run_id in claimed:
+                continue
+            if moment - run.updated_at < grace:
+                continue
+            try:
+                executions.transition_run(
+                    project_id,
+                    run.run_id,
+                    expected_status=run.status,
+                    status=SpecialistRunStatus.CANCELLED,
+                    updates={
+                        "final_marker": "CANCELLED",
+                        "final_summary_text": (
+                            "ORPHANED_QUEUED_RUN: the process that admitted "
+                            "this Run ended before its Task existed; no "
+                            "executor can dispatch it"
+                        ),
+                    },
+                )
+            except ExecutionStateConflict:
+                continue
+            cancelled.append(run.run_id)
+    return OrphanedQueuedRunReport(
+        scanned_projects=normalized_projects,
+        cancelled_run_ids=tuple(cancelled),
+    )
+
+
 __all__ = [
+    "OrphanedQueuedRunReport",
     "TerminalTaskRunReconciliationReport",
+    "reconcile_orphaned_queued_runs",
     "reconcile_terminal_task_runs",
 ]

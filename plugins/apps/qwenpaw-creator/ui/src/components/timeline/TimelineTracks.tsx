@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import type { ComponentType, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { message, Tooltip } from "antd";
@@ -44,6 +52,8 @@ import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useOnboardingStore } from "@/store/onboardingStore";
+import { PLAYHEAD_FRACTION_VARIABLE } from "./TimelineLivePreview";
+import { transitionsByEndpoint } from "@/lib/timelineEditing";
 
 interface TimelineSelection {
   startTick: number;
@@ -79,6 +89,13 @@ interface TimelineTracksProps {
   selectedElementId: string | null;
   playbackStates: Map<string, ElementPlaybackStatus>;
   agentWorking: boolean;
+  /**
+   * DOM subtree that owns this canvas's ``--creator-playhead-frac``.
+   * See ``TimelineLivePreview``'s prop of the same name -- the compare
+   * view writes from two rAF clocks, and publishing on documentElement
+   * made the second Canvas stomp the first (review #243 r4548690168).
+   */
+  playheadScopeRef?: RefObject<HTMLElement | null>;
   /** Present only when the timeline has subtitles to switch. */
   subtitleToggle?: SubtitleBatchToggle;
   onPlayheadChange: (tick: number) => void;
@@ -269,6 +286,7 @@ export default function TimelineTracks({
   selectedElementId,
   playbackStates,
   agentWorking,
+  playheadScopeRef,
   subtitleToggle,
   onPlayheadChange,
   onSelectElement,
@@ -316,6 +334,10 @@ export default function TimelineTracks({
   // effective timeline at render time.
   const { tracks, junctions } = useMemo(
     () => groupDisplayTracks(authorityTimeline),
+    [authorityTimeline],
+  );
+  const transitionIndex = useMemo(
+    () => transitionsByEndpoint(authorityTimeline),
     [authorityTimeline],
   );
   const liveElement = (element: TimelineElementDocument) =>
@@ -634,7 +656,11 @@ export default function TimelineTracks({
     const primary: SpanChange[] = [
       { elementId: drag.elementId, span: result.span },
     ];
-    const follow = transitionFollowChanges(authorityTimeline, primary);
+    const follow = transitionFollowChanges(
+      authorityTimeline,
+      primary,
+      transitionIndex,
+    );
     drag.valid = follow.ok;
     drag.lastChanges = follow.ok ? [...primary, ...follow.changes] : primary;
     const overrides = new Map<string, TimelineSpanDocument>();
@@ -671,6 +697,7 @@ export default function TimelineTracks({
       const follow = transitionFollowChanges(
         authorityTimeline,
         drag.lastChanges.slice(0, 1),
+        transitionIndex,
       );
       message.warning(
         follow.ok === false ? follow.reason : t("timeline.adjustmentFailed"),
@@ -850,12 +877,125 @@ export default function TimelineTracks({
 
   const playheadFraction = percent(playheadTick, timelineDuration) / 100;
 
+  // Scrubbing and paused seeks arrive through React state while the rAF clock
+  // writes this same variable every frame. Both paths publish the same value,
+  // so the playhead can never disagree with the committed tick. The write is
+  // scoped to this canvas's DOM subtree (falling back to documentElement for
+  // a test that mounts the tracks alone), so a sibling Canvas with a
+  // different durationTick cannot stomp this playhead in a compare view
+  // (review #243 r4548690168).
+  useEffect(() => {
+    (playheadScopeRef?.current ?? document.documentElement).style.setProperty(
+      PLAYHEAD_FRACTION_VARIABLE,
+      playheadFraction.toFixed(6),
+    );
+  }, [playheadFraction, playheadScopeRef]);
+
+  // Ruler ticks and grid lines depend only on the zoom/duration-derived tick
+  // list, not on the playhead or drag state. Memoizing the elements keeps React
+  // from re-creating 41 nodes on every pointermove frame: identical element
+  // references bail out of reconciliation.
+  const scaleTicks = useMemo(
+    () =>
+      scale.ticks.map(({ tick, major }) => (
+        <span
+          key={tick}
+          data-timeline-scale-tick
+          data-major={major ? "true" : "false"}
+          aria-hidden={!major}
+          className="absolute inset-y-0"
+          style={{ left: `${percent(tick, timelineDuration)}%` }}
+        >
+          <i
+            className={`absolute bottom-0 left-0 w-px ${
+              major
+                ? "top-0 bg-[var(--color-border)]"
+                : "h-1.5 bg-[var(--color-border)]/80"
+            }`}
+          />
+          {major && (
+            <b
+              className="absolute top-[3px] whitespace-nowrap text-[9px] font-medium text-[var(--color-text-tertiary)]"
+              style={tick >= timelineDuration ? { right: 4 } : { left: 4 }}
+            >
+              {seconds(tick, timeline.ticks_per_second)}s
+            </b>
+          )}
+        </span>
+      )),
+    [scale.ticks, timelineDuration, timeline.ticks_per_second],
+  );
+  const gridLines = useMemo(
+    () =>
+      scale.ticks
+        .filter(
+          ({ major, tick }) => major && tick > 0 && tick < timelineDuration,
+        )
+        .map(({ tick }) => (
+          <i
+            key={tick}
+            className="absolute inset-y-0 w-px bg-[var(--color-border)]/45"
+            style={{ left: `${percent(tick, timelineDuration)}%` }}
+          />
+        )),
+    [scale.ticks, timelineDuration],
+  );
+
+  // Per-block values a drag never changes: visual meta, track class, the
+  // striped/gradient background string and the tooltip text (which costs
+  // several i18n calls). Building them for all 64 blocks on every pointermove
+  // frame was the bulk of the drag cost; now a frame is one map lookup per
+  // block, and only the dragged block's seconds prefix differs.
+  const computeBlockStatics = useCallback(
+    (element: TimelineElementDocument) => {
+      const meta = resolveElementVisualMeta(element);
+      const trackType = classifyElementTrack(element);
+      const isTransition = element.creation.type === "transition";
+      const striped = trackType !== null && STRIPED_TRACKS.has(trackType);
+      const playbackState = playbackStates.get(element.element_id) ?? "pending";
+      return {
+        meta,
+        trackType,
+        striped,
+        isTransition,
+        background: isTransition
+          ? meta.soft
+          : striped
+          ? `repeating-linear-gradient(135deg, ${meta.color}17 0 6px, transparent 6px 12px), ${meta.soft}`
+          : `linear-gradient(135deg, ${meta.color}1f, transparent 44%), ${meta.soft}`,
+        tooltip: `${element.label || t("timeline.timelineContent")} · ${seconds(
+          element.span.start_tick,
+          authorityTimeline.ticks_per_second,
+        )}s – ${seconds(
+          element.span.start_tick + element.span.duration_tick,
+          authorityTimeline.ticks_per_second,
+        )}s${
+          playbackState === "ready"
+            ? ""
+            : ` · ${i18n.t(ELEMENT_PLAYBACK_STATUS_LABEL[playbackState])}`
+        }${editable ? t("timeline.draggableHint") : ""}`,
+      };
+    },
+    [authorityTimeline, playbackStates, editable, t, i18n.language],
+  );
+  const blockStatics = useMemo(
+    () =>
+      new Map(
+        Object.values(authorityTimeline.elements_by_id).map((element) => [
+          element.element_id,
+          computeBlockStatics(element),
+        ]),
+      ),
+    [authorityTimeline, computeBlockStatics],
+  );
+
   const renderBlock = (laneElement: TimelineElementDocument) => {
     // Skeleton element comes from the authoritative lanes; spans render from
     // the effective timeline so in-flight drags stay visually live.
     const element = liveElement(laneElement);
-    const meta = resolveElementVisualMeta(element);
-    const trackType = classifyElementTrack(element);
+    const statics =
+      blockStatics.get(element.element_id) ?? computeBlockStatics(element);
+    const { meta, trackType, striped, isTransition } = statics;
     const playbackState = playbackStates.get(element.element_id) ?? "pending";
     const displayBox = displaySpanByElementId.get(element.element_id) ?? {
       startTick: element.span.start_tick,
@@ -869,31 +1009,15 @@ export default function TimelineTracks({
     const selected = element.element_id === selectedElementId;
     // Orphan transitions (dangling from/to) still render as narrow blocks; a
     // crossed-triangle glyph replaces the clipped two-line text.
-    const isTransition = element.creation.type === "transition";
     const dragging = blockDrag.current?.elementId === element.element_id;
-    const striped = trackType !== null && STRIPED_TRACKS.has(trackType);
-    const blockBackground = isTransition
-      ? meta.soft
-      : striped
-      ? `repeating-linear-gradient(135deg, ${meta.color}17 0 6px, transparent 6px 12px), ${meta.soft}`
-      : `linear-gradient(135deg, ${meta.color}1f, transparent 44%), ${meta.soft}`;
+    const blockBackground = statics.background;
     return (
       <button
         key={element.element_id}
         type="button"
         data-element-block={element.element_id}
         data-element-block-state={playbackState}
-        title={`${element.label || t("timeline.timelineContent")} · ${seconds(
-          element.span.start_tick,
-          timeline.ticks_per_second,
-        )}s – ${seconds(
-          element.span.start_tick + element.span.duration_tick,
-          timeline.ticks_per_second,
-        )}s${
-          playbackState === "ready"
-            ? ""
-            : ` · ${i18n.t(ELEMENT_PLAYBACK_STATUS_LABEL[playbackState])}`
-        }${editable ? t("timeline.draggableHint") : ""}`}
+        title={statics.tooltip}
         onPointerDown={(event) => {
           const trim = (event.target as HTMLElement)
             .closest("[data-element-trim]")
@@ -1066,34 +1190,7 @@ export default function TimelineTracks({
                 onPointerCancel={endRulerScrub}
                 className="relative min-w-0 flex-1 cursor-ew-resize touch-none bg-[var(--color-bg-primary)]"
               >
-                {scale.ticks.map(({ tick, major }) => (
-                  <span
-                    key={tick}
-                    data-timeline-scale-tick
-                    data-major={major ? "true" : "false"}
-                    aria-hidden={!major}
-                    className="absolute inset-y-0"
-                    style={{ left: `${percent(tick, timelineDuration)}%` }}
-                  >
-                    <i
-                      className={`absolute bottom-0 left-0 w-px ${
-                        major
-                          ? "top-0 bg-[var(--color-border)]"
-                          : "h-1.5 bg-[var(--color-border)]/80"
-                      }`}
-                    />
-                    {major && (
-                      <b
-                        className="absolute top-[3px] whitespace-nowrap text-[9px] font-medium text-[var(--color-text-tertiary)]"
-                        style={
-                          tick >= timelineDuration ? { right: 4 } : { left: 4 }
-                        }
-                      >
-                        {seconds(tick, timeline.ticks_per_second)}s
-                      </b>
-                    )}
-                  </span>
-                ))}
+                {scaleTicks}
               </div>
             </div>
             <div
@@ -1101,18 +1198,7 @@ export default function TimelineTracks({
               data-timeline-grid
               className="pointer-events-none absolute inset-y-0 left-[68px] right-0 top-7 z-0"
             >
-              {scale.ticks
-                .filter(
-                  ({ major, tick }) =>
-                    major && tick > 0 && tick < timelineDuration,
-                )
-                .map(({ tick }) => (
-                  <i
-                    key={tick}
-                    className="absolute inset-y-0 w-px bg-[var(--color-border)]/45"
-                    style={{ left: `${percent(tick, timelineDuration)}%` }}
-                  />
-                ))}
+              {gridLines}
             </div>
             {collapsed ? (
               <div className="relative flex h-8 border-b border-[var(--color-border)]/65">
@@ -1376,7 +1462,10 @@ export default function TimelineTracks({
               data-timeline-playhead
               className="pointer-events-none absolute bottom-0 top-0 z-[22] w-0 -translate-x-1/2 border-l-2 border-[var(--color-accent)] drop-shadow-[0_0_3px_var(--color-accent)]"
               style={{
-                left: `calc(68px + (100% - 68px) * ${playheadFraction})`,
+                left: `calc(68px + (100% - 68px) * var(
+                  ${PLAYHEAD_FRACTION_VARIABLE},
+                  ${playheadFraction},
+                ))`,
               }}
             >
               {/* -1px keeps the cap centered on the 2px border line. */}

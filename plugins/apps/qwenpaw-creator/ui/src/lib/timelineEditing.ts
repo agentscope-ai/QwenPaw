@@ -269,16 +269,45 @@ export function resolveSpanDrag(options: {
  * inside the new from/to overlap. Returns the extra span changes needed, or a
  * veto when a transition would lose its overlap entirely.
  */
+/** Index transitions by each of their endpoint ids.
+ *
+ * A drag can only move the transitions attached to the dragged element, so the
+ * index turns the per-pointermove scan of every element into a lookup. Without
+ * it, dragging one block re-walks the whole timeline on every frame.
+ */
+export function transitionsByEndpoint(
+  timeline: TimelineDocument,
+): Map<string, TimelineElementDocument[]> {
+  const index = new Map<string, TimelineElementDocument[]>();
+  for (const element of Object.values(timeline.elements_by_id)) {
+    if (element.creation.type !== "transition" || !element.enabled) continue;
+    const { from_element_id: fromId, to_element_id: toId } = element.creation;
+    for (const id of [fromId, toId]) {
+      if (!id) continue;
+      const bucket = index.get(id);
+      if (bucket) bucket.push(element);
+      else index.set(id, [element]);
+    }
+  }
+  return index;
+}
+
 export function transitionFollowChanges(
   timeline: TimelineDocument,
   primaryChanges: SpanChange[],
+  endpointIndex?: Map<string, TimelineElementDocument[]>,
 ): TransitionFollowResult {
   const overrides = new Map<string, TimelineSpanDocument>(
     primaryChanges.map((change) => [change.elementId, change.span]),
   );
   const changedIds = new Set(primaryChanges.map((change) => change.elementId));
   const followups: SpanChange[] = [];
-  for (const element of Object.values(timeline.elements_by_id)) {
+  // With an index, only transitions touching a changed element are revisited;
+  // a transition whose from and to both moved appears once.
+  const candidates: TimelineElementDocument[] = endpointIndex
+    ? [...new Set([...changedIds].flatMap((id) => endpointIndex.get(id) ?? []))]
+    : Object.values(timeline.elements_by_id);
+  for (const element of candidates) {
     if (element.creation.type !== "transition" || !element.enabled) continue;
     if (changedIds.has(element.element_id)) continue;
     const { from_element_id: fromId, to_element_id: toId } = element.creation;

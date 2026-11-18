@@ -1,4 +1,4 @@
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import BlueprintRoughCutStrip from "@/components/blueprint/BlueprintRoughCutStrip";
 import { projectDocument } from "@/test/creatorFixtures";
@@ -24,6 +24,67 @@ function renderStrip(project: ProjectDocument) {
     <BlueprintRoughCutStrip project={project} onSelectTimeline={vi.fn()} />,
   );
 }
+
+it("loads only visible video thumbnails and releases them when scrolled away", () => {
+  const observers: {
+    callback: IntersectionObserverCallback;
+    target?: Element;
+    disconnect: ReturnType<typeof vi.fn<() => void>>;
+  }[] = [];
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      record: (typeof observers)[number];
+      constructor(callback: IntersectionObserverCallback) {
+        this.record = { callback, disconnect: vi.fn() };
+        observers.push(this.record);
+      }
+      observe(target: Element) {
+        this.record.target = target;
+      }
+      disconnect() {
+        this.record.disconnect();
+      }
+    },
+  );
+
+  try {
+    const { container, unmount } = renderStrip(cloneProject());
+    expect(observers.length).toBeGreaterThan(1);
+    expect(container.querySelectorAll("video")).toHaveLength(0);
+    const first = observers[0];
+    const intersect = (visible: boolean) =>
+      act(() =>
+        first.callback(
+          [
+            { isIntersecting: visible, target: first.target },
+          ] as IntersectionObserverEntry[],
+          {} as IntersectionObserver,
+        ),
+      );
+
+    intersect(true);
+    expect(container.querySelectorAll("video")).toHaveLength(1);
+    const originalSrc = container.querySelector("video")!.getAttribute("src");
+    expect(originalSrc).toMatch(/\/media\/(assets|artifacts)\//);
+
+    intersect(false);
+    expect(container.querySelectorAll("video")).toHaveLength(0);
+    intersect(true);
+    expect(container.querySelector("video")!.getAttribute("src")).toBe(
+      originalSrc,
+    );
+
+    unmount();
+    expect(
+      observers.every(
+        (observer) => observer.disconnect.mock.calls.length === 1,
+      ),
+    ).toBe(true);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
 
 describe("BlueprintRoughCutStrip whole-film preview", () => {
   it("offers no whole-film chip before a final_video is composed", () => {

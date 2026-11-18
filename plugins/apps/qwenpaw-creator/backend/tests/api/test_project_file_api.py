@@ -101,8 +101,26 @@ def test_video_selection_patch_accepts_history_and_only_invalidates_compose(
     run_scenario,
     already_selected,
     final_already_stale,
+    monkeypatch,
 ):
     from services.file_agent_runtime.work_graph import derive_work_graph
+    from models import config as models_config
+
+    # Default execution mode is co-creation, under which this PR's
+    # "compose stale does not auto-recompose" change makes the derived
+    # node STALE rather than READY. The delegated branch is asserted
+    # below as a second case; pinning the mode here keeps the test
+    # independent of the operator's stored config.
+    monkeypatch.setattr(
+        models_config,
+        "get_execution_mode",
+        lambda: models_config.EXECUTION_MODE_CO_CREATION,
+    )
+    monkeypatch.setattr(
+        models_config,
+        "get_creation_checkpoint_mode",
+        lambda: models_config.CREATION_CHECKPOINT_REQUIRED,
+    )
 
     project = Project.new(project_id="project-1", name="Selected video")
     document = project.model_dump(mode="json")
@@ -215,12 +233,149 @@ def test_video_selection_patch_accepts_history_and_only_invalidates_compose(
     assert saved.assets.artifact_versions_by_id["final"].stale
     graph = derive_work_graph(saved)
     assert graph.by_id["video:clip"].status.value == "done"
-    assert graph.by_id["compose:timeline:main"].status.value == "ready"
+    # Review #243 blocking #4: co-creation keeps the superseded final
+    # cut as STALE so a re-render only happens when the user presses
+    # "成片" (the field incident that motivated this change auto-fired
+    # five renders in five minutes and threw four away). Delegated
+    # runs still auto-compose; that branch is covered below.
+    assert graph.by_id["compose:timeline:main"].status.value == "stale"
     assert not response.json()["editImpact"]["regenerationRequired"]
     assert response.json()["editImpact"]["renderTimelineIds"] == [
         "timeline:main",
     ]
     assert response.json()["editImpact"]["affectedElementIds"] == ["clip"]
+
+
+def test_delegated_compose_stays_ready_after_a_superseded_final(
+    tmp_path,
+    run_scenario,
+    monkeypatch,
+) -> None:
+    """Delegated (YOLO) keeps auto-compose, only co-creation pauses.
+
+    Same patch as the co-creation case; the difference is the mode.
+    Without this second case the STALE branch could silently be applied
+    to YOLO runs too, and the whole point of delegated mode --
+    unattended delivery to the final cut -- would quietly disappear.
+    """
+
+    from models import config as models_config
+    from services.file_agent_runtime.work_graph import derive_work_graph
+
+    monkeypatch.setattr(
+        models_config,
+        "get_creation_checkpoint_mode",
+        lambda: models_config.CREATION_CHECKPOINT_SKIP,
+    )
+    monkeypatch.setattr(
+        models_config,
+        "get_execution_mode",
+        lambda: models_config.EXECUTION_MODE_DELEGATED,
+    )
+
+    project = Project.new(project_id="project-1", name="Delegated compose")
+    document = project.model_dump(mode="json")
+    document["timelines"]["items"]["timeline:main"]["elements_by_id"] = {
+        "clip": {
+            "element_id": "clip",
+            "label": "Clip",
+            "span": {"start_tick": 0, "duration_tick": 4000},
+            "location": {},
+            "creation": {"type": "t2v", "video_prompt": "Current prompt"},
+            "outputs": {"main": {"slot_id": "element:clip:main"}},
+            "render_source": {
+                "type": "element_output",
+                "element_id": "clip",
+                "output_name": "main",
+            },
+        },
+    }
+    assets = document["assets"]
+    for kind, owner, slot_id, versions, current in (
+        (
+            "element_video",
+            "element:clip",
+            "element:clip:main",
+            ["old", "new"],
+            "new",
+        ),
+        (
+            "final_video",
+            "timeline:timeline:main",
+            "timeline:timeline:main:render",
+            ["final"],
+            "final",
+        ),
+    ):
+        assets["artifact_slots_by_id"][slot_id] = {
+            "slot_id": slot_id,
+            "kind": kind,
+            "owner_ref": owner,
+            "version_ids": versions,
+            "selected_version_id": current,
+        }
+        for version_id in versions:
+            checksum = hashlib.sha256(version_id.encode()).hexdigest()
+            assets["files_by_id"][version_id] = {
+                "file_id": version_id,
+                "kind": "artifact_payload",
+                "relative_uri": f"assets/{version_id}.mp4",
+                "sha256": checksum,
+                "size_bytes": len(version_id),
+                "media_type": "video/mp4",
+                "created_at": "2026-09-17T00:00:00Z",
+            }
+            assets["artifact_versions_by_id"][version_id] = {
+                "version_id": version_id,
+                "name": version_id,
+                "slot_id": slot_id,
+                "kind": kind,
+                "owner_ref": owner,
+                "file_id": version_id,
+                "checksum": checksum,
+                "based_on_generation": 0,
+                "stale": version_id == "old",
+                "stale_reason": "Old inputs" if version_id == "old" else None,
+                "created_at": "2026-09-17T00:00:00Z",
+            }
+
+    def initialize(root):
+        (root / "assets").mkdir(exist_ok=True)
+        for version_id in ("old", "new", "final"):
+            (root / f"assets/{version_id}.mp4").write_bytes(
+                version_id.encode(),
+            )
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    base = services.projects.create(
+        Project.model_validate(document),
+        initialize_staged_project=initialize,
+    )
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+    app.dependency_overrides[project_file_services] = lambda: services
+    payload = _patch_payload(
+        "choose-history",
+        "old",
+        base,
+        path=(
+            "/assets/artifact_slots_by_id/element:clip:main/"
+            "selected_version_id"
+        ),
+        expected="new",
+    )
+
+    async def scenario(client):
+        return await client.patch(PROJECT_URL, json=payload)
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200, response.text
+    saved = services.projects.read("project-1").project
+    graph = derive_work_graph(saved)
+    # Delegated mode still auto-composes: the superseded final is READY,
+    # not STALE, so the scheduler picks it up without a user press.
+    assert graph.by_id["compose:timeline:main"].status.value == "ready"
 
 
 def _decisions_url(review):

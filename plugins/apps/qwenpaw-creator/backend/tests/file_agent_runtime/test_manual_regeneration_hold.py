@@ -50,7 +50,7 @@ def test_s2v_preflight_failure_without_video_admission_rolls_back_hold(
             routes.dispatch_work_graph_node(
                 PROJECT_ID,
                 node.node_id,
-                services,
+                services=services,
             ),
         )
     assert not store.read(PROJECT_ID).node_ids
@@ -329,7 +329,11 @@ def test_api_failed_admission_preserves_prior_hold(env, monkeypatch, durable):
     monkeypatch.setattr(WorkGraphScheduler, "dispatch_node", dispatch)
     with pytest.raises(ValidationError):
         asyncio.run(
-            routes.dispatch_work_graph_node(PROJECT_ID, "video:a", services),
+            routes.dispatch_work_graph_node(
+                PROJECT_ID,
+                "video:a",
+                services=services,
+            ),
         )
     expected = {"compose:main"} if durable else {"video:a", "compose:main"}
     assert store.read(PROJECT_ID).node_ids == expected
@@ -358,7 +362,7 @@ def test_api_uncertain_admission_stays_held(env, monkeypatch, failure):
             routes.dispatch_work_graph_node(
                 PROJECT_ID,
                 "storyboard:a",
-                services,
+                services=services,
             ),
         )
     assert store.read(PROJECT_ID).node_ids == {n.node_id for n in _nodes()}
@@ -376,7 +380,11 @@ def test_api_initial_generation_and_resume_contract(env, monkeypatch):
 
     monkeypatch.setattr(WorkGraphScheduler, "dispatch_node", dispatch)
     assert asyncio.run(
-        routes.dispatch_work_graph_node(PROJECT_ID, "storyboard:a", services),
+        routes.dispatch_work_graph_node(
+            PROJECT_ID,
+            "storyboard:a",
+            services=services,
+        ),
     )["ok"]
     store.admitted(_begin(store))
     payload = routes._graph_payload(PROJECT_ID, services)

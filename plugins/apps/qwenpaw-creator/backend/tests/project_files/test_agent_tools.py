@@ -157,6 +157,7 @@ def test_manifest_and_invoke_expose_only_model_owned_arguments(tmp_path):
         "jq_project",
         "patch_project",
         "elements_at",
+        "confirm_prompt_sync",
     )
     jq_parameters = schemas["jq_project"]["parameters"]
     assert set(jq_parameters["properties"]) == {
@@ -189,7 +190,12 @@ def test_manifest_and_invoke_expose_only_model_owned_arguments(tmp_path):
         },
     )
     assert written["project"]["name"] == "Invoked"
-    assert written["changedPointers"] == ["/name", "/settings/platform"]
+    assert written["changedPointers"] == [
+        "/name",
+        "/name_source",
+        "/settings/platform",
+    ]
+    assert written["project"]["name_source"] == "user"
 
     with pytest.raises(ValidationError, match="origin"):
         tools.invoke(

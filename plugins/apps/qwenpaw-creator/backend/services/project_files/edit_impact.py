@@ -162,7 +162,10 @@ def _mark_timeline_render_stale(
         "artifact_slots_by_id",
     ).items():
         slot = _record(raw_slot)
-        if slot.get("owner_ref") != owner_ref:
+        if (
+            slot.get("owner_ref") != owner_ref
+            or slot.get("kind") != "final_video"
+        ):
             continue
         if slot.get("kind") == SCRIPT_SLOT_KIND:
             # The timeline script is an upstream authoring input, not a render
@@ -236,6 +239,7 @@ def _invalidate_r2v_outputs(
 
 _R2V_VIDEO_ONLY_FIELDS = {
     "video_prompt",
+    "generate_audio",
     "video_reference_version_ids",
 }
 _EDIT_METADATA_FIELDS = {"intent", "reason"}
@@ -389,12 +393,12 @@ def _apply_element_path(  # pylint: disable=too-many-branches
     ):
         return
 
-    if creation_type == "r2v":
-        include_storyboard = True
+    if creation_type in {"r2v", "t2v", "i2v"}:
+        include_storyboard = creation_type == "r2v"
         generated_input_changed = False
         if suffix[0] == "creation":
             generated_input_changed = True
-            include_storyboard = not (
+            include_storyboard = creation_type == "r2v" and not (
                 len(suffix) >= 2 and suffix[1] in _R2V_VIDEO_ONLY_FIELDS
             )
         elif suffix[:2] == ("span", "duration_tick"):
@@ -660,6 +664,66 @@ def _pointer_unchanged(
     return base_found == candidate_found and base_value == candidate_value
 
 
+def _script_inputs(
+    document: Mapping[str, Any],
+    timeline_id: str,
+    *,
+    source: str | None = None,
+) -> Any:
+    """Only authoring inputs, never downstream elements or frozen history.
+
+    Match script_execution's prompt scope: the live title/synopsis outline
+    is shared, but the saved body and duration belong to this timeline.
+    Timeline-sourced scripts mirror only the authoritative body verbatim.
+    """
+    timelines = _items(document, "timelines", "items")
+    timeline = _record(timelines.get(timeline_id))
+    if source == "timeline":
+        return timeline.get("description", "")
+    order = _record(document.get("timelines")).get("order", [])
+    strategy = _record(document.get("strategy"))
+    sources = _items(document, "sources", "sources")
+    source_items = _record(sources.get("items"))
+    intelligence_ids = []
+    for source_id in sources.get("order", []):
+        version_id = _record(source_items.get(source_id)).get(
+            "current_intelligence_version_id",
+        )
+        if version_id is not None:
+            intelligence_ids.append(version_id)
+        if len(intelligence_ids) == 3:
+            break
+    return (
+        tuple(
+            document.get(key) for key in ("name", "description", "scenario")
+        ),
+        tuple(
+            strategy.get(key)
+            for key in (
+                "creative_brief",
+                "audience",
+                "creative_direction",
+                "constraints",
+            )
+        ),
+        timeline.get("description", ""),
+        timeline.get("planned_duration_seconds")
+        or _record(document.get("settings")).get("target_duration_seconds"),
+        [
+            (
+                tid,
+                *(
+                    _record(timelines.get(tid)).get(key)
+                    for key in ("title", "synopsis")
+                ),
+            )
+            for tid in order
+            if not tid.startswith("snapshot:")
+        ],
+        intelligence_ids,
+    )
+
+
 def apply_frontend_edit_impacts(
     candidate: Mapping[str, Any],
     submitted_pointers: Sequence[str],
@@ -670,6 +734,55 @@ def apply_frontend_edit_impacts(
 
     document = copy.deepcopy(dict(candidate))
     impact = EditImpact()
+    if (
+        "/name" in submitted_pointers
+        and "/name_source" not in submitted_pointers
+    ):
+        document["name_source"] = "user"
+    if base is not None:
+        for slot_id, raw_slot in _items(
+            document,
+            "assets",
+            "artifact_slots_by_id",
+        ).items():
+            slot = _record(raw_slot)
+            owner_ref = slot.get("owner_ref")
+            if (
+                slot.get("kind") != "timeline_script"
+                or not isinstance(owner_ref, str)
+                or not owner_ref.startswith("timeline:")
+            ):
+                continue
+            timeline_id = owner_ref.removeprefix("timeline:")
+            if timeline_id.startswith(
+                "snapshot:",
+            ) or timeline_id not in _items(document, "timelines", "items"):
+                continue
+            version = _record(
+                _items(document, "assets", "artifact_versions_by_id").get(
+                    slot.get("selected_version_id"),
+                ),
+            )
+            source = _record(version.get("metadata")).get("scriptSource")
+            if _script_inputs(
+                base,
+                timeline_id,
+                source=source,
+            ) != _script_inputs(
+                document,
+                timeline_id,
+                source=source,
+            ):
+                _mark_selected_stale(
+                    document,
+                    slot_id,
+                    reason=(
+                        "剧本正文已修改，需要同步"
+                        if source == "timeline"
+                        else "剧本创作依据已修改，需要重新起草"
+                    ),
+                    impact=impact,
+                )
     for pointer in dict.fromkeys(submitted_pointers):
         if is_prompt_sync_pointer(pointer):
             # This stamp is derived under the commit lock. It does not alter

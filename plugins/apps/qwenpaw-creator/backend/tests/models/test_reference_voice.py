@@ -31,6 +31,10 @@ from utils.paths import local_path_from_file_url
 
 class _FakeResponse:
     status_code = 200
+    # A real httpx response always carries both, and the submit path reads them
+    # to decide whether a failure is worth another paid attempt.
+    text = ""
+    headers: dict = {}
 
     def raise_for_status(self) -> None:
         return None

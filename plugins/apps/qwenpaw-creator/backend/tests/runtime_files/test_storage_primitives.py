@@ -330,6 +330,52 @@ def test_jsonl_never_skips_a_malformed_complete_line(tmp_path):
         store.append(EventRecord(worker=1, value=2))
 
 
+def test_jsonl_read_record_at_targets_one_line(tmp_path):
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    for value in range(5):
+        store.append(EventRecord(worker=0, value=value))
+
+    assert store.read_record_at(3).value == 2
+    assert store.read_record_at(5).value == 4
+    assert store.read_record_at(6) is None
+    with pytest.raises(ValueError, match="must be positive"):
+        store.read_record_at(0)
+
+
+def test_jsonl_read_record_at_treats_a_torn_crash_tail_as_absent(tmp_path):
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    store.append(EventRecord(worker=0, value=1))
+    with path.open("ab") as handle:
+        handle.write(b'{"seq":2,"record":{"worker":0')
+
+    assert store.read_record_at(1).value == 1
+    assert store.read_record_at(2) is None
+
+
+def test_jsonl_read_record_at_reads_an_absent_stream_as_empty(tmp_path):
+    store = DurableJsonlStore(tmp_path / "events.jsonl", EventRecord)
+
+    assert store.read_record_at(1) is None
+
+
+def test_jsonl_read_record_at_reports_a_seq_disagreeing_with_its_line(
+    tmp_path,
+):
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    store.append(EventRecord(worker=0, value=1))
+    with path.open("ab") as handle:
+        handle.write(
+            b'{"seq":9,"written_at":"2026-10-29T00:00:00+00:00",'
+            b'"record":{"worker":0,"value":2}}\n',
+        )
+
+    with pytest.raises(JsonlCorruptionError, match="line 2 has seq 9"):
+        store.read_record_at(2)
+
+
 def test_concurrent_threads_allocate_unique_contiguous_jsonl_sequences(
     tmp_path,
 ):
@@ -835,14 +881,121 @@ def test_forward_cursor_replays_once_and_follows_repaired_tail(
         values.extend(item.value for item in page)
     assert values == list(range(after + 1, 81))
     # The old reverse-window loop revalidated the remaining history per page.
-    assert validated == list(range(1, 81))
+    # A positioned cursor never walks the lines before its cursor at all, so
+    # validation starts at after+1: those records are already durable.
+    assert validated == list(range(after + 1, 81))
     with path.open("ab") as handle:
         handle.write(b'{"seq":81,"record":')
     assert not reader.read()
     writer.append(EventRecord(worker=1, value=81))
     assert [item.value for item in reader.read()] == [81]
     assert not reader.read()
-    assert validated == list(range(1, 82))
+    assert validated == list(range(after + 1, 82))
+
+
+def test_forward_cursor_positions_at_the_cursor_without_reading_the_head(
+    tmp_path,
+    monkeypatch,
+):
+    """A reconnect used to walk every byte before its cursor.
+
+    Field case: one session's events.jsonl reached 146 MB / 76,282 records, so
+    every SSE reconnect paid a full scan just to find where to start. The
+    cursor now positions by walking backwards, and the whole-file read path is
+    never touched.
+    """
+
+    path = tmp_path / "events.jsonl"
+    writer = DurableJsonlStore(path, EventRecord)
+    for value in range(1, 2001):
+        writer.append(EventRecord(worker=1, value=value))
+    store = DurableJsonlStore(path, EventRecord)
+    full_reads: list[int] = []
+    original = store._read_bytes_unlocked  # pylint: disable=protected-access
+
+    def counted() -> bytes:
+        full_reads.append(1)
+        return original()
+
+    monkeypatch.setattr(store, "_read_bytes_unlocked", counted)
+    reader = store.forward_reader(1900)
+    assert reader.offset > 0
+    page = reader.read(limit=50)
+    assert [item.value for item in page] == list(range(1901, 1951))
+    assert not full_reads
+
+
+def test_forward_cursor_skips_noise_lines_without_parsing_them(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A replay that is going to drop a line must not pay to parse it.
+
+    The field's 146 MB stream is 91.8% streaming deltas, and parsing them only
+    to discard them kept one SSE connection busy for over 90 seconds -- which
+    is what made every other endpoint wait 7-23 seconds beside it.
+    """
+
+    path = tmp_path / "events.jsonl"
+    writer = DurableJsonlStore(path, EventRecord)
+    for value in range(1, 201):
+        writer.append(EventRecord(worker=9 if value % 2 else 1, value=value))
+    store = DurableJsonlStore(path, EventRecord)
+
+    validated: list[int] = []
+    real_validate = store._validate_record  # pylint: disable=protected-access
+
+    def counting(record, *, line_number):
+        validated.append(line_number)
+        return real_validate(record, line_number=line_number)
+
+    monkeypatch.setattr(store, "_validate_record", counting)
+
+    reader = store.forward_reader(
+        0,
+        skip_noise=lambda raw: b'"worker": 9' in raw or b'"worker":9' in raw,
+    )
+    values: list[int] = []
+    while page := reader.read(limit=25):
+        values.extend(item.value for item in page)
+
+    assert values == [value for value in range(1, 201) if value % 2 == 0]
+    # Half the lines were classified off the bytes: never parsed, never
+    # validated, and the cursor still advanced past every one of them.
+    assert len(validated) == 100
+
+
+def test_a_skipped_line_with_a_broken_seq_still_fails_closed(
+    tmp_path,
+) -> None:
+    """Skipping never buys permission to stop proving contiguity.
+
+    A cheap seq read that disagrees with the cursor falls back to the full
+    parse, so a renumbered or replaced line is reported exactly as the strict
+    path reports it.
+    """
+
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    for value in range(1, 6):
+        store.append(EventRecord(worker=9, value=value))
+
+    raw = path.read_bytes()
+    broken = raw.replace(b'"seq": 3', b'"seq": 9').replace(
+        b'"seq":3',
+        b'"seq":9',
+    )
+    assert broken != raw  # the fixture found the seq to break
+    path.write_bytes(broken)
+
+    reader = DurableJsonlStore(path, EventRecord).forward_reader(
+        0,
+        skip_noise=lambda line: b'"worker": 9' in line
+        or b'"worker":9' in line,
+    )
+    with pytest.raises(JsonlCorruptionError):
+        while reader.read(limit=2):
+            pass
 
 
 @pytest.mark.parametrize("damage", ["invalid", "gap", "replace", "truncate"])

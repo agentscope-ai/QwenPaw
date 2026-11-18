@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import json
 import logging
@@ -336,15 +337,89 @@ class DurableJsonlStore(Generic[T]):
             for envelope in self.read_all()
         ]
 
-    def forward_reader(self, after_seq: int = 0) -> JsonlReadCursor[T]:
-        """Create a bounded, sequential reader for one durable subscription."""
-        return JsonlReadCursor(self, after_seq)
+    def read_record_at(self, seq: int) -> T | None:
+        """Return the record whose line number is *seq*, or ``None``.
+
+        Seqs are 1-based line numbers by construction -- one envelope per line,
+        contiguity asserted on every read path -- so a targeted lookup can walk
+        newline boundaries and parse exactly one line. This is what lets a
+        caller fetch one historical record without materializing the stream:
+        the full read dominated both CPU and the peak heap on long sessions
+        (observed: 853 MB of Python heap for one 285 MB messages file).
+
+        Lock-free like every other read path: complete lines are immutable, and
+        an unrepaired crash tail reads as absent rather than being repaired here.
+        """
+
+        if seq < 1:
+            raise ValueError("record seq must be positive")
+        raw = b""
+        line_number = 0
+        try:
+            handle = self.path.open("rb")
+        except FileNotFoundError:
+            # An absent stream is an empty stream, matching read_records().
+            return None
+        with handle:
+            while line_number < seq:
+                raw = handle.readline()
+                if not raw or not raw.endswith(b"\n"):
+                    return None
+                line_number += 1
+            try:
+                envelope = JsonlEnvelope.model_validate(strict_json_loads(raw))
+            except (
+                UnicodeDecodeError,
+                ValueError,
+                PydanticValidationError,
+            ) as error:
+                raise JsonlCorruptionError(
+                    self.path,
+                    f"complete line {seq} is invalid: {error}",
+                ) from error
+            if envelope.seq != line_number:
+                raise JsonlCorruptionError(
+                    self.path,
+                    f"line {line_number} has seq {envelope.seq}, "
+                    f"expected {line_number}",
+                )
+            return cast(
+                T,
+                self._validate_record(
+                    envelope.record,
+                    line_number=line_number,
+                ),
+            )
+
+    def forward_reader(
+        self,
+        after_seq: int = 0,
+        *,
+        skip_noise: Callable[[bytes], bool] | None = None,
+        replay_boundary_seq: int | None = None,
+    ) -> JsonlReadCursor[T]:
+        """Create a bounded, sequential reader for one durable subscription.
+
+        ``replay_boundary_seq`` bounds where ``skip_noise`` applies: lines
+        at or past that seq are treated as live appends and go through
+        the full parse path. Without it a long-lived SSE connection would
+        drop every live streaming delta -- the filter would run for the
+        whole connection lifetime, not just the replay it was designed
+        to shorten (review #243 blocking #1).
+        """
+        return JsonlReadCursor(
+            self,
+            after_seq,
+            skip_noise=skip_noise,
+            replay_boundary_seq=replay_boundary_seq,
+        )
 
     def read_records_after(
         self,
         after_seq: int,
         *,
         limit: int | None = None,
+        where: Callable[[T], bool] | None = None,
     ) -> list[T]:
         """Return records with ``seq > after_seq`` without scanning the head.
 
@@ -357,11 +432,12 @@ class DurableJsonlStore(Generic[T]):
         repaired by the next locked append.
 
         Seq contiguity is validated over the returned range.  ``limit`` caps
-        the count from the tail.
+        the count from the tail.  ``where`` filters after that validation, so
+        a filtered page cannot hide a gap in the durable stream.
         """
         if after_seq < 0:
             after_seq = 0
-        if after_seq == 0 and limit is None:
+        if after_seq == 0 and limit is None and where is None:
             envelopes, _durable, _torn_tail = self._scan_bytes(
                 self._read_bytes_unlocked(),
             )
@@ -369,11 +445,94 @@ class DurableJsonlStore(Generic[T]):
                 self._validate_record(e.record, line_number=e.seq)
                 for e in envelopes
             ]
-        envelopes = self._read_envelopes_after_unlocked(after_seq, limit)
-        return [
-            self._validate_record(e.record, line_number=e.seq)
+        envelopes = self._read_envelopes_after_unlocked(after_seq, None)
+        records = [
+            cast(T, self._validate_record(e.record, line_number=e.seq))
             for e in envelopes
         ]
+        if where is not None:
+            records = [record for record in records if where(record)]
+        return records[:limit] if limit is not None else records
+
+    def read_tail(
+        self,
+        limit: int,
+        *,
+        where: Callable[[T], bool] | None = None,
+        max_scan: int | None = None,
+    ) -> list[T]:
+        """Return the last *limit* records, oldest-first, without a full scan.
+
+        Paging backwards used to read the whole stream because the only
+        available cursor stopped at a caller-supplied ``seq`` and a page open
+        passed no lower bound at all. This walks backwards from EOF and stops
+        as soon as the window is full, so opening a filtered page costs what it
+        reads instead of the session's entire history.
+
+        ``limit`` caps what is returned, which is not what caps the work: a
+        ``where`` that matches rarely still walks back to the start of the
+        stream. ``max_scan`` bounds the lines actually read so a caller that
+        asks a tail question can afford to be told "not in the tail" and take
+        an explicit fallback, instead of paying a full scan for a miss.
+
+        Seq contiguity is checked over the scanned range *before* ``where``
+        filters, so a gap inside the window is still reported; a gap older than
+        the window is simply never read, which is the accepted trade of a
+        bounded page. A malformed line falls back to the authoritative full
+        scan so diagnostics stay exact rather than silently skipping history.
+        """
+        if limit < 1:
+            raise ValueError("JSONL page limit must be positive")
+        collected: list[T] = []
+        expected: int | None = None
+        scanned = 0
+        for raw in self._iter_complete_lines_reverse():  # newest-first
+            scanned += 1
+            try:
+                envelope = JsonlEnvelope.model_validate(
+                    strict_json_loads(raw),
+                )
+                record = cast(
+                    T,
+                    self._validate_record(
+                        envelope.record,
+                        line_number=envelope.seq,
+                    ),
+                )
+            except (
+                UnicodeDecodeError,
+                ValueError,
+                PydanticValidationError,
+                JsonlCorruptionError,
+            ):
+                return self._tail_fallback(limit, where)
+            if expected is not None and envelope.seq != expected:
+                return self._tail_fallback(limit, where)
+            expected = envelope.seq - 1
+            if where is None or where(record):
+                collected.append(record)
+                if len(collected) >= limit:
+                    break
+            if max_scan is not None and scanned >= max_scan:
+                break
+        collected.reverse()
+        return collected
+
+    def _tail_fallback(
+        self,
+        limit: int,
+        where: Callable[[T], bool] | None,
+    ) -> list[T]:
+        envelopes, _durable, _torn = self._scan_bytes(
+            self._read_bytes_unlocked(),
+        )
+        records = [
+            cast(T, self._validate_record(e.record, line_number=e.seq))
+            for e in envelopes
+        ]
+        if where is not None:
+            records = [record for record in records if where(record)]
+        return records[-limit:]
 
     def _iter_complete_lines_reverse(self) -> Iterator[bytes]:
         """Yield complete lines newest-first, dropping any trailing torn fragment.
@@ -428,6 +587,100 @@ class DurableJsonlStore(Generic[T]):
         if pending and not torn_tail:
             # The file's first line, complete (begins at offset 0).
             yield pending
+
+    def _line_seq(self, line: bytes) -> int | None:
+        """The envelope seq of one complete line, None when unparseable."""
+
+        try:
+            return JsonlEnvelope.model_validate(strict_json_loads(line)).seq
+        except (
+            UnicodeDecodeError,
+            ValueError,
+            PydanticValidationError,
+        ):
+            return None
+
+    def _scan_block_for_seq(
+        self,
+        parts: list[bytes],
+        block_start: int,
+        after_seq: int,
+    ) -> tuple[int | None, bool]:
+        """Locate ``after_seq`` inside one backwards block.
+
+        Returns ``(offset, missing)``: the byte offset just past the cursor
+        line when found, and ``missing=True`` when the walk already passed a
+        smaller seq or met an unparseable line, meaning the cursor is not
+        durable in this block and the caller must fall back.
+        """
+
+        # ``parts[0]`` starts at ``block_start``; later lines each start one
+        # previous line further on.
+        line_start = block_start + len(parts[0]) + 1
+        offsets = []
+        for part in parts[1:]:
+            offsets.append(line_start)
+            line_start += len(part) + 1
+        for index in range(len(parts) - 1, 0, -1):
+            line = parts[index]
+            if not line:
+                continue
+            seq = self._line_seq(line)
+            if seq is None or seq < after_seq:
+                return None, True
+            if seq == after_seq:
+                return offsets[index - 1] + len(line) + 1, False
+        return None, False
+
+    def _offset_after_seq_unlocked(self, after_seq: int) -> int | None:
+        """Byte offset just past the line carrying ``after_seq``, newest-first.
+
+        A reconnecting SSE cursor used to start at byte zero and walk every
+        line forward until ``after_seq``; on the field's 146 MB / 76k-event
+        stream that paid a full scan on every reconnect.  Walking backwards
+        and stopping at the cursor costs only the tail window it consumes.
+        ``None`` means the seq is not durable here, and the caller then falls
+        back to the authoritative forward walk instead of trusting a guessed
+        offset.
+        """
+
+        try:
+            size = self.path.stat().st_size
+        except FileNotFoundError:
+            return None
+        if size == 0 or after_seq <= 0:
+            return None
+        chunk_size = 8192
+        cursor = size
+        pending = b""
+        torn_tail = True
+        with self.path.open("rb") as handle:
+            while cursor > 0:
+                start = max(0, cursor - chunk_size)
+                handle.seek(start)
+                block = handle.read(cursor - start) + pending
+                cursor = start
+                pending = b""
+                if torn_tail:
+                    newline = block.rfind(b"\n")
+                    if newline < 0:
+                        pending = block
+                        continue
+                    block = block[:newline]
+                    torn_tail = False
+                parts = block.split(b"\n")
+                found, missing = self._scan_block_for_seq(
+                    parts,
+                    cursor,
+                    after_seq,
+                )
+                if missing or found is not None:
+                    return found
+                if parts[0]:
+                    pending = parts[0]
+        if pending and not torn_tail and self._line_seq(pending) == after_seq:
+            return len(pending) + 1
+        return None
 
     def _read_envelopes_after_unlocked(
         self,
@@ -491,6 +744,30 @@ class DurableJsonlStore(Generic[T]):
         return tail.seq if tail is not None else 0
 
 
+_SEQ_MARKER = b'"seq":'
+
+
+def _seq_of_line(raw: bytes) -> int | None:
+    """Read one line's envelope seq off the bytes, without parsing it.
+
+    The top-level ``seq`` is written last and is the only place the quoted
+    marker appears -- ``event_seq`` inside ``record`` carries a different key --
+    so a reverse search plus a digit run proves contiguity for a line we intend
+    to drop. ``None`` means "not cheaply determinable" and the caller parses.
+    """
+
+    marker = raw.rfind(_SEQ_MARKER)
+    if marker < 0:
+        return None
+    start = marker + len(_SEQ_MARKER)
+    end = start
+    while end < len(raw) and 48 <= raw[end] <= 57:
+        end += 1
+    if end == start:
+        return None
+    return int(raw[start:end])
+
+
 class JsonlReadCursor(Generic[T]):
     """Follow complete lines once, retaining an offset instead of the history.
 
@@ -499,15 +776,42 @@ class JsonlReadCursor(Generic[T]):
     This per-subscription cursor validates each line once and keeps at most one
     requested page in memory. It reopens the file for each read, so disconnects
     and cancelled worker calls cannot leak a retained file descriptor.
+
+    ``skip_noise`` may classify a raw line before it is parsed. A replay that
+    intends to drop a line still has to prove the stream is contiguous there,
+    so the seq is read straight off the bytes; anything that cannot be confirmed
+    cheaply falls back to the full parse, which keeps the corruption diagnostics
+    exactly as strict as they were.
     """
 
     # pylint: disable=too-few-public-methods,protected-access
-    def __init__(self, store: DurableJsonlStore[T], after_seq: int) -> None:
+    def __init__(
+        self,
+        store: DurableJsonlStore[T],
+        after_seq: int,
+        *,
+        skip_noise: Callable[[bytes], bool] | None = None,
+        replay_boundary_seq: int | None = None,
+    ) -> None:
         self.store = store
         self.after_seq = max(0, after_seq)
+        self.skip_noise = skip_noise
+        # A None boundary means the caller wants the filter to apply for
+        # the whole reader lifetime, which is what a bounded replay (a
+        # single page pull) wants. SSE subscriptions pass the tail seq so
+        # live appends past that point fall through to the parse path
+        # instead of being dropped as replay noise.
+        self.replay_boundary_seq = replay_boundary_seq
         self.offset = 0
         self.seq = 0
         self.identity: tuple[int, int] | None = None
+        if self.after_seq:
+            # Position at the cursor instead of walking the whole stream on
+            # the first read. A miss keeps offset zero: correctness first.
+            positioned = store._offset_after_seq_unlocked(self.after_seq)
+            if positioned is not None:
+                self.offset = positioned
+                self.seq = self.after_seq
 
     def read(self, limit: int = 200) -> list[T]:
         """Read the next bounded page, or [] at a possibly incomplete tail."""
@@ -541,6 +845,21 @@ class JsonlReadCursor(Generic[T]):
                     # Do not advance past a concurrent write or crash fragment.
                     # The next append may complete or repair this same offset.
                     break
+                if (
+                    self.skip_noise is not None
+                    and (
+                        self.replay_boundary_seq is None
+                        or self.seq < self.replay_boundary_seq
+                    )
+                    and self.skip_noise(raw)
+                ):
+                    cheap = _seq_of_line(raw)
+                    if cheap == self.seq + 1:
+                        # Contiguity proven without parsing: the line is
+                        # dropped, the cursor still moves past it.
+                        self.offset = handle.tell()
+                        self.seq = cheap
+                        continue
                 try:
                     envelope = JsonlEnvelope.model_validate(
                         strict_json_loads(raw),

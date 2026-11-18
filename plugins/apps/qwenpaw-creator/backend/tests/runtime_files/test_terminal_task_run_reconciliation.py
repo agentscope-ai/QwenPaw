@@ -174,3 +174,107 @@ def test_terminal_task_run_reconciliation_is_idempotent(
     assert (
         store.get_task(PROJECT_ID, "task-r2v").status is TaskStatus.QUARANTINED
     )
+
+
+def _bare_run(store: ProjectExecutionStore, suffix: str) -> str:
+    run_id = f"run-orphan-{suffix}"
+    store.create_run(
+        SpecialistRunRecord(
+            run_id=run_id,
+            role=SpecialistRole.R2V_GENERATION_DIRECTOR,
+            target_refs=[f"element:{suffix}"],
+            project_id=PROJECT_ID,
+            round_id=f"round-{suffix}",
+            input_generation=1,
+            input_etag="sha256:input",
+            caused_by_request_id=f"request-{suffix}",
+            review_policy=ReviewPolicy.AUTO_FIX,
+        ),
+    )
+    return run_id
+
+
+def test_a_queued_run_without_a_task_is_failed_at_startup(tmp_path: Path):
+    """The admission window outlived its process; nothing can dispatch it.
+
+    The field Project carried one such Run for seventeen days: the progress
+    projection showed its storyboard as "waiting" forever, because no executor
+    was alive to dispatch it and none was alive to terminalize it.
+    """
+    from datetime import timedelta
+
+    from services.runtime_files.reconciliation import (
+        reconcile_orphaned_queued_runs,
+    )
+
+    store = _store(tmp_path)
+    orphan = _bare_run(store, "storyboard")
+
+    run = store.get_run(PROJECT_ID, orphan)
+    moment = run.updated_at + timedelta(minutes=6)
+    report = reconcile_orphaned_queued_runs(tmp_path, [PROJECT_ID], now=moment)
+
+    assert report.cancelled_run_ids == (orphan,)
+    cancelled = store.get_run(PROJECT_ID, orphan)
+    assert cancelled.status is SpecialistRunStatus.CANCELLED
+    assert cancelled.final_marker == "CANCELLED"
+    assert "ORPHANED_QUEUED_RUN" in (cancelled.final_summary_text or "")
+
+
+def test_a_queued_run_with_a_task_is_left_alone(tmp_path: Path):
+    from datetime import timedelta
+
+    from services.runtime_files.reconciliation import (
+        reconcile_orphaned_queued_runs,
+    )
+
+    store = _store(tmp_path)
+    run_id = _bare_run(store, "claimed")
+    store.create_task(
+        TaskRecord(
+            task_id="task-claimed",
+            run_id=run_id,
+            kind=TaskKind.IMAGE_GENERATION,
+            request_fingerprint="sha256:claimed",
+            project_id=PROJECT_ID,
+            round_id="round-claimed",
+            input_generation=1,
+            input_etag="sha256:input",
+            caused_by_request_id="request-claimed",
+            review_policy=ReviewPolicy.AUTO_FIX,
+        ),
+    )
+
+    run = store.get_run(PROJECT_ID, run_id)
+    report = reconcile_orphaned_queued_runs(
+        tmp_path,
+        [PROJECT_ID],
+        now=run.updated_at + timedelta(minutes=6),
+    )
+
+    assert report.cancelled_count == 0
+    kept = store.get_run(PROJECT_ID, run_id)
+    assert kept.status is SpecialistRunStatus.QUEUED
+
+
+def test_a_queued_run_inside_the_grace_window_is_left_alone(tmp_path: Path):
+    """A restart loop must not reap an admission whose Task write is slow."""
+    from datetime import timedelta
+
+    from services.runtime_files.reconciliation import (
+        reconcile_orphaned_queued_runs,
+    )
+
+    store = _store(tmp_path)
+    run_id = _bare_run(store, "fresh")
+
+    run = store.get_run(PROJECT_ID, run_id)
+    report = reconcile_orphaned_queued_runs(
+        tmp_path,
+        [PROJECT_ID],
+        now=run.updated_at + timedelta(seconds=30),
+    )
+
+    assert report.cancelled_count == 0
+    kept = store.get_run(PROJECT_ID, run_id)
+    assert kept.status is SpecialistRunStatus.QUEUED

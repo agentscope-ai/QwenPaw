@@ -128,6 +128,23 @@ const withActivity = (
 ) => live({ subagentActivities: { "action-1": activity }, ...extra });
 
 describe("deriveAgentLiveStatus", () => {
+  it("presents thinking in the live status without overriding user decisions or execution", () => {
+    expect(live({ mainThinking: true }).label).toBe("正在思考");
+    expect(live({ mainThinking: true, stopping: true }).state).toBe("stopping");
+    expect(live({ mainThinking: true, pendingReviewCount: 1 }).state).toBe(
+      "waiting",
+    );
+    expect(live({ mainThinking: true, session: session("IDLE") }).state).toBe(
+      "idle",
+    );
+    expect(
+      live({
+        mainThinking: true,
+        toolCalls: [{ ...delegateCall, tool: "read_project" }],
+      }).label,
+    ).toBe("处理中");
+  });
+
   it.each([
     ["IDLE", false, "idle", "随时可以继续创作"],
     ["WAITING_USER_INPUT", false, "waiting", "等待补充信息，请继续输入。"],

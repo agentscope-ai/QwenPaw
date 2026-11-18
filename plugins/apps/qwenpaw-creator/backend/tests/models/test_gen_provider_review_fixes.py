@@ -87,6 +87,10 @@ def _fake_async_client(task_id: str, captured: dict | None = None):
 
     class _Response:
         status_code = 200
+        # A real httpx response always carries both, and the submit path reads
+        # them to decide whether a failure is worth another paid attempt.
+        text = ""
+        headers: dict = {}
 
         def raise_for_status(self) -> None:
             return None

@@ -80,3 +80,17 @@ class RuntimeBusyError(CreatorError):
     status_code = 503
     code = "RUNTIME_LOCK_TIMEOUT"
     retryable = True
+
+
+class RuntimePreparingError(CreatorError):
+    """The Runtime is still booting; the caller should retry, not hang.
+
+    Startup recovery scans every Project before the first request can be
+    answered honestly.  Blocking a request on that scan made the console sit on
+    a dead socket for minutes, which reads as a broken plugin rather than a
+    busy one.
+    """
+
+    status_code = 503
+    code = "RUNTIME_PREPARING"
+    retryable = True

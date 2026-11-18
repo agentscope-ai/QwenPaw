@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import time
@@ -333,7 +334,17 @@ def test_observability_config_and_trace_query_api(
     assert saved.json()["retentionDays"] == 30
     assert queried.status_code == 200
     assert queried.json()["count"] == 1
-    assert queried.json()["items"][0]["name"] == "creator.test.queryable"
+    item = queried.json()["items"][0]
+    assert item["name"] == "creator.test.queryable"
+    # A feedback record stores a pointer into the trace rather than the body,
+    # so the query has to hand back which file and which line - and that
+    # pointer has to resolve, not merely exist.
+    traced = data_root / "observability" / "traces" / item["traceFile"]
+    lines = traced.read_text(encoding="utf-8").splitlines()
+    assert item["traceFile"].startswith("creator-trace-")
+    assert (
+        json.loads(lines[item["traceLine"] - 1])["traceId"] == item["traceId"]
+    )
 
 
 def test_trace_retention_removes_expired_jsonl_files(tmp_path, monkeypatch):

@@ -364,6 +364,35 @@ def _voice_preview(voices: tuple[str, ...], limit: int = 8) -> str:
     return f"{', '.join(voices[:limit])}, ... ({len(voices)} in total)"
 
 
+def _resolve_system_voice(
+    capability: TtsModelCapability,
+    requested: str,
+    configured: str,
+) -> str:
+    """Resolve a system voice before submitting a synthesis request."""
+    model = capability.model
+    if not capability.has_system_voices:
+        raise ValueError(
+            f"{model} has no system voices; create a character voice "
+            "first and synthesize with its voice id",
+        )
+    active = resolve_system_voice(capability, requested, configured)
+    if active is None:
+        raise ValueError(
+            f"unknown voice {requested!r} for {model}; its system "
+            f"voices are {_voice_preview(capability.system_voices)}",
+        )
+    if not requested and active != configured.strip():
+        logger.warning(
+            "TTS default voice %r is not a system voice of %s; narrating "
+            "with %s instead",
+            configured,
+            model,
+            active,
+        )
+    return active
+
+
 async def synthesize(
     text: str,
     *,
@@ -394,32 +423,11 @@ async def synthesize(
         active_voice = voice_id
     else:
         model = capability.model
-        requested = (voice or "").strip()
-        configured = config.get_tts_voice()
-        if not capability.has_system_voices:
-            raise ValueError(
-                f"{model} has no system voices; create a character voice "
-                "first and synthesize with its voice id",
-            )
-        active_voice = resolve_system_voice(capability, requested, configured)
-        if active_voice is None:
-            # Fail fast on a made-up voice name: the provider would reject
-            # it anyway, but only after the call burned an execution
-            # authorization round-trip.
-            raise ValueError(
-                f"unknown voice {requested!r} for {model}; its system "
-                f"voices are {_voice_preview(capability.system_voices)}",
-            )
-        if not requested and active_voice != configured.strip():
-            # The deployment default is not this model's voice; say what was
-            # actually spoken, because it is what gets recorded on the asset.
-            logger.warning(
-                "TTS default voice %r is not a system voice of %s; narrating "
-                "with %s instead",
-                configured,
-                model,
-                active_voice,
-            )
+        active_voice = _resolve_system_voice(
+            capability,
+            (voice or "").strip(),
+            config.get_tts_voice(),
+        )
     transport = require_capability(model).transport
     rate = 1.0 if speech_rate is None else float(speech_rate)
     if not 0.5 <= rate <= 2.0:

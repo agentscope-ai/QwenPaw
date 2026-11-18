@@ -124,4 +124,57 @@ describe("TimelineCanvas preview scrubber", () => {
     rerender(<TimelineCanvas {...props} playheadTick={10500} />);
     expect(sourceChip()).toHaveTextContent("未受影响 · 已完成画面");
   });
+
+  it("scopes the playhead fraction variable to each canvas in a compare view", () => {
+    // Review #243 r4548690168: PlanPage compare mounts two canvases side
+    // by side with different durationTick. Both rAF clocks and scrub
+    // effects wrote ``--creator-playhead-frac`` on
+    // ``document.documentElement``, so the second canvas overwrote the
+    // first and at least one playhead was misplaced. The variable must
+    // be scoped to each canvas's own DOM subtree, and documentElement
+    // must not carry a shared value that siblings still inherit.
+    const project = structuredClone(projectDocument);
+    const timeline = project.timelines.items["timeline:main"];
+    const common = {
+      project,
+      timeline,
+      playheadTick: 2000,
+      selectedElementId: null,
+      previewOpen: true,
+      tasks: [],
+      onPreviewOpenChange: vi.fn(),
+      onPlayheadChange: vi.fn(),
+      onSelectElement: vi.fn(),
+      onActiveElementIdsChange: vi.fn(),
+    };
+    const view = render(
+      <div>
+        <div data-testid="canvas-a">
+          <TimelineCanvas {...common} durationTick={20000} />
+        </div>
+        <div data-testid="canvas-b">
+          <TimelineCanvas {...common} durationTick={40000} />
+        </div>
+      </div>,
+    );
+
+    const sections = view.container.querySelectorAll("[data-timeline-panel]");
+    expect(sections).toHaveLength(2);
+    const [sectionA, sectionB] = Array.from(sections) as HTMLElement[];
+
+    // Each canvas's own fraction, isolated to its subtree.
+    expect(sectionA.style.getPropertyValue("--creator-playhead-frac")).toBe(
+      "0.100000",
+    );
+    expect(sectionB.style.getPropertyValue("--creator-playhead-frac")).toBe(
+      "0.050000",
+    );
+    // The document-wide variable is no longer the shared channel that
+    // made the two heads stomp each other.
+    expect(
+      document.documentElement.style.getPropertyValue(
+        "--creator-playhead-frac",
+      ),
+    ).toBe("");
+  });
 });

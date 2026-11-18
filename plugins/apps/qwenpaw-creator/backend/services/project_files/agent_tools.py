@@ -15,7 +15,7 @@ from collections import OrderedDict
 from copy import deepcopy
 from hashlib import sha256
 import json
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 import threading
 
 from json_repair import repair_json
@@ -205,6 +205,7 @@ READ_PROJECT_FILE_TOOL_NAME = "read_project_file"
 JQ_PROJECT_TOOL_NAME = "jq_project"
 PATCH_PROJECT_TOOL_NAME = "patch_project"
 ELEMENTS_AT_TOOL_NAME = "elements_at"
+CONFIRM_PROMPT_SYNC_TOOL_NAME = "confirm_prompt_sync"
 _DEFAULT_TEXT_PAGE_BYTES = 64 * 1024
 _MAX_TEXT_PAGE_BYTES = 256 * 1024
 
@@ -325,6 +326,17 @@ class PatchProjectToolInput(_ToolModel):
             if isinstance(decoded, list):
                 return decoded
         return value
+
+
+class ConfirmPromptSyncToolInput(_ToolModel):
+    project_id: str = Field(alias="projectId", min_length=1)
+    timeline_id: str = Field(alias="timelineId", min_length=1)
+    element_id: str = Field(alias="elementId", min_length=1)
+    stage: Literal["storyboard", "video"] | None = None
+    # The model must state what it actually compared. It is kept in the
+    # durable tool-call transcript, which is the audit trail for a decision
+    # that moves provenance without touching any creative text.
+    basis: str = Field(min_length=4, max_length=600)
 
 
 def _patch_project_input_error(arguments: Mapping[str, Any]) -> str:
@@ -472,6 +484,23 @@ class AgentProjectCommitResult(AgentProjectSnapshotResult):
         default=None,
         alias="cutAdvisory",
     )
+
+
+class AgentPromptSyncConfirmResult(_ToolModel):
+    project_id: str = Field(alias="projectId")
+    project_etag: str = Field(alias="projectEtag")
+    generation: int = Field(ge=0)
+    timeline_id: str = Field(alias="timelineId")
+    element_id: str = Field(alias="elementId")
+    stage: str | None = None
+    status_before: str = Field(alias="statusBefore")
+    reason_before: str = Field(alias="reasonBefore")
+    status_after: str = Field(alias="statusAfter")
+    changed_pointers: list[str] = Field(
+        default_factory=list,
+        alias="changedPointers",
+    )
+    guidance: str
 
 
 class AgentElementsAtResult(_ToolModel):
@@ -681,6 +710,43 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "includeDisabled": {"type": "boolean", "default": False},
             },
             "required": ["projectId", "timelineId", "tick"],
+            "additionalProperties": False,
+        },
+    },
+    CONFIRM_PROMPT_SYNC_TOOL_NAME: {
+        "description": (
+            "核对完当前内容与提示词后，记录「现有提示词仍然准确、无需改写」这一结论，"
+            "解除该镜头的分镜/视频待同步闸门。它不改任何正文、不生成媒体，只推进同步基线；"
+            "因此必须先用 read_project 看过该镜头的 narrative 与对应 prompt 再调用，"
+            "并在 basis 里写明你核对到的依据。内容确实需要改写时用 patch_project 改文本，"
+            "不要用本工具代替真实修改。已是一致状态时不产生任何写入。"
+            "同一镜头同一阶段核对完调用一次即可，不要反复调用。"
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "projectId": {"type": "string", "minLength": 1},
+                "timelineId": {"type": "string", "minLength": 1},
+                "elementId": {"type": "string", "minLength": 1},
+                "stage": {
+                    "type": "string",
+                    "enum": ["storyboard", "video"],
+                    "description": (
+                        "只确认这一个阶段；省略时同时确认分镜与视频两个阶段。"
+                        "指定阶段时另一阶段的待同步状态保持不变。"
+                    ),
+                },
+                "basis": {
+                    "type": "string",
+                    "minLength": 4,
+                    "maxLength": 600,
+                    "description": (
+                        "本次核对依据：读到的事实与结论，例如"
+                        "「叙述已加入雨声，分镜提示词已包含对应环境音描述，无需改写」。"
+                    ),
+                },
+            },
+            "required": ["projectId", "timelineId", "elementId", "basis"],
             "additionalProperties": False,
         },
     },
@@ -1802,6 +1868,144 @@ class AgentProjectTools:
             )
         return commit_result
 
+    def confirm_prompt_sync(
+        self,
+        *,
+        project_id: str,
+        timeline_id: str,
+        element_id: str,
+        basis: str,
+        stage: Literal["storyboard", "video"] | None = None,
+    ) -> AgentPromptSyncConfirmResult:
+        """Record that the authored prompts stay as they are.
+
+        This is the agent-side counterpart of the AgentDock "keep current"
+        confirmation (#7720 finding #3). The model restates a decision; it
+        never writes prompt text and never edits provenance by hand. The
+        stamp moves through the same CAS boundary the HTTP path uses, with
+        the same baseline token guard, so a concurrent edit becomes a
+        Conflict instead of a silently stale alignment.
+        """
+
+        with self._cache_lock:
+            base = self._observed.get(project_id)
+        if base is None:
+            # A stamp may only restate a state this run actually observed.
+            raise AgentProjectToolError(
+                "确认同步前必须先用 read_project 读取该镜头，核对叙述与对应提示词是否仍然一致。",
+                code="PROMPT_SYNC_NOT_OBSERVED",
+            )
+        from domain.errors import ValidationError as DomainValidationError
+        from services.project_files.prompt_sync import prompt_sync_status
+        from services.prompt_sync_service import (
+            _references,
+            _validate_plan,
+            _validate_prompts,
+            _validate_proposal_references,
+        )
+
+        document = base.project.model_dump(mode="json")
+        status = prompt_sync_status(
+            base.project,
+            timeline_id,
+            element_id,
+            stage=stage,
+        )
+        if status["status"] == "current":
+            return AgentPromptSyncConfirmResult(
+                projectId=project_id,
+                projectEtag=base.etag,
+                generation=base.generation,
+                timelineId=timeline_id,
+                elementId=element_id,
+                stage=stage,
+                statusBefore=status["status"],
+                reasonBefore=status["reason"],
+                statusAfter="current",
+                changedPointers=[],
+                guidance="该阶段已一致，本次没有产生任何写入。不要再复核同一镜头，继续处理其他待同步镜头。",
+            )
+        if status["status"] == "legacy":
+            raise AgentProjectToolError(
+                "该镜头尚未建立同步基线，没有可确认的旧内容；请直接按当前叙述写入分镜与视频提示词。",
+                code="PROMPT_SYNC_LEGACY",
+            )
+        references = _references(base.project, element_id)
+        try:
+            _validate_proposal_references(references, stage=stage)
+            _validate_plan(document, timeline_id, element_id)
+            # proposal=False keeps the authored wording: the technical
+            # contract, reference existence and time budget are still
+            # enforced, so a broken prompt can never be stamped as aligned.
+            _validate_prompts(
+                document,
+                timeline_id,
+                element_id,
+                references,
+                proposal=False,
+                stage=stage,
+            )
+        except DomainValidationError as error:
+            raise AgentProjectToolError(
+                f"当前提示词未通过技术校验，不能确认同步：{error}。"
+                "请先用 patch_project 修正提示词正文。",
+                code="PROMPT_SYNC_VALIDATION_FAILED",
+            ) from error
+        confirmation: tuple[str, ...] = (
+            timeline_id,
+            element_id,
+            status["baselineToken"],
+        )
+        if stage:
+            confirmation = (*confirmation, stage)
+        result = self.commits.commit(
+            base=base,
+            candidate=document,
+            **self.context.commit_metadata(),
+            prompt_sync_confirmation=confirmation,
+        )
+        self._remember(result.snapshot)
+        logger.info(
+            "prompt sync confirmed: %s/%s/%s stage=%s etag=%s basis=%s",
+            project_id,
+            timeline_id,
+            element_id,
+            stage,
+            result.snapshot.etag,
+            basis[:200],
+        )
+        after = prompt_sync_status(
+            result.snapshot.project,
+            timeline_id,
+            element_id,
+            stage=stage,
+        )
+        return AgentPromptSyncConfirmResult(
+            projectId=project_id,
+            projectEtag=result.snapshot.etag,
+            generation=result.snapshot.generation,
+            timelineId=timeline_id,
+            elementId=element_id,
+            stage=stage,
+            statusBefore=status["status"],
+            reasonBefore=status["reason"],
+            statusAfter=after["status"],
+            changedPointers=[
+                change.json_pointer
+                for change in result.changeset.changes
+                if change.json_pointer is not None
+            ],
+            guidance=(
+                "已记录为一致，闸门已解除。不要再用 read_project 复核同一镜头；"
+                "继续处理其他待同步镜头或推进制作。"
+                if after["status"] == "current"
+                else (
+                    f"提交后状态仍为 {after['status']}/{after['reason']}，"
+                    "说明还有实质内容未同步；请用 patch_project 更新提示词正文。"
+                )
+            ),
+        )
+
     def elements_at(
         self,
         *,
@@ -1952,6 +2156,32 @@ class AgentProjectTools:
                 timeline_id=request.timeline_id,
                 asset_version_id=request.asset_version_id,
             )
+        elif tool_name == CONFIRM_PROMPT_SYNC_TOOL_NAME:
+            try:
+                confirm_request = ConfirmPromptSyncToolInput.model_validate(
+                    dict(arguments),
+                )
+            except ValidationError as exc:
+                raise AgentProjectToolError(
+                    "confirm_prompt_sync 参数无效：需要 projectId、timelineId、"
+                    "elementId 和 basis（本次核对依据，至少 4 个字），"
+                    "可选 stage（storyboard 或 video）。",
+                    code="PROMPT_SYNC_INPUT_INVALID",
+                    details={
+                        "validationErrors": exc.errors(
+                            include_context=False,
+                            include_input=False,
+                            include_url=False,
+                        ),
+                    },
+                ) from exc
+            result = self.confirm_prompt_sync(
+                project_id=confirm_request.project_id,
+                timeline_id=confirm_request.timeline_id,
+                element_id=confirm_request.element_id,
+                basis=confirm_request.basis,
+                stage=confirm_request.stage,
+            )
         else:
             raise UnknownAgentProjectTool(
                 f"unknown Project tool: {tool_name!r}",
@@ -1967,6 +2197,7 @@ AgentProjectToolBoundary = AgentProjectTools
 __all__ = [
     "AGENT_PROJECT_TOOL_SCHEMAS",
     "ELEMENTS_AT_TOOL_NAME",
+    "CONFIRM_PROMPT_SYNC_TOOL_NAME",
     "IMPORT_SCRIPT_TOOL_NAME",
     "JQ_PROJECT_TOOL_NAME",
     "READ_PROJECT_FILE_TOOL_NAME",

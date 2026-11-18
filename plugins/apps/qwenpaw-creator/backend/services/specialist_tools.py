@@ -48,6 +48,7 @@ from services.media_files.r2v_execution import (
     execute_file_s2v_command,
 )
 from services.project_files.agent_tools import (
+    CONFIRM_PROMPT_SYNC_TOOL_NAME,
     AgentProjectTools,
     agent_project_tool_manifest,
 )
@@ -115,6 +116,12 @@ class SpecialistToolWait(StrEnum):
 _PROJECT_ASSETS_TARGET_REF = "project:assets"
 _ASSET_TARGET_REF_PATTERN = r"^(asset|lineup):.+$"
 _SOURCE_PROJECT_TOOL_NAMES = frozenset({"read_project", "read_project_file"})
+# Confirming prompt sync moves provenance for a whole stage at once, so it
+# stays with the main Agent: a Specialist restating it would waive a gate for
+# content outside its admitted targets.
+_MAIN_AGENT_ONLY_PROJECT_TOOL_NAMES = frozenset(
+    {CONFIRM_PROMPT_SYNC_TOOL_NAME},
+)
 # R2V_GENERATION_DIRECTOR is absent from the active delegation registry. Its
 # direct manifest remains readable only so durable pre-retirement SpecialistRun
 # checkpoints can replay/finish with the exact tool surface they originally
@@ -1221,10 +1228,14 @@ class FileSpecialistToolRegistry:
         project_tools = [
             item
             for item in agent_project_tool_manifest()
-            if role is not SpecialistRole.SOURCE_INTELLIGENCE
-            or (
-                include_project_readers
-                and item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+            if item["function"]["name"]
+            not in _MAIN_AGENT_ONLY_PROJECT_TOOL_NAMES
+            and (
+                role is not SpecialistRole.SOURCE_INTELLIGENCE
+                or (
+                    include_project_readers
+                    and item["function"]["name"] in _SOURCE_PROJECT_TOOL_NAMES
+                )
             )
         ]
         business_tools = []
@@ -1275,6 +1286,8 @@ class FileSpecialistToolRegistry:
         idempotency_key: str,
         context: SourceAgentToolContext | None = None,
     ) -> SpecialistToolResult:
+        if name in _MAIN_AGENT_ONLY_PROJECT_TOOL_NAMES:
+            raise ValidationError(f"Specialist 不可调用工具: {name}")
         if name in _PROJECT_TOOL_NAMES:
             payload = await asyncio.to_thread(
                 project_tools.invoke,

@@ -30,6 +30,7 @@ from domain.errors import ValidationError
 from models import vlm_model
 from models import config as model_config
 from models.media_transport import DASHSCOPE_TEMP_UPLOAD_MAX_BYTES
+from services.media_files import media_gate
 from services.project_files.remote_cache import resolve_remote_cache
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
@@ -155,7 +156,7 @@ def clip_segment_sync(
         "+faststart",
         str(out_path),
     ]
-    proc = subprocess.run(  # nosec B603
+    proc = media_gate.run(  # nosec B603
         command,
         capture_output=True,
         timeout=1800,
@@ -250,7 +251,7 @@ def clip_segment_hq_sync(
         "+faststart",
         str(out_path),
     ]
-    proc = subprocess.run(  # nosec B603
+    proc = media_gate.run(  # nosec B603
         command,
         capture_output=True,
         timeout=1800,

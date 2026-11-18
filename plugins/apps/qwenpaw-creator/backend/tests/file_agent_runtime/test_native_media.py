@@ -13,7 +13,7 @@ from api.file_asset_routes import (
     _register_remote_asset_sync,
 )
 from domain.errors import ValidationError
-from models import vlm_model
+from models import media_transport, vlm_model
 from services.file_agent_runtime import native_media
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import Project
@@ -66,6 +66,64 @@ def _project(tmp_path) -> CreatorFileServices:
     return services
 
 
+def _inline_transport_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Point the VLM at a non-DashScope gateway that has no upload key.
+
+    Reaching the DashScope temporary OSS fails the test, so a call site that
+    skipped the provider branch is caught instead of quietly handing the
+    gateway an ``oss://`` URL it cannot fetch with a 401 credential.
+    """
+
+    async def forbidden_upload(*_args, **_kwargs):
+        raise AssertionError(
+            "a non-DashScope gateway must never reach the DashScope upload",
+        )
+
+    # The route is chosen inside models.media_transport, so guarding only
+    # models.vlm_model would miss the dispatcher's own reference to the
+    # upload: trap both names.
+    monkeypatch.setattr(
+        vlm_model,
+        "upload_local_file_to_dashscope_temp",
+        forbidden_upload,
+    )
+    monkeypatch.setattr(
+        media_transport,
+        "upload_local_file_to_dashscope_temp",
+        forbidden_upload,
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_base_url",
+        lambda: OPEN_GATEWAY_BASE_URL,
+    )
+    # A protocol label alone can flip the route to the proxy upload, so the
+    # gateway under test is named instead of inherited from the ambient
+    # configuration.
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_protocol",
+        lambda: "OpenAI Compatible",
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_api_key",
+        lambda: "",
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_model_name",
+        lambda: "gpt-vision",
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_max_inline_bytes",
+        lambda: 1024 * 1024,
+    )
+
+
 def test_asset_version_refs_are_uploaded_and_attached_as_native_media(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -105,9 +163,20 @@ def test_asset_version_refs_are_uploaded_and_attached_as_native_media(
         "get_vlm_model_name",
         lambda: "qwen3.7-plus",
     )
+    # Attachments must use the endpoint and credentials from the VLM section.
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_base_url",
+        lambda: "https://dashscope.aliyuncs.com/api/v1",
+    )
+    monkeypatch.setattr(
+        native_media.model_config,
+        "get_vlm_protocol",
+        lambda: "DashScope",
+    )
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         fake_upload,
     )
     request = CreatorMessageRecord(
@@ -131,6 +200,10 @@ def test_asset_version_refs_are_uploaded_and_attached_as_native_media(
 
     assert len(observed_paths) == 1
     assert observed_paths[0][0].read_bytes() == b"video-bytes"
+    assert observed_paths[0][1]["base_url"] == (
+        "https://dashscope.aliyuncs.com/api/v1"
+    )
+    assert observed_paths[0][1]["protocol"] == "DashScope"
     assert parts == [
         {
             "type": "video_url",
@@ -164,37 +237,8 @@ def test_non_dashscope_provider_inlines_local_media_without_upload_key(
     services = _project(tmp_path)
     item = _ingest_local_video(services, scope="test-non-dashscope")
 
-    async def forbidden_upload(*_args, **_kwargs):
-        raise AssertionError(
-            "a non-DashScope gateway must never reach the DashScope upload",
-        )
-
-    monkeypatch.setattr(
-        vlm_model,
-        "upload_local_file_to_dashscope_temp",
-        forbidden_upload,
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_base_url",
-        lambda: OPEN_GATEWAY_BASE_URL,
-    )
     # No credential at all: the inline transport must not require one.
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_api_key",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_model_name",
-        lambda: "gpt-vision",
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_max_inline_bytes",
-        lambda: 1024 * 1024,
-    )
+    _inline_transport_config(monkeypatch)
 
     parts = asyncio.run(
         native_media.source_intelligence_content_parts(
@@ -283,7 +327,7 @@ def test_url_backed_version_uses_public_source_without_local_cache(
 
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         unexpected_upload,
     )
     request = CreatorMessageRecord(
@@ -374,7 +418,7 @@ def test_short_video_target_ref_is_delivered_as_frame_sequence(
     )
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         fake_upload,
     )
     monkeypatch.setattr(
@@ -478,7 +522,7 @@ def test_target_refs_scope_media_to_the_delegated_asset(
     )
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         fake_upload,
     )
     request = CreatorMessageRecord(
@@ -548,7 +592,7 @@ def test_document_page_refs_become_native_image_parts(
     )
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         fake_upload,
     )
     refs = [document_page_ref(checksum, page) for page in (1, 2)]
@@ -569,48 +613,6 @@ def test_document_page_refs_become_native_image_parts(
         "page": 1,
     }
     assert parts[1]["attachment"]["documentPageRef"] == refs[1]
-
-
-def _inline_transport_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Point the VLM at a non-DashScope gateway that has no upload key.
-
-    Reaching the DashScope temporary OSS fails the test, so a call site that
-    skipped the provider branch is caught instead of quietly handing the
-    gateway an ``oss://`` URL it cannot fetch with a 401 credential.
-    """
-
-    async def forbidden_upload(*_args, **_kwargs):
-        raise AssertionError(
-            "a non-DashScope gateway must never reach the DashScope upload",
-        )
-
-    monkeypatch.setattr(
-        vlm_model,
-        "upload_local_file_to_dashscope_temp",
-        forbidden_upload,
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_base_url",
-        lambda: OPEN_GATEWAY_BASE_URL,
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_api_key",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_model_name",
-        lambda: "gpt-vision",
-    )
-    monkeypatch.setattr(
-        native_media.model_config,
-        "get_vlm_max_inline_bytes",
-        lambda: 1024 * 1024,
-    )
 
 
 def test_document_page_parts_inline_for_a_non_dashscope_provider(
@@ -689,7 +691,7 @@ def test_downscaled_document_page_reports_the_media_it_carries(
 
     monkeypatch.setattr(
         native_media,
-        "transport_local_media_url",
+        "upload_reference_file_for_provider",
         downscaled_transport,
     )
 

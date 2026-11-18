@@ -13,6 +13,7 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from . import idempotency_ledger
 from .atomic_store import (
     AtomicJsonRecordStore,
     CreateIfAbsentJsonStore,
@@ -234,6 +235,32 @@ class IdempotencyRecordStore:
             idempotency_key,
             created,
         )
+        # Transaction GC reads this ledger before deleting a Project's
+        # settled transactions: an IN_PROGRESS reservation still needs the
+        # transaction as the durable witness for replaying that request's
+        # response, and a record cannot be traced back from its id
+        # (review #243).
+        #
+        # Called on every reserve whose record is still IN_PROGRESS, not
+        # just when ``created`` is true: crash window (review #243
+        # blocking #2). A reserve that wrote the record as IN_PROGRESS
+        # and died before marking the ledger left the retry seeing
+        # ``created=False`` while the ledger still missed this id, so GC
+        # would delete the finalized transaction the pending record
+        # needed to replay. ``mark_open`` is idempotent -- it returns
+        # early when the id is already present -- so republishing costs
+        # nothing when the ledger is correct and closes the crash window
+        # when it is not.
+        #
+        # Restricted to IN_PROGRESS on purpose (review #243 follow-up):
+        # the terminal-state replay path (project_file_routes returns a
+        # cached COMPLETED / FAILED response without calling complete()
+        # or fail() again) would otherwise reopen settled records in the
+        # ledger, and the storage-reclaim sweep this PR exists to make
+        # reliable would leave them on disk forever. Only an unsettled
+        # record needs the durable witness.
+        if record.status is IdempotencyStatus.IN_PROGRESS:
+            idempotency_ledger.mark_open(self.root, record.record_id)
         return IdempotencyReservation(record=record, created=created)
 
     @staticmethod
@@ -300,6 +327,7 @@ class IdempotencyRecordStore:
             )
 
         result = store.update(transition).value
+        idempotency_ledger.mark_closed(self.root, result.record_id)
         logger.debug(
             "idempotency completed: owner=%s scope=%s key=%s",
             owner_id,
@@ -354,6 +382,7 @@ class IdempotencyRecordStore:
             )
 
         result = store.update(transition).value
+        idempotency_ledger.mark_closed(self.root, result.record_id)
         logger.debug(
             "idempotency failed: owner=%s scope=%s key=%s",
             owner_id,

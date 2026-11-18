@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=line-too-long,protected-access,unnecessary-lambda,useless-return
+# The response double has to expose httpx's ``json()`` method, which shadows
+# the stdlib module this file also imports.
+# pylint: disable=redefined-outer-name
 
 from __future__ import annotations
 
 import asyncio
 import base64
 import io
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -707,11 +711,17 @@ def test_chat_completion_preserves_mixed_content_parts_in_request(monkeypatch):
             captured["capability_learn"] = (model, capability, value)
 
     class FakeResponse:
-        text = ""
+        # The chat decoder reads what httpx exposes (media type + body), so
+        # the double has to carry both instead of only ``json()``.
+        headers = {"content-type": "application/json"}
         status_code = 200
 
         def raise_for_status(self):
             return None
+
+        @property
+        def text(self):
+            return json.dumps(self.json())
 
         def json(self):
             message = {

@@ -123,16 +123,39 @@ function publicName(value: unknown, ref: string): string | null {
   return name;
 }
 
+// Project snapshots are immutable. Index their element names once, rather than
+// walking every timeline again for every token in every assistant message.
+const elementNamesByProject = new WeakMap<
+  ProjectDocument,
+  Map<string, string | null>
+>();
+
+function projectElementNames(
+  project: ProjectDocument,
+): Map<string, string | null> {
+  let names = elementNamesByProject.get(project);
+  if (!names) {
+    names = new Map();
+    for (const timeline of Object.values(project.timelines?.items ?? {})) {
+      for (const [id, element] of Object.entries(
+        timeline.elements_by_id ?? {},
+      )) {
+        // Preserve the first timeline's resolution for ids shared by snapshots.
+        if (!names.has(id))
+          names.set(id, publicName(element.label, `element:${id}`));
+      }
+    }
+    elementNamesByProject.set(project, names);
+  }
+  return names;
+}
+
 function elementName(
   project: ProjectDocument | null | undefined,
   elementId: string,
 ): string | null {
   if (!project) return null;
-  for (const timeline of Object.values(project.timelines?.items ?? {})) {
-    const element = timeline.elements_by_id[elementId];
-    if (element) return publicName(element.label, `element:${elementId}`);
-  }
-  return null;
+  return projectElementNames(project).get(elementId) ?? null;
 }
 
 export function creatorTargetLabel(
@@ -262,12 +285,15 @@ export function humanizeCreatorRefs(
 ): string {
   // The model can mention a raw object id in prose or a Markdown table, without
   // the canonical reference prefix. Resolve only exact ids in this project.
-  const knownIds = new Map<string, string>();
-  for (const [id] of Object.entries(project?.visual?.entities?.items ?? {}))
-    knownIds.set(id, creatorTargetLabel(`visual-entity:${id}`, project));
-  for (const timeline of Object.values(project?.timelines?.items ?? {}))
-    for (const [id] of Object.entries(timeline.elements_by_id ?? {}))
-      knownIds.set(id, creatorTargetLabel(`element:${id}`, project));
+  const knownIdLabel = (id: string): string | undefined => {
+    if (!project) return undefined;
+    // Elements historically take precedence over an entity with the same id.
+    if (projectElementNames(project).has(id))
+      return creatorTargetLabel(`element:${id}`, project);
+    if (project.visual?.entities?.items?.[id])
+      return creatorTargetLabel(`visual-entity:${id}`, project);
+    return undefined;
+  };
   let fenced = false;
   const namedText = text
     .split("\n")
@@ -287,9 +313,9 @@ export function humanizeCreatorRefs(
         /https?:\/\/[^\s)]+|《[^》]*》|“[^”]*”|`[^`\n]+`|[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)*/gu,
         (token) => {
           if (token.startsWith("`"))
-            return knownIds.get(token.slice(1, -1)) ?? token;
+            return knownIdLabel(token.slice(1, -1)) ?? token;
           // Ordinary word ids are ambiguous with authored language.
-          return /[:_-]/u.test(token) ? knownIds.get(token) ?? token : token;
+          return /[:_-]/u.test(token) ? knownIdLabel(token) ?? token : token;
         },
       );
     })
@@ -348,6 +374,15 @@ export function creatorWorkNodeLabel(
   const kindLabel = i18n.t(kindKeys[node.kind] ?? "agentActivity.currentStage");
   const locator = node.locator ?? {};
   const timelineId = node.timelineId ?? locator.timelineId;
+  const entity = locator.assetId
+    ? project?.visual.entities.items[locator.assetId]
+    : null;
+  const variantId =
+    node.kind === "visual" && entity
+      ? entity.variants.order.find(
+          (id) => node.id === `visual:${locator.assetId}:${id}`,
+        )
+      : null;
   const ref = locator.elementId
     ? `element:${locator.elementId}`
     : locator.assetId
@@ -362,8 +397,15 @@ export function creatorWorkNodeLabel(
     : "";
   if (ref && project) {
     const objectLabel = creatorTargetLabel(ref, project);
-    if (objectLabel !== creatorTargetLabel(ref))
-      return `${objectLabel} · ${kindLabel}`;
+    if (objectLabel !== creatorTargetLabel(ref)) {
+      const state =
+        variantId && entity && entity.variants.order.length > 1
+          ? i18n.t("agentProgress.visualState", {
+              index: entity.variants.order.indexOf(variantId) + 1,
+            })
+          : null;
+      return [objectLabel, kindLabel, state].filter(Boolean).join(" · ");
+    }
   }
   const internalIds = [
     node.id,

@@ -49,6 +49,7 @@ from schemas.assets import (
     SourceModelRunRef,
 )
 from schemas.common import StrictModel
+from services.media_files import media_gate
 from services.media.source_observation import (
     clip_segment_for_transport_sync,
     clip_segment_hq_sync,
@@ -512,7 +513,7 @@ def _seek_jpeg(
         "pipe:1",
     ]
     try:
-        proc = subprocess.run(  # nosec B603
+        proc = media_gate.run(  # nosec B603
             command,
             capture_output=True,
             timeout=timeout,

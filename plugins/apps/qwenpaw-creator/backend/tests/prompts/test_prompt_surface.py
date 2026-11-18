@@ -489,3 +489,12 @@ def test_execution_guidance_explains_prompt_sync_gate(monkeypatch) -> None:
     )
     auto = render_creator_system_prompt(project_id="project-guidance-test")
     assert "并非审阅冷却" not in auto
+
+
+def test_prompt_sync_confirmation_requires_observed_current_evidence():
+    prompt = load_file_agent_prompt("creator_agent.system")
+    instruction = next(
+        line for line in prompt.splitlines() if line.startswith("- `confirm_prompt_sync`")
+    )
+    for field in ("`read_project`", "`basis`", "重新读取", "媒体评审"):
+        assert field in instruction

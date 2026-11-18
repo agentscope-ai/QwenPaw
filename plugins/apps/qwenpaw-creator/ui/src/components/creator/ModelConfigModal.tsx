@@ -233,6 +233,54 @@ interface ProtocolPreset {
   base_url_options?: { label: string; value: string }[];
 }
 
+/** Prefer the host catalog; a provider without a registry entry can still publish a preset. */
+export function llmPresetFor(
+  protocol: string,
+  providerId: string | undefined,
+  providers: HostProviderInfo[],
+): ProtocolPreset | null {
+  // OpenCode publishes no host provider record, so its own tables stand in for
+  // one; the model list is merged rather than replaced because a host may also
+  // report OpenCode models of its own.
+  const opencodeIds =
+    providerId === "opencode" ? OPENCODE_MODELS.map((model) => model.id) : [];
+  const provider = providerId
+    ? providers.find((item) => item.id === providerId)
+    : undefined;
+  if (!provider) {
+    if (providerId === "opencode") {
+      return {
+        base_url: OPENCODE_BASE_URL_OPTIONS[0].value,
+        models: opencodeIds,
+        base_url_options: OPENCODE_BASE_URL_OPTIONS,
+      };
+    }
+    const fallback = LLM_PROTOCOL_FALLBACK_BASE_URLS[protocol];
+    if (!fallback) return null;
+    return {
+      base_url: fallback,
+      models: LLM_PROTOCOL_FALLBACK_MODELS[protocol] ?? [],
+    };
+  }
+  const hostIds = [
+    ...provider.models.map((model) => model.id),
+    ...provider.extra_models.map((model) => model.id),
+  ];
+  // An empty registry entry (provider known, but no models configured for
+  // it) must not collapse the field to free text: fall back to the
+  // documented roster for the protocol.
+  const models = hostIds.length
+    ? [...hostIds, ...opencodeIds.filter((id) => !hostIds.includes(id))]
+    : LLM_PROTOCOL_FALLBACK_MODELS[protocol] ?? [];
+  return {
+    base_url: provider.base_url,
+    models,
+    base_url_options:
+      provider.meta?.base_url_options ??
+      (providerId === "opencode" ? OPENCODE_BASE_URL_OPTIONS : undefined),
+  };
+}
+
 const PROTOCOL_TO_PROVIDER_ID: Record<string, string> = {
   "DashScope（百炼）": "dashscope",
   "Aliyun Token Plan": "aliyun-tokenplan",
@@ -332,7 +380,7 @@ const TTS_PRESETS: Record<string, ProtocolPreset> = {
  * exist" for.
  */
 export function ttsModelsForProtocol(
-  models: { model: string; label: string }[],
+  models: { model: string; label: string; providers?: string[] }[],
   protocol: string,
 ): { value: string; label: string }[] {
   const roster = TTS_PRESETS[protocol]?.models ?? [];
@@ -2051,54 +2099,16 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     protocol: string,
   ): ProtocolPreset | null => {
     if (type === "llm" || type === "vlm") {
-      const providerId = mergedProviderMap[protocol];
-      if (!providerId) return null;
-      const provider = hostProviders.find((p) => p.id === providerId);
-      const opencodeIds =
-        providerId === "opencode" ? OPENCODE_MODELS.map((m) => m.id) : [];
-      if (!provider) {
-        if (providerId === "opencode") {
-          return {
-            base_url: OPENCODE_BASE_URL_OPTIONS[0].value,
-            models: opencodeIds,
-            base_url_options: OPENCODE_BASE_URL_OPTIONS,
-          };
-        }
-        const fallback = LLM_PROTOCOL_FALLBACK_BASE_URLS[protocol];
-        return fallback ? { base_url: fallback, models: [] } : null;
-      }
-      const hostIds = [
-        ...provider.models.map((m) => m.id),
-        ...provider.extra_models.map((m) => m.id),
-      ];
-      // An empty registry entry (provider known, no configured models) must
-      // not collapse the field to free text: fall back to the documented
-      // roster for the protocol.
-      const models = hostIds.length
-        ? [...hostIds, ...opencodeIds.filter((id) => !hostIds.includes(id))]
-        : LLM_PROTOCOL_FALLBACK_MODELS[protocol] ?? [];
-      return {
-        base_url: provider.base_url,
-        models,
-        base_url_options:
-          provider.meta?.base_url_options ??
-          (providerId === "opencode" ? OPENCODE_BASE_URL_OPTIONS : undefined),
-      };
+      return llmPresetFor(protocol, mergedProviderMap[protocol], hostProviders);
     }
     if (type === "asr") return ASR_PRESETS[protocol] || null;
     if (type === "s2v") return S2V_PRESETS[protocol] || null;
     if (type === "tts") {
       const preset = TTS_PRESETS[protocol];
       if (!preset) return null;
-      // A preset roster (Token Plan) names exactly what the gateway serves;
-      // only protocols without one fall back to the backend capability
-      // table. Supported speech models come from that table either way.
-      const models = preset.models.length
-        ? preset.models
-        : ttsModels.map((item) => item.model);
       return {
         ...preset,
-        models,
+        models: preset.models.length ? preset.models : ttsModelsForProtocol(ttsModels, protocol).map((item) => item.value),
       };
     }
     if (type === "embedding") return EMBEDDING_PRESETS[protocol] || null;
@@ -2113,7 +2123,13 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   ): { value: string; label: string }[] => {
     if (type === "llm" || type === "vlm") {
       const providerId = mergedProviderMap[protocol];
-      if (!providerId) return [];
+      if (!providerId) {
+        const preset = llmPresetFor(protocol, undefined, hostProviders);
+        return (preset?.models ?? []).map((model) => ({
+          value: model,
+          label: model,
+        }));
+      }
       const provider = hostProviders.find((p) => p.id === providerId);
       const options = provider
         ? [

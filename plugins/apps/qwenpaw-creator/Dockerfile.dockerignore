@@ -18,6 +18,7 @@
 **/.vite
 **/*.log
 **/.DS_Store
+**/.e2e
 plugins/apps/qwenpaw-creator/backend/tests
 plugins/apps/qwenpaw-creator/backend/scripts
 plugins/apps/qwenpaw-creator/backend/pytest.ini

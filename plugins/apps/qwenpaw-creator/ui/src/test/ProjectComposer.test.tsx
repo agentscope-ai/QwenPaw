@@ -245,6 +245,7 @@ describe("ProjectComposer ingest boundary", () => {
       calls.find((call) => call.url.endsWith("/projects"))?.body,
     ).toMatchObject({
       name: "制作一个 关于雪夜城市与归途的电影感短片",
+      nameSource: "auto",
       initialGoal: "制作一个   关于雪夜城市与归途的电影感短片，画面温暖克制",
     });
     expect(

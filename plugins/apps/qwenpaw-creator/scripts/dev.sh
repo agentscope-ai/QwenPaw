@@ -50,6 +50,7 @@ install_plugin() {
     "$PLUGIN_DIR/backend/" "$STAGE_DIR/backend/"
   rsync -a "$PLUGIN_DIR/ui/dist/" "$STAGE_DIR/ui/dist/"
   [ -d "$PLUGIN_DIR/templates" ] && rsync -a "$PLUGIN_DIR/templates/" "$STAGE_DIR/templates/"
+  node "$PLUGIN_DIR/ui/scripts/verify-package.mjs" "$STAGE_DIR"
   du -sh "$STAGE_DIR" | awk '{print "==> Staged package size: " $1}'
 
   echo "==> Installing via qwenpaw plugin install --force ..."

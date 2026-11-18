@@ -2,6 +2,7 @@ import { message } from "antd";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import ModelConfigModal, {
+  llmPresetFor,
   ASR_PROTOCOLS,
   EMBEDDING_PROTOCOLS,
   IMAGE_PROTOCOLS,
@@ -509,6 +510,11 @@ describe("ModelConfigModal configuration lifecycle", () => {
 });
 
 describe("ModelConfigModal model presets", () => {
+  it("uses a documented model roster when a fresh host has no provider record", () => {
+    expect(llmPresetFor("Aliyun Token Plan", "aliyun-tokenplan", [])?.models).toContain("qwen3.8-max");
+    expect(llmPresetFor("自定义", undefined, [])).toBeNull();
+  });
+
   it("offers Wan3.0 while keeping the legacy Bailian URL as default", () => {
     const bailian = PRESETS_BY_TYPE.video["DashScope（百炼）"];
     expect(bailian.models).toContain("wan3.0-video");

@@ -383,6 +383,7 @@ def _run_materialize(worker, monkeypatch, stub, provider_result=None):
     task = SimpleNamespace(project_id=PROJECT_ID, task_id="task-materialize")
     claim = SimpleNamespace(
         provider_result=provider_result or {"result_url": "https://x/v.mp4"},
+        request={},
     )
 
     async def scenario():

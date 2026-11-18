@@ -37,6 +37,7 @@ from services.source_analysis import (  # noqa: E402
     recover_interrupted_source_analysis,
     shutdown_source_analysis_services,
 )
+from utils.io_pool import configure_io_thread_pool
 from utils.logger import configure_creator_file_logging  # noqa: E402
 
 
@@ -55,9 +56,10 @@ async def lifespan(_app: FastAPI):
         },
     )
     try:
+        configure_io_thread_pool()
         await asyncio.to_thread(ensure_creator_runtime_dependencies)
-        services = creator_file_services(data_root)
-        recover_interrupted_source_analysis(services)
+        services = await asyncio.to_thread(creator_file_services, data_root)
+        await asyncio.to_thread(recover_interrupted_source_analysis, services)
     except BaseException as exc:
         trace_event(
             "creator.runtime.startup_failed",

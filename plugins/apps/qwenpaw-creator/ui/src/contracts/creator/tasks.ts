@@ -54,6 +54,7 @@ export interface TaskView {
     | "compose";
   targetRef: string;
   status: TaskStatus;
+  lastAttemptSeq?: number;
   progress: number | null;
   completedElements?: number | null;
   totalElements?: number | null;

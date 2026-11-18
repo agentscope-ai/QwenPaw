@@ -3,10 +3,16 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import vm from 'node:vm';
 
-const uiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// An explicit plugin root checks the actual staged or installed package.
+const pluginRoot = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const uiRoot = path.join(pluginRoot, 'ui');
+const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
 const expected = [
   path.join(uiRoot, 'dist', 'index.js'),
   path.join(uiRoot, 'dist', 'app', 'index.html'),
+  ...(manifest.pack_requires ?? []).map((file) => path.join(pluginRoot, file)),
 ];
 
 for (const file of expected) {

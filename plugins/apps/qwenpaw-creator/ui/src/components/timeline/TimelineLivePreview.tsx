@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type RefObject,
 } from "react";
 import { Clock3, ImageOff, Loader2 } from "lucide-react";
 import type {
@@ -38,6 +39,26 @@ import {
 import { useTranslation } from "react-i18next";
 import i18n from "@/i18n";
 
+/**
+ * How often the rAF clock publishes a tick to React.
+ *
+ * Two measurements met in the middle here. At the previous 200 ms the
+ * preview React-tick landed 5 times a second, and a one-second crossfade
+ * or a JS timeline seek driven off ``playheadTick`` visibly stepped
+ * (review #243 P2-7 remaining half -- the boundary commits close the
+ * short-overlay gap, but a fade's middle frames still needed the
+ * cadence). At per-frame 60 fps setState the whole track tree re-rendered
+ * every frame and the measured frame time doubled from 16.7 ms to
+ * 33.4 ms during a scrub. 60 ms keeps ~16 React samples per second --
+ * fine enough for a one-second fade, ~4x cheaper than the rAF cadence
+ * the perf probe flagged. Short spans still ride on top of this via the
+ * boundary commit below, so nothing gets skipped just because it fits
+ * between two throttled samples.
+ */
+export const PLAYHEAD_COMMIT_MS = 60;
+/** CSS variable the track playhead reads its fraction from. */
+export const PLAYHEAD_FRACTION_VARIABLE = "--creator-playhead-frac";
+
 interface TimelineLivePreviewProps {
   project: ProjectDocument;
   timeline: TimelineDocument;
@@ -46,6 +67,17 @@ interface TimelineLivePreviewProps {
   playing: boolean;
   muted: boolean;
   tasks: TaskView[];
+  /**
+   * DOM subtree that owns this canvas's ``--creator-playhead-frac``.
+   * Compare view mounts two canvases with different ``durationTick``;
+   * writing the fraction to ``documentElement`` made the two heads
+   * stomp each other (review #243 r4548690168). The TimelineCanvas
+   * section is passed down here so every rAF frame and every scrub
+   * publishes on a node the sibling canvas cannot read. Falls back to
+   * ``documentElement`` only when the prop is absent (a test harness
+   * that mounts the preview standalone).
+   */
+  playheadScopeRef?: RefObject<HTMLElement | null>;
   onPlayheadChange: (tick: number) => void;
   onPlayingChange: (playing: boolean) => void;
   draft?: boolean;
@@ -563,6 +595,7 @@ export default function TimelineLivePreview({
   playing,
   muted,
   tasks,
+  playheadScopeRef,
   onPlayheadChange,
   onPlayingChange,
   draft = false,
@@ -593,7 +626,27 @@ export default function TimelineLivePreview({
   );
   const clock = useRef<{ baseTick: number; baseTime: number } | null>(null);
   const lastEmittedTick = useRef(playheadTick);
+  const committedTick = useRef(playheadTick);
   const lastCorrectionSeekAt = useRef(new Map<string, number>());
+  // Every span edge the preview can transition at, sorted ascending.
+  // The rAF clock uses this list to force a React commit exactly when
+  // the playhead crosses one, even if the 200 ms throttle has not
+  // expired yet. Without this a short overlay (measured: 100 ms against
+  // a 200 ms cadence) is completely invisible because the throttled
+  // React `playheadTick` never samples the range that would put it
+  // into visibleLayers (review #243 P2). Boundary commits are strictly
+  // bounded by the layer count, so the render budget still does not
+  // degrade to per-frame state updates on a Project with a long tail.
+  const layerBoundariesRef = useRef<number[]>([]);
+  useEffect(() => {
+    const set = new Set<number>();
+    Object.values(timeline.elements_by_id).forEach((element) => {
+      if (!element.enabled) return;
+      set.add(element.span.start_tick);
+      set.add(element.span.start_tick + element.span.duration_tick);
+    });
+    layerBoundariesRef.current = Array.from(set).sort((a, b) => a - b);
+  }, [timeline]);
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageWidth, setStageWidth] = useState(1280);
   const [stageHeight, setStageHeight] = useState(720);
@@ -666,6 +719,7 @@ export default function TimelineLivePreview({
       return;
     }
     let frame = 0;
+    let lastCommit = 0;
     const step = (now: number) => {
       if (!clock.current) {
         clock.current = { baseTick: lastEmittedTick.current, baseTime: now };
@@ -676,12 +730,41 @@ export default function TimelineLivePreview({
       );
       if (tick >= durationTick) {
         lastEmittedTick.current = durationTick;
+        committedTick.current = durationTick;
+        (
+          playheadScopeRef?.current ?? document.documentElement
+        ).style.setProperty(PLAYHEAD_FRACTION_VARIABLE, "1.000000");
         onPlayheadChange(durationTick);
         onPlayingChange(false);
         return;
       }
       lastEmittedTick.current = tick;
-      onPlayheadChange(tick);
+      // Frame position goes straight onto a CSS custom property; only a
+      // throttled tick reaches React. setState at 60 fps re-rendered the
+      // whole track tree every frame (measured: ~5 DOM mutation batches
+      // per pointermove, frame time 16.7 ms -> 33.4 ms), while the
+      // compositor can move one element for free.
+      //
+      // The variable is scoped to this canvas's DOM subtree (falling back
+      // to documentElement for a test that mounts the preview alone), so
+      // a compare view with a second Canvas of a different duration
+      // cannot overwrite this playhead's fraction (review #243
+      // r4548690168).
+      (playheadScopeRef?.current ?? document.documentElement).style.setProperty(
+        PLAYHEAD_FRACTION_VARIABLE,
+        (durationTick ? tick / durationTick : 0).toFixed(6),
+      );
+      // Crossing a span edge changes layer membership; commit now
+      // instead of waiting for the throttle so a short overlay is
+      // never completely skipped (review #243 P2).
+      const crossedBoundary = layerBoundariesRef.current.some(
+        (boundary) => boundary > committedTick.current && boundary <= tick,
+      );
+      if (crossedBoundary || now - lastCommit >= PLAYHEAD_COMMIT_MS) {
+        lastCommit = now;
+        committedTick.current = tick;
+        onPlayheadChange(tick);
+      }
       frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
@@ -690,9 +773,13 @@ export default function TimelineLivePreview({
   }, [playing, durationTick, ticksPerSecond]);
 
   // Re-base the clock when an external scrub happens (clicking the timeline or
-  // progress bar).
+  // progress bar). Compared against the last *committed* tick: with a
+  // throttled publish the per-frame tick and the React value legitimately
+  // differ during playback, and re-basing on that difference would rewind the
+  // clock by up to PLAYHEAD_COMMIT_MS every time React caught up.
   useEffect(() => {
-    if (Math.abs(playheadTick - lastEmittedTick.current) <= 1) return;
+    if (Math.abs(playheadTick - committedTick.current) <= 1) return;
+    committedTick.current = playheadTick;
     lastEmittedTick.current = playheadTick;
     clock.current = null;
   }, [playheadTick]);

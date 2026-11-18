@@ -5,18 +5,23 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
 import math
+import threading
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
 from .migrations import ProjectMigrationError, migrate_project_document
 from .models import Project, R2VCreation
+
+
+from .linear_document import EMPTY_PRESENTATION, without_empty_extensions
 
 
 class CanonicalJsonError(ValueError):
@@ -71,6 +76,8 @@ def canonical_json_bytes(value: Any, *, pretty: bool = False) -> bytes:
     """
 
     data = canonical_data(value)
+    if isinstance(value, Project):
+        data = without_empty_extensions(data)
     if pretty:
         text = json.dumps(
             data,
@@ -161,6 +168,16 @@ def _source_document_data(value: Any, model_value: Any) -> Any:
     if isinstance(value, Mapping):
         if isinstance(model_value, BaseModel):
             fields = list(type(model_value).model_fields)
+            # Preserve the historic top-level field order in both variants.
+            if (
+                isinstance(model_value, Project)
+                and "narrative_edges" not in fields
+            ):
+                assets = fields.index("assets")
+                fields[assets:assets] = [
+                    "narrative_edges",
+                    "interactive_presentation",
+                ]
             if isinstance(model_value, R2VCreation):
                 fields.insert(fields.index("recipe"), "shots")
                 fields.append("min_dialogue_ratio")
@@ -176,6 +193,19 @@ def _source_document_data(value: Any, model_value: Any) -> Any:
                 for name in fields
                 if name in value
             }
+            if (
+                isinstance(model_value, Project)
+                and "interactive_presentation" in value
+                and "interactive_presentation"
+                not in type(model_value).model_fields
+            ):
+                # Plain Creator only accepts the validated empty form here.
+                presentation = value["interactive_presentation"]
+                ordered["interactive_presentation"] = {
+                    name: presentation[name]
+                    for name in EMPTY_PRESENTATION
+                    if name in presentation
+                }
             # Retain other legacy-only keys in the persisted identity while
             # the current typed view may deliberately ignore them.
             ordered.update(
@@ -206,18 +236,49 @@ def _source_document_data(value: Any, model_value: Any) -> Any:
     return value
 
 
+#: One Project read canonicalizes the whole document twice over (rebuild +
+#: ``json.dumps`` + digest): measured on a 352-element Project, 20.2 ms of a
+#: 54.8 ms ``store.read``.  Discovery polling and the per-second reconcile tick
+#: re-read the same unchanged bytes -- 6.5 reads/second with an idle UI -- so
+#: the digest of the stored bytes keys a small LRU.  Content-addressed, so a
+#: rewrite misses and an eviction only costs one recomputation.
+_ETAG_CACHE_LIMIT = 32
+_etag_cache: OrderedDict[str, str] = OrderedDict()
+_etag_cache_lock = threading.Lock()
+
+
+def _etag_cache_key(payload: bytes | str) -> str:
+    raw = payload.encode("utf-8") if isinstance(payload, str) else payload
+    return hashlib.sha256(raw).hexdigest()
+
+
 def project_document_etag(
     document: Mapping[str, Any],
     *,
     project: Project | None = None,
+    source_payload: bytes | str | None = None,
 ) -> str:
     """Hash a validated Project using the schema persisted in *document*.
 
     This keeps a Project ETag stable across an in-memory schema migration, so
     historical commit journals and the current authority remain comparable.
     New writes still use :func:`project_etag` for the current schema.
+
+    ``source_payload`` is the exact bytes *document* was parsed from.  Handing
+    it in enables the content-addressed cache below: the returned ETag is
+    byte-identical to the uncached computation, it is just derived once per
+    stored revision instead of once per read.
     """
 
+    cache_key = (
+        _etag_cache_key(source_payload) if source_payload is not None else None
+    )
+    if cache_key is not None:
+        with _etag_cache_lock:
+            cached = _etag_cache.get(cache_key)
+            if cached is not None:
+                _etag_cache.move_to_end(cache_key)
+                return cached
     validated = project or load_project_document(document)
     source_data = _source_document_data(document, validated)
     payload = json.dumps(
@@ -226,7 +287,72 @@ def project_document_etag(
         allow_nan=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    etag = f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    if cache_key is not None:
+        with _etag_cache_lock:
+            _etag_cache[cache_key] = etag
+            _etag_cache.move_to_end(cache_key)
+            while len(_etag_cache) > _ETAG_CACHE_LIMIT:
+                _etag_cache.popitem(last=False)
+    return etag
+
+
+def project_edit_document(document: dict[str, Any]) -> dict[str, Any]:
+    """Restore this schema's editing view for a verified linear transaction."""
+    # Older plain projects had neither title provenance nor video audio flags.
+    # These defaults were absent on both sides of historical edits. Restore
+    # only the additive fields, never run repairs on the original candidate:
+    # that could conceal a genuine change from an earlier writer.
+    data = dict(document)
+    data.setdefault("name_source", None)
+    timelines = data.get("timelines")
+    items = timelines.get("items") if isinstance(timelines, dict) else None
+    updated_timelines = {}
+    if isinstance(items, dict):
+        for timeline_id, timeline in items.items():
+            if not isinstance(timeline, dict):
+                continue
+            elements = timeline.get("elements_by_id")
+            if not isinstance(elements, dict):
+                continue
+            updated_elements = {}
+            for element_id, element in elements.items():
+                creation = (
+                    element.get("creation")
+                    if isinstance(element, dict)
+                    else None
+                )
+                if (
+                    isinstance(creation, dict)
+                    and creation.get("type") in ("r2v", "t2v", "i2v")
+                    and "generate_audio" not in creation
+                ):
+                    updated_elements[element_id] = {
+                        **element,
+                        "creation": {**creation, "generate_audio": True},
+                    }
+            if updated_elements:
+                updated_timelines[timeline_id] = {
+                    **timeline,
+                    "elements_by_id": {**elements, **updated_elements},
+                }
+    if updated_timelines:
+        data["timelines"] = {
+            **timelines,
+            "items": {**items, **updated_timelines},
+        }
+    compact = without_empty_extensions(data)
+    if compact is data and (
+        "narrative_edges" in data or "interactive_presentation" in data
+    ):
+        return data
+    if "interactive_presentation" not in Project.model_fields:
+        return compact
+    return {
+        **compact,
+        "narrative_edges": [],
+        "interactive_presentation": {**EMPTY_PRESENTATION, "screens": {}},
+    }
 
 
 def load_project_document(raw: Mapping[str, Any]) -> Project:
@@ -291,7 +417,11 @@ def load_project_json_with_source(
 
     raw = _parse_project_json(payload)
     project = load_project_document(raw)
-    return project, project_document_etag(raw, project=project), raw
+    return (
+        project,
+        project_document_etag(raw, project=project, source_payload=payload),
+        raw,
+    )
 
 
 def load_project_json_with_etag(

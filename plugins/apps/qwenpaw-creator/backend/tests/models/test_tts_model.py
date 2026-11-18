@@ -678,3 +678,29 @@ def test_concurrent_synthesis_keeps_its_endpoints_isolated(
 
     assert sorted(recorded) == sorted([_PLAN_WS, _DEFAULT_WS])
     assert dashscope.base_websocket_api_url == _DEFAULT_WS
+
+
+def test_qwen_audio_models_carry_their_own_voice_lists() -> None:
+    """Each Qwen-Audio revision speaks only its own voices, and is its own row.
+
+    ``-plus`` was absent from the table and ``-flash`` carried none, so
+    ``require_capability`` silently substituted the default model and sent a
+    Qwen3-TTS voice name to a Qwen-Audio request. The provider rejects that as
+    an upstream 400, which the model proxy re-reports as a retryable 502 - a
+    wrong voice name therefore reads exactly like a broken endpoint.
+    """
+
+    plus = require_capability("qwen-audio-3.0-tts-plus")
+    flash = require_capability("qwen-audio-3.0-tts-flash")
+    assert plus.model == "qwen-audio-3.0-tts-plus"
+    assert flash.model == "qwen-audio-3.0-tts-flash"
+    assert plus.has_system_voices
+    assert flash.has_system_voices
+
+    assert not set(plus.system_voices) & set(flash.system_voices)
+    default = require_capability(DEFAULT_TTS_MODEL)
+    inherited = set(flash.system_voices) & set(default.system_voices)
+    # A Qwen3-TTS voice name must never reach a Qwen-Audio request: the
+    # provider rejects it as an upstream 400 that the proxy re-reports as a
+    # retryable 502.
+    assert not inherited
