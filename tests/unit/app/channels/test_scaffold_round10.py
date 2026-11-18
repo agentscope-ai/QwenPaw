@@ -129,7 +129,8 @@ def test_sse_delta_filters_system_injection_blocks() -> None:
     )
 
     assert "noise" not in raw
-    assert "hi" in raw
+    released = channel._flush_headline_stream_states(states)
+    assert [json.loads(item)["text"] for item in released] == ["hi"]
 
 
 def test_sse_delta_filters_tool_parameter_shell() -> None:
@@ -199,16 +200,21 @@ def test_reasoning_spanning_text_blocks_is_hidden() -> None:
 
 
 def test_history_playback_shares_one_scan_per_message() -> None:
-    """History blocks are cleaned with the same per-message state."""
-    from qwenpaw.agents.context.scroll.scaffold_filter import ScaffoldFilter
-    from qwenpaw.app.chats.utils import clean_display_text
+    """History blocks are cleaned as one message."""
+    from agentscope.message import Msg
 
-    state = ScaffoldFilter()
-    first = clean_display_text(f"{OPEN}secret", "assistant", state=state)
-    second = clean_display_text(f"tail{CLOSE}answer", "assistant", state=state)
+    from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
-    assert first == ""
-    assert second == "answer"
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            {"type": "text", "text": f"{OPEN}secret"},
+            {"type": "text", "text": f"tail{CLOSE}answer"},
+        ],
+    )
+    [message] = agentscope_msg_to_message(msg)
+    assert [block.text for block in message.content] == ["", "answer"]
 
 
 # --------------------------------------------------------------------------
@@ -466,8 +472,10 @@ async def test_streaming_hooks_show_only_the_public_reply(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("open_tag", [OPEN, ""])
 async def test_streaming_hooks_hide_scaffolding_across_content_indexes(
     streaming_channel,
+    open_tag: str,
 ) -> None:
     from types import SimpleNamespace
 
@@ -475,7 +483,7 @@ async def test_streaming_hooks_hide_scaffolding_across_content_indexes(
     send_meta: dict[str, Any] = {}
     buffers = {"message": ""}
     mapping = {"m1": "message"}
-    chunks = (f"{OPEN}private start", "private middle", f"{CLOSE}Public.")
+    chunks = (f"{open_tag}private start", "private middle", f"{CLOSE}Public.")
     for index, text in enumerate(chunks):
         await streaming_channel._on_stream_content_delta(
             request,
@@ -486,6 +494,8 @@ async def test_streaming_hooks_hide_scaffolding_across_content_indexes(
             buffers,
         )
 
+    assert not streaming_channel.delta_calls
+    assert not streaming_channel.end_calls
     await streaming_channel._on_stream_msg_end(
         request,
         "u",
@@ -522,7 +532,9 @@ def test_sse_injected_block_across_three_chunks() -> None:
         )
         visible.append(json.loads(raw)["text"])
 
-    assert "".join(visible) == "Public."
+    assert not any(visible)
+    released = channel._flush_headline_stream_states(states)
+    assert [json.loads(item)["text"] for item in released] == ["Public."]
 
 
 def test_sse_code_examples_survive_chunk_splitting() -> None:
@@ -561,4 +573,6 @@ def test_sse_code_examples_survive_chunk_splitting() -> None:
         )
         visible.append(json.loads(raw)["text"])
 
-    assert "".join(visible) == "".join(chunks)
+    assert not any(visible)
+    released = channel._flush_headline_stream_states(states)
+    assert [json.loads(item)["text"] for item in released] == ["".join(chunks)]

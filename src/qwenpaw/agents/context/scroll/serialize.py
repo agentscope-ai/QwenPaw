@@ -132,7 +132,6 @@ def strip_injected_context(text: str | None) -> str | None:
 
 from qwenpaw.agents.context.scroll.scaffold_filter import (  # noqa: E402
     ScaffoldDeltaState,
-    ScaffoldFilter,
     flush_scaffold_delta,
     strip_scaffold_delta,
     strip_scaffold_text,
@@ -141,8 +140,6 @@ from qwenpaw.agents.context.scroll.scaffold_filter import (  # noqa: E402
 
 def strip_model_scaffolding(
     text: str | None,
-    *,
-    state: ScaffoldFilter | None = None,
 ) -> str | None:
     """Hide reasoning scaffolding a model wrote into ordinary text.
 
@@ -152,21 +149,10 @@ def strip_model_scaffolding(
     bytes are persisted as normal assistant text, so the display boundary has
     to drop them or they reach the user verbatim.
 
-    ``state`` carries the scan across the text blocks of one message, so a
-    block that ends mid-reasoning and a block that closes it are handled as
-    one stream rather than independently.
-
     Quoted material (fenced or indented code, inline spans, blockquote lines)
     is never touched, so prose and examples that discuss the tags survive.
     """
-    if not text:
-        return text
-    if state is None:
-        return strip_scaffold_text(text)
-    visible = state.feed(text)
-    if visible == text:
-        return text
-    return visible.strip("\r\n")
+    return strip_scaffold_text(text)
 
 
 def strip_headline_delta(

@@ -636,16 +636,11 @@ class TestStreamingChunkSplitting:
         assert buffers["message"] == "hello world"
 
     @pytest.mark.asyncio
-    async def test_content_index_change_triggers_split(
+    async def test_content_index_change_does_not_publish_unclassified_text(
         self,
         streaming_channel,
     ):
-        """Historical bug: multi-segment streaming merged into one box.
-
-        Fix: when content_index changes mid-stream, finalize the current
-        segment via on_streaming_end(accumulated_old) and start a fresh
-        segment via on_streaming_start(accumulated='').
-        """
+        """A content boundary cannot rule out a later bare closing tag."""
         req = SimpleNamespace(
             user_id="u",
             session_id="console:u",
@@ -682,10 +677,8 @@ class TestStreamingChunkSplitting:
             buffers,
         )
 
-        # First segment finalized with its accumulated text
-        assert ("message", "hello world") in streaming_channel.end_calls
-        # New segment started with empty accumulated text
-        assert ("message", "") in streaming_channel.start_calls
+        assert not streaming_channel.end_calls
+        assert not streaming_channel.delta_calls
         # Buffer reset and now holds only the second segment's text
         assert buffers["message"] == "second"
 
@@ -770,12 +763,11 @@ class TestStreamingChunkSplitting:
         assert consumed is False
 
     @pytest.mark.asyncio
-    async def test_index_change_then_back_does_not_spuriously_split(
+    async def test_interleaved_indices_are_kept_in_block_order(
         self,
         streaming_channel,
     ):
-        """Going back to previous index after a split must not fire an empty
-        segment-end. Regression guard for the historical merge issue."""
+        """Returning to an earlier block must not drop its existing text."""
         req = SimpleNamespace(
             user_id="u",
             session_id="console:u",
@@ -794,7 +786,7 @@ class TestStreamingChunkSplitting:
             msg_id_to_stream_type,
             buffers,
         )
-        # Move to index 1 → triggers split
+        # Move to index 1.
         await streaming_channel._on_stream_content_delta(
             req,
             "u",
@@ -803,12 +795,7 @@ class TestStreamingChunkSplitting:
             msg_id_to_stream_type,
             buffers,
         )
-        ends_after_first_split = len(streaming_channel.end_calls)
-
-        # Now index 0 again with EMPTY buffer would be a "new" segment;
-        # since buffer is non-empty ("b"), it would split again. Confirm
-        # split fires only when buffer is non-empty.
-        # Move to index 0 → should split again (buffer "b" non-empty)
+        # Append more to index 0.
         await streaming_channel._on_stream_content_delta(
             req,
             "u",
@@ -817,8 +804,17 @@ class TestStreamingChunkSplitting:
             msg_id_to_stream_type,
             buffers,
         )
-        assert len(streaming_channel.end_calls) == ends_after_first_split + 1
+        assert not streaming_channel.end_calls
         assert buffers["message"] == "c"
+        await streaming_channel._on_stream_msg_end(
+            req,
+            "u",
+            _mk_message([]).model_copy(update={"id": "m1"}),
+            send_meta,
+            msg_id_to_stream_type,
+            buffers,
+        )
+        assert streaming_channel.end_calls == [("message", "acb")]
 
 
 # ---------------------------------------------------------------------------

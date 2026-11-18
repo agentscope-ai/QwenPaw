@@ -43,9 +43,8 @@ from qwenpaw.schemas import (
 from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
-from ...agents.context.scroll.scaffold_filter import ScaffoldFilter
+from ...agents.context.scroll.scaffold_filter import strip_scaffold_blocks
 from ...agents.context.scroll.serialize import (
-    HeadlineDeltaState,
     flush_headline_delta,
     strip_headline,
     strip_headline_delta,
@@ -63,16 +62,35 @@ OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 logger = logging.getLogger(__name__)
 
 _SSE_TEXT_PREFIX = "scaffold:"
+_TERMINAL_STREAM_STATUSES = {
+    RunStatus.Completed,
+    RunStatus.Failed,
+    RunStatus.Cancelled,
+}
 
 
 @dataclass
-class _SseAssistantText:
-    """One scanner per message and a display snapshot of its current block."""
+class _BufferedAssistantText:
+    """Hold assistant text until a later bare close can no longer hide it."""
 
-    scanner: ScaffoldFilter = field(default_factory=ScaffoldFilter)
-    headline: HeadlineDeltaState = field(default_factory=HeadlineDeltaState)
-    index: int | None = None
-    fragments: list[str] = field(default_factory=list)
+    blocks: dict[int, list[str]] = field(default_factory=dict)
+
+    def add(self, index: int, text: str, *, delta: bool) -> None:
+        if delta:
+            self.blocks.setdefault(index, []).append(text)
+        else:
+            self.blocks[index] = [text]
+
+    def visible(self) -> list[tuple[int, str]]:
+        indices = sorted(self.blocks)
+        texts = ["".join(self.blocks[index]) for index in indices]
+        return list(zip(indices, _filter_display_blocks(texts)))
+
+
+def _filter_display_blocks(blocks: list[str]) -> list[str]:
+    return [
+        strip_headline(text) or "" for text in strip_scaffold_blocks(blocks)
+    ]
 
 
 _TOOL_OUTPUT_MESSAGE_TYPES = {
@@ -137,9 +155,9 @@ class BaseChannel(ABC):
         """
         return []
 
-    # If True, streaming delta events (reasoning + message) are dispatched
-    # to ``on_streaming_start`` / ``on_streaming_delta`` / ``on_streaming_end``
-    # hooks *in addition to* the existing completed-message path.
+    # If True, reasoning previews and completed assistant text are dispatched
+    # to the streaming hooks. Assistant text is buffered until completion to
+    # avoid exposing a prefix later identified as reasoning by a bare close.
     # Subclasses that support real-time text streaming should set this to True
     # (either as class attr or via __init__ / from_config).
     streaming_enabled: bool = False
@@ -701,7 +719,7 @@ class BaseChannel(ABC):
                 msg_id_to_stream_type,
                 streaming_buffers,
             )
-        if obj == "message" and status == RunStatus.Completed:
+        if obj == "message" and status in _TERMINAL_STREAM_STATUSES:
             return await self._on_stream_msg_end(
                 request,
                 to_handle,
@@ -748,22 +766,7 @@ class BaseChannel(ABC):
         )
         return True
 
-    _DISPLAY_FILTERS_KEY = "_display_filters"
-    _DISPLAY_BUFFERS_KEY = "_display_buffers"
-
-    @staticmethod
-    def _display_filters(send_meta: Dict[str, Any]) -> Dict[str, Any]:
-        return send_meta.setdefault(
-            BaseChannel._DISPLAY_FILTERS_KEY,
-            {},
-        )
-
-    @staticmethod
-    def _display_buffers(send_meta: Dict[str, Any]) -> Dict[str, str]:
-        return send_meta.setdefault(
-            BaseChannel._DISPLAY_BUFFERS_KEY,
-            {},
-        )
+    _ASSISTANT_STREAM_TEXT = "_assistant_stream_text"
 
     async def _on_stream_content_delta(
         self,
@@ -774,8 +777,6 @@ class BaseChannel(ABC):
         msg_id_to_stream_type: Dict[str, str],
         streaming_buffers: Dict[str, str],
     ) -> bool:
-        if not getattr(event, "delta", False):
-            return False
         content_msg_id = getattr(event, "msg_id", None) or ""
         stream_type = msg_id_to_stream_type.get(
             content_msg_id,
@@ -791,10 +792,33 @@ class BaseChannel(ABC):
             stream_type == "reasoning"
             and not self._display_config.show_thinking
         ):
+            return bool(getattr(event, "delta", False))
+
+        delta = getattr(event, "delta", False)
+        content_index = getattr(event, "index", 0) or 0
+        delta_text = getattr(event, "text", None)
+        if stream_type == "message":
+            if not isinstance(delta_text, str):
+                return False
+            states = send_meta.setdefault(self._ASSISTANT_STREAM_TEXT, {})
+            state = states.get(content_msg_id)
+            if state is None:
+                state = states[content_msg_id] = _BufferedAssistantText()
+            state.add(content_index, delta_text, delta=delta)
+            # Preserve the last collected segment for channel bookkeeping.
+            index_key = f"_stream_last_index_{stream_type}"
+            if not delta:
+                return False
+            if content_index != send_meta.get(index_key, 0):
+                streaming_buffers[stream_type] = delta_text
+            else:
+                streaming_buffers[stream_type] += delta_text
+            send_meta[index_key] = content_index
             return True
+        if not delta:
+            return False
 
         # Detect content index change → split into a new streaming box
-        content_index = getattr(event, "index", 0) or 0
         index_key = f"_stream_last_index_{stream_type}"
         last_index = send_meta.get(index_key, 0)
         if content_index != last_index and streaming_buffers.get(
@@ -803,8 +827,7 @@ class BaseChannel(ABC):
         ):
             # Finalize current streaming box before starting a new one
             await self._await_stream_flush(send_meta, stream_type)
-            streaming_buffers.pop(stream_type, "")
-            display = self._display_buffers(send_meta).pop(stream_type, "")
+            display = streaming_buffers.pop(stream_type, "")
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -825,23 +848,10 @@ class BaseChannel(ABC):
             )
         send_meta[index_key] = content_index
 
-        delta_text = getattr(event, "text", "") or ""
-        streaming_buffers[stream_type] = (
-            streaming_buffers.get(stream_type, "") + delta_text
-        )
-        # The filter is fed the raw delta; only its output reaches the
-        # display buffer. Keep the filter when a new streaming box opens.
-        visible = delta_text
-        if stream_type == "message":
-            filters = self._display_filters(send_meta)
-            scanner = filters.get(content_msg_id)
-            if scanner is None:
-                scanner = filters[content_msg_id] = ScaffoldFilter()
-            visible = scanner.feed(delta_text)
-        display_buffers = self._display_buffers(send_meta)
-        display_buffers[stream_type] = (
-            display_buffers.get(stream_type, "") + visible
-        )
+        streaming_buffers[stream_type] = streaming_buffers.get(
+            stream_type,
+            "",
+        ) + (delta_text or "")
 
         # --- Non-blocking flush with in-flight guard ---
         flush_meta = self._get_stream_flush_meta(send_meta, stream_type)
@@ -866,7 +876,7 @@ class BaseChannel(ABC):
         flush_meta["last_ts"] = now
         display_text = (
             strip_headline(
-                self._display_buffers(send_meta).get(stream_type, ""),
+                streaming_buffers.get(stream_type, ""),
             )
             or ""
         )
@@ -924,15 +934,25 @@ class BaseChannel(ABC):
             await self._await_stream_flush(send_meta, stream_type)
 
             buf = streaming_buffers.pop(stream_type, "")
-            display = self._display_buffers(send_meta).pop(stream_type, "")
-            scanner = self._display_filters(send_meta).pop(msg_id or "", None)
-            if scanner is not None:
-                display += scanner.flush()
-            elif not buf:
-                display = self._extract_text_from_event(event)
-                if stream_type == "message":
-                    display = strip_model_scaffolding(display) or ""
-            accumulated = strip_headline(display) or ""
+            if stream_type == "message":
+                state = send_meta.get(self._ASSISTANT_STREAM_TEXT, {}).pop(
+                    msg_id or "",
+                    None,
+                )
+                blocks = self._extract_text_blocks(event)
+                if blocks:
+                    accumulated = "".join(_filter_display_blocks(blocks))
+                elif state is not None:
+                    accumulated = "".join(text for _, text in state.visible())
+                else:
+                    accumulated = ""
+            else:
+                accumulated = (
+                    strip_headline(
+                        buf or "".join(self._extract_text_blocks(event)),
+                    )
+                    or ""
+                )
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -944,17 +964,17 @@ class BaseChannel(ABC):
         return True
 
     @staticmethod
-    def _extract_text_from_event(event: Any) -> str:
-        """Extract concatenated text from event.content list."""
+    def _extract_text_blocks(event: Any) -> list[str]:
+        """Extract only text from a message envelope."""
         content = getattr(event, "content", None)
         if not content or not isinstance(content, list):
-            return ""
+            return []
         parts = []
         for item in content:
             text = getattr(item, "text", None)
             if text:
                 parts.append(text)
-        return "".join(parts)
+        return parts
 
     async def _stream_with_tracker(
         self,
@@ -1001,7 +1021,7 @@ class BaseChannel(ABC):
             async for event in process_iterator:
                 obj = getattr(event, "object", None)
                 status = getattr(event, "status", None)
-                if obj == "message" and status == RunStatus.Completed:
+                if obj == "message" and status in _TERMINAL_STREAM_STATUSES:
                     msg_id = str(
                         getattr(event, "msg_id", "")
                         or getattr(event, "id", "")
@@ -1012,7 +1032,7 @@ class BaseChannel(ABC):
                         msg_id=msg_id,
                     ):
                         yield f"data: {pending_data}\n\n"
-                elif obj == "response" and status == RunStatus.Completed:
+                elif obj == "response" and status in _TERMINAL_STREAM_STATUSES:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
                     ):
@@ -1067,6 +1087,7 @@ class BaseChannel(ABC):
 
             for pending_data in self._flush_headline_stream_states(
                 headline_stream_states,
+                release_assistant=False,
             ):
                 yield f"data: {pending_data}\n\n"
 
@@ -1173,18 +1194,12 @@ class BaseChannel(ABC):
         return value
 
     @staticmethod
-    def _strip_event_headlines(
-        event: Any,
-        fallback: str,
-        headline_stream_states: dict[str, Any] | None = None,
-    ) -> str:
-        """Filter a display-only copy, leaving the live event untouched."""
-        try:
-            payload = event.model_dump(mode="json")
-        except Exception:  # noqa: BLE001 - fall back to the unstripped data
-            return fallback
-
-        obj = getattr(event, "object", None)
+    def _filter_sse_payload(
+        payload: Any,
+        obj: str | None,
+        headline_stream_states: dict[str, Any] | None,
+    ) -> Any:
+        """Filter a dumped copy without mutating the live event."""
         if isinstance(payload, dict):
             if obj == "content":
                 BaseChannel._filter_sse_text(payload, headline_stream_states)
@@ -1201,7 +1216,10 @@ class BaseChannel(ABC):
                     # Content events have no role of their own. Register the
                     # assistant's message ID before processing its text.
                     key = _SSE_TEXT_PREFIX + payload["id"]
-                    headline_stream_states.setdefault(key, _SseAssistantText())
+                    headline_stream_states.setdefault(
+                        key,
+                        _BufferedAssistantText(),
+                    )
                 BaseChannel._filter_sse_message(payload)
 
         def walk(node: Any) -> Any:
@@ -1215,8 +1233,7 @@ class BaseChannel(ABC):
                 return [walk(value) for value in node]
             return node
 
-        payload = walk(payload)
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        return walk(payload)
 
     @staticmethod
     def _is_assistant_message(message: dict[str, Any]) -> bool:
@@ -1238,15 +1255,13 @@ class BaseChannel(ABC):
             and block.get("type") == ContentType.TEXT
             and isinstance(block.get("text"), str)
         ]
-        if len(blocks) == 1:
-            blocks[0]["text"] = (
-                strip_model_scaffolding(blocks[0]["text"]) or ""
-            )
-        elif blocks:
-            scanner = ScaffoldFilter()
+        if message.get("status") == RunStatus.InProgress:
             for block in blocks:
-                block["text"] = scanner.feed(block["text"])
-            blocks[-1]["text"] += scanner.flush()
+                block["text"] = ""
+            return
+        visible = _filter_display_blocks([block["text"] for block in blocks])
+        for block, text in zip(blocks, visible):
+            block["text"] = text
 
     @staticmethod
     def _filter_sse_text(
@@ -1269,36 +1284,13 @@ class BaseChannel(ABC):
                 return
             scaffold = states.setdefault(
                 _SSE_TEXT_PREFIX + msg_id,
-                _SseAssistantText(),
+                _BufferedAssistantText(),
             )
-        if not payload.get("delta"):
-            if scaffold is not None:
-                if scaffold.index == index:
-                    # This snapshot repeats deltas already fed to the scanner.
-                    payload["text"] = "".join(scaffold.fragments)
-                else:
-                    # This block had no deltas. Scan it once in message order.
-                    scaffold.index = index
-                    visible, scaffold.headline = strip_headline_delta(
-                        scaffold.scanner.feed(text),
-                        state=scaffold.headline,
-                    )
-                    scaffold.fragments = [visible]
-                    payload["text"] = visible
-            return
-        if states is None:
-            return
         if scaffold is not None:
-            if scaffold.index != index:
-                scaffold.index = index
-                scaffold.fragments.clear()
-            text = scaffold.scanner.feed(text)
-            visible, scaffold.headline = strip_headline_delta(
-                text,
-                state=scaffold.headline,
-            )
-            scaffold.fragments.append(visible)
-            payload["text"] = visible
+            scaffold.add(index, text, delta=bool(payload.get("delta")))
+            payload["text"] = ""
+            return
+        if states is None or not payload.get("delta"):
             return
         visible, headline = strip_headline_delta(
             text,
@@ -1315,6 +1307,7 @@ class BaseChannel(ABC):
         event: Any,
         headline_stream_states: dict[str, Any] | None = None,
     ) -> str:
+        obj = getattr(event, "object", None)
         try:
             if hasattr(event, "model_dump_json"):
                 data = event.model_dump_json()
@@ -1323,7 +1316,6 @@ class BaseChannel(ABC):
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
 
-            obj = getattr(event, "object", None)
             should_strip = (
                 "⟦" in data
                 or "〚" in data
@@ -1332,11 +1324,12 @@ class BaseChannel(ABC):
                 or ('"output"' in data and "<" in data)
             )
             if hasattr(event, "model_dump") and should_strip:
-                data = self._strip_event_headlines(
-                    event,
-                    data,
+                payload = self._filter_sse_payload(
+                    event.model_dump(mode="json"),
+                    obj,
                     headline_stream_states,
                 )
+                data = json.dumps(payload, ensure_ascii=False, default=str)
 
             return self._sanitize_surrogate_text(data)
 
@@ -1351,29 +1344,30 @@ class BaseChannel(ABC):
                 elif hasattr(event, "dict"):
                     payload = event.dict()
                 else:
-                    payload = {"text": str(event)}
+                    payload = {"text": ""}
 
                 payload = self._sanitize_for_json(payload)
+                payload = self._filter_sse_payload(
+                    payload,
+                    obj,
+                    headline_stream_states,
+                )
                 return json.dumps(payload, ensure_ascii=True, default=str)
             except Exception as fallback_err:
                 logger.error(
                     "Fallback event serialization failed: %s",
                     fallback_err,
                 )
-                return json.dumps(
-                    {
-                        "text": self._sanitize_surrogate_text(str(event)),
-                    },
-                    ensure_ascii=True,
-                )
+                return json.dumps({"text": ""})
 
     @staticmethod
     def _flush_headline_stream_states(
         headline_stream_states: dict[str, Any],
         *,
         msg_id: str | None = None,
+        release_assistant: bool = True,
     ) -> list[str]:
-        """Finalize buffered marker prefixes as ordinary content deltas."""
+        """Release assistant text and pending headline prefixes at completion."""
         flushed: list[str] = []
 
         def emit(stream_key: str, text: str) -> None:
@@ -1390,27 +1384,24 @@ class BaseChannel(ABC):
                 json.dumps(
                     {
                         "object": "content",
+                        "type": "text",
                         "delta": True,
                         "msg_id": stream_msg_id,
                         "index": index,
-                        "text": text,
+                        "text": BaseChannel._sanitize_surrogate_text(text),
                     },
                     ensure_ascii=False,
                 ),
             )
 
         for stream_key, state in list(headline_stream_states.items()):
-            if isinstance(state, _SseAssistantText):
+            if isinstance(state, _BufferedAssistantText):
                 stream_msg_id = stream_key[len(_SSE_TEXT_PREFIX) :]
                 if msg_id is None or stream_msg_id == msg_id:
                     headline_stream_states.pop(stream_key)
-                    tail = state.scanner.flush()
-                    key = f"{stream_msg_id}:{state.index or 0}"
-                    text, headline = strip_headline_delta(
-                        tail,
-                        state=state.headline,
-                    )
-                    emit(key, text + flush_headline_delta(headline))
+                    if release_assistant:
+                        for index, text in state.visible():
+                            emit(f"{stream_msg_id}:{index}", text)
                 continue
             stream_msg_id, _, _ = stream_key.rpartition(":")
             if msg_id is not None and stream_msg_id != msg_id:

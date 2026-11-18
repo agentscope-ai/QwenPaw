@@ -28,8 +28,15 @@ _TAG_LITERALS = _OPEN_TAGS + _CLOSE_TAGS
 # hidden the same way reasoning blocks are, but their names are open-ended
 # (``system-*``) and their closers may use a different suffix, so they are
 # matched with patterns instead of literals.
-_INJECT_OPEN_RE = re.compile(r"<system-[a-z0-9_-]+\s*/?>", re.IGNORECASE)
+_SYSTEM_NAME = r"system-[a-z0-9_-]+"
+_INJECT_OPEN_RE = re.compile(rf"<({_SYSTEM_NAME})\s*(/?)>", re.IGNORECASE)
 _SHORT_INJECT_NAMES = {"notification", "info", "warning", "reminder", "error"}
+_INJECT_CLOSE_NAME = "|".join((_SYSTEM_NAME, *sorted(_SHORT_INJECT_NAMES)))
+_INJECT_CLOSE_RE = re.compile(rf"</({_INJECT_CLOSE_NAME})\s*>", re.IGNORECASE)
+_INJECT_CLOSE_PREFIX_RE = re.compile(
+    rf"</(?:{_INJECT_CLOSE_NAME}|system-[a-z0-9_-]*)\s*\Z",
+    re.IGNORECASE,
+)
 _INJECT_OPEN_PREFIX_RE = re.compile(
     r"<system-[a-z0-9_-]*\s*/?\Z",
     re.IGNORECASE,
@@ -40,6 +47,11 @@ _PARAMETER_CLOSE = "</parameter>"
 _PARAMETER_CLOSE_RE = re.compile(_PARAMETER_CLOSE, re.IGNORECASE)
 _FENCE_CLOSE_TAIL_RE = re.compile(r"[ \t\r]*(?:\n|\Z)")
 _TAG_HEADS = _TAG_LITERALS + ("<system-", "<parameter")
+_HIDDEN_TAG_HEADS = (
+    _TAG_HEADS
+    + ("</system-",)
+    + tuple(f"</{name}>" for name in sorted(_SHORT_INJECT_NAMES))
+)
 _MAX_TAG_LEN = max(map(len, _TAG_LITERALS))
 _PARAGRAPH_BREAK_RE = re.compile(r"\r?\n[ \t]*\r?\n")
 
@@ -80,10 +92,7 @@ class ScaffoldFilter:
     """
 
     __slots__ = (
-        "suppress",
-        "inject",
-        "inject_prefix",
-        "inject_heads",
+        "hidden_tags",
         "pending",
         "parameter",
         "at_line_start",
@@ -96,12 +105,7 @@ class ScaffoldFilter:
     )
 
     def __init__(self, *, unclosed_opens_are_prose: bool = False) -> None:
-        self.suppress = False
-        # While true, an injected ``<system-*>`` block is being hidden. It is
-        # tracked separately from ``suppress`` so the two closers never cross.
-        self.inject: re.Pattern[str] | None = None
-        self.inject_prefix: re.Pattern[str] | None = None
-        self.inject_heads: tuple[str, ...] = ()
+        self.hidden_tags: list[str] = []
         self.pending = ""
         self.parameter: list[str] | None = None
         self.at_line_start = True
@@ -139,10 +143,13 @@ class ScaffoldFilter:
         return cursor, False
 
     # -- public API ------------------------------------------------------
-    def feed(self, text: str) -> str:
+    def feed(self, text: str, *, bare_closes: list[int] | None = None) -> str:
+        """Scan a fragment, optionally reporting bare closes in the output."""
         text = self.pending + text
         self.pending = ""
         out: list[str] = []
+        segments: list[str] = []
+        emitted = 0
         index = 0
         length = len(text)
 
@@ -173,39 +180,8 @@ class ScaffoldFilter:
                 self.parameter.append(text[index:length])
                 break
 
-            # 0. Inside an injected system block: hide until its closer.
-            # Inspected before the reasoning branch so a ``</thinking>`` that
-            # sits inside an injected note cannot end the wrong block.
-            if self.inject is not None:
-                match = self.inject.match(text, index)
-                if match:
-                    index = match.end()
-                    self.inject = self.inject_prefix = None
-                    continue
-                if char == "<" and (
-                    _is_tag_prefix(text, index, self.inject_heads)
-                    or self.inject_prefix is not None
-                    and self.inject_prefix.match(text, index)
-                ):
-                    self.pending = text[index:]
-                    break
-                index += 1
-                continue
-
-            # 1. Inside a reasoning block: swallow until the closing tag.
-            if self.suppress:
-                size = _match_tag(text, index, _CLOSE_TAGS)
-                if size:
-                    index += size
-                    self.suppress = False
-                    continue
-                if char == "<" and _is_tag_prefix(text, index, _CLOSE_TAGS):
-                    self.pending = text[index:]
-                    break
-                index += 1
-                continue
-
-            # 2. Line starts: classify Markdown block context once per line.
+            # Classify Markdown even inside hidden blocks: a quoted closer
+            # is not the end of the hidden block.
             if self.at_line_start:
                 if index + 1 >= length and text[index] in " \t>":
                     self.pending = text[index:]
@@ -255,13 +231,15 @@ class ScaffoldFilter:
             # 3. Literal contexts: emit verbatim.
             if self.line_literal or self.fence_char is not None:
                 if char == "\n":
-                    out.append(char)
+                    if not self.hidden_tags:
+                        out.append(char)
                     index += 1
                     self.at_line_start = True
                     self.line_literal = False
                     self.line_has_text = False
                     continue
-                out.append(char)
+                if not self.hidden_tags:
+                    out.append(char)
                 index += 1
                 continue
 
@@ -277,11 +255,13 @@ class ScaffoldFilter:
                     self.ticks = run
                 elif run == self.ticks:
                     self.ticks = 0
-                out.append(text[index : index + run])
+                if not self.hidden_tags:
+                    out.append(text[index : index + run])
                 index += run
                 continue
             if self.ticks:
-                out.append(char)
+                if not self.hidden_tags:
+                    out.append(char)
                 index += 1
                 continue
 
@@ -289,35 +269,52 @@ class ScaffoldFilter:
             if char == "<":
                 match = _INJECT_OPEN_RE.match(text, index)
                 if match:
-                    token = match.group(0)
                     index = match.end()
-                    if not token.rstrip().endswith("/>"):
-                        name = token[1:-1].strip().lower()
-                        short = name.removeprefix("system-")
-                        names = [name]
-                        if short in _SHORT_INJECT_NAMES:
-                            names.append(short)
-                        self.inject_heads = tuple(f"</{tag}" for tag in names)
-                        close = "|".join(map(re.escape, self.inject_heads))
-                        self.inject = re.compile(rf"(?:{close})\s*>", re.I)
-                        self.inject_prefix = re.compile(
-                            rf"(?:{close})\s*\Z",
-                            re.I,
-                        )
+                    if not match.group(2):
+                        self.hidden_tags.append(match.group(1).lower())
                     continue
 
                 size = _match_tag(text, index, _OPEN_TAGS)
                 if size and not (
-                    self.unclosed_opens_are_prose and self.line_has_text
+                    not self.hidden_tags
+                    and self.unclosed_opens_are_prose
+                    and self.line_has_text
                 ):
+                    self.hidden_tags.append(
+                        text[index + 1 : index + size - 1].lower(),
+                    )
                     index += size
-                    self.suppress = True
                     continue
 
                 size = _match_tag(text, index, _CLOSE_TAGS)
+                if self.hidden_tags:
+                    match = _INJECT_CLOSE_RE.match(text, index)
+                    if match or size:
+                        end = match.end() if match else index + size
+                        name = text[index + 2 : end - 1].strip().lower()
+                        if match and name in _SHORT_INJECT_NAMES:
+                            name = f"system-{name}"
+                        if name == self.hidden_tags[-1]:
+                            self.hidden_tags.pop()
+                        index = end
+                        continue
+                    if _is_tag_prefix(text, index, _HIDDEN_TAG_HEADS) or (
+                        _INJECT_OPEN_PREFIX_RE.match(text, index)
+                        or _INJECT_CLOSE_PREFIX_RE.match(text, index)
+                    ):
+                        self.pending = text[index:]
+                        break
+                    index += 1
+                    continue
+
                 if size:
-                    tail = text[index + size :]
-                    if tail.strip():
+                    if bare_closes is not None:
+                        segment = "".join(out)
+                        emitted += len(segment)
+                        segments.append(segment)
+                        bare_closes.append(emitted)
+                        out.clear()
+                    elif text[index + size :].strip():
                         # Reasoning head already dropped upstream: only the
                         # reply after the marker belongs to the user.
                         out.clear()
@@ -345,9 +342,10 @@ class ScaffoldFilter:
                     self.pending = text[index:]
                     break
 
-            out.append(char)
-            if char not in " \t\r\n":
-                self.line_has_text = True
+            if not self.hidden_tags:
+                out.append(char)
+                if char not in " \t\r\n":
+                    self.line_has_text = True
             if char == "\n":
                 self.at_line_start = True
                 self.line_literal = False
@@ -355,17 +353,16 @@ class ScaffoldFilter:
                 self.ticks = 0
             index += 1
 
-        return "".join(out)
+        segments.append("".join(out))
+        return "".join(segments)
 
     def flush(self) -> str:
         """Release buffered text when the stream ends."""
-        hidden = self.suppress or self.inject or self.parameter is not None
+        hidden = self.hidden_tags or self.parameter is not None
         visible = "" if hidden else self.pending
         self.pending = ""
         self.parameter = None
-        self.suppress = False
-        self.inject = self.inject_prefix = None
-        self.inject_heads = ()
+        self.hidden_tags.clear()
         self.at_line_start = True
         self.line_literal = False
         self.line_has_text = False
@@ -375,17 +372,54 @@ class ScaffoldFilter:
         return visible
 
 
+def strip_scaffold_blocks(blocks: list[str]) -> list[str]:
+    """Filter a complete message, preserving the order and slots of blocks."""
+    if not blocks:
+        return []
+    lowered = "".join(blocks).lower()
+    has_close = any(tag in lowered for tag in _CLOSE_TAGS)
+    scanner = ScaffoldFilter(unclosed_opens_are_prose=not has_close)
+    visible = []
+    offset = 0
+    closes: list[int] = []
+    for block in blocks:
+        local_closes: list[int] = []
+        piece = scanner.feed(block, bare_closes=local_closes)
+        visible.append(piece)
+        closes.extend(offset + pos for pos in local_closes)
+        offset += len(piece)
+    visible[-1] += scanner.flush()
+
+    cleaned = "".join(visible)
+    if not closes and cleaned == "".join(blocks):
+        # Don't shift an unchanged Markdown delimiter into another slot.
+        return blocks.copy()
+
+    start, end = 0, len(cleaned)
+    if closes:
+        last = closes[-1]
+        if cleaned[last:].strip():
+            start = last
+        else:
+            start = closes[-2] if len(closes) > 1 else 0
+            end = start + len(
+                _drop_trailing_paragraph(cleaned[start:last]).rstrip(),
+            )
+    kept = cleaned[start:end]
+    start += len(kept) - len(kept.lstrip("\r\n"))
+    end = min(end, start + len(kept.strip("\r\n")))
+
+    offset = 0
+    for index, piece in enumerate(visible):
+        left, right = max(start - offset, 0), max(end - offset, 0)
+        visible[index] = piece[left:right]
+        offset += len(piece)
+    return visible
+
+
 def strip_scaffold_text(text: str | None) -> str | None:
     """Remove reasoning scaffolding from a complete text block."""
-    if not text:
-        return text
-    lowered = text.lower()
-    has_close = any(tag in lowered for tag in _CLOSE_TAGS)
-    filtering = ScaffoldFilter(unclosed_opens_are_prose=not has_close)
-    visible = filtering.feed(text) + filtering.flush()
-    if visible == text:
-        return text
-    return visible.strip("\r\n")
+    return strip_scaffold_blocks([text])[0] if text else text
 
 
 class ScaffoldDeltaState:
@@ -411,14 +445,14 @@ class ScaffoldDeltaState:
 
     @property
     def suppressing(self) -> bool:
-        return self.filter.suppress
+        return bool(self.filter.hidden_tags)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ScaffoldDeltaState):
             return NotImplemented
         return (
             self.filter.pending == other.filter.pending
-            and self.filter.suppress == other.filter.suppress
+            and self.filter.hidden_tags == other.filter.hidden_tags
         )
 
 

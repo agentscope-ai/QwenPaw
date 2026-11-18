@@ -872,18 +872,17 @@ class Envelope:
         if self._message_started:
             # Back-fill any partially accumulated text blocks that were
             # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
-            if not self._completed_message.content:
-                for state in self._text_blocks.values():
-                    text = "".join(state.get("text_fragments", []))
-                    if text:
-                        self._completed_message.content.append(
-                            TextContent(
-                                type=ContentType.TEXT,
-                                text=text,
-                                delta=False,
-                                index=state.get("index", 0),
-                            ),
-                        )
+            for state in self._text_blocks.values():
+                text = "".join(state.get("text_fragments", []))
+                if text:
+                    self._completed_message.content.append(
+                        TextContent(
+                            type=ContentType.TEXT,
+                            text=text,
+                            delta=False,
+                            index=state["index"],
+                        ),
+                    )
 
             if self._completed_message.content:
                 self._completed_message.status = (

@@ -11,7 +11,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from agentscope.message import Msg
 from pydantic import ValidationError
-from qwenpaw.agents.context.scroll.scaffold_filter import ScaffoldFilter
+from qwenpaw.agents.context.scroll.scaffold_filter import (
+    strip_scaffold_blocks,
+)
 from qwenpaw.agents.context.scroll.serialize import (
     strip_headline,
     strip_model_scaffolding,
@@ -597,19 +599,15 @@ def strip_injected_skill_block(text: str, role: str) -> str:
 def clean_display_text(
     text: str,
     role: str,
-    *,
-    state: ScaffoldFilter | None = None,
 ) -> str:
     """Hide model-facing artifacts from the transcript.
 
     Strip headlines first because the injected skill suffix is end-anchored.
-    For assistant messages, ``state`` keeps the scaffolding scan alive across
-    text blocks, matching the live stream.
     """
     cleaned = strip_injected_skill_block(strip_headline(text) or "", role)
     if role != "assistant":
         return cleaned
-    return strip_model_scaffolding(cleaned, state=state) or ""
+    return strip_model_scaffolding(cleaned) or ""
 
 
 def _original_user_message(msg: Msg, metadata: dict) -> Message | None:
@@ -736,10 +734,7 @@ def agentscope_msg_to_message(
         current_message = None
         current_type = None
 
-        # One scan per message: a reasoning block may be split across the
-        # message's text blocks, exactly as on the live streaming path.
-        scaffold_state = ScaffoldFilter() if role == "assistant" else None
-        last_text_content = None
+        assistant_text: list[TextContent] = []
 
         for block in msg.content:
             # Normalize pydantic block models to dict so the rest of
@@ -781,14 +776,16 @@ def agentscope_msg_to_message(
                 text_content = TextContent(
                     delta=False,
                     index=None,
-                    text=clean_display_text(
-                        block.get("text", ""),
-                        role,
-                        state=scaffold_state,
-                    ),
+                    text=block.get("text", "") or "",
                 )
                 current_message.add_content(new_content=text_content)
-                last_text_content = text_content
+                if role == "assistant":
+                    assistant_text.append(text_content)
+                else:
+                    text_content.text = clean_display_text(
+                        text_content.text,
+                        role,
+                    )
 
             elif btype == "hint":
                 # Hint blocks are runtime/model-facing state (for example,
@@ -1067,8 +1064,11 @@ def agentscope_msg_to_message(
                 )
                 current_message.add_content(new_content=text_content)
 
-        if scaffold_state is not None and last_text_content is not None:
-            last_text_content.text += scaffold_state.flush()
+        cleaned = strip_scaffold_blocks(
+            [block.text for block in assistant_text],
+        )
+        for block, text in zip(assistant_text, cleaned):
+            block.text = strip_headline(text) or ""
         if current_message:
             results.append(current_message.completed())
 

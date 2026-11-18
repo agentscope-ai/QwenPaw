@@ -192,6 +192,18 @@ def test_msg_to_message_hides_inlined_reasoning_in_history_path():
     assert rendered == ""
 
 
+def test_history_preserves_the_newline_before_a_final_code_fence():
+    text = "```xml\n<sample>\n```"
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[{"type": "text", "text": text}],
+    )
+
+    [message] = agentscope_msg_to_message(msg)
+    assert [c.text for c in message.content] == [text]
+
+
 def test_msg_to_message_hides_injected_context_in_history_path():
     """Regression: GET /chats/{id} no longer replays the blocks that lead an
     assistant message, matching what the channel renderer already hides."""

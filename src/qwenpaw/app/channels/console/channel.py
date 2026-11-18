@@ -39,6 +39,7 @@ from ....plugins.activity import PluginBusyError
 from ....plugins.errors import SDKError
 from ..renderer import ChannelDisplayConfig
 from ..base import (
+    _TERMINAL_STREAM_STATUSES,
     BaseChannel,
     AudioContent,
     ContentType,
@@ -482,7 +483,7 @@ class ConsoleChannel(BaseChannel):
                         for message in event_output:
                             event.output.append(message)
 
-                if obj == "message" and status == RunStatus.Completed:
+                if obj == "message" and status in _TERMINAL_STREAM_STATUSES:
                     msg_id = str(
                         getattr(event, "msg_id", "")
                         or getattr(event, "id", "")
@@ -493,7 +494,7 @@ class ConsoleChannel(BaseChannel):
                         msg_id=msg_id,
                     ):
                         yield f"data: {pending_data}\n\n"
-                elif obj == "response" and status == RunStatus.Completed:
+                elif obj == "response" and status in _TERMINAL_STREAM_STATUSES:
                     for pending_data in self._flush_headline_stream_states(
                         headline_stream_states,
                     ):
@@ -514,6 +515,7 @@ class ConsoleChannel(BaseChannel):
 
             for pending_data in self._flush_headline_stream_states(
                 headline_stream_states,
+                release_assistant=False,
             ):
                 yield f"data: {pending_data}\n\n"
 

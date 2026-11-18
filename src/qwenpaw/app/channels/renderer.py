@@ -193,7 +193,7 @@ class MessageRenderer:
         semantic: bool,
     ) -> List[SemanticContentPart]:
         from qwenpaw.agents.context.scroll.scaffold_filter import (
-            ScaffoldFilter,
+            strip_scaffold_blocks,
         )
         from qwenpaw.agents.context.scroll.serialize import strip_headline
         from qwenpaw.schemas import MessageType, Role
@@ -440,15 +440,22 @@ class MessageRenderer:
         # A message may split one reasoning block across several text blocks.
         # The scan state is per message so a block that ends mid-reasoning and
         # the block that closes it are filtered as one stream.
-        last_text_index = -1
+        assistant_text: dict[int, str] = {}
         if (
             msg_type == MessageType.MESSAGE
             and getattr(message, "role", None) == Role.ASSISTANT
         ):
-            for index, item in enumerate(content):
-                if getattr(item, "type", None) == ContentType.TEXT:
-                    last_text_index = index
-        scaffold_state = ScaffoldFilter() if last_text_index != -1 else None
+            assistant_text = {
+                i: getattr(item, "text", None) or ""
+                for i, item in enumerate(content)
+                if getattr(item, "type", None) == ContentType.TEXT
+            }
+            assistant_text = dict(
+                zip(
+                    assistant_text,
+                    strip_scaffold_blocks(list(assistant_text.values())),
+                ),
+            )
 
         suppressed_tool_data = False
         suppressed_scaffolding = False
@@ -458,14 +465,9 @@ class MessageRenderer:
                 # Hide the scroll headline (⟦ … ⟧) from display; it stays in
                 # context and the durable index. No-op when absent.
                 original = getattr(c, "text", None) or ""
-                text = strip_headline(original) or ""
-                if scaffold_state is not None:
-                    visible = scaffold_state.feed(text)
-                    if index == last_text_index:
-                        visible += scaffold_state.flush()
-                    if visible != text:
-                        visible = visible.strip("\r\n")
-                    text = visible
+                text = (
+                    strip_headline(assistant_text.get(index, original)) or ""
+                )
                 if not text:
                     # The block held only model-facing bytes, so this message
                     # has no reply to show; do not fall back to the
