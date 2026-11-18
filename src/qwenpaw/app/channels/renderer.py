@@ -195,12 +195,8 @@ class MessageRenderer:
         from qwenpaw.agents.context.scroll.scaffold_filter import (
             ScaffoldFilter,
         )
-        from qwenpaw.agents.context.scroll.serialize import (
-            strip_headline,
-            strip_injected_context,
-            strip_model_scaffolding,
-        )
-        from qwenpaw.schemas import MessageType
+        from qwenpaw.agents.context.scroll.serialize import strip_headline
+        from qwenpaw.schemas import MessageType, Role
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []
@@ -444,28 +440,37 @@ class MessageRenderer:
         # A message may split one reasoning block across several text blocks.
         # The scan state is per message so a block that ends mid-reasoning and
         # the block that closes it are filtered as one stream.
-        scaffold_state = ScaffoldFilter()
+        last_text_index = -1
+        if (
+            msg_type == MessageType.MESSAGE
+            and getattr(message, "role", None) == Role.ASSISTANT
+        ):
+            for index, item in enumerate(content):
+                if getattr(item, "type", None) == ContentType.TEXT:
+                    last_text_index = index
+        scaffold_state = ScaffoldFilter() if last_text_index != -1 else None
 
         suppressed_tool_data = False
         suppressed_scaffolding = False
-        for c in content:
+        for index, c in enumerate(content):
             ctype = getattr(c, "type", None)
-            if ctype == ContentType.TEXT and getattr(c, "text", None):
+            if ctype == ContentType.TEXT:
                 # Hide the scroll headline (⟦ … ⟧) from display; it stays in
                 # context and the durable index. No-op when absent.
-                text = strip_headline(c.text)
-                # Injected context notes / background tool hints are stored
-                # as ordinary text; they are not part of the reply either.
-                text = strip_injected_context(text)
-                # Reasoning that a model inlined into plain text is
-                # model-facing as well: drop balanced blocks, truncated
-                # tails and cut-off tool shells before rendering.
-                text = strip_model_scaffolding(text, state=scaffold_state)
+                original = getattr(c, "text", None) or ""
+                text = strip_headline(original) or ""
+                if scaffold_state is not None:
+                    visible = scaffold_state.feed(text)
+                    if index == last_text_index:
+                        visible += scaffold_state.flush()
+                    if visible != text:
+                        visible = visible.strip("\r\n")
+                    text = visible
                 if not text:
                     # The block held only model-facing bytes, so this message
                     # has no reply to show; do not fall back to the
                     # "[Message type: …]" placeholder below.
-                    suppressed_scaffolding = True
+                    suppressed_scaffolding |= bool(original)
                     continue
                 if s.supports_markdown:
                     # Repair CJK emphasis boundaries (e.g. ``**中文。**后``)
@@ -546,11 +551,6 @@ class MessageRenderer:
                             ),
                             "rendered",
                         )
-        # Release a trailing partial tag that never became one; an unfinished
-        # reasoning block stays suppressed, exactly as in the streaming path.
-        tail = scaffold_state.flush()
-        if tail:
-            append(TextContent(text=tail))
         if (
             not result
             and msg_type

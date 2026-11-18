@@ -166,7 +166,7 @@ def strip_model_scaffolding(
     visible = state.feed(text)
     if visible == text:
         return text
-    return re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return visible.strip("\r\n")
 
 
 def strip_headline_delta(
@@ -243,9 +243,6 @@ def flush_headline_delta(state: HeadlineDeltaState) -> str:
     state.suppressing = False
     state.legacy_comment = False
     return visible
-
-
-SCAFFOLD_STATE_PREFIX = "scaffold:"
 
 
 def _possible_legacy_start_prefix(value: str) -> bool:

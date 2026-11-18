@@ -10,9 +10,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import time
 from abc import ABC
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import (
     Optional,
@@ -37,11 +37,20 @@ from qwenpaw.schemas import (
     FileContent,
     RefusalContent,
     MessageType,
+    Role,
 )
 
 from .renderer import ChannelDisplayConfig, MessageRenderer, RenderStyle
 from .schema import ChannelType
 from .access_control import get_access_control_store
+from ...agents.context.scroll.scaffold_filter import ScaffoldFilter
+from ...agents.context.scroll.serialize import (
+    HeadlineDeltaState,
+    flush_headline_delta,
+    strip_headline,
+    strip_headline_delta,
+    strip_model_scaffolding,
+)
 from ...config.utils import load_config
 from ...utils.logging import sanitize_log_value
 
@@ -53,12 +62,17 @@ OnReplySent = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
-# Cheap pre-check so non-content events only pay for a payload walk when they
-# can actually contain scaffolding or an injected context note.
-_SCAFFOLD_MARKERS_RE = re.compile(
-    r"thinking|think|analysis|reasoning|system-[a-z0-9_-]+|parameter\s",
-    re.IGNORECASE,
-)
+_SSE_TEXT_PREFIX = "scaffold:"
+
+
+@dataclass
+class _SseAssistantText:
+    """One scanner per message and a display snapshot of its current block."""
+
+    scanner: ScaffoldFilter = field(default_factory=ScaffoldFilter)
+    headline: HeadlineDeltaState = field(default_factory=HeadlineDeltaState)
+    index: int | None = None
+    fragments: list[str] = field(default_factory=list)
 
 
 _TOOL_OUTPUT_MESSAGE_TYPES = {
@@ -710,6 +724,11 @@ class BaseChannel(ABC):
         stream_type = self._resolve_stream_type(event)
         if stream_type not in self._STREAMABLE_TYPES:
             return False
+        if getattr(event, "role", Role.ASSISTANT) not in (
+            None,
+            Role.ASSISTANT,
+        ):
+            return False
         msg_id = getattr(event, "id", None)
         if msg_id:
             msg_id_to_stream_type[msg_id] = stream_type
@@ -745,26 +764,6 @@ class BaseChannel(ABC):
             BaseChannel._DISPLAY_BUFFERS_KEY,
             {},
         )
-
-    def _display_state(self, send_meta: Dict[str, Any], stream_type: str):
-        """Return this message's display filter, creating it on first use."""
-        from qwenpaw.agents.context.scroll.scaffold_filter import (
-            ScaffoldDeltaState,
-        )
-
-        filters = self._display_filters(send_meta)
-        state = filters.get(stream_type)
-        if not isinstance(state, ScaffoldDeltaState):
-            state = ScaffoldDeltaState()
-            filters[stream_type] = state
-        return state
-
-    def _pop_display_state(
-        self,
-        send_meta: Dict[str, Any],
-        stream_type: str,
-    ):
-        return self._display_filters(send_meta).pop(stream_type, None)
 
     async def _on_stream_content_delta(
         self,
@@ -805,12 +804,7 @@ class BaseChannel(ABC):
             # Finalize current streaming box before starting a new one
             await self._await_stream_flush(send_meta, stream_type)
             streaming_buffers.pop(stream_type, "")
-            from qwenpaw.agents.context.scroll.serialize import strip_headline
-
             display = self._display_buffers(send_meta).pop(stream_type, "")
-            state = self._pop_display_state(send_meta, stream_type)
-            if state is not None:
-                display += state.flush()
             await self.on_streaming_end(
                 request,
                 to_handle,
@@ -836,8 +830,14 @@ class BaseChannel(ABC):
             streaming_buffers.get(stream_type, "") + delta_text
         )
         # The filter is fed the raw delta; only its output reaches the
-        # display buffer, so the event and the stored text stay untouched.
-        visible = self._display_state(send_meta, stream_type).feed(delta_text)
+        # display buffer. Keep the filter when a new streaming box opens.
+        visible = delta_text
+        if stream_type == "message":
+            filters = self._display_filters(send_meta)
+            scanner = filters.get(content_msg_id)
+            if scanner is None:
+                scanner = filters[content_msg_id] = ScaffoldFilter()
+            visible = scanner.feed(delta_text)
         display_buffers = self._display_buffers(send_meta)
         display_buffers[stream_type] = (
             display_buffers.get(stream_type, "") + visible
@@ -864,8 +864,6 @@ class BaseChannel(ABC):
 
         # Fire-and-forget flush
         flush_meta["last_ts"] = now
-        from qwenpaw.agents.context.scroll.serialize import strip_headline
-
         display_text = (
             strip_headline(
                 self._display_buffers(send_meta).get(stream_type, ""),
@@ -905,6 +903,11 @@ class BaseChannel(ABC):
     ) -> bool:
         stream_type = self._resolve_stream_type(event)
         msg_id = getattr(event, "id", None)
+        if getattr(event, "role", Role.ASSISTANT) not in (
+            None,
+            Role.ASSISTANT,
+        ):
+            return False
         if msg_id:
             msg_id_to_stream_type.pop(msg_id, None)
         if stream_type not in self._STREAMABLE_TYPES:
@@ -921,19 +924,14 @@ class BaseChannel(ABC):
             await self._await_stream_flush(send_meta, stream_type)
 
             buf = streaming_buffers.pop(stream_type, "")
-            raw_accumulated = self._extract_text_from_event(event) or buf
-            from qwenpaw.agents.context.scroll.serialize import (
-                strip_headline,
-                strip_model_scaffolding,
-            )
-
             display = self._display_buffers(send_meta).pop(stream_type, "")
-            state = self._pop_display_state(send_meta, stream_type)
-            if state is not None:
-                display += state.flush()
-            if not display and raw_accumulated:
-                # No delta reached this channel, so clean the snapshot once.
-                display = strip_model_scaffolding(raw_accumulated) or ""
+            scanner = self._display_filters(send_meta).pop(msg_id or "", None)
+            if scanner is not None:
+                display += scanner.flush()
+            elif not buf:
+                display = self._extract_text_from_event(event)
+                if stream_type == "message":
+                    display = strip_model_scaffolding(display) or ""
             accumulated = strip_headline(display) or ""
             await self.on_streaming_end(
                 request,
@@ -1180,110 +1178,137 @@ class BaseChannel(ABC):
         fallback: str,
         headline_stream_states: dict[str, Any] | None = None,
     ) -> str:
-        """Drop scroll headlines (``<!-- ⟦ … ⟧ -->``) from an SSE payload.
-
-        Channels strip headlines via ``MessageRenderer``, but this raw-event
-        SSE path (console + web UI) bypasses it, so the comment leaks into the
-        rendered chat. We strip a dumped *copy* here — the live event, the
-        persisted ``conversation_history`` row, and the durable index all keep
-        the headline verbatim (those go through separate paths). A no-op on any
-        text block that holds no headline, so user/tool text is untouched.
-        """
-        from qwenpaw.agents.context.scroll.serialize import (
-            HeadlineDeltaState,
-            SCAFFOLD_STATE_PREFIX,
-            ScaffoldDeltaState,
-            strip_headline,
-            strip_headline_delta,
-            strip_model_scaffolding,
-            strip_scaffold_delta,
-        )
-
+        """Filter a display-only copy, leaving the live event untouched."""
         try:
             payload = event.model_dump(mode="json")
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
 
-        is_content_event = getattr(event, "object", None) == "content"
-        is_content_delta = is_content_event and getattr(event, "delta", False)
-
-        # A content delta may split a protocol marker over several events.
-        # Track that state inside the current SSE request rather than on the
-        # shared channel instance, where concurrent sessions could interfere.
-        if headline_stream_states is not None and is_content_delta:
-            msg_id = str(getattr(event, "msg_id", "") or "")
-            index = int(getattr(event, "index", 0) or 0)
-            stream_key = f"{msg_id}:{index}"
-            raw_text = getattr(event, "text", "") or ""
-
-            # Reasoning scaffolding goes first: a suppressed block has to
-            # swallow this delta whole before the headline pass sees its
-            # bytes, and its own tag may also straddle the boundary.
-            scaffold_key = SCAFFOLD_STATE_PREFIX + stream_key
-            scaffold_state = headline_stream_states.get(scaffold_key)
-            if not isinstance(scaffold_state, ScaffoldDeltaState):
-                scaffold_state = ScaffoldDeltaState()
-            clean_text, scaffold_state = strip_scaffold_delta(
-                raw_text,
-                state=scaffold_state,
-            )
-            # Keep the scanner for the whole message. Dropping it whenever a
-            # delta happened to look clean lost the open backtick run and the
-            # open fence, so the next fragment was filtered as if it started
-            # a fresh block and valid code came out empty.
-            headline_stream_states[scaffold_key] = scaffold_state
-
-            state = headline_stream_states.get(
-                stream_key,
-                HeadlineDeltaState(),
-            )
-            clean_text, state = strip_headline_delta(
-                clean_text,
-                state=state,
-            )
-            if isinstance(payload, dict) and "text" in payload:
-                payload["text"] = clean_text
-            if state.suppressing or state.pending:
-                headline_stream_states[stream_key] = state
+        obj = getattr(event, "object", None)
+        if isinstance(payload, dict):
+            if obj == "content":
+                BaseChannel._filter_sse_text(payload, headline_stream_states)
+            elif obj == "response" or "output" in payload:
+                for message in payload.get("output") or []:
+                    BaseChannel._filter_sse_message(message)
             else:
-                headline_stream_states.pop(stream_key, None)
-        elif (
-            is_content_event
-            and isinstance(payload, dict)
-            and "text" in payload
-        ):
-            # A whole-message content event carries no delta state, so the
-            # text can be cleaned in one pass.
-            whole = payload.get("text") or ""
-            if whole:
-                payload["text"] = strip_model_scaffolding(whole) or ""
+                if (
+                    headline_stream_states is not None
+                    and payload.get("id")
+                    and payload.get("status") == RunStatus.InProgress
+                    and BaseChannel._is_assistant_message(payload)
+                ):
+                    # Content events have no role of their own. Register the
+                    # assistant's message ID before processing its text.
+                    key = _SSE_TEXT_PREFIX + payload["id"]
+                    headline_stream_states.setdefault(key, _SseAssistantText())
+                BaseChannel._filter_sse_message(payload)
 
-        # Content events were already handled above: deltas through the
-        # stateful filter, whole blocks through one pass. Re-running a
-        # stateless pass over the same bytes would strip valid code, so only
-        # message/response snapshots get the whole-text treatment.
-        filter_snapshots = not is_content_event
-
-        def walk(node: Any, key: str | None = None) -> Any:
+        def walk(node: Any) -> Any:
             if isinstance(node, str):
-                cleaned = strip_headline(node)
-                # Non-content events (message completion, response output) and
-                # third-party deltas carry the same bytes under a ``text``
-                # key; filter them here so no output channel sees raw
-                # scaffolding or injected notes.
-                if filter_snapshots and key == "text" and cleaned:
-                    cleaned = strip_model_scaffolding(cleaned) or ""
-                return cleaned
+                return strip_headline(node)
             if isinstance(node, dict):
                 for name, value in list(node.items()):
-                    node[name] = walk(value, name)
+                    node[name] = walk(value)
                 return node
             if isinstance(node, list):
-                return [walk(value, key) for value in node]
+                return [walk(value) for value in node]
             return node
 
         payload = walk(payload)
         return json.dumps(payload, ensure_ascii=False, default=str)
+
+    @staticmethod
+    def _is_assistant_message(message: dict[str, Any]) -> bool:
+        return (
+            message.get("role") == Role.ASSISTANT
+            and message.get("type") == MessageType.MESSAGE
+        )
+
+    @staticmethod
+    def _filter_sse_message(message: Any) -> None:
+        if not isinstance(message, dict):
+            return
+        if not BaseChannel._is_assistant_message(message):
+            return
+        blocks = [
+            block
+            for block in message.get("content") or []
+            if isinstance(block, dict)
+            and block.get("type") == ContentType.TEXT
+            and isinstance(block.get("text"), str)
+        ]
+        if len(blocks) == 1:
+            blocks[0]["text"] = (
+                strip_model_scaffolding(blocks[0]["text"]) or ""
+            )
+        elif blocks:
+            scanner = ScaffoldFilter()
+            for block in blocks:
+                block["text"] = scanner.feed(block["text"])
+            blocks[-1]["text"] += scanner.flush()
+
+    @staticmethod
+    def _filter_sse_text(
+        payload: dict[str, Any],
+        states: dict[str, Any] | None,
+    ) -> None:
+        text = payload.get("text")
+        if payload.get("type") != ContentType.TEXT or not isinstance(
+            text,
+            str,
+        ):
+            return
+        msg_id = str(payload.get("msg_id") or "")
+        index = int(payload.get("index") or 0)
+        stream_key = f"{msg_id}:{index}"
+        scaffold = states.get(_SSE_TEXT_PREFIX + msg_id) if states else None
+        if scaffold is None and payload.get("role") == Role.ASSISTANT:
+            if states is None:
+                payload["text"] = strip_model_scaffolding(text) or ""
+                return
+            scaffold = states.setdefault(
+                _SSE_TEXT_PREFIX + msg_id,
+                _SseAssistantText(),
+            )
+        if not payload.get("delta"):
+            if scaffold is not None:
+                if scaffold.index == index:
+                    # This snapshot repeats deltas already fed to the scanner.
+                    payload["text"] = "".join(scaffold.fragments)
+                else:
+                    # This block had no deltas. Scan it once in message order.
+                    scaffold.index = index
+                    visible, scaffold.headline = strip_headline_delta(
+                        scaffold.scanner.feed(text),
+                        state=scaffold.headline,
+                    )
+                    scaffold.fragments = [visible]
+                    payload["text"] = visible
+            return
+        if states is None:
+            return
+        if scaffold is not None:
+            if scaffold.index != index:
+                scaffold.index = index
+                scaffold.fragments.clear()
+            text = scaffold.scanner.feed(text)
+            visible, scaffold.headline = strip_headline_delta(
+                text,
+                state=scaffold.headline,
+            )
+            scaffold.fragments.append(visible)
+            payload["text"] = visible
+            return
+        visible, headline = strip_headline_delta(
+            text,
+            state=states.get(stream_key),
+        )
+        if headline.suppressing or headline.pending:
+            states[stream_key] = headline
+        else:
+            states.pop(stream_key, None)
+        payload["text"] = visible
 
     def _serialize_event_for_sse(
         self,
@@ -1298,22 +1323,13 @@ class BaseChannel(ABC):
             else:
                 data = json.dumps({"text": str(event)}, ensure_ascii=True)
 
-            # Headlines and model scaffolding both reach the UI only through
-            # this raw-event path. Every content event is rewritten (a
-            # scaffolding tag carries no fence marker), while other events
-            # still pay nothing unless a marker or buffered state is present.
-            is_content_event = getattr(event, "object", None) == "content"
+            obj = getattr(event, "object", None)
             should_strip = (
                 "⟦" in data
                 or "〚" in data
                 or bool(headline_stream_states)
-                or is_content_event
-                # Non-content events (message completion, response output)
-                # can carry the same scaffolding under a ``text`` field.
-                or (
-                    "<" in data
-                    and _SCAFFOLD_MARKERS_RE.search(data) is not None
-                )
+                or obj in {"content", "message", "response"}
+                or ('"output"' in data and "<" in data)
             )
             if hasattr(event, "model_dump") and should_strip:
                 data = self._strip_event_headlines(
@@ -1358,14 +1374,6 @@ class BaseChannel(ABC):
         msg_id: str | None = None,
     ) -> list[str]:
         """Finalize buffered marker prefixes as ordinary content deltas."""
-        from qwenpaw.agents.context.scroll.serialize import (
-            SCAFFOLD_STATE_PREFIX,
-            ScaffoldDeltaState,
-            flush_headline_delta,
-            flush_scaffold_delta,
-            strip_headline,
-        )
-
         flushed: list[str] = []
 
         def emit(stream_key: str, text: str) -> None:
@@ -1392,24 +1400,23 @@ class BaseChannel(ABC):
             )
 
         for stream_key, state in list(headline_stream_states.items()):
-            is_scaffold = stream_key.startswith(SCAFFOLD_STATE_PREFIX)
-            rest = (
-                stream_key[len(SCAFFOLD_STATE_PREFIX) :]
-                if is_scaffold
-                else stream_key
-            )
-            stream_msg_id, separator, _raw_index = rest.rpartition(":")
-            if not separator:
-                stream_msg_id = rest
+            if isinstance(state, _SseAssistantText):
+                stream_msg_id = stream_key[len(_SSE_TEXT_PREFIX) :]
+                if msg_id is None or stream_msg_id == msg_id:
+                    headline_stream_states.pop(stream_key)
+                    tail = state.scanner.flush()
+                    key = f"{stream_msg_id}:{state.index or 0}"
+                    text, headline = strip_headline_delta(
+                        tail,
+                        state=state.headline,
+                    )
+                    emit(key, text + flush_headline_delta(headline))
+                continue
+            stream_msg_id, _, _ = stream_key.rpartition(":")
             if msg_id is not None and stream_msg_id != msg_id:
                 continue
-            headline_stream_states.pop(stream_key, None)
-            if is_scaffold:
-                if isinstance(state, ScaffoldDeltaState):
-                    flushed_text = flush_scaffold_delta(state)
-                    emit(rest, strip_headline(flushed_text) or "")
-                continue
-            emit(rest, flush_headline_delta(state))
+            if headline_stream_states.pop(stream_key, None) is not None:
+                emit(stream_key, flush_headline_delta(state))
         return flushed
 
     @classmethod
@@ -2473,17 +2480,11 @@ class BaseChannel(ABC):
             ):
                 parts.append(c.refusal)
         text = "".join(parts)
-        if not text:
+        if not text or getattr(last_msg, "role", None) != Role.ASSISTANT:
             return text
         # This is the default reply path for channels that do not render
         # message parts themselves, so it is a separate egress from the SSE
         # serializer and the renderer; filter it here as well.
-        from qwenpaw.agents.context.scroll.serialize import (
-            strip_injected_context,
-            strip_model_scaffolding,
-        )
-
-        text = strip_injected_context(text) or ""
         return strip_model_scaffolding(text) or ""
 
     def clone(self, config) -> "BaseChannel":

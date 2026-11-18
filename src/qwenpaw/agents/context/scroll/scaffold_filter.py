@@ -7,11 +7,9 @@ text for every candidate opener (quadratic in the number of unclosed tags),
 and it could not tell a tag inside a code block from a real one. Both problems
 come from trying to recognise Markdown structure with deeply nested patterns.
 
-The scanner walks the text once, keeping only a handful of boolean/counter
-fields. Every character is examined a constant number of times, so the cost is
-linear in the input and independent of how many tags are present. Markdown
-structure (fenced code, indented code, blockquote lines, inline code spans) is
-tracked as it goes, so literal tags inside quoted material are preserved.
+The scanner tracks Markdown structure as it goes, so literal tags inside
+quoted material are preserved. It holds incomplete syntax until it can be
+classified and buffers parameter shells until a closing tag confirms them.
 
 The same object also carries state across chunk boundaries and across the text
 blocks of one message, which is what the streaming and rendering paths need.
@@ -31,23 +29,18 @@ _TAG_LITERALS = _OPEN_TAGS + _CLOSE_TAGS
 # (``system-*``) and their closers may use a different suffix, so they are
 # matched with patterns instead of literals.
 _INJECT_OPEN_RE = re.compile(r"<system-[a-z0-9_-]+\s*/?>", re.IGNORECASE)
-_INJECT_CLOSE_RE = re.compile(
-    r"</(?:system-[a-z0-9_-]+|notification|info|warning|reminder|error)\s*>",
+_SHORT_INJECT_NAMES = {"notification", "info", "warning", "reminder", "error"}
+_INJECT_OPEN_PREFIX_RE = re.compile(
+    r"<system-[a-z0-9_-]*\s*/?\Z",
     re.IGNORECASE,
 )
-_INJECT_HEADS = (
-    "<system-",
-    "</system-",
-    "</notification",
-    "</info",
-    "</warning",
-    "</reminder",
-    "</error",
-)
-_TAG_HEADS = _TAG_LITERALS + _INJECT_HEADS
-# Only the literal reasoning tags are length-matched here; the injection
-# patterns are matched with ``re`` and need no fixed window.
-_MAX_TAG_LEN = max(len(tag) for tag in _TAG_LITERALS) + 2
+_PARAMETER_OPEN_RE = re.compile(r"<parameter(?:\s[^<>]*)?>", re.IGNORECASE)
+_PARAMETER_PREFIX_RE = re.compile(r"<parameter\s[^<>]*\Z", re.IGNORECASE)
+_PARAMETER_CLOSE = "</parameter>"
+_PARAMETER_CLOSE_RE = re.compile(_PARAMETER_CLOSE, re.IGNORECASE)
+_FENCE_CLOSE_TAIL_RE = re.compile(r"[ \t\r]*(?:\n|\Z)")
+_TAG_HEADS = _TAG_LITERALS + ("<system-", "<parameter")
+_MAX_TAG_LEN = max(map(len, _TAG_LITERALS))
 _PARAGRAPH_BREAK_RE = re.compile(r"\r?\n[ \t]*\r?\n")
 
 
@@ -62,15 +55,12 @@ def _match_tag(text: str, index: int, literals: tuple[str, ...]) -> int:
     return 0
 
 
-def _is_tag_prefix(tail: str) -> bool:
-    """Whether *tail* could still grow into one of the tags we track."""
-    if not tail.startswith("<"):
+def _is_tag_prefix(text: str, index: int, tags: tuple[str, ...]) -> bool:
+    """Check a partial fixed-length tag without slicing the whole suffix."""
+    if len(text) - index > max(map(len, tags)):
         return False
-    lowered = tail.lower()
-    return any(
-        head.startswith(lowered) or lowered.startswith(head)
-        for head in _TAG_HEADS
-    )
+    tail = text[index:].lower()
+    return any(tag.startswith(tail) for tag in tags)
 
 
 def _drop_trailing_paragraph(text: str) -> str:
@@ -92,7 +82,10 @@ class ScaffoldFilter:
     __slots__ = (
         "suppress",
         "inject",
+        "inject_prefix",
+        "inject_heads",
         "pending",
+        "parameter",
         "at_line_start",
         "fence_char",
         "fence_len",
@@ -106,8 +99,11 @@ class ScaffoldFilter:
         self.suppress = False
         # While true, an injected ``<system-*>`` block is being hidden. It is
         # tracked separately from ``suppress`` so the two closers never cross.
-        self.inject = False
+        self.inject: re.Pattern[str] | None = None
+        self.inject_prefix: re.Pattern[str] | None = None
+        self.inject_heads: tuple[str, ...] = ()
         self.pending = ""
+        self.parameter: list[str] | None = None
         self.at_line_start = True
         self.fence_char: str | None = None
         self.fence_len = 0
@@ -119,9 +115,6 @@ class ScaffoldFilter:
         self.unclosed_opens_are_prose = unclosed_opens_are_prose
 
     # -- helpers ---------------------------------------------------------
-    def _literal(self) -> bool:
-        return self.line_literal or self.fence_char is not None
-
     def _classify_line(self, text: str, index: int) -> tuple[int, bool]:
         """Return (index after the line prefix, literal-line flag)."""
         length = len(text)
@@ -156,19 +149,43 @@ class ScaffoldFilter:
         while index < length:
             char = text[index]
 
+            # A parameter shell is literal only if it eventually closes.
+            if self.parameter is not None:
+                match = _PARAMETER_CLOSE_RE.search(text, index)
+                if match:
+                    self.parameter.append(text[index : match.end()])
+                    out.extend(self.parameter)
+                    self.parameter = None
+                    self.line_has_text = True
+                    index = match.end()
+                    continue
+                start = text.rfind(
+                    "<",
+                    max(index, length - len(_PARAMETER_CLOSE)),
+                )
+                if start != -1 and _is_tag_prefix(
+                    text,
+                    start,
+                    (_PARAMETER_CLOSE,),
+                ):
+                    self.pending = text[start:]
+                    length = start
+                self.parameter.append(text[index:length])
+                break
+
             # 0. Inside an injected system block: hide until its closer.
             # Inspected before the reasoning branch so a ``</thinking>`` that
             # sits inside an injected note cannot end the wrong block.
-            if self.inject:
-                match = _INJECT_CLOSE_RE.match(text, index)
+            if self.inject is not None:
+                match = self.inject.match(text, index)
                 if match:
                     index = match.end()
-                    self.inject = False
+                    self.inject = self.inject_prefix = None
                     continue
-                if (
-                    char == "<"
-                    and length - index < _MAX_TAG_LEN
-                    and (_is_tag_prefix(text[index:]))
+                if char == "<" and (
+                    _is_tag_prefix(text, index, self.inject_heads)
+                    or self.inject_prefix is not None
+                    and self.inject_prefix.match(text, index)
                 ):
                     self.pending = text[index:]
                     break
@@ -182,11 +199,7 @@ class ScaffoldFilter:
                     index += size
                     self.suppress = False
                     continue
-                if (
-                    char == "<"
-                    and length - index < _MAX_TAG_LEN
-                    and (_is_tag_prefix(text[index:]))
-                ):
+                if char == "<" and _is_tag_prefix(text, index, _CLOSE_TAGS):
                     self.pending = text[index:]
                     break
                 index += 1
@@ -201,8 +214,6 @@ class ScaffoldFilter:
                 if cursor == length and cursor > index:
                     self.pending = text[index:]
                     break
-                self.at_line_start = False
-                self.line_literal = literal or self.fence_char is not None
                 if not literal and cursor < length:
                     marker = text[cursor]
                     if marker in "`~":
@@ -212,6 +223,9 @@ class ScaffoldFilter:
                             and text[cursor + run] == marker
                         ):
                             run += 1
+                        if cursor + run == length:
+                            self.pending = text[index:]
+                            break
                         if run >= 3:
                             if self.fence_char is None:
                                 self.fence_char = marker
@@ -219,12 +233,23 @@ class ScaffoldFilter:
                             elif (
                                 marker == self.fence_char
                                 and run >= self.fence_len
+                                and (
+                                    tail := _FENCE_CLOSE_TAIL_RE.match(
+                                        text,
+                                        cursor + run,
+                                    )
+                                )
                             ):
+                                if text[tail.end() - 1] != "\n":
+                                    self.pending = text[index:]
+                                    break
                                 self.fence_char = None
                                 self.fence_len = 0
                             # Both the opening and the closing fence line are
                             # literal; only the closing one clears the state.
-                            self.line_literal = True
+                            literal = True
+                self.at_line_start = False
+                self.line_literal = literal or self.fence_char is not None
                 continue
 
             # 3. Literal contexts: emit verbatim.
@@ -245,6 +270,9 @@ class ScaffoldFilter:
                 run = 1
                 while index + run < length and text[index + run] == "`":
                     run += 1
+                if index + run == length:
+                    self.pending = text[index:]
+                    break
                 if self.ticks == 0:
                     self.ticks = run
                 elif run == self.ticks:
@@ -264,7 +292,18 @@ class ScaffoldFilter:
                     token = match.group(0)
                     index = match.end()
                     if not token.rstrip().endswith("/>"):
-                        self.inject = True
+                        name = token[1:-1].strip().lower()
+                        short = name.removeprefix("system-")
+                        names = [name]
+                        if short in _SHORT_INJECT_NAMES:
+                            names.append(short)
+                        self.inject_heads = tuple(f"</{tag}" for tag in names)
+                        close = "|".join(map(re.escape, self.inject_heads))
+                        self.inject = re.compile(rf"(?:{close})\s*>", re.I)
+                        self.inject_prefix = re.compile(
+                            rf"(?:{close})\s*\Z",
+                            re.I,
+                        )
                     continue
 
                 size = _match_tag(text, index, _OPEN_TAGS)
@@ -288,28 +327,21 @@ class ScaffoldFilter:
                     index += size
                     continue
 
-                if text[index : index + 10].lower().startswith("<parameter"):
-                    if self.line_has_text:
-                        # Prose that mentions a shell keeps it verbatim.
-                        out.append(char)
-                        index += 1
+                if not self.line_has_text:
+                    match = _PARAMETER_OPEN_RE.match(text, index)
+                    if match:
+                        self.parameter = [match.group()]
+                        index = match.end()
                         continue
-                    end = text.find(">", index)
-                    if end == -1:
+                    if _PARAMETER_PREFIX_RE.match(text, index):
                         self.pending = text[index:]
                         break
-                    rest = text[index:].lower()
-                    if "</parameter>" in rest:
-                        out.append(text[index : end + 1])
-                        index = end + 1
-                    else:
-                        # A truncated tool-call shell is not a reply.
-                        index = length
-                    continue
 
-                if length - index < _MAX_TAG_LEN and _is_tag_prefix(
-                    text[index:],
-                ):
+                if _is_tag_prefix(
+                    text,
+                    index,
+                    _TAG_HEADS,
+                ) or _INJECT_OPEN_PREFIX_RE.match(text, index):
                     self.pending = text[index:]
                     break
 
@@ -327,10 +359,13 @@ class ScaffoldFilter:
 
     def flush(self) -> str:
         """Release buffered text when the stream ends."""
-        visible = "" if (self.suppress or self.inject) else self.pending
+        hidden = self.suppress or self.inject or self.parameter is not None
+        visible = "" if hidden else self.pending
         self.pending = ""
+        self.parameter = None
         self.suppress = False
-        self.inject = False
+        self.inject = self.inject_prefix = None
+        self.inject_heads = ()
         self.at_line_start = True
         self.line_literal = False
         self.line_has_text = False
@@ -350,7 +385,7 @@ def strip_scaffold_text(text: str | None) -> str | None:
     visible = filtering.feed(text) + filtering.flush()
     if visible == text:
         return text
-    return re.sub(r"\n{3,}", "\n\n", visible).strip()
+    return visible.strip("\r\n")
 
 
 class ScaffoldDeltaState:
