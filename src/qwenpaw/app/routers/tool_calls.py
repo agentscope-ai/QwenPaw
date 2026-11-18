@@ -299,4 +299,8 @@ async def stream_output(
     return StreamingResponse(
         _generate(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
