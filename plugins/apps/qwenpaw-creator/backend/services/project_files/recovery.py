@@ -52,6 +52,7 @@ from .commit import (
     _candidate_hash,
     _review_operation_id,
     _runtime_change,
+    _runtime_path_segment,
     _update_manual_edit_buffer,
     _validate_same_round,
     is_protected_pointer,
@@ -358,20 +359,36 @@ class ProjectCommitRecoveryCoordinator:
                         )
                     except Exception:  # noqa: BLE001 - unreadable snapshot
                         skip_terminal = True
-                if (
+                incomplete_policy = (
+                    self._incomplete_frozen_round_policy(
+                        transaction_root, runtime_root, probe_journal
+                    )
+                    if skip_terminal
+                    else None
+                )
+                if incomplete_policy is ReviewPolicy.REQUIRE_REVIEW:
+                    # A durable review boundary still needs an actionable
+                    # decision. Propagate a failed proof as an integrity
+                    # outcome, leaving the journal and the evidence in place.
+                    inputs = self._load_inputs(
+                        project_id, runtime_root, transaction_root
+                    )
+                elif (
                     skip_terminal
-                    and probe_journal.state
-                    is CommitJournalState.PROJECT_REPLACED
+                    and (
+                        probe_journal.state
+                        is CommitJournalState.PROJECT_REPLACED
+                        or incomplete_policy is not None
+                    )
                     and isinstance(probe_base, Mapping)
                     and isinstance(probe_base.get("schema_version"), int)
                     and 0
                     < probe_base["schema_version"]
                     < CURRENT_PROJECT_SCHEMA_VERSION
                 ):
-                    # A new writer may have just published the first edit of an
-                    # old-format project. The base is historical, but its final
-                    # document and ChangeSet belong to the current schema.
-                    inputs = self._verified_migration_publication(
+                    # The first migration and an original historical writer
+                    # can both leave a fully provable publication behind.
+                    inputs = self._verified_frozen_publication(
                         project_id,
                         runtime_root,
                         transaction_root,
@@ -546,22 +563,64 @@ class ProjectCommitRecoveryCoordinator:
                 detail=f"{type(exc).__name__}: {exc}",
             )
 
-    def _verified_migration_publication(
+    @staticmethod
+    def _incomplete_frozen_round_policy(
+        transaction_root: Path,
+        runtime_root: Path,
+        journal: ProjectCommitJournal,
+    ) -> ReviewPolicy | None:
+        if (
+            journal.state is CommitJournalState.ABORTED
+            or journal.round_id is None
+        ):
+            return None
+        round_id = _runtime_path_segment(journal.round_id)
+        transaction_round = AtomicJsonRecordStore(
+            transaction_root / "round.json",
+            ChangeRoundRecord,
+        ).read_or_none()
+        aggregate = AtomicJsonRecordStore(
+            runtime_root / "change-rounds" / round_id / "round.json",
+            ChangeRoundRecord,
+        ).read_or_none()
+        record = aggregate or transaction_round
+        if record is None:
+            return None
+        if (
+            record.round_id != round_id
+            or record.project_id != journal.project_id
+        ):
+            raise _IntegrityProblem(
+                "Frozen review Round identity conflicts with journal"
+            )
+        if transaction_round is not None and aggregate is not None:
+            _validate_same_round(aggregate, transaction_round)
+        if record.status is TransactionStatus.ACTIVE:
+            return record.review_policy
+        if record.status is TransactionStatus.PENDING_REVIEW:
+            review = (
+                runtime_root / "reviews" / f"review-{round_id}" / "review.json"
+            )
+            if (
+                journal.state is CommitJournalState.PROJECT_REPLACED
+                or not review.is_file()
+                or not (runtime_root / "state.json").is_file()
+            ):
+                return record.review_policy
+        return None
+
+    def _verified_frozen_publication(
         self,
         project_id: str,
         runtime_root: Path,
         transaction_root: Path,
     ) -> _RecoveryInputs | None:
-        """Recognize an interrupted upgrade whose publication is still provable."""
+        """Verify publication from frozen snapshots and the live Project authority."""
         try:
             inputs = self._load_inputs(
                 project_id, runtime_root, transaction_root
             )
-            if (
-                inputs.final_data is None
-                or inputs.final_data.get("schema_version")
-                != CURRENT_PROJECT_SCHEMA_VERSION
-            ):
+            if inputs.final_data is None:
                 return None
             self._prove_current_is_published(
                 inputs, self.store.read(project_id)
@@ -1549,6 +1608,15 @@ def _diff_base_document(
     """
 
     if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
+        version = writer.get("schema_version")
+        if (
+            isinstance(version, int)
+            and version == base_data.get("schema_version")
+            and version < CURRENT_PROJECT_SCHEMA_VERSION
+        ):
+            # The historical before/after pair has one writer schema. Verify
+            # its own pointers and value hashes without inserting v10 defaults.
+            return base_data
         return _writer_document(base_project, writer, touched_pointers)
     return base_data
 
@@ -1564,11 +1632,11 @@ def _diff_latest_document(
     ``None`` when the transaction never prepared a ``latest.json`` snapshot.
     """
 
-    if latest_project is None:
+    if latest_project is None or latest_data is None:
         return None
-    if diff_semantics >= DIFF_SEMANTICS_MIGRATED:
-        return _writer_document(latest_project, writer, [])
-    return latest_data
+    return _diff_base_document(
+        diff_semantics, latest_data, latest_project, writer, []
+    )
 
 
 def _business_changes(before: Any, after: Any) -> tuple[JsonChange, ...]:
