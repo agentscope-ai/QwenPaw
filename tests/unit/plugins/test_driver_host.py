@@ -5,6 +5,7 @@
 from dataclasses import replace
 
 from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import Toolkit
 
 from qwenpaw.app.workspace.service_factories import create_driver_service
 from qwenpaw.drivers.adapters.agentscope_tool import build_driver_agent_tools
@@ -53,6 +54,13 @@ async def test_public_driver_is_callable_as_an_agentscope_tool(tmp_path):
             },
         )
         tool = next(item for item in tools if item.name == "same__echo")
+        schemas = await Toolkit(tools=tools).get_tool_schemas()
+        parameters = next(
+            schema["function"]["parameters"]
+            for schema in schemas
+            if schema["function"]["name"] == tool.name
+        )
+        assert parameters == {"type": "object", "properties": {}}
         result = await tool(value="hello")
         assert result.state == ToolResultState.SUCCESS and result.is_last
         assert result.metadata["protocol"] == "public-sdk"

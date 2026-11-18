@@ -56,13 +56,22 @@ def _thaw(value):
     return value
 
 
-def _schema(value):
+def _schema(value, *, input_for: str | None = None):
     from jsonschema import SchemaError
     from ..utils.json_schema import prepared_schema_validator
 
     if not isinstance(value, Mapping) and type(value) is not bool:
         raise TypeError("Driver schema must be a JSON Schema object or bool")
     snapshot = _freeze(value)
+    if input_for is not None and (
+        not isinstance(snapshot, Mapping)
+        or snapshot.get("type") != "object"
+        or not isinstance(snapshot.get("properties"), Mapping)
+    ):
+        raise ValueError(
+            f"Driver tool {input_for!r} input_schema requires "
+            'type: "object" and an object-valued properties field',
+        )
     try:
         plain = _thaw(snapshot)
         prepared_schema_validator(plain)
@@ -121,9 +130,11 @@ class DriverSource:
 
 @dataclass(frozen=True)
 class DriverCapabilitySpec:
+    """Declare a tool with an object input schema and explicit properties."""
+
     name: str
     description: str
-    input_schema: Mapping[str, JSONValue] | bool
+    input_schema: Mapping[str, JSONValue]
     output_schema: Mapping[str, JSONValue] | bool | None = None
     tool_name: str = ""
     enabled: bool = True
@@ -131,7 +142,11 @@ class DriverCapabilitySpec:
 
     def __post_init__(self):
         _strings(self, "name", "description", "tool_name")
-        object.__setattr__(self, "input_schema", _schema(self.input_schema))
+        object.__setattr__(
+            self,
+            "input_schema",
+            _schema(self.input_schema, input_for=self.name),
+        )
         if self.output_schema is not None:
             object.__setattr__(
                 self,

@@ -96,11 +96,13 @@ def test_driver_defaults_and_public_schema_values():
 
     source = DriverSource(source_id="source", protocol="contract", endpoint={})
     assert source.enabled is True and source.config == {}
+    empty = {"type": "object", "properties": {}}
     capability = DriverCapabilitySpec(
         name="echo",
         description="Echo",
-        input_schema={"type": "object"},
+        input_schema=empty,
     )
+    assert capability.input_schema == empty
     assert capability.output_schema is None
     assert capability.tool_name == "" and capability.enabled is True
     assert capability.metadata == {}
@@ -112,11 +114,24 @@ def test_driver_defaults_and_public_schema_values():
         DriverCapabilitySpec(
             name="boolean",
             description="Boolean schema",
-            input_schema=True,
+            input_schema=empty,
             output_schema=False,
-        ).input_schema
-        is True
+        ).output_schema
+        is False
     )
+    for invalid in (
+        True,
+        False,
+        {"type": "object"},
+        {"properties": {}},
+        {"type": "array", "properties": {}},
+        {"type": "object", "properties": []},
+    ):
+        with pytest.raises(
+            ValueError,
+            match=r"echo.*input_schema.*properties",
+        ):
+            DriverCapabilitySpec("echo", "Echo", invalid)
     local = {
         "$id": "https://schema.invalid/tool",
         "$defs": {"text": {"type": "string"}},
@@ -129,7 +144,10 @@ def test_driver_defaults_and_public_schema_values():
             DriverCapabilitySpec(
                 name="external",
                 description="Unavailable schema",
-                **{"input_schema": True, field: {"$ref": "other.json"}},
+                **{
+                    "input_schema": empty,
+                    field: {**empty, "$ref": "other.json"},
+                },
             )
 
 
@@ -283,7 +301,7 @@ def test_driver_json_rejects_host_objects_keys_and_nonfinite_values(
             DriverCapabilitySpec(
                 name="echo",
                 description="Echo",
-                input_schema={},
+                input_schema={"type": "object", "properties": {}},
                 metadata=value,
             )
         elif target in {"structured_content", "result_metadata"}:
@@ -318,11 +336,14 @@ def test_driver_capability_rejects_malformed_json_schema(field, invalid):
     from qwenpaw.plugins import SDKError
     from qwenpaw.plugins.drivers import DriverCapabilitySpec
 
+    empty = {"type": "object", "properties": {}}
+    if field == "input_schema" and isinstance(invalid, dict):
+        invalid = {**empty, **invalid}
     with pytest.raises((TypeError, ValueError, SDKError)):
         DriverCapabilitySpec(
             name="echo",
             description="Echo",
-            **{"input_schema": {}, field: invalid},
+            **{"input_schema": empty, field: invalid},
         )
 
 

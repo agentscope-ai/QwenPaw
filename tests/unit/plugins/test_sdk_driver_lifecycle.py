@@ -70,13 +70,15 @@ class Plugin:
                 record("discover", self.context)
                 if self.source.config.get("wait_discover"):
                     await wait("release-discover")
+                empty = {"type": "object", "properties": {}}
                 return (
                     DriverCapabilitySpec("echo", "Echo",
-                        self.source.config.get("input_schema", {"type":"object"}),
+                        self.source.config.get("input_schema", empty),
                         output_schema=self.source.config.get("output_schema")),
-                    DriverCapabilitySpec("blocked", "Disabled", True,
+                    DriverCapabilitySpec("blocked", "Disabled", empty,
                                          enabled=False),
-                    DriverCapabilitySpec("impossible", "False schema", False),
+                    DriverCapabilitySpec("impossible", "Reject all arguments",
+                                         {**empty, "not": {}}),
                 )
             async def invoke(self, name, arguments, request):
                 record("invoke", self.context)
@@ -292,13 +294,13 @@ async def test_discovery_call_identity_and_public_result_round_trip(
         )
         assert echo["protocol"] == PROTOCOL
         assert echo["driver_name"] == "same"
-        assert echo["input_schema"] == {"type": "object"}
+        assert echo["input_schema"] == {"type": "object", "properties": {}}
         with pytest.raises(TypeError):
             echo["input_schema"]["type"] = "string"
         impossible = next(
             row for row in capabilities if row["name"] == "impossible"
         )
-        assert impossible["input_schema"] is False
+        assert impossible["input_schema"]["not"] == {}
         for error in (False, True):
             result = await host.call_driver(
                 "same",
@@ -348,7 +350,13 @@ async def test_discovery_call_identity_and_public_result_round_trip(
         for field in ("input_schema", "output_schema"):
             await host.open_driver(
                 card(
-                    config={field: {"$ref": "https://schema.invalid/missing"}},
+                    config={
+                        field: {
+                            "type": "object",
+                            "properties": {},
+                            "$ref": "https://schema.invalid/missing",
+                        },
+                    },
                 ),
             )
             with pytest.raises(SDKError, match="reference"):

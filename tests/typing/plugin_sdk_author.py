@@ -185,7 +185,7 @@ async def driver_contract(
                 DriverCapabilitySpec(
                     name="echo",
                     description="Echo",
-                    input_schema={},
+                    input_schema={"type": "object", "properties": {}},
                 ),
             )
 

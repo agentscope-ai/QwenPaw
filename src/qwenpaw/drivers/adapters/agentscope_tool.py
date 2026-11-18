@@ -190,11 +190,7 @@ class DriverCapabilityTool(ToolBase):
     ) -> None:
         self.name = capability.exposure.tool_name or capability.name
         self.description = capability.description
-        self.input_schema = (
-            capability.input_schema
-            if isinstance(capability.input_schema, bool)
-            else dict(capability.input_schema)
-        )
+        self.input_schema = dict(capability.input_schema)
         self._capability = capability
         self._invoker = invoker
         self._request_context = dict(request_context or {})

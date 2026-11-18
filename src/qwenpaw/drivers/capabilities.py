@@ -48,7 +48,7 @@ class DriverCapability:
     action: str
     name: str
     description: str = ""
-    input_schema: dict[str, Any] | bool = field(default_factory=dict)
+    input_schema: dict[str, Any] = field(default_factory=dict)
     output_schema: dict[str, Any] | bool | None = field(default_factory=dict)
     exposure: CapabilityExposure = field(default_factory=CapabilityExposure)
     metadata: dict[str, Any] = field(default_factory=dict)
