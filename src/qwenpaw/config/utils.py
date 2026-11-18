@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -750,15 +751,20 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
 def isolate_legacy_root_mcp(
     config_path: Path,
     expected: dict,
-    backup_path: Path,
+    retained_mcp: dict,
 ) -> None:
-    """Archive the exact input before removing unresolved MCP from use."""
+    """Archive the exact input before removing unconvertible legacy sources."""
     global _config_cache
 
     with _config_lock:
-        original = config_path.read_bytes().decode("utf-8")
-        if json.loads(original) != expected:
+        original = config_path.read_bytes()
+        text = original.decode("utf-8")
+        if json.loads(text) != expected:
             raise RuntimeError("Root configuration changed during MCP review")
+        digest = hashlib.sha256(original).hexdigest()
+        backup_path = config_path.with_name(
+            f"{config_path.name}.legacy-mcp-{digest}.bak",
+        )
         if (
             backup_path.is_symlink()
             or backup_path.resolve() == config_path.resolve()
@@ -767,15 +773,15 @@ def isolate_legacy_root_mcp(
                 "Legacy MCP review backup must be a regular file",
             )
         try:
-            archived = json.loads(backup_path.read_bytes().decode("utf-8"))
+            archived = backup_path.read_bytes()
         except FileNotFoundError:
-            write_text_atomic(backup_path, original)
+            write_text_atomic(backup_path, text)
         else:
-            if archived["mcp"] != expected["mcp"]:
+            if archived != original:
                 raise RuntimeError(
-                    "An unresolved legacy MCP backup already exists",
+                    "Legacy MCP backup contents do not match",
                 )
-        write_json_atomic(config_path, {**expected, "mcp": {"clients": {}}})
+        write_json_atomic(config_path, {**expected, "mcp": retained_mcp})
         _config_cache = None
 
 

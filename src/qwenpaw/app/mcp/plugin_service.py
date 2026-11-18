@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 from ...config.utils import get_config_path, load_config
-from ..mcp_plugin_upgrade import PLUGIN_ID
+from ..mcp_plugin_upgrade import PLUGIN_ID, legacy_mcp_was_archived
 
 # These codes are the complete public recovery vocabulary. Never expose raw
 # parser, dependency, credential or plugin exception strings from status.
@@ -149,6 +149,8 @@ async def plugin_state(request):
         "enabled": enabled,
         "status": status,
         "diagnostics": diagnostics,
+        "legacy_mcp_archived": agent_id == "default"
+        and await run_sync_io(legacy_mcp_was_archived, get_config_path()),
         "available": is_mcp_ready(loader, agent_id)
         if workspace is not None
         else is_mcp_ready(loader) and workspace_status != "needs_review",

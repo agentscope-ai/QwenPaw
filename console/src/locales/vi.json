@@ -2114,6 +2114,7 @@
     "webSearchConfigLoadError": "Không tải được thông tin xác thực của nhà cung cấp này. Thử lại trước khi lưu."
   },
   "mcp": {
+    "legacyArchived": "Một số kết nối cũ chưa được chuyển sang phiên bản mới. Cấu hình gốc đã được sao lưu.",
     "title": "MCP Client",
     "qwenpawManaged": "Do QwenPaw quản lý",
     "qwenpawManagedHint": "Cấu hình dùng chung được đưa vào các Agent bên thứ ba được hỗ trợ khi chạy.",

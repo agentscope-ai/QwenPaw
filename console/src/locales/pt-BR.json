@@ -1163,6 +1163,7 @@
     "custom": "Personalizado"
   },
   "mcp": {
+    "legacyArchived": "Algumas conexões antigas não foram migradas. Uma cópia de segurança da configuração original foi salva.",
     "title": "MCP Clients",
     "qwenpawManaged": "Gerenciado pelo QwenPaw",
     "qwenpawManagedHint": "A configuração compartilhada do painel é injetada nos Agents de terceiros compatíveis durante a execução.",

@@ -167,7 +167,7 @@ async def _migrate_one_client(
         )
         return
 
-    if _args_may_contain_secret(list(getattr(config, "args", []) or [])):
+    if args_may_contain_secret(list(getattr(config, "args", []) or [])):
         report.warnings.append(
             LegacyMCPMigrationWarning(
                 client_key=client_key,
@@ -389,7 +389,7 @@ def _legacy_credential_refs(
     return {alias: CredentialRef(kind=credential.kind, ref=credential.ref)}
 
 
-def _args_may_contain_secret(args: list[str]) -> bool:
+def args_may_contain_secret(args: list[str]) -> bool:
     markers = ("api-key", "apikey", "token", "secret", "password", "auth")
     return any(
         any(marker in str(arg).lower() for marker in markers) for arg in args

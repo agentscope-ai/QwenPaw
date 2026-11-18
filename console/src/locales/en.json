@@ -1606,6 +1606,7 @@
     "custom": "Custom"
   },
   "mcp": {
+    "legacyArchived": "Some legacy connections were not migrated. The original configuration was backed up.",
     "recovery": {
       "title": "MCP needs attention",
       "invalid_upgrade_record": "Review the MCP installation record, then retry",

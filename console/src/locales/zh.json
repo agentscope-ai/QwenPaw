@@ -1441,6 +1441,7 @@
     "custom": "自定义"
   },
   "mcp": {
+    "legacyArchived": "部分旧连接未迁移，原配置已备份",
     "recovery": {
       "title": "MCP 需要处理",
       "invalid_upgrade_record": "请检查 MCP 安装记录，然后重试",

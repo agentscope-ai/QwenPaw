@@ -17,6 +17,7 @@ export interface MCPPluginState {
   enabled: boolean;
   status: "not_installed" | "disabled" | "active" | "inactive" | "failed";
   diagnostics: string[];
+  legacy_mcp_archived?: boolean;
   version?: string | null;
   update?: {
     installed_version: string;

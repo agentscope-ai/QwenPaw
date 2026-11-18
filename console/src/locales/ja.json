@@ -924,6 +924,7 @@
     "custom": "カスタム"
   },
   "mcp": {
+    "legacyArchived": "一部の古い接続設定は移行されませんでした。元の設定はバックアップ済みです。",
     "title": "MCPクライアント",
     "qwenpawManaged": "QwenPaw 管理",
     "qwenpawManagedHint": "統合コントロールプレーンで管理し、対応するサードパーティエージェントへ実行時に注入します。",

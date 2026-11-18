@@ -2740,6 +2740,7 @@
     "agentsPlaceholder": "Pilih ruang kerja agen yang akan dicadangkan"
   },
   "mcp": {
+    "legacyArchived": "Beberapa koneksi lama tidak dimigrasikan. Konfigurasi asli telah dicadangkan.",
     "title": "Klien MCP",
     "qwenpawManaged": "Dikelola QwenPaw",
     "qwenpawManagedHint": "Konfigurasi panel kontrol bersama disuntikkan ke Agent pihak ketiga yang didukung saat runtime.",
