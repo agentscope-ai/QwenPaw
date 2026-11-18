@@ -230,7 +230,9 @@ describe("CJK double emphasis through XMarkdown", () => {
       const stockMs = time(() => run.stock.parse(run.source));
       const patchedMs = time(() => run.patched.parse(run.source));
       rows.push(
-        `${run.source.length}B stock=${stockMs.toFixed(1)}ms extension=${patchedMs.toFixed(1)}ms`,
+        `${run.source.length}B stock=${stockMs.toFixed(
+          1,
+        )}ms extension=${patchedMs.toFixed(1)}ms`,
       );
     }
     console.log(`recovery cost: ${rows.join(" | ")}`);

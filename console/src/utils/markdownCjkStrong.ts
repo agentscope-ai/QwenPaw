@@ -185,7 +185,9 @@ export function cjkStrongExtension(): MarkedExtension {
       emStrong(this: Tokenizer, src: string, maskedSrc: string, prevChar = "") {
         const candidate = findCandidate(this, src, maskedSrc, prevChar);
         if (!candidate) {
-          return stockEmStrong.call(this, src, maskedSrc, prevChar) || undefined;
+          return (
+            stockEmStrong.call(this, src, maskedSrc, prevChar) || undefined
+          );
         }
         const stock = stockEmStrong.call(this, src, maskedSrc, prevChar);
         if (stock) return stock;
