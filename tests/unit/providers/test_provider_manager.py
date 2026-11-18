@@ -1466,6 +1466,43 @@ def test_migrate_legacy_file_and_persist_active_model(
     assert active_model_file.exists()
 
 
+def test_migrate_legacy_local_provider_without_name(isolated_secret_dir):
+    isolated_secret_dir.mkdir(parents=True, exist_ok=True)
+    legacy_file = isolated_secret_dir / "providers.json"
+    legacy_file.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "copaw-local": {
+                        "base_url": "http://127.0.0.1:8080/v1",
+                        "extra_models": [{"id": "A", "name": "A"}],
+                    },
+                    "ollama": {"base_url": "http://myhost:11434"},
+                },
+                "active_llm": {"provider_id": "copaw-local", "model": "A"},
+            },
+        ),
+        encoding="utf-8",
+    )
+
+    manager = ProviderManager()
+
+    assert not legacy_file.exists()
+    saved = json.loads(
+        (manager.plugin_path / "qwenpaw-local.json").read_text(
+            encoding="utf-8",
+        ),
+    )
+    assert saved["name"]
+    assert saved["base_url"] == "http://127.0.0.1:8080/v1"
+    assert saved["extra_models"][0]["id"] == "A"
+    assert manager.get_provider("ollama").base_url == "http://myhost:11434"
+    assert manager.active_model == ModelSlotConfig(
+        provider_id="qwenpaw-local",
+        model="A",
+    )
+
+
 async def test_add_custom_provider_conflict_resolution_loops_until_unique(
     isolated_secret_dir,
 ) -> None:

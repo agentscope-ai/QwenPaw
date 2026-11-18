@@ -318,6 +318,85 @@ async def test_running_stream_prevents_replacing_its_model(tmp_path):
             await turn.close()
 
 
+async def test_connection_check_keeps_the_running_local_model(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.providers import ProviderManager
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider import ModelConnectionResult
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        _, runtime = await load_backend(host, tmp_path)
+        server = await runtime.ensure_server("local-A")
+        await runtime.handle.select("local-A")
+        manager = ProviderManager.get_instance()
+        checked = []
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def probe(provider, model_id, timeout):
+            checked.append((provider.base_url, model_id))
+            entered.set()
+            await release.wait()
+            return ModelConnectionResult(success=True)
+
+        monkeypatch.setattr(OpenAIProvider, "check_model_connection", probe)
+        other = await manager.check_provider_model("qwenpaw-local", "local-B")
+        assert not other.success
+        assert other.verification == "unverified"
+        check = asyncio.create_task(
+            manager.check_provider_model("qwenpaw-local", "local-A"),
+        )
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+            with pytest.raises(PluginBusyError):
+                await runtime.ensure_server("local-B")
+        finally:
+            release.set()
+            current = await check
+        assert current.success
+        assert checked == [(f"http://127.0.0.1:{server.port}/v1", "local-A")]
+        assert runtime._manager.served == "local-A"
+        assert runtime._manager.starts == 1
+        selected = manager.load_active_model()
+        assert (selected.provider_id, selected.model) == (
+            "qwenpaw-local",
+            "local-A",
+        )
+        await runtime.ensure_server("local-B")
+        assert runtime._manager.served == "local-B"
+
+
+async def test_cancelled_first_request_leaves_the_local_manager_ready(
+    tmp_path,
+    monkeypatch,
+):
+    async with PluginTestHost(tmp_path / "host") as host:
+        _, runtime = await load_backend(host, tmp_path)
+        entered, resume = asyncio.Event(), asyncio.Event()
+        start = Backend.start
+
+        async def initialize(backend, data_dir):
+            await start(backend, data_dir)
+            entered.set()
+            await resume.wait()
+
+        monkeypatch.setattr(Backend, "start", initialize)
+        request = asyncio.create_task(runtime.manager())
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=5)
+        finally:
+            request.cancel()
+            resume.set()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+
+        server = await runtime.ensure_server("local-A")
+        assert server.model_info.id == "local-A"
+        manager = await runtime.manager()
+        assert manager.data_dir == (tmp_path / "local_models").resolve()
+
+
 async def test_cancelled_model_switch_keeps_the_new_endpoint(
     tmp_path,
     monkeypatch,

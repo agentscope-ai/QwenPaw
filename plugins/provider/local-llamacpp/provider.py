@@ -56,13 +56,17 @@ class LocalProvider:
                 "data-root.json",
                 {"data_dir": str(data_dir)},
             )
-        try:
-            self._manager = LocalModelManager()
-            await self._manager.start(data_dir)
+
+        async def initialize():
+            try:
+                self._manager = LocalModelManager()
+                await self._manager.start(data_dir)
+            except BaseException:
+                self._failed = True
+                raise
             self._started = True
-        except BaseException:
-            self._failed = True
-            raise
+
+        await finish(initialize())
 
     async def manager(self):
         """Return the initialized manager; reads may observe server startup."""
@@ -178,19 +182,38 @@ class LocalProvider:
         )
         return await self._publish(result)
 
+    def connect(self, _context, model_id):
+        return self._connect(model_id, start=True)
+
+    def connect_for_check(self, _context, model_id):
+        return self._connect((model_id or "").strip(), start=False)
+
     @asynccontextmanager
-    async def connect(self, _context, model_id):
+    async def _connect(self, model_id, start):
         key = object()
         try:
-            async with self._operation():
+            async with self._operation() as manager:
                 if self._manually_stopped:
                     raise SDKError(
                         "Start the local server in "
                         "Local Model Management first",
                     )
-                result = await self._ensure_server(model_id)
-                self._users[key] = self._manager.get_server_status()["pid"]
-            yield f"http://127.0.0.1:{result.port}/v1"
+                result = await self._ensure_server(model_id) if start else None
+                status = manager.get_server_status()
+                if result is None:
+                    if (
+                        not status["running"]
+                        or status["model_name"] != model_id
+                    ):
+                        raise SDKError(
+                            "Start this local model in Local Model Management "
+                            "first",
+                        )
+                    port = status["port"]
+                else:
+                    port = result.port
+                self._users[key] = status["pid"]
+            yield f"http://127.0.0.1:{port}/v1"
         finally:
             self._users.pop(key, None)
 

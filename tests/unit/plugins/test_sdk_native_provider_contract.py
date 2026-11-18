@@ -594,9 +594,13 @@ async def test_native_probes_use_prepared_endpoint_and_release_it(
     monkeypatch,
     operation,
 ):
+    source = SOURCE.replace(
+        "require_api_key=False,",
+        "require_api_key=False, is_local=True,",
+    )
     async with PluginTestHost(tmp_path / "host") as host:
         await host.load(
-            make_plugin(tmp_path, SOURCE, ["providers", "resources"]),
+            make_plugin(tmp_path, source, ["providers", "resources"]),
         )
         await ProviderManager.get_instance().update_provider_async(
             "native-test",
@@ -637,6 +641,31 @@ async def test_native_probes_use_prepared_endpoint_and_release_it(
         assert provider.base_url == "https://configured.test/v1"
         assert provider.api_key == "configured"
         assert provider.custom_headers["X-Provider-Test"] == "configured"
+
+
+async def test_local_provider_checks_unlisted_model_at_static_endpoint(
+    tmp_path,
+    monkeypatch,
+):
+    source = SOURCE.replace(
+        "require_api_key=False,",
+        "require_api_key=False, is_local=True,",
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(
+            make_plugin(tmp_path, source, ["providers"]),
+            config={"prepare": False},
+        )
+        provider = ProviderManager.get_instance().get_provider("native-test")
+        result = object()
+
+        async def probe(current, model_id, timeout):
+            assert current.base_url == "https://configured.test/v1"
+            assert model_id == "new-model"
+            return result
+
+        monkeypatch.setattr(OpenAIProvider, "check_model_connection", probe)
+        assert await provider.check_model_connection("new-model") is result
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,7 @@ class Plugin:
                 label="Local llama.cpp",
                 protocol="openai-chat",
                 connect=provider.connect,
+                connect_for_check=provider.connect_for_check,
                 require_api_key=False,
                 is_local=True,
             ),

@@ -86,9 +86,10 @@ class ProviderSpec:
     """Provider identity, configuration, model catalog and inference hooks.
 
     Declare generate or a native protocol. Native providers may acquire
-    a per-use base URL through connect. Discovery and connection
-    checks may override host defaults. Installation and service management
-    remain plugin responsibilities.
+    a per-use base URL through connect. Native model connection checks
+    use the same lease unless the provider supplies connect_for_check.
+    Discovery and provider-level checks may override host defaults.
+    Installation and service management remain plugin responsibilities.
     """
 
     id: str
@@ -123,6 +124,10 @@ class ProviderSpec:
         | None
     ) = None
     is_local: bool = False
+    connect_for_check: (
+        Callable[[ProviderContext, str], AbstractAsyncContextManager[str]]
+        | None
+    ) = None
 
 
 class ProviderHandle(Registration):

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
 from __future__ import annotations
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock
 
 import pytest
@@ -56,6 +57,90 @@ def test_terminal_worker_must_exit_before_releasing_resources(
         assert controller._task is task
         assert controller.snapshot()["status"] != "completed"
         task.queue.close.assert_not_called()
+
+
+@pytest.mark.parametrize("worker_exited", [True, False])
+def test_cancel_racing_with_monitor_reaps_the_worker_once(worker_exited):
+    progress = DownloadProgressTracker()
+    progress.begin()
+    controller = ProcessDownloadController(progress=progress)
+    task = ManagedDownloadTask(Mock(), Mock(), Mock(), Mock())
+    task.process.is_alive.return_value = not worker_exited
+    task.monitor_thread.is_alive.return_value = False
+    controller._task = task
+
+    def terminate():
+        task.process.is_alive.return_value = False
+
+    def finish_download(timeout):
+        controller._finish_task(
+            task=task,
+            result=(
+                DownloadTaskResult(
+                    status=DownloadTaskStatus.COMPLETED,
+                    local_path="/model",
+                )
+                if worker_exited
+                else DownloadTaskResult(
+                    status=DownloadTaskStatus.FAILED,
+                    error="Download process exited unexpectedly.",
+                )
+            ),
+            cleanup_spec=not worker_exited,
+        )
+
+    task.process.terminate.side_effect = terminate
+    task.monitor_thread.join.side_effect = finish_download
+    if worker_exited:
+        task.monitor_thread.is_alive.return_value = True
+        controller.cancel()
+        task.monitor_thread.join.assert_not_called()
+        assert controller.is_active()
+
+        task.monitor_thread.is_alive.return_value = False
+        controller.close()
+    else:
+        controller.cancel()
+
+    assert controller.snapshot()["status"] == (
+        "completed" if worker_exited else "cancelled"
+    )
+    assert not controller.is_active()
+    task.process.close.assert_called_once()
+    task.queue.close.assert_called_once()
+
+
+def test_cancel_times_out_on_cleanup_lock_and_can_retry(monkeypatch):
+    progress = DownloadProgressTracker()
+    progress.begin()
+    controller = ProcessDownloadController(progress=progress)
+    task = ManagedDownloadTask(Mock(), Mock(), Mock(), Mock())
+    task.process.is_alive.return_value = False
+    task.monitor_thread.is_alive.return_value = False
+    cleanup = task.spec.task.run_cleanup
+    cleanup.side_effect = [PermissionError("staging is busy"), None]
+    controller._task = task
+    monkeypatch.setattr(download_module, "DOWNLOAD_MONITOR_WAIT_SECONDS", 0.01)
+
+    with pytest.raises(PermissionError, match="staging is busy"):
+        controller._finish_task(
+            task=task,
+            result=DownloadTaskResult(status=DownloadTaskStatus.FAILED),
+            cleanup_spec=True,
+        )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with controller._teardown_lock:
+            cancel = executor.submit(controller.cancel)
+            with pytest.raises(RuntimeError, match="cleanup is still"):
+                cancel.result(timeout=2)
+            assert controller.is_active()
+            task.process.close.assert_not_called()
+
+    controller.cancel()
+    assert cleanup.call_count == 2
+    assert not controller.is_active()
+    assert controller.snapshot()["status"] == "cancelled"
+    task.process.close.assert_called_once()
 
 
 def test_download_task_result_round_trips_through_dict() -> None:

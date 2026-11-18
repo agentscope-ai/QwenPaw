@@ -52,6 +52,8 @@ from .provider_update_fields import (
 
 logger = logging.getLogger(__name__)
 
+_LEGACY_LOCAL_PROVIDER_NAME = "QwenPaw Local"
+
 ProviderStorageKind = Literal["builtin", "custom", "plugin"]
 
 
@@ -1009,32 +1011,55 @@ class ProviderManagerPersistenceMixin(
                 slot.provider_id = "qwenpaw-local"
                 self.save_active_model(slot, model_type=model_type)
 
-        target = self.plugin_path / "qwenpaw-local.json"
-        for name in ("qwenpaw-local", "copaw-local"):
-            source = self.builtin_path / f"{name}.json"
-            if not source.is_file():
-                continue
-            try:
-                with get_sync_path_lock(target):
-                    if not target.exists():
-                        payload = json.loads(
-                            source.read_text(encoding="utf-8"),
-                        )
-                        payload["id"] = "qwenpaw-local"
-                        provider_persistence.write_snapshot_payload(
-                            payload,
-                            target,
-                        )
-                    source.unlink()
-            except (OSError, ValueError, TypeError):
-                logger.exception(
-                    "Could not migrate provider settings: %s",
-                    source,
-                )
+        try:
+            self._migrate_local_provider_snapshots()
+        except (OSError, ValueError, TypeError):
+            logger.exception("Could not migrate local provider settings")
         try:
             self._preserve_local_model_directory()
         except (OSError, ValueError, TypeError):
             logger.exception("Could not preserve the local model directory")
+
+    def _migrate_local_provider_snapshots(self) -> None:
+        sources = [
+            source
+            for name in ("qwenpaw-local", "copaw-local")
+            if (source := self.builtin_path / f"{name}.json").is_file()
+        ]
+        if not sources:
+            return
+
+        target = self.plugin_path / "qwenpaw-local.json"
+        with get_sync_path_lock(target):
+            if target.exists():
+                return
+
+            payload: dict[str, Any] = {}
+            migrated = []
+            # The legacy CoPaw settings take precedence when both exist.
+            for source in sources:
+                try:
+                    snapshot = json.loads(source.read_text(encoding="utf-8"))
+                    if not isinstance(snapshot, dict):
+                        raise ValueError("Provider snapshot must be an object")
+                    migrate_provider_snapshot(snapshot)
+                    merged = {**payload, **snapshot, "id": "qwenpaw-local"}
+                    merged.setdefault("name", _LEGACY_LOCAL_PROVIDER_NAME)
+                    OpenAIProvider.model_validate(merged)
+                except (OSError, ValueError, TypeError):
+                    logger.exception(
+                        "Could not migrate local provider snapshot %s",
+                        source,
+                    )
+                    continue
+                payload = merged
+                migrated.append(source)
+
+            if not migrated:
+                return
+            provider_persistence.write_snapshot_payload(payload, target)
+            for source in migrated:
+                source.unlink()
 
     @staticmethod
     def _preserve_local_model_directory() -> None:
@@ -1070,7 +1095,13 @@ class ProviderManagerPersistenceMixin(
                     with get_sync_path_lock(target):
                         if not target.exists():
                             provider = OpenAIProvider(
-                                **{**config, "id": "qwenpaw-local"},
+                                **{
+                                    "name": _LEGACY_LOCAL_PROVIDER_NAME,
+                                    "is_local": True,
+                                    "require_api_key": False,
+                                    **config,
+                                    "id": "qwenpaw-local",
+                                },
                             )
                             provider_persistence.write_provider_snapshot(
                                 provider,

@@ -233,12 +233,12 @@ class ProviderBinding:
             )
 
     @asynccontextmanager
-    async def _lease(self, model_id, owner):
+    async def _lease(self, model_id, owner, connect):
         async with self.invocation(self.provider(), owner=owner) as public:
-            if self.spec.connect is None:
+            if connect is None:
                 yield public.base_url
                 return
-            async with self.spec.connect(public, model_id) as endpoint:
+            async with connect(public, model_id) as endpoint:
                 if not isinstance(endpoint, str) or not endpoint:
                     raise SDKError(
                         "Provider connect must yield a nonempty base URL",
@@ -246,13 +246,16 @@ class ProviderBinding:
                 yield endpoint
 
     @asynccontextmanager
-    async def connect(self, model_id):
+    async def connect(self, model_id, for_check=False):
         self.guard()
         turn = _turn_usage.get()
         if turn is not None:
             turn.guard()
         owner = turn.task if turn is not None else asyncio.current_task()
-        async with self._lease(model_id, owner) as endpoint:
+        connect = self.spec.connect
+        if for_check and self.spec.connect_for_check is not None:
+            connect = self.spec.connect_for_check
+        async with self._lease(model_id, owner, connect) as endpoint:
             if turn is not None:
                 turn.retain(self.context)
             yield endpoint
@@ -384,7 +387,10 @@ def register_native(context, spec):
 
         async def check_model_connection(self, model_id, timeout=5):
             try:
-                async with binding.connect(model_id) as endpoint:
+                async with binding.connect(
+                    model_id,
+                    for_check=True,
+                ) as endpoint:
                     provider = self.configuration_snapshot()
                     provider.base_url = endpoint
                     return await OpenAIProvider.check_model_connection(
@@ -489,6 +495,8 @@ def register(context, spec):
         raise SDKError("Provider requires generate or a supported protocol")
     if spec.connect is not None:
         raise SDKError("Provider connect requires a native protocol")
+    if spec.connect_for_check is not None:
+        raise SDKError("Provider connect_for_check requires a native protocol")
     from agentscope.credential import CredentialBase
     from agentscope.formatter import OpenAIChatFormatter
     from agentscope.model import ChatModelBase

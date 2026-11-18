@@ -187,6 +187,10 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
             ),
             source,
         )
+        if legacy_id == "copaw-local":
+            snapshot = json.loads(source.read_text(encoding="utf-8"))
+            del snapshot["name"]
+            source.write_text(json.dumps(snapshot), encoding="utf-8")
         manager._migrate_copaw_config()
         assert not source.exists()
         assert (manager.plugin_path / "qwenpaw-local.json").is_file()
@@ -227,6 +231,86 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
             manager.get_provider("qwenpaw-local").max_inline_media_bytes
             == media_limit
         )
+
+
+@pytest.mark.parametrize("existing_target", [False, True])
+async def test_local_provider_snapshot_migration_preserves_legacy_settings(
+    tmp_path,
+    existing_target,
+):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host"):
+        manager = ProviderManager.get_instance()
+        current = manager.builtin_path / "qwenpaw-local.json"
+        legacy = manager.builtin_path / "copaw-local.json"
+        target = manager.plugin_path / current.name
+        current_config = {
+            "id": "qwenpaw-local",
+            "name": "QwenPaw Local",
+            "base_url": "http://localhost:8080/v1",
+            "extra_models": [{"id": "A", "name": "A"}],
+            "generate_kwargs": {"temperature": 0.1},
+            "max_inline_media_bytes": 1234,
+        }
+        legacy_config = {
+            "id": "copaw-local",
+            "base_url": "http://localhost:8081/v1",
+            "extra_models": [{"id": "B", "name": "B"}],
+            "generate_kwargs": {"temperature": 0.7},
+        }
+        current.write_text(json.dumps(current_config), encoding="utf-8")
+        legacy.write_text(json.dumps(legacy_config), encoding="utf-8")
+        target_config = {
+            **current_config,
+            "base_url": "http://localhost:8082/v1",
+        }
+        if existing_target:
+            target.write_text(json.dumps(target_config), encoding="utf-8")
+
+        manager._migrate_copaw_config()
+
+        saved = json.loads(target.read_text(encoding="utf-8"))
+        if existing_target:
+            assert saved == target_config
+            assert current.exists() and legacy.exists()
+        else:
+            assert saved["id"] == "qwenpaw-local"
+            assert saved["max_inline_media_bytes"] == 1234
+            for field in ("base_url", "extra_models", "generate_kwargs"):
+                assert saved[field] == legacy_config[field]
+            assert not current.exists() and not legacy.exists()
+
+
+@pytest.mark.parametrize("broken_id", ["copaw-local", "qwenpaw-local"])
+async def test_local_snapshot_migration_keeps_the_valid_source(
+    tmp_path,
+    broken_id,
+):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    async with PluginTestHost(tmp_path / "host"):
+        manager = ProviderManager.get_instance()
+        broken = manager.builtin_path / f"{broken_id}.json"
+        valid = manager.builtin_path / (
+            "copaw-local.json"
+            if broken_id == "qwenpaw-local"
+            else "qwenpaw-local.json"
+        )
+        broken.write_text("{broken", encoding="utf-8")
+        settings = {
+            "extra_models": [{"id": "A", "name": "A"}],
+            "generate_kwargs": {"temperature": 0.7},
+        }
+        valid.write_text(json.dumps(settings), encoding="utf-8")
+
+        manager._migrate_copaw_config()
+
+        target = manager.plugin_path / "qwenpaw-local.json"
+        saved = json.loads(target.read_text(encoding="utf-8"))
+        assert all(saved[key] == value for key, value in settings.items())
+        assert not valid.exists()
+        assert broken.read_text(encoding="utf-8") == "{broken"
 
 
 @pytest.mark.parametrize("custom", [False, True])

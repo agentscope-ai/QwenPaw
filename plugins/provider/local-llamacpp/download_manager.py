@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass, field, replace
 from queue import Empty
 from typing import Any, Callable
@@ -266,6 +266,8 @@ class ProcessDownloadController:
     ) -> None:
         self._progress = progress
         self._lock = threading.Lock()
+        # Worker teardown can wait on process exit and filesystem cleanup.
+        self._teardown_lock = threading.Lock()
         self._task: ManagedDownloadTask | None = None
 
     def start(self, spec: ProcessDownloadTaskSpec) -> None:
@@ -315,18 +317,47 @@ class ProcessDownloadController:
             monitor_thread.start()
 
     def cancel(self) -> None:
+        """Cancel the current worker if it is still running."""
+        self._stop_task(wait_for_finalization=False)
+
+    def close(self) -> None:
+        """Stop the current download and wait for finalization."""
+        self._stop_task(wait_for_finalization=True)
+
+    @contextmanager
+    def _teardown(self):
+        if not self._teardown_lock.acquire(
+            timeout=DOWNLOAD_MONITOR_WAIT_SECONDS,
+        ):
+            raise RuntimeError("Download cleanup is still in progress")
+        try:
+            yield
+        finally:
+            self._teardown_lock.release()
+
+    def _stop_task(self, wait_for_finalization: bool) -> None:
         with self._lock:
             task = self._task
-            if task is None:
+        if task is None:
+            return
+
+        monitor = task.monitor_thread
+        with self._teardown():
+            with self._lock:
+                if self._task is not task:
+                    return
+            if task.process.is_alive():
+                task.cancelled.set()
+                self._progress.request_cancel()
+                stop_download(task.process)
+            elif monitor.is_alive() and not (
+                wait_for_finalization or task.cancelled.is_set()
+            ):
                 return
-            task.cancelled.set()
-            self._progress.request_cancel()
 
-        stop_download(task.process)
-
-        if task.monitor_thread is not threading.current_thread():
-            task.monitor_thread.join(timeout=DOWNLOAD_MONITOR_WAIT_SECONDS)
-            if task.monitor_thread.is_alive():
+        if monitor is not threading.current_thread():
+            monitor.join(timeout=DOWNLOAD_MONITOR_WAIT_SECONDS)
+            if monitor.is_alive():
                 raise RuntimeError("Download monitor did not exit")
 
         self._finish_task(
@@ -336,9 +367,6 @@ class ProcessDownloadController:
             ),
             cleanup_spec=True,
         )
-
-    def close(self) -> None:
-        self.cancel()
 
     def snapshot(self) -> dict[str, Any]:
         return self._progress.snapshot()
@@ -461,43 +489,35 @@ class ProcessDownloadController:
         downloaded_bytes: int | None = None,
         cleanup_spec: bool = False,
     ) -> None:
-        resolved_task = task
-        resolved_spec = spec
-        if resolved_task is None and resolved_spec is not None:
-            resolved_task = self._get_task_for_spec(resolved_spec)
-        if resolved_spec is None and resolved_task is not None:
-            resolved_spec = resolved_task.spec
-
-        if resolved_task is not None:
-            resolved_task.process.join(timeout=DOWNLOAD_PROCESS_WAIT_SECONDS)
-            if resolved_task.process.is_alive():
-                stop_download(resolved_task.process)
-
-        if cleanup_spec and resolved_spec is not None:
-            self._cleanup_task_spec(resolved_spec)
-
-        if resolved_task is not None:
-            self._release_task_resources(resolved_task)
-
-        with self._lock:
-            current_task = self._task
-            if current_task is not None and (
-                current_task is resolved_task
-                or (
-                    resolved_spec is not None
-                    and current_task.spec is resolved_spec
-                )
+        with self._teardown():
+            with self._lock:
+                current = self._task
+            if current is None or (
+                current is not task and current.spec is not spec
             ):
+                return
+
+            current.process.join(timeout=DOWNLOAD_PROCESS_WAIT_SECONDS)
+            if current.process.is_alive():
+                stop_download(current.process)
+
+            if cleanup_spec:
+                current.spec.task.run_cleanup()
+
+            if (
+                current.cancelled.is_set()
+                and result.status == DownloadTaskStatus.FAILED
+            ):
+                result = DownloadTaskResult(
+                    status=DownloadTaskStatus.CANCELLED,
+                )
+            self._progress.apply_result(
+                result,
+                downloaded_bytes=downloaded_bytes,
+            )
+            self._release_task_resources(current)
+            with self._lock:
                 self._task = None
-
-        self._progress.apply_result(
-            result,
-            downloaded_bytes=downloaded_bytes,
-        )
-
-    @staticmethod
-    def _cleanup_task_spec(spec: ProcessDownloadTaskSpec) -> None:
-        spec.task.run_cleanup()
 
     @staticmethod
     def _release_task_resources(task: ManagedDownloadTask) -> None:
