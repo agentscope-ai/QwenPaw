@@ -7,7 +7,7 @@ from __future__ import annotations
 import copy
 import logging
 import time
-from importlib import import_module
+from types import ModuleType
 from typing import Any, List
 
 from agentscope.model import ChatModelBase
@@ -32,6 +32,13 @@ from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
 logger = logging.getLogger(__name__)
+
+
+def _load_genai() -> ModuleType:
+    """Load the Gemini SDK only when a native operation needs it."""
+    from google import genai
+
+    return genai
 
 
 def resolve_thinking_config(config: dict, parameters=None) -> dict:
@@ -205,8 +212,7 @@ class GeminiProvider(Provider):
         return dict(self.custom_headers) if self.custom_headers else {}
 
     def _client(self, timeout: float = 10) -> Any:
-        from google import genai
-
+        genai = _load_genai()
         headers = self._build_default_headers() or None
         return genai.Client(
             api_key=self.api_key,
@@ -259,7 +265,7 @@ class GeminiProvider(Provider):
 
     async def check_connection(self, timeout: float = 10) -> tuple[bool, str]:
         """Check if Google Gemini provider is reachable."""
-        genai_errors = await run_sync_io(import_module, "google.genai.errors")
+        genai = await run_sync_io(_load_genai)
         client = None
         response = None
         try:
@@ -269,7 +275,7 @@ class GeminiProvider(Provider):
             async for _ in response:
                 break
             return True, ""
-        except genai_errors.APIError:
+        except genai.errors.APIError:
             return (
                 False,
                 "Failed to connect to Google Gemini API. "
@@ -315,7 +321,7 @@ class GeminiProvider(Provider):
                 message="Empty model ID",
             )
 
-        genai_errors = await run_sync_io(import_module, "google.genai.errors")
+        genai = await run_sync_io(_load_genai)
         client = None
         response = None
         try:
@@ -327,7 +333,7 @@ class GeminiProvider(Provider):
             async for _ in response:
                 break
             return ModelConnectionResult(success=True)
-        except genai_errors.APIError as exc:
+        except genai.errors.APIError as exc:
             status = getattr(exc, "code", None) or getattr(
                 exc,
                 "status_code",
@@ -468,23 +474,22 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
+        genai = await run_sync_io(_load_genai)
         client = await run_sync_io(self._client, timeout=timeout)
-        from google.genai import errors as genai_errors, types as genai_types
-
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
             response = await client.aio.models.generate_content(
                 model=model_id,
                 contents=[
-                    genai_types.Part(
-                        inline_data=genai_types.Blob(
+                    genai.types.Part(
+                        inline_data=genai.types.Blob(
                             mime_type="image/png",
                             data=image_bytes,
                         ),
                     ),
-                    genai_types.Part(text=_IMAGE_PROBE_PROMPT),
+                    genai.types.Part(text=_IMAGE_PROBE_PROMPT),
                 ],
-                config=genai_types.GenerateContentConfig(
+                config=genai.types.GenerateContentConfig(
                     max_output_tokens=20,
                 ),
             )
@@ -494,7 +499,7 @@ class GeminiProvider(Provider):
                 model_id,
                 start_time,
             )
-        except genai_errors.APIError as e:
+        except genai.errors.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Image probe error: model=%s type=%s msg=%s %.2fs",
@@ -534,27 +539,26 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
+        genai = await run_sync_io(_load_genai)
         client = await run_sync_io(self._client, timeout=timeout)
-        from google.genai import errors as genai_errors, types as genai_types
-
         try:
             response = await client.aio.models.generate_content(
                 model=model_id,
                 contents=[
-                    genai_types.Part(
-                        file_data=genai_types.FileData(
+                    genai.types.Part(
+                        file_data=genai.types.FileData(
                             file_uri=_PROBE_VIDEO_URL,
                             mime_type="video/mp4",
                         ),
                     ),
-                    genai_types.Part(
+                    genai.types.Part(
                         text=(
                             "Does this contain moving content? "
                             "Reply with ONLY 'yes' or 'no', nothing else."
                         ),
                     ),
                 ],
-                config=genai_types.GenerateContentConfig(
+                config=genai.types.GenerateContentConfig(
                     max_output_tokens=10,
                 ),
             )
@@ -581,7 +585,7 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             return result
-        except genai_errors.APIError as e:
+        except genai.errors.APIError as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
@@ -616,10 +620,9 @@ class _GeminiChatModelCompat:
         default_headers = kwargs.pop("default_headers", None)
         extra_config_kwargs = kwargs.pop("extra_config_kwargs", None) or {}
         if default_headers:
-            from google.genai import types as genai_types
-
+            genai = _load_genai()
             client_kwargs = dict(kwargs.get("client_kwargs") or {})
-            client_kwargs["http_options"] = genai_types.HttpOptions(
+            client_kwargs["http_options"] = genai.types.HttpOptions(
                 headers=default_headers,
             )
             kwargs["client_kwargs"] = client_kwargs

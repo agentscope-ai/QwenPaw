@@ -2,12 +2,20 @@
 """AgentScope Anthropic model with QwenPaw request policy."""
 
 from datetime import datetime
+from types import ModuleType
 from typing import Any, Dict
 
 from agentscope.model import AnthropicChatModel
 
 from .cache_policy import mark_stable_prefix
 from .wire_protocol import anthropic_base_url
+
+
+def load_anthropic_sdk() -> ModuleType:
+    """Load the Anthropic SDK only when a native operation needs it."""
+    import anthropic
+
+    return anthropic
 
 
 def resolve_parameters(
@@ -93,8 +101,7 @@ class AnthropicModel(AnthropicChatModel):
         ):
             return self._qp_cached_client
 
-        import anthropic
-
+        anthropic = load_anthropic_sdk()
         client_kwargs: Dict[str, Any] = {
             "base_url": anthropic_base_url(self.credential.base_url),
         }

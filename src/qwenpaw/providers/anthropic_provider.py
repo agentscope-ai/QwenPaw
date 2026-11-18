@@ -34,6 +34,7 @@ from .provider import (
 from ..utils.logging import sanitize_log_value
 from .adapters.anthropic import (
     AnthropicModel as _AnthropicChatModelCompat,
+    load_anthropic_sdk,
     strip_api_key_header,
     resolve_parameters,
 )
@@ -100,16 +101,14 @@ class AnthropicProvider(Provider):
     def _get_strip_http_client(self) -> Any:
         """Use the SDK's client type and strip API keys before sending."""
         if self._strip_http_client is None:
-            from anthropic import DefaultAsyncHttpxClient
-
-            self._strip_http_client = DefaultAsyncHttpxClient(
+            anthropic = load_anthropic_sdk()
+            self._strip_http_client = anthropic.DefaultAsyncHttpxClient(
                 event_hooks={f"request": [strip_api_key_header]},
             )
         return self._strip_http_client
 
     def _client(self, timeout: float = 5) -> AsyncAnthropic:
-        import anthropic
-
+        anthropic = load_anthropic_sdk()
         default_headers = self._build_default_headers()
         if self.auth_mode == "auth_token":
             return anthropic.AsyncAnthropic(
@@ -195,7 +194,7 @@ class AnthropicProvider(Provider):
         pass the connection test.
         """
         client = await run_sync_io(self._client, timeout=timeout)
-        import anthropic
+        anthropic = load_anthropic_sdk()
 
         try:
             await client.models.list()
@@ -222,8 +221,7 @@ class AnthropicProvider(Provider):
         client: AsyncAnthropic,
     ) -> tuple[bool, str]:
         """Fallback: check reachability via messages.create."""
-        import anthropic
-
+        anthropic = load_anthropic_sdk()
         model = self.models[0].id if self.models else "claude-opus-4-5"
         try:
             await client.messages.create(
@@ -286,7 +284,7 @@ class AnthropicProvider(Provider):
             "stream": True,
         }
         client = await run_sync_io(self._client, timeout=timeout)
-        import anthropic
+        anthropic = load_anthropic_sdk()
 
         try:
             resp = await client.messages.create(**body)
@@ -493,7 +491,7 @@ class AnthropicProvider(Provider):
         """
         log_model = sanitize_log_value(model_id)
         client = await run_sync_io(self._client, timeout=timeout)
-        import anthropic
+        anthropic = load_anthropic_sdk()
 
         try:
             resp = await client.messages.create(
@@ -600,7 +598,7 @@ class AnthropicProvider(Provider):
         )
         start_time = time.monotonic()
         client = await run_sync_io(self._client, timeout=timeout)
-        import anthropic
+        anthropic = load_anthropic_sdk()
 
         try:
             resp = await client.messages.create(
