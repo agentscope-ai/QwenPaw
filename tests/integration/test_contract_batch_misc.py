@@ -623,19 +623,14 @@ def test_post_api_mail_access_control_remark_26(app_server) -> None:
 @pytest.mark.integration
 @pytest.mark.p1
 def test_post_api_console_chat_27(app_server) -> None:
-    """Contract: POST /api/console/chat with empty body is rejected or safely
-    handled."""
-    resp = _req(app_server, "POST", "/api/console/chat", json={})
-    assert resp.status_code in (
-        200,
-        400,
-        403,
-        404,
-        409,
-        422,
-        500,
-        503,
-    ), app_server.logs_tail()
+    """An empty chat request is rejected before starting a model run."""
+    resp = app_server.api_request(
+        "POST",
+        "/api/console/chat",
+        json={},
+        timeout=_T,
+    )
+    assert resp.status_code == 400, app_server.logs_tail()
 
 
 @pytest.mark.integration
