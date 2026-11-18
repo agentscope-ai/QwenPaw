@@ -343,4 +343,52 @@ describe("file-native Project Review store", () => {
       expect(store().decisionInFlight).toBe(false);
     },
   );
+
+  it("stamps the reconciliation before a failed decision reaches its caller", async () => {
+    // The response can be lost after the server committed. A batch caller
+    // may only credit that keep when the awaited reconciliation says so.
+    const resolved = review("token-2", 3, {
+      status: "RESOLVED",
+      operations: [{ ...review().operations[0], decision: "ACCEPTED" }],
+    });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("response lost"))
+      .mockResolvedValueOnce(activeResponse(resolved));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review()]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toThrow("response lost");
+    expect(store().reconciledDecision).toMatchObject({ reviewId: "review-1" });
+    expect(
+      fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes("/runtime/reviews/active"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("never reconciles a CAS conflict: another tab decided first", async () => {
+    // The stale-token retry only covers explicit keeps of identical
+    // operations; here the round token did not rotate, so the 409 stands.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(response(409, { code: "CAS_CONFLICT" }))
+      .mockResolvedValueOnce(activeResponse(review()));
+    vi.stubGlobal("fetch", fetchMock);
+    seed([review()]);
+
+    await expect(
+      store().decide("p1", "review-1", [
+        { operation_id: "operation-1", decision: "ACCEPT" },
+      ]),
+    ).rejects.toMatchObject({ code: "CAS_CONFLICT" });
+    // No reconciliation poll: a conflict is a definite pre-commit rejection,
+    // so nothing in the batch may credit this review as kept.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(store().reconciledDecision).toBeNull();
+  });
 });

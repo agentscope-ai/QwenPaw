@@ -4422,7 +4422,7 @@ class FileCreatorAgentRuntime:
         targets, kinds = parse_request_targets(arguments, project_id)
         fence = _EpochFence(self, project_id, run_id, epoch)
         fence.assert_alive()
-        snapshot, _, graph, blocked = await ready_request_context(
+        snapshot, _, graph, blocked, _ = await ready_request_context(
             self.services,
             self.executions,
             project_id,
@@ -4615,6 +4615,7 @@ class FileCreatorAgentRuntime:
                     tasks,
                     current_graph,
                     current_blocked,
+                    _,
                 ) = await ready_request_context(
                     self.services,
                     self.executions,

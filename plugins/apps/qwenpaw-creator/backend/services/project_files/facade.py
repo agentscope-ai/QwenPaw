@@ -538,9 +538,15 @@ class CreatorFileServices:
         A failure can happen after the Review journal is finalized but
         before its Session message is appended (crash, or a follow-up
         publication error that the decision route degrades to a deferred
-        follow-up). Every FINALIZED journal is replayable, not just
-        rejection feedback: the deterministic client message ID makes
-        replay safe even when the first append actually succeeded.
+        follow-up). Every FINALIZED journal that was expected to publish a
+        follow-up is replayable, not just rejection feedback: the
+        deterministic client message ID makes replay safe even when the
+        first append actually succeeded.
+
+        A journal finalized while another Review was still pending carries
+        ``followup_expected=False``: that decision deliberately published no
+        ACCEPT resume, and replaying it after the last pending Review clears
+        would queue a second, non-idempotent resume for the same round.
         """
 
         project_ids = (
@@ -560,6 +566,11 @@ class CreatorFileServices:
                 )
                 continue
             for journal in journals:
+                if journal.followup_expected is False:
+                    # An earlier decision in the same round intentionally
+                    # published no resume because another Review was still
+                    # pending; replaying it now would queue a duplicate.
+                    continue
                 try:
                     self._publish_review_followup(
                         project_id=scoped_project_id,

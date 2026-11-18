@@ -1262,6 +1262,11 @@
     "laneCompose": "Final Composition",
     "waitingDeps": "Waiting on {{count}} dependencies",
     "scriptGateNotice": "Script not confirmed. Images and video will not start until you confirm it.",
+    "reviewSkipped": "Automatic review was skipped: {{reason}}. {{hint}}",
+    "reviewSkipReasons": {
+      "ffmpeg_unavailable": "ffmpeg is unavailable, so media evidence cannot be extracted",
+      "ffprobe_unavailable": "ffprobe is unavailable, so video details cannot be read"
+    },
     "retry": "Retry",
     "generate": "Generate",
     "productionProgress": "Production progress {{done}}/{{total}}",

@@ -31,7 +31,7 @@ import re
 import socket
 import stat
 from typing import Any, Protocol, TYPE_CHECKING
-from urllib.parse import parse_qsl, unquote, urlparse, urlsplit
+from urllib.parse import unquote, urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from domain.enums import (
@@ -50,6 +50,7 @@ from domain.errors import (
 from models.config import is_media_review_enabled
 from models.reference_markers import canonical_marker, canonical_marker_indices
 from models.image.base import (
+    REFERENCE_DOWNLOAD_ERROR_CODE,
     image_reference_capability,
     image_reference_limit,
     is_content_refusal,
@@ -82,6 +83,10 @@ from services.media_files.element_adapter import (
     find_timeline_element,
     selected_element_output,
     target_element_id,
+)
+from services.media_files.provider_source_url import (
+    provider_source_url_usable as _provider_source_url_usable,
+    stored_provider_source_url,
 )
 from services.media_files.review_admission import (
     assert_media_review_admission,
@@ -806,82 +811,6 @@ def _indexed_path(project_root: Path, indexed: IndexedFile) -> Path:
     return project_root.joinpath(*PurePosixPath(indexed.relative_uri).parts)
 
 
-# A stored provider URL is reused for a later reference only while it is
-# still fetchable.  The safety margin keeps a request from racing expiry.
-_PROVIDER_URL_EXPIRY_MARGIN_SECONDS = 60.0
-
-_PROVIDER_URL_SIGNATURE_KEYS = frozenset(
-    {
-        "ossaccesskeyid",
-        "signature",
-        "x-amz-credential",
-        "x-amz-signature",
-        "x-oss-credential",
-        "x-oss-signature",
-        "q-sign-algorithm",
-        "q-signature",
-    },
-)
-
-
-def _provider_url_deadline(params: Mapping[str, str]) -> float | None:
-    """Epoch seconds at which a signed URL stops working, if declared."""
-
-    raw_expires = params.get("expires", "").strip()
-    if raw_expires:
-        try:
-            return float(raw_expires)
-        except ValueError:
-            return None
-    amz_expires = params.get("x-amz-expires", "").strip()
-    amz_date = params.get("x-amz-date", "").strip()
-    if amz_expires and amz_date:
-        try:
-            issued = datetime.strptime(amz_date, "%Y%m%dT%H%M%SZ")
-            return issued.replace(tzinfo=UTC).timestamp() + float(amz_expires)
-        except ValueError:
-            return None
-    q_sign_time = params.get("q-sign-time", "").strip()
-    if ";" in q_sign_time:
-        try:
-            return float(q_sign_time.split(";", 1)[1])
-        except ValueError:
-            return None
-    return None
-
-
-def _provider_source_url_usable(
-    source_url: str,
-    *,
-    now: datetime | None = None,
-) -> bool:
-    """Whether a stored provider source URL can still be fetched.
-
-    ``_materialize_and_publish`` records the Token Plan endpoint's
-    short-lived pre-signed object URL so a later reference can skip
-    re-uploading the bytes.  Reusing it after expiry makes the provider
-    fail the reference download, which surfaces as a misleading
-    ``MODEL_ERROR`` (issue #8592).  Signed URLs without a provable
-    deadline are treated as expired so the local indexed copy is used.
-    """
-
-    if not source_url:
-        return False
-    parsed = urlsplit(source_url)
-    if parsed.scheme.casefold() not in {"http", "https"}:
-        return False
-    params = {
-        key.casefold(): value
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-    }
-    signed = any(key in params for key in _PROVIDER_URL_SIGNATURE_KEYS)
-    deadline = _provider_url_deadline(params)
-    if deadline is None:
-        return not signed
-    current = (now or datetime.now(UTC)).timestamp()
-    return deadline - _PROVIDER_URL_EXPIRY_MARGIN_SECONDS > current
-
-
 def _resolve_version_references(
     *,
     project: Project,
@@ -901,14 +830,7 @@ def _resolve_version_references(
         # Check for source_url stored by Token Plan image generation.
         # Stored at metadata["provider"]["source_url"] by
         # _materialize_and_publish.
-        source_url = ""
-        if artifact is not None and isinstance(
-            getattr(artifact, "metadata", None),
-            dict,
-        ):
-            provider_meta = artifact.metadata.get("provider", {})
-            if isinstance(provider_meta, dict):
-                source_url = provider_meta.get("source_url", "")
+        source_url = stored_provider_source_url(artifact)
         if source_url and _provider_source_url_usable(source_url):
             indexed = project.assets.files_by_id.get(version.file_id)
             if indexed is None or not indexed.media_type.casefold().startswith(
@@ -2256,10 +2178,20 @@ class FileImageExecutionService:
                     model_name=getattr(exc, "model_name", ""),
                     retryable=False,
                 )
+            # Keep the provider's structured reason when it named one. The
+            # workbench keys its next-step hint off this code, so a reference
+            # image that could not be downloaded must not be flattened into a
+            # generic model failure that sends the user to model settings.
+            failure_code = (
+                REFERENCE_DOWNLOAD_ERROR_CODE
+                if isinstance(exc, ModelError)
+                and exc.code == REFERENCE_DOWNLOAD_ERROR_CODE
+                else "IMAGE_GENERATION_FAILED"
+            )
             await self._fail_if_running(
                 project_id,
                 ids,
-                "IMAGE_GENERATION_FAILED",
+                failure_code,
                 message=message
                 + _accepted_provider_task_hint(ids["task_id"], project_id),
                 error=exc,

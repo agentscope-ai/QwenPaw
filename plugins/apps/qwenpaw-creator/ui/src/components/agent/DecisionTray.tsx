@@ -323,6 +323,8 @@ function DecisionTray({ projectId }: { projectId: string }) {
       for (const review of pendingReviews) {
         const operations = pendingUserReviewOperations(review);
         if (operations.length === 0) continue;
+        const reconciledBefore =
+          useFileProjectReviewStore.getState().reconciledDecision?.at;
         try {
           await decide(
             projectId,
@@ -335,18 +337,20 @@ function DecisionTray({ projectId }: { projectId: string }) {
           kept += 1;
         } catch (error) {
           // Per-item isolation: earlier keeps already committed, so report
-          // exactly what landed instead of a blanket failure toast. The
-          // failure may still have committed (response lost after the server
-          // write), so refresh the canonical pending list first and count a
-          // review that no longer pends as kept — the store's reconciliation
-          // toast reports the same outcome.
+          // exactly what landed instead of a blanket failure toast. A review
+          // leaving the pending list proves nothing about this decision —
+          // another tab may have rejected it. Only the store's reconciliation
+          // stamp (set after a poll shows this decision's operations are no
+          // longer pending) may credit a failed submit as kept; ``decide``
+          // awaits it before rejecting.
           await pollOnce(projectId).catch(() => undefined);
-          const stillPending = useFileProjectReviewStore
-            .getState()
-            .reviews.some(
-              (candidate) => candidate.review_id === review.review_id,
-            );
-          if (!stillPending) {
+          const reconciled =
+            useFileProjectReviewStore.getState().reconciledDecision;
+          if (
+            reconciled &&
+            reconciled.reviewId === review.review_id &&
+            reconciled.at !== reconciledBefore
+          ) {
             kept += 1;
             continue;
           }

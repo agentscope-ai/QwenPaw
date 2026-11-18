@@ -138,6 +138,18 @@ function NodeRow({
   const scriptGated =
     node.status === "gated" && project?.settings.production_stage === "script";
   const errorText = node.status === "failed" ? (node.error ?? "").trim() : "";
+  // A skipped automatic review leaves a delivered artifact that looks
+  // reviewed-but-clean; naming the environment fault (and the override
+  // variable) is the only actionable next step for the user.
+  const reviewSkip = node.reviewSkip ?? null;
+  const reviewSkipText = reviewSkip
+    ? t("workGraph.reviewSkipped", {
+        reason: t(`workGraph.reviewSkipReasons.${reviewSkip.reason}`, {
+          defaultValue: reviewSkip.reason,
+        }),
+        hint: reviewSkip.hint,
+      })
+    : "";
   const percent =
     !node.manuallyHeld &&
     node.status === "running" &&
@@ -193,6 +205,15 @@ function NodeRow({
           )}
           {percent != null && ` · ${percent}%`}
         </span>
+        {reviewSkipText && (
+          <span
+            role="status"
+            data-work-node-review-skip
+            className="mt-0.5 block text-[11px] text-[var(--color-text-tertiary)]"
+          >
+            {reviewSkipText}
+          </span>
+        )}
         {errorText && (
           <span
             role="status"

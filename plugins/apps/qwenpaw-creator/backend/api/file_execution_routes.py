@@ -776,11 +776,14 @@ async def _workgraph_authorization_blocked_detail(
     current: ExecutionAuthorizationRecord,
     node: Any,
     blocker: str,
+    blocking_reviews: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """可执行的 409 说明：哪个镜头、被什么卡住、去哪里处理。
 
     前端 ExecutionAuthorizationCard 依赖 details.reason/blockingReviewIds
     把「继续」置灰并把阻塞的审阅卡排到前面，所以这里只输出结构化事实。
+    媒体准入检查知道它命中的具体审阅；只有其它门禁（媒体槽/同步围栏）
+    才回退到 element 定位符匹配，避免无关资产的审阅把本卡片一直禁用。
     """
 
     label = str(getattr(node, "label", "") or node.node_id).strip()
@@ -790,8 +793,10 @@ async def _workgraph_authorization_blocked_detail(
         if isinstance(target_ref, str) and target_ref.startswith("element:")
         else ""
     )
-    review_ids: list[str] = []
-    if blocker == "WAITING_REVIEW":
+    review_ids: list[str] = [
+        review_id for review_id in blocking_reviews if review_id
+    ]
+    if blocker == "WAITING_REVIEW" and not review_ids and element_id:
         try:
             pending = await asyncio.to_thread(
                 services.reviews.all_pending,
@@ -805,9 +810,7 @@ async def _workgraph_authorization_blocked_detail(
                 for operation in review.operations
                 for value in (operation.ui_locator or {}).values()
             ]
-            if not element_id or any(
-                element_id in str(value) for value in locators
-            ):
+            if any(element_id in str(value) for value in locators):
                 review_ids.append(review.review_id)
     prompt_sync_gap = blocker == "GATED" and bool(
         getattr(node, "prompt_sync_required", False),
@@ -880,7 +883,7 @@ async def _rebind_workgraph_authorization(
         != (current.requested_provider, current.requested_model)
     ):
         raise ConflictError("此授权不支持绑定已保存的 WorkGraph 快照")
-    snapshot, _, graph, blocked = await ready_request_context(
+    snapshot, _, graph, blocked, blocked_reviews = await ready_request_context(
         services,
         store,
         current.project_id,
@@ -913,6 +916,7 @@ async def _rebind_workgraph_authorization(
             current,
             node,
             blocked[node.node_id],
+            blocked_reviews.get(node.node_id, ()),
         )
         raise ConflictError(
             blocked_detail["message"],

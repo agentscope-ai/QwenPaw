@@ -1013,12 +1013,26 @@ async def run_media_review_loop(
         # A missing probe binary is an environment fault, not a review
         # attempt.  Admitting first would consume the slot's physical
         # budget and silently disable auto-review forever (issue #8592).
+        # The reason is also persisted per artifact version: a warning and
+        # a trace are invisible in the workbench, so the delivered artifact
+        # otherwise shows no explanation for its missing review.
+        hint = (
+            f"install {missing_binary} on PATH or set "
+            f"CREATOR_{missing_binary.upper()}_PATH"
+        )
         logger.warning(
-            "media review skipped for %s: %s is unavailable; set "
-            "CREATOR_%s_PATH or install ffmpeg on PATH",
+            "media review skipped for %s: %s is unavailable; %s",
             version_id,
             missing_binary,
-            missing_binary.upper(),
+            hint,
+        )
+        await asyncio.to_thread(
+            admission.record_media_skip,
+            reports_root,
+            slot_id=slot_id,
+            version_id=version_id,
+            reason=f"{missing_binary}_unavailable",
+            hint=hint,
         )
         trace_event(
             "run_review.media_skipped",
@@ -1026,6 +1040,7 @@ async def run_media_review_loop(
             attributes={
                 "artifactRef": f"artifact-version:{version_id}",
                 "reason": f"{missing_binary}_unavailable",
+                "hint": hint,
             },
             projectId=project_id,
         )

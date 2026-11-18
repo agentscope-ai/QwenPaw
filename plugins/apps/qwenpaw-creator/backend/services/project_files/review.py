@@ -537,6 +537,14 @@ class ReviewDecisionJournal(BaseModel):
     resulting_etag: str | None = None
     final_review: ReviewRecord | None = None
     event: ReviewDecisionEvent | None = None
+    # Whether this decision is the one expected to publish the round's
+    # follow-up message.  Persisted at finalize because the pending-Review
+    # gate that governs an ACCEPT resume is only knowable at that instant;
+    # replaying every FINALIZED journal after the last pending Review clears
+    # would otherwise queue a second resume for an earlier decision in the
+    # same round (distinct decision ids defeat message-id idempotency).
+    # ``None`` marks a legacy journal: replay it to preserve crash safety.
+    followup_expected: bool | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -1744,10 +1752,18 @@ class ProjectReviewService:
             resolved=journal.final_review.status is ReviewStatus.RESOLVED,
             resolved_round_id=journal.final_review.round_id,
         )
+        # A rejection feedback message is published regardless of other
+        # pending Reviews; an ACCEPT resume only belongs to the decision
+        # that clears the last pending Review of the round.
+        followup_expected = (
+            journal.rejection_feedback is not None
+            or self.active(project_id) is None
+        )
         finalized = ReviewDecisionJournal.model_validate(
             journal.model_copy(
                 update={
                     "state": ReviewDecisionJournalState.FINALIZED,
+                    "followup_expected": followup_expected,
                     "updated_at": datetime.now(UTC),
                 },
             ).model_dump(mode="python"),

@@ -189,6 +189,61 @@ describe("DecisionTray", () => {
     ).toBeInTheDocument();
   });
 
+  it("reports a conflict when another tab decided the review first", async () => {
+    // Another tab rejected the review; this tab's keep hits a CAS conflict
+    // and its refresh no longer lists the item. Leaving the pending list is
+    // not proof this decision applied, so "全部保留" must not claim a keep.
+    seed({ reviews: [textReview("review-1", "/description")] });
+    const decide = vi.fn(async () => {
+      throw new Error("审阅令牌已过期，请刷新后重试");
+    });
+    const pollOnce = vi.fn(async () => {
+      useFileProjectReviewStore.setState({ reviews: [] });
+    });
+    useFileProjectReviewStore.setState({
+      decide: decide as never,
+      pollOnce: pollOnce as never,
+    });
+    render(<DecisionTray projectId="p1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保留" }));
+
+    await waitFor(() => expect(showBackendFeedback).toHaveBeenCalled());
+    expect(showBackendFeedback).toHaveBeenCalledWith(
+      "warning",
+      "已保留 0 项，1 项失败：审阅令牌已过期，请刷新后重试",
+      "部分审阅已保留",
+    );
+  });
+
+  it("credits a keep only when the store confirmed the decision landed", async () => {
+    // The response was lost after the server committed: the store's
+    // reconciliation stamps the review before the rejection reaches here.
+    seed({ reviews: [textReview("review-1", "/description")] });
+    const decide = vi.fn(async () => {
+      useFileProjectReviewStore.setState({
+        reconciledDecision: {
+          reviewId: "review-1",
+          at: new Date().toISOString(),
+        },
+      });
+      throw new Error("response lost");
+    });
+    const pollOnce = vi.fn(async () => {});
+    useFileProjectReviewStore.setState({
+      decide: decide as never,
+      pollOnce: pollOnce as never,
+    });
+    render(<DecisionTray projectId="p1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保留" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "全部保留" })).toBeEnabled(),
+    );
+    expect(showBackendFeedback).not.toHaveBeenCalled();
+  });
+
   it("hoists blocking reviews above the blocked authorization and focuses them", () => {
     seed({
       reviews: [

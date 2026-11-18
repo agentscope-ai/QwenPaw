@@ -476,6 +476,12 @@ REFERENCE_DOWNLOAD_ADVICE = (
     "uploaded, then retry."
 )
 
+# Structured task-error code for this class of failure. Provider prose quotes
+# the storage's HTTP 403, so a reader that only pattern-matched status numbers
+# would send the user to model settings; the workbench keys its next-step hint
+# off this code instead of the text.
+REFERENCE_DOWNLOAD_ERROR_CODE = "REFERENCE_DOWNLOAD_FAILED"
+
 
 def is_reference_download_failure(message: str) -> bool:
     """Whether a provider error means a reference image was unreachable."""
@@ -483,6 +489,34 @@ def is_reference_download_failure(message: str) -> bool:
     folded = (message or "").casefold()
     return any(
         marker in folded for marker in REFERENCE_DOWNLOAD_FAILURE_MARKERS
+    )
+
+
+def reference_download_model_error(
+    detail: str,
+    model_name: str,
+    *,
+    prefix: str,
+) -> ModelError | None:
+    """Classify a provider failure that names an unreachable reference image.
+
+    Shared by the sync HTTP branch and the async task poll so both paths
+    make the same decision. Provider text echoes the reference URL, and an
+    object-storage pre-signed URL (``OSSAccessKeyId``/``Signature``) is a
+    usable grant, so the detail is scrubbed before it reaches the task
+    error, trace or log. A reference download failure is deterministic for
+    the same inputs: retrying cannot succeed, so the error is never
+    retryable. Returns ``None`` when the text names no download failure.
+    """
+
+    scrubbed = redact_urls(detail or "")
+    if not is_reference_download_failure(scrubbed):
+        return None
+    return ModelError(
+        f"{prefix}: {scrubbed[:500]}. {REFERENCE_DOWNLOAD_ADVICE}",
+        model_name=model_name,
+        retryable=False,
+        code=REFERENCE_DOWNLOAD_ERROR_CODE,
     )
 
 
@@ -907,17 +941,17 @@ class BaseImageModel(ABC):
             # deterministic: the stored pre-signed URL is dead, not flaky.
             # Upstream 5xx means the object store had a transient failure,
             # so those stay retryable.
-            if (
-                is_reference_download_failure(detail)
-                and e.response.status_code < 500
-            ):
-                raise ModelError(
-                    f"Image generation failed with status "
-                    f"{e.response.status_code}: {detail[:500]}. "
-                    f"{REFERENCE_DOWNLOAD_ADVICE}",
-                    model_name=self.model_name,
-                    retryable=False,
+            if e.response.status_code < 500:
+                reference_error = reference_download_model_error(
+                    detail,
+                    self.model_name,
+                    prefix=(
+                        "Image generation failed with status "
+                        f"{e.response.status_code}"
+                    ),
                 )
+                if reference_error is not None:
+                    raise reference_error
             raise ModelError(
                 f"Image generation failed with status {e.response.status_code}: "
                 f"{detail[:500]}. "

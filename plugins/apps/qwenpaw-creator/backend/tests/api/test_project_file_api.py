@@ -729,6 +729,97 @@ def test_review_decision_degrades_followup_failure_then_replays_it(
     assert messages[0].source == "review_approval_resume"
 
 
+def test_recovery_replays_only_the_decision_that_cleared_the_round(
+    tmp_path,
+    run_scenario,
+) -> None:
+    """P1: recovery must not queue a second resume for an earlier decision.
+
+    The first of two decisions in one round commits while the other
+    operation is still pending, so it publishes no ACCEPT resume.  Once the
+    round clears, replaying every FINALIZED journal would otherwise queue a
+    second, non-idempotent resume for that first decision.
+    """
+
+    app, services, base = _app(tmp_path)
+    runtime = services.sessions.create_project_runtime(
+        "project-1",
+        session_id="session-1",
+        conversation_id="conversation-1",
+    )
+    candidate = base.project.model_dump(mode="json")
+    candidate["name"] = "Review candidate"
+    candidate["description"] = "Review description"
+    result = ProjectCommitBoundary(services.projects).commit(
+        base=base,
+        candidate=candidate,
+        origin="agentdock_interrupt",
+        review_policy="require_review",
+        review_boundary=ReviewBoundary(
+            request_message_seq=2,
+            request_id="request-2",
+            interrupted_run_id=None,
+            accepted_generation=base.generation,
+            accepted_etag=base.etag,
+        ),
+        caused_by_request_id="request-2",
+        caused_by_message_seq=2,
+        round_id="round-2",
+    )
+    review = result.review
+    assert review is not None
+    assert len(review.operations) == 2
+    first_operation = review.operations[0].operation_id
+    second_operation = review.operations[1].operation_id
+
+    async def scenario(client):
+        first = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-1"},
+            json={
+                "decisionId": "decision-op-1",
+                "decisionToken": review.decision_token,
+                "decisions": [
+                    {"operation_id": first_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        assert first.status_code == 200, first.text
+        updated = first.json()
+        second = await client.post(
+            _decisions_url(review),
+            headers={"Idempotency-Key": "decision-op-2"},
+            json={
+                "decisionId": "decision-op-2",
+                "decisionToken": updated["decision_token"],
+                "decisions": [
+                    {"operation_id": second_operation, "decision": "ACCEPT"},
+                ],
+            },
+        )
+        return first, second
+
+    first, second = run_scenario(app, scenario)
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+
+    def resumes():
+        return [
+            message
+            for message in _messages(
+                services.sessions,
+                runtime.session.session_id,
+            )
+            if message.source == "review_approval_resume"
+        ]
+
+    assert len(resumes()) == 1
+
+    services.recover_review_followup_messages("project-1")
+    services.recover_review_followup_messages("project-1")
+    assert len(resumes()) == 1
+
+
 def test_rejection_feedback_requires_a_reject_decision(
     tmp_path,
     api_request,

@@ -175,6 +175,80 @@ def test_live_provider_url_is_preferred(tmp_path) -> None:
     assert read_set[0]["sourceUrl"] == source_url
 
 
+def test_expired_provider_url_falls_back_for_video_and_first_frame(
+    tmp_path,
+) -> None:
+    """One stored image must not work for generation but fail as video input.
+
+    Issue #8592: only the image path checked the deadline, so yesterday's
+    generated image could be regenerated while the video reference list and
+    the first-frame input still handed the provider a dead pre-signed URL.
+    """
+    from services.media_files.r2v_execution import (
+        _resolve_reference_versions,
+        _resolve_single_media_version,
+    )
+
+    project, project_root = _project_with_artifact(
+        tmp_path,
+        _signed_url(datetime.now(UTC) - timedelta(hours=1)),
+    )
+    local = (
+        project_root.joinpath("assets", "artifacts", "sb-1.png")
+        .resolve()
+        .as_uri()
+    )
+
+    urls, _checksums, _provenance, read_set = _resolve_reference_versions(
+        project=project,
+        project_root=project_root,
+        version_ids=["av-1"],
+    )
+    assert urls == [local]
+    assert "sourceUrl" not in read_set[0]
+
+    url, _checksum, ref, read_entry = _resolve_single_media_version(
+        project=project,
+        project_root=project_root,
+        version_id="av-1",
+        media_prefix="image/",
+        label="首帧",
+    )
+    assert url == local
+    assert ref == "artifact-version:av-1"
+    assert "sourceUrl" not in read_entry
+
+
+def test_live_provider_url_is_reused_for_video_and_first_frame(
+    tmp_path,
+) -> None:
+    from services.media_files.r2v_execution import (
+        _resolve_reference_versions,
+        _resolve_single_media_version,
+    )
+
+    source_url = _signed_url(datetime.now(UTC) + timedelta(hours=1))
+    project, project_root = _project_with_artifact(tmp_path, source_url)
+
+    urls, _checksums, _provenance, read_set = _resolve_reference_versions(
+        project=project,
+        project_root=project_root,
+        version_ids=["av-1"],
+    )
+    assert urls == [source_url]
+    assert read_set[0]["sourceUrl"] == source_url
+
+    url, _checksum, _ref, read_entry = _resolve_single_media_version(
+        project=project,
+        project_root=project_root,
+        version_id="av-1",
+        media_prefix="image/",
+        label="首帧",
+    )
+    assert url == source_url
+    assert read_entry["sourceUrl"] == source_url
+
+
 class _ReferenceRejectingProvider(BaseImageModel):
     """A provider that answers HTTP 400 with the reference URL echoed."""
 

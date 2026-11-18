@@ -764,7 +764,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
             review_policy="auto_fix",
             caused_by_request_id="setup",
         )
-        snapshot, _, graph, _ = await ready_request_context(
+        snapshot, _, graph, _, _ = await ready_request_context(
             services,
             executions,
             "project-1",
@@ -912,7 +912,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                 caused_by_request_id="pending-review",
                 caused_by_message_seq=2,
             )
-        fresh, _, current_graph, blocked = await ready_request_context(
+        fresh, _, current_graph, blocked, _ = await ready_request_context(
             services,
             executions,
             "project-1",
@@ -940,7 +940,7 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                     "confirmed_node_id": node.node_id,
                 },
             ):
-                _, _, _, gates = await ready_request_context(
+                _, _, _, gates, _ = await ready_request_context(
                     services,
                     executions,
                     "project-1",
@@ -1032,6 +1032,17 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
                 assert isinstance(body["details"]["blockingReviewIds"], list)
                 if change == "review":
                     assert body["details"]["blocker"] == "WAITING_REVIEW"
+                    # Exactly the creative Review that gates every node is
+                    # named, never the project's whole pending list.
+                    pending_ids = [
+                        review.review_id
+                        for review in services.reviews.all_pending(
+                            "project-1",
+                        )
+                    ]
+                    assert (
+                        body["details"]["blockingReviewIds"] == pending_ids
+                    )
                     assert "审阅" in body["message"]
                 else:
                     assert body["details"]["blocker"] == "GATED"
@@ -1055,3 +1066,80 @@ def test_workgraph_saved_snapshot_approval_fails_closed(
         assert executions.list_tasks("project-1") == []
 
     run_scenario(app, scenario)
+
+
+def test_asset_authorization_names_only_the_review_that_actually_blocks() -> None:
+    """Two unrelated assets must not disable each other's Continue button.
+
+    Asset and cast targets carry no ``element:`` ref, so the old locator
+    fallback credited every pending Review and the card stayed disabled
+    until an unrelated sibling asset was decided. The media admission check
+    reports the Review it hit; only that one may be reported as blocking.
+    """
+
+    from types import SimpleNamespace
+
+    from api.file_execution_routes import (
+        _workgraph_authorization_blocked_detail,
+    )
+
+    reviews = [
+        SimpleNamespace(review_id="review-a", operations=[]),
+        SimpleNamespace(review_id="review-b", operations=[]),
+    ]
+    services = SimpleNamespace(
+        reviews=SimpleNamespace(all_pending=lambda project_id: reviews),
+    )
+    current = SimpleNamespace(
+        project_id="project-1",
+        target_scope=["asset:a"],
+    )
+    node = SimpleNamespace(
+        node_id="visual:asset-a",
+        label="素材 A",
+        target_ref="asset:a",
+    )
+
+    detail = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            "WAITING_REVIEW",
+            ("review-a",),
+        ),
+    )
+    assert detail["details"]["blockingReviewIds"] == ["review-a"]
+
+    # No identified Review: an asset target must not blame unrelated pending
+    # Reviews, or the card would stay disabled until they all clear.
+    broad = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            node,
+            "WAITING_REVIEW",
+        ),
+    )
+    assert broad["details"]["blockingReviewIds"] == []
+
+    # Element targets keep the legacy locator fallback.
+    reviews[0].operations = [
+        SimpleNamespace(
+            ui_locator={"field": "/elements/e1/creation/video_prompt"},
+        ),
+    ]
+    element_node = SimpleNamespace(
+        node_id="video:e1",
+        label="镜头 1",
+        target_ref="element:e1",
+    )
+    fallback = asyncio.run(
+        _workgraph_authorization_blocked_detail(
+            services,
+            current,
+            element_node,
+            "WAITING_REVIEW",
+        ),
+    )
+    assert fallback["details"]["blockingReviewIds"] == ["review-a"]

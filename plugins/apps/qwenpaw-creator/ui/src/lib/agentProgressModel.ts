@@ -139,11 +139,21 @@ function isLater(a: { createdAt?: string }, b: { createdAt?: string }) {
 const CONFIG_ERROR_PATTERN =
   /(?:^|\D)(?:401|403|404)(?:\D|$)|api[ _-]?key|credential|unauthorized|forbidden|not configured|model not found|模型不存在|模型未配置|凭据|密钥|未授权|无权限/i;
 
+// A reference image the provider could not download carries this structured
+// code. Its body quotes the storage's HTTP 403, so the text heuristics below
+// would otherwise route the user to model configuration for what is an
+// expired/missing reference image.
+const REFERENCE_DOWNLOAD_ERROR_CODES = new Set(["REFERENCE_DOWNLOAD_FAILED"]);
+
 function errorHintOf(error: unknown, text: string): "retry" | "modelConfig" {
   const record =
     error != null && typeof error === "object" && !Array.isArray(error)
       ? (error as Record<string, unknown>)
       : null;
+  // The structured reason wins: only model authentication or configuration
+  // failures may offer that entry, never a reference-image download failure.
+  const code = typeof record?.code === "string" ? record.code : "";
+  if (REFERENCE_DOWNLOAD_ERROR_CODES.has(code)) return "retry";
   const status = record?.status ?? record?.statusCode ?? record?.httpStatus;
   if (status === 401 || status === 403 || status === 404) return "modelConfig";
   return CONFIG_ERROR_PATTERN.test(text) ? "modelConfig" : "retry";
@@ -563,7 +573,9 @@ export function buildAgentProgressModel(input: AgentProgressInput): {
       ...(errorText
         ? {
             errorText,
-            errorHint: errorHintOf(projectedTask?.error, errorText),
+            // The linked Task keeps the structured provider reason even when
+            // the graph only projects its message (expired reference image).
+            errorHint: errorHintOf(task?.error, errorText),
           }
         : {}),
     });

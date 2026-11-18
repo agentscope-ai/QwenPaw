@@ -100,6 +100,10 @@ from services.media_files.transient_errors import (
     transient_retry_slot_key,
 )
 from services.media_files.prompt_labels import media_prompt_entity_names
+from services.media_files.provider_source_url import (
+    provider_source_url_usable,
+    stored_provider_source_url,
+)
 from services.media_files.task_scratch import terminal_release_listener
 from services.project_files.prompt_sync import assert_r2v_prompt_sync
 from services.media_files.visual_reference_resolution import (
@@ -634,15 +638,17 @@ def _resolve_reference_versions(
             raise NotFoundError(f"R2V reference version 不存在: {version_id}")
         # Check for source_url stored by Token Plan image generation.
         # Stored at metadata["provider"]["source_url"] by
-        # _materialize_and_publish.
-        source_url = ""
-        if artifact is not None and isinstance(
-            getattr(artifact, "metadata", None),
-            dict,
-        ):
-            provider_meta = artifact.metadata.get("provider", {})
-            if isinstance(provider_meta, dict):
-                source_url = provider_meta.get("source_url", "")
+        # _materialize_and_publish. A URL that outlived its grant must fall
+        # back to the immutable local copy: the provider's download refusal
+        # is indistinguishable from a model failure (issue #8592).
+        source_url = stored_provider_source_url(artifact)
+        if source_url and not provider_source_url_usable(source_url):
+            logger.warning(
+                "Stored provider source URL for %s expired or is "
+                "unverifiable; falling back to the local asset copy",
+                version_id,
+            )
+            source_url = ""
         if source_url:
             indexed = project.assets.files_by_id.get(version.file_id)
             if indexed is None or not indexed.media_type.casefold().startswith(
@@ -747,14 +753,16 @@ def _resolve_single_media_version(
     if version is None:
         raise NotFoundError(f"{label} version 不存在: {version_id}")
     # Check for source_url stored by Token Plan image generation.
-    source_url = ""
-    if artifact is not None and isinstance(
-        getattr(artifact, "metadata", None),
-        dict,
-    ):
-        provider_meta = artifact.metadata.get("provider", {})
-        if isinstance(provider_meta, dict):
-            source_url = provider_meta.get("source_url", "")
+    # A URL that outlived its grant must fall back to the local indexed
+    # copy for first frames and other single-media inputs too.
+    source_url = stored_provider_source_url(artifact)
+    if source_url and not provider_source_url_usable(source_url):
+        logger.warning(
+            "Stored provider source URL for %s expired or is "
+            "unverifiable; falling back to the local asset copy",
+            version_id,
+        )
+        source_url = ""
     if source_url:
         indexed = project.assets.files_by_id.get(version.file_id)
         if indexed is None or not indexed.media_type.casefold().startswith(

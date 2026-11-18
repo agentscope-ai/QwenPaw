@@ -113,8 +113,9 @@ class ModelError(AppError):
         message: str,
         model_name: str = "",
         retryable: bool = True,
+        code: str = "MODEL_ERROR",
     ):
-        super().__init__(message, code="MODEL_ERROR", status_code=502)
+        super().__init__(message, code=code, status_code=502)
         self.model_name = model_name
         # Permanent errors (e.g. upstream 4xx client errors) should be
         # marked non-retryable so pollers and other callers can fail fast

@@ -16,6 +16,7 @@ import WorkGraphPanel, {
 import AgentProgressOverview from "@/components/agent/AgentProgressOverview";
 import type { WorkGraphView } from "@/contracts/creator/workGraph";
 import { useWorkGraphStore } from "@/store/workGraphStore";
+import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { installMockFetch } from "@/test/mockFetch";
 import i18n from "@/i18n";
@@ -88,6 +89,7 @@ const graph: WorkGraphView = {
 describe("WorkGraphPanel", () => {
   beforeEach(() => {
     navigateToLocator.mockClear();
+    useCreatorTaskViewStore.getState().reset();
     useWorkGraphStore.setState({
       projectId: "p1",
       graph,
@@ -183,6 +185,95 @@ describe("WorkGraphPanel", () => {
     expect(
       within(row as HTMLElement).queryByRole("button", { name: "重试" }),
     ).toBeNull();
+  });
+
+  it("keeps a reference-image download failure out of the model settings entry", () => {
+    // The provider body quotes the storage's 403 while fetching a reference
+    // image. The structured task code proves it is not a credential or model
+    // problem, so the row must offer retry instead of model configuration.
+    const detail =
+      "Image generation failed with status 400: failed to download image: " +
+      "https://bucket.oss.aliyuncs.com/ref.png (status 403) ";
+    useWorkGraphStore.setState({
+      projectId: "p1",
+      graph: {
+        ...graph,
+        nodes: [
+          node({
+            id: "visual:char:a:var:x",
+            label: "梅西 · x",
+            status: "failed",
+            lane: "visual",
+            taskId: "task-ref",
+            error: detail,
+            locator: { page: "assets", assetId: "char:a" },
+          }),
+        ],
+      },
+    } as never);
+    useCreatorTaskViewStore.setState({
+      projectId: "p1",
+      runs: [],
+      tasks: [
+        {
+          id: "task-ref",
+          projectId: "p1",
+          transactionId: null,
+          specialistRunId: null,
+          kind: "image_generation",
+          targetRef: "asset:char:a",
+          status: "FAILED",
+          progress: null,
+          resultRefs: [],
+          error: {
+            code: "REFERENCE_DOWNLOAD_FAILED",
+            message: detail,
+            retryable: false,
+          },
+        },
+      ],
+    } as never);
+    render(<AgentProgressOverview projectId="p1" />);
+    const row = document.querySelector("[data-progress-error]");
+    expect(row).not.toBeNull();
+    expect(row).toHaveTextContent("failed to download image");
+    expect(
+      within(row as HTMLElement).getByRole("button", { name: "重试" }),
+    ).toBeInTheDocument();
+    expect(
+      within(row as HTMLElement).queryByRole("button", { name: "去模型配置" }),
+    ).toBeNull();
+  });
+
+  it("names the missing probe when an artifact's automatic review was skipped", () => {
+    // A delivered artifact with no review round looks reviewed-and-clean.
+    // The backend records the environment fault per slot; the node must
+    // name it together with the override variable so a fix is possible.
+    useWorkGraphStore.setState({
+      projectId: "p1",
+      graph: {
+        ...graph,
+        nodes: [
+          node({
+            id: "storyboard:elem:one",
+            label: "开场 · 分镜",
+            status: "done",
+            lane: "element:elem:one",
+            reviewSkip: {
+              reason: "ffprobe_unavailable",
+              hint: "install ffprobe on PATH or set CREATOR_FFPROBE_PATH",
+            },
+            locator: { page: "plan", elementId: "elem:one" },
+          }),
+        ],
+      },
+    } as never);
+    render(<WorkGraphPanel projectId="p1" />);
+    const note = document.querySelector("[data-work-node-review-skip]");
+    expect(note).not.toBeNull();
+    expect(note).toHaveTextContent("自动审阅已跳过");
+    expect(note).toHaveTextContent("缺少 ffprobe");
+    expect(note).toHaveTextContent("CREATOR_FFPROBE_PATH");
   });
 });
 

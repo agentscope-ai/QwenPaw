@@ -654,6 +654,14 @@ async def ready_request_context(
     )
     publications = [_publication_artifacts(review) for review in reviews]
     creative_review_pending = any(items is None for items in publications)
+    # A creative review (one with no publication artifacts) gates every node,
+    # so those Review ids are the ones that actually block, not the project's
+    # whole pending list.
+    creative_review_ids = tuple(
+        review.review_id
+        for review, items in zip(reviews, publications)
+        if items is None
+    )
     pending_artifacts = [
         artifact for items in publications if items for artifact in items
     ]
@@ -679,6 +687,9 @@ async def ready_request_context(
         project_id,
     )
     blocked: dict[str, str] = {}
+    # The Review ids that actually hold each node, so a caller (the authorize
+    # endpoint) can name them instead of guessing from ui_locator text.
+    blocked_reviews: dict[str, tuple[str, ...]] = {}
     regenerable = {node.node_id for node in graph.regeneration_nodes()}
     for node in graph.nodes:
         if node.node_id in manual_hold.node_ids:
@@ -689,6 +700,7 @@ async def ready_request_context(
             blocked[node.node_id] = "UNSUPPORTED_EXECUTION_MODE"
         elif creative_review_pending:
             blocked[node.node_id] = "WAITING_REVIEW"
+            blocked_reviews[node.node_id] = creative_review_ids
         elif _blocked_by_active_sync_review(
             node,
             sync_review_pending=bool(fences),
@@ -739,11 +751,17 @@ async def ready_request_context(
                     ),
                     variant_id=node.dispatch_arguments.get("variantId"),
                 )
-            except ReviewPendingError:
+            except ReviewPendingError as error:
                 blocked[node.node_id] = "WAITING_REVIEW"
+                # The admission check knows exactly which Review it hit; a
+                # sibling asset's unrelated Review must not keep this node's
+                # authorization card disabled.
+                review_id = (error.details or {}).get("reviewId")
+                if isinstance(review_id, str) and review_id:
+                    blocked_reviews[node.node_id] = (review_id,)
     if check_media_budget:
         await asyncio.to_thread(ensure_media_call_budget, services, project_id)
-    return snapshot, tasks, graph, blocked
+    return snapshot, tasks, graph, blocked, blocked_reviews
 
 
 WORKGRAPH_DRIFT_RETIRE_REASON = "workgraph_terms_changed"
@@ -849,7 +867,7 @@ async def retire_drifted_workgraph_authorizations(
     ]
     if not pending:
         return 0
-    snapshot, _tasks, graph, blocked = await ready_request_context(
+    snapshot, _tasks, graph, blocked, _ = await ready_request_context(
         services,
         store,
         project_id,

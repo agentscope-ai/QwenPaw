@@ -327,7 +327,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       reviewId: string,
       decisions: FileProjectReviewDecisionItem[],
       epoch: number,
-    ) => {
+    ): Promise<boolean> => {
       // The decision endpoint commits before its response can still fail
       // (e.g. follow-up publication errors on older builds, network reset).
       // If a fresh poll shows the decided operations are no longer pending,
@@ -335,8 +335,9 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
       // the reconciliation so the UI can correct its "failed" toast.
       try {
         const fresh = await getActiveFileProjectReview(projectId);
-        if (epoch !== projectEpoch || get().projectId !== projectId) return;
-        if (fresh.kind === "not_modified") return;
+        if (epoch !== projectEpoch || get().projectId !== projectId)
+          return false;
+        if (fresh.kind === "not_modified") return false;
         const reviews = fresh.kind === "updated" ? fresh.reviews : [];
         const target = reviews.find((r) => r.review_id === reviewId);
         const decidedIds = new Set(decisions.map((item) => item.operation_id));
@@ -348,7 +349,7 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
               decidedIds.has(operation.operation_id) &&
               operation.decision === "PENDING",
           );
-        if (stillPending) return;
+        if (stillPending) return false;
         const pendingReviews = reviews.filter((r) => r.status === "PENDING");
         const compositeToken =
           pendingReviews.length > 0
@@ -363,8 +364,10 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
           lastGoodAt: new Date().toISOString(),
           reconciledDecision: { reviewId, at: new Date().toISOString() },
         });
+        return true;
       } catch {
         // Keep the degraded state; the next scheduled poll retries.
+        return false;
       }
     };
 
@@ -540,10 +543,13 @@ export const useFileProjectReviewStore = create<FileProjectReviewState>(
         );
         // A CAS conflict is a definite pre-commit rejection: the decision was
         // not applied, so a reconciliation poll would only add latency.
+        // Awaited, so the caller observes the reconciliation outcome (the
+        // ``reconciledDecision`` stamp) before it handles the failure: a
+        // batch caller must not credit a keep from anything weaker.
         const casConflict =
           error instanceof CreatorHttpError && error.status === 409;
         if (!casConflict) {
-          void reconcileDecision(
+          await reconcileDecision(
             projectId,
             reviewId,
             canonicalDecisions,
