@@ -63,12 +63,9 @@ class MCPPluginUpgradeResult:
 
 
 def validate_mcp_upgrade_preflight(snapshot):
-    """Stop repairing root migrations when their raw input needs review."""
+    """Stop migration when the root document itself is unreadable."""
     if any(
-        {"invalid_root_config", "invalid_legacy_root_mcp"}.intersection(
-            item.errors,
-        )
-        for item in snapshot.workspaces
+        "invalid_root_config" in item.errors for item in snapshot.workspaces
     ):
         raise RuntimeError("Root configuration requires review before startup")
 

@@ -28,7 +28,8 @@ from ..constant import (
     WORKING_DIR,
     EnvVarLoader,
 )
-from ..utils.io_utils import read_json, write_json_atomic
+from ..exceptions import ConfigurationException
+from ..utils.io_utils import read_json, write_json_atomic, write_text_atomic
 from ..utils.logging import sanitize_log_value
 from .config import (
     Config,
@@ -582,8 +583,27 @@ def _load_and_validate_config(
         if "port" not in la and "last_api_port" in data:
             la["port"] = data.get("last_api_port")
 
+    deferred_mcp = False
+
+    def validate():
+        nonlocal deferred_mcp
+        try:
+            return Config.model_validate(data)
+        except ConfigurationException as exc:
+            agents = data.get("agents", {})
+            if (
+                exc.config_key not in {"mcp.command", "mcp.url"}
+                or not isinstance(agents, dict)
+                or agents.get("profiles") is not None
+            ):
+                raise
+            # Some imports load config before the startup preflight. Leave
+            # the stored input for preflight to archive and quarantine.
+            deferred_mcp = True
+            return Config.model_validate({**data, "mcp": {"clients": {}}})
+
     try:
-        config = Config.model_validate(data)
+        config = validate()
     except ValidationError as exc:
         fixed_any = False
         for err in exc.errors():
@@ -594,7 +614,7 @@ def _load_and_validate_config(
             _backup_config_file(config_path, "validation error")
             return Config()
         try:
-            config = Config.model_validate(data)
+            config = validate()
         except ValidationError:
             _backup_config_file(
                 config_path,
@@ -602,7 +622,7 @@ def _load_and_validate_config(
             )
             return Config()
 
-    if migrated_weixin or migrated_display:
+    if not deferred_mcp and (migrated_weixin or migrated_display):
         try:
             migration_name = (
                 "channel-display" if migrated_display else "weixin"
@@ -739,6 +759,39 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
             _config_mtime = config_path.stat().st_mtime
         except OSError:
             _config_mtime = None
+
+
+def isolate_legacy_root_mcp(
+    config_path: Path,
+    expected: dict,
+    backup_path: Path,
+) -> None:
+    """Archive the exact input before removing unresolved MCP from use."""
+    global _config_cache, _root_publication_revision
+
+    with _config_lock:
+        original = config_path.read_bytes().decode("utf-8")
+        if json.loads(original) != expected:
+            raise RuntimeError("Root configuration changed during MCP review")
+        if (
+            backup_path.is_symlink()
+            or backup_path.resolve() == config_path.resolve()
+        ):
+            raise RuntimeError(
+                "Legacy MCP review backup must be a regular file",
+            )
+        try:
+            archived = json.loads(backup_path.read_bytes().decode("utf-8"))
+        except FileNotFoundError:
+            write_text_atomic(backup_path, original)
+        else:
+            if archived["mcp"] != expected["mcp"]:
+                raise RuntimeError(
+                    "An unresolved legacy MCP backup already exists",
+                )
+        write_json_atomic(config_path, {**expected, "mcp": {"clients": {}}})
+        _config_cache = None
+        _root_publication_revision += 1
 
 
 def mutate_config(

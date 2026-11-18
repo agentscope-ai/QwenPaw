@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import uuid4
 
 from ..plugins.install_receipts import (
@@ -54,6 +54,74 @@ def _read_root(path):
     ):
         raise ValueError("Invalid root configuration")
     return value
+
+
+def _legacy_root_mcp_snapshot(root):
+    """Apply the old model's scalar conversions to explicit evidence only."""
+    if "mcp" not in root or root.get("agents", {}).get("profiles") is not None:
+        return None
+    from pydantic import ValidationError
+
+    from ..config.config import MCPConfig
+    from ..exceptions import ConfigurationException
+
+    raw = root["mcp"]
+    unreviewed = MCPWorkspaceSnapshot(
+        "default",
+        errors=("invalid_legacy_root_mcp",),
+    )
+    try:
+        model = MCPConfig.model_validate(raw)
+    except (ValidationError, ConfigurationException):
+        return unreviewed
+
+    mcp = dict(raw)
+    if "migration_version" in mcp:
+        mcp["migration_version"] = model.migration_version
+    if "clients" in mcp:
+        clients = {}
+        for key, client in raw["clients"].items():
+            fields = dict(client)
+            for name, alias in (
+                ("enabled", "isActive"),
+                ("http_timeout", "timeout"),
+            ):
+                if (
+                    name in client
+                    and alias in client
+                    and client[name] != client[alias]
+                ):
+                    return unreviewed
+                for field in (name, alias):
+                    if field in client:
+                        fields[field] = getattr(model.clients[key], name)
+            clients[key] = fields
+        mcp["clients"] = clients
+
+    snapshot = MCPWorkspaceSnapshot("default", {"mcp": mcp})
+    if (
+        classify_mcp_usage(MCPUsageSnapshot((snapshot,))).status
+        == "needs_review"
+    ):
+        return unreviewed
+    return snapshot
+
+
+def _legacy_review_path(config_path):
+    return config_path.with_name(f"{config_path.name}.legacy-mcp.pending.bak")
+
+
+def _with_legacy_review(snapshot, config_path):
+    if (
+        snapshot.workspace_id == "default"
+        and "invalid_legacy_root_mcp" not in snapshot.errors
+        and _legacy_review_path(config_path).exists()
+    ):
+        return replace(
+            snapshot,
+            errors=(*snapshot.errors, "invalid_legacy_root_mcp"),
+        )
+    return snapshot
 
 
 def _workspace_snapshot(workspace_id, directory):
@@ -130,17 +198,8 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
     profiles = root.get("agents", {}).get("profiles")
     if profiles is None:
         # Old single-agent root config is inventoried before host conversion.
-        if "mcp" in root:
-            legacy = MCPWorkspaceSnapshot("default", {"mcp": root["mcp"]})
-            if (
-                classify_mcp_usage(MCPUsageSnapshot((legacy,))).status
-                == "needs_review"
-            ):
-                legacy = MCPWorkspaceSnapshot(
-                    "default",
-                    legacy.config,
-                    errors=("invalid_legacy_root_mcp",),
-                )
+        legacy = _legacy_root_mcp_snapshot(root)
+        if legacy is not None:
             workspaces.append(legacy)
         else:
             profiles = {
@@ -186,7 +245,7 @@ def inventory_mcp_usage(*, config_path=None, plugins_dir=None):
     except (OSError, ValueError):
         settings = {"enabled": "invalid"}
     return MCPUsageSnapshot(
-        tuple(workspaces),
+        tuple(_with_legacy_review(item, config_path) for item in workspaces),
         settings,
         uninstalled,
         str(config_path),
@@ -209,7 +268,11 @@ class StartupMigration:
 
 def read_startup_migration(*, config_path=None, plugins_dir=None):
     """Inspect the small decision before any host configuration conversion."""
-    from ..config.utils import get_config_path, get_plugins_dir
+    from ..config.utils import (
+        get_config_path,
+        get_plugins_dir,
+        isolate_legacy_root_mcp,
+    )
     from .mcp_plugin_migration import validate_mcp_upgrade_preflight
 
     config_path = Path(config_path) if config_path else get_config_path()
@@ -220,15 +283,14 @@ def read_startup_migration(*, config_path=None, plugins_dir=None):
         raise RuntimeError(
             "Root configuration requires review before startup",
         ) from exc
-    if "mcp" in root and root.get("agents", {}).get("profiles") is None:
-        legacy = MCPWorkspaceSnapshot("default", {"mcp": root["mcp"]})
-        if (
-            classify_mcp_usage(MCPUsageSnapshot((legacy,))).status
-            == "needs_review"
-        ):
-            raise RuntimeError(
-                "Root configuration requires review before startup",
-            )
+    legacy = _legacy_root_mcp_snapshot(root)
+    if legacy is not None and legacy.errors:
+        isolate_legacy_root_mcp(
+            config_path,
+            root,
+            _legacy_review_path(config_path),
+        )
+        logger.warning("Legacy MCP configuration saved for workspace review")
     settings = root.get("plugins", {}).get(PLUGIN_ID)
     if settings is not None and (
         not isinstance(settings, dict)
@@ -253,11 +315,13 @@ def _workspace_evidence(workspace_id, directory, config_path=None):
     """Check the target's raw profile as well as its own files."""
     from ..config.utils import get_config_path
 
-    snapshot = _workspace_snapshot(workspace_id, Path(directory))
+    config_path = Path(config_path) if config_path else get_config_path()
+    snapshot = _with_legacy_review(
+        _workspace_snapshot(workspace_id, Path(directory)),
+        config_path,
+    )
     try:
-        root = _read_root(
-            Path(config_path) if config_path else get_config_path(),
-        )
+        root = _read_root(config_path)
         profile = root.get("agents", {}).get("profiles", {}).get(workspace_id)
         invalid = profile is not None and (
             not isinstance(profile, dict)
