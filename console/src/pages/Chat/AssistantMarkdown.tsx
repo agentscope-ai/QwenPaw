@@ -2,16 +2,14 @@ import React, {
   createContext,
   useContext,
   useDeferredValue,
-  useMemo,
   useRef,
 } from "react";
-import { Markdown } from "@agentscope-ai/chat";
+import { ChatMarkdown } from "../../components/ChatMarkdown/ChatMarkdown";
 import { useEffectiveFontSize } from "../../contexts/FontSizeContext";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
 import { RenderableCodeBlock } from "../../components/RenderableCodeBlock/RenderableCodeBlock";
 import { useChatListSnapshot } from "../../plugins/registry/useChatExtensions";
 import { PluginSlotBoundary } from "../../plugins/registry/PluginSlotBoundary";
-import { normalizeCjkEmphasis } from "../../utils/markdownCjk";
 import {
   useHostCurrentSession,
   useHostSelectedAgent,
@@ -136,13 +134,6 @@ export function AssistantMarkdown({
   messageId: string;
 }) {
   const deferredContent = useDeferredValue(content);
-  // Repair CJK emphasis boundaries (``**中文。**后``) after deferring, so a
-  // closing ``**`` that sits between CJK punctuation and CJK text renders
-  // instead of leaking the raw markers.
-  const displayContent = useMemo(
-    () => normalizeCjkEmphasis(deferredContent),
-    [deferredContent],
-  );
   const baseFontSize = useEffectiveFontSize();
   const entries = useChatListSnapshot()["response.codeBlocks"];
   const agent = useHostSelectedAgent();
@@ -159,10 +150,10 @@ export function AssistantMarkdown({
   const extended = entries.length > 0;
   if (!extended) {
     return (
-      <Markdown
+      <ChatMarkdown
         baseFontSize={baseFontSize}
         components={renderableCodeComponents}
-        content={displayContent}
+        content={deferredContent}
         cursor={cursor}
       />
     );
@@ -179,10 +170,10 @@ export function AssistantMarkdown({
       }}
     >
       <StableCodeBlocks key={messageId}>
-        <Markdown
+        <ChatMarkdown
           baseFontSize={baseFontSize}
           components={assistantCodeComponents}
-          content={displayContent}
+          content={deferredContent}
           // The vendor cursor appends a literal token, which corrupts unfinished DSL.
           cursor={false}
         />
