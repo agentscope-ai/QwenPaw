@@ -29,48 +29,55 @@ def test_local_plugin_requires_new_sdk_before_import(monkeypatch):
         sdk_version.validate_sdk(manifest["sdk"], PLUGIN_ID)
 
 
-async def test_new_user_stays_uninstalled(tmp_path, monkeypatch):
-    from qwenpaw.plugins import local_model_legacy
+async def test_new_user_stays_uninstalled(tmp_path):
     from qwenpaw.config.utils import load_config
 
-    monkeypatch.setattr(
-        local_model_legacy,
-        "_used_local_models",
-        lambda: False,
-    )
     async with PluginTestHost(tmp_path / "host") as host:
-        assert await migrate_local_model_plugin(host._loader) == {}
+        assert not await migrate_local_model_plugin(host._loader)
         assert host._loader.find_installed_plugin_dir(PLUGIN_ID) is None
         assert load_config().local_model_plugin_migrated
         assert PLUGIN_ID not in load_config().plugins
 
 
-async def test_legacy_uninstall_stays_removed(tmp_path, monkeypatch):
-    from qwenpaw.plugins import local_model_legacy
+async def test_saved_local_settings_migrate_once(tmp_path):
     from qwenpaw.config.utils import load_config
+    from qwenpaw.providers.provider_manager import ProviderManager
+    from qwenpaw.plugins import local_model_legacy
 
-    monkeypatch.setattr(local_model_legacy, "_used_local_models", lambda: True)
     async with PluginTestHost(tmp_path / "host") as host:
+        manager = ProviderManager.get_instance()
+        (manager.builtin_path / "qwenpaw-local.json").write_text(
+            '{"generate_kwargs": {"temperature": 0.7}}',
+            encoding="utf-8",
+        )
+        manager._migrate_copaw_config()
+
         loader = host._loader
-        assert await migrate_local_model_plugin(loader) == {}
+        assert await migrate_local_model_plugin(loader)
         path = loader.find_installed_plugin_dir(PLUGIN_ID)
         assert (path / "requirements.txt").is_file()
         assert load_config().local_model_plugin_migrated
         assert loader.registry.get_provider("qwenpaw-local") is None
         await loader.unload_plugin(PLUGIN_ID, delete_files=True)
-        assert await migrate_local_model_plugin(loader) == {}
+        await local_model_legacy.load_upgraded_local_model(loader)
+        assert loader.registry.get_provider("qwenpaw-local") is None
+        assert not await migrate_local_model_plugin(loader)
         assert loader.find_installed_plugin_dir(PLUGIN_ID) is None
 
 
 async def test_provisioning_preserves_explicit_disable(tmp_path, monkeypatch):
     from qwenpaw.plugins import local_model_legacy
 
-    monkeypatch.setattr(local_model_legacy, "_used_local_models", lambda: True)
+    monkeypatch.setattr(
+        local_model_legacy,
+        "_used_local_models",
+        lambda _path: True,
+    )
     from qwenpaw.config.utils import load_config
 
     async with PluginTestHost(tmp_path / "host") as host:
         persist_plugin_settings(PLUGIN_ID, enabled=False)
-        assert await migrate_local_model_plugin(host._loader) == {}
+        assert not await migrate_local_model_plugin(host._loader)
         assert host._loader.find_installed_plugin_dir(PLUGIN_ID) is not None
         assert load_config().plugins[PLUGIN_ID]["enabled"] is False
 
@@ -171,6 +178,7 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
     from qwenpaw.providers.provider_manager import ProviderManager
     from qwenpaw.providers.openai_provider import OpenAIProvider
     from qwenpaw.providers.provider_persistence import write_provider_snapshot
+    from qwenpaw.security.secret_store import is_encrypted
 
     async with PluginTestHost(tmp_path / "host"):
         manager = ProviderManager.get_instance()
@@ -180,6 +188,7 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
                 id=legacy_id,
                 name="Local",
                 base_url="http://localhost:1234/v1",
+                api_key="legacy-key",
                 require_api_key=False,
                 max_inline_media_bytes=media_limit,
                 generate_kwargs={"temperature": 0.3},
@@ -190,10 +199,12 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
         if legacy_id == "copaw-local":
             snapshot = json.loads(source.read_text(encoding="utf-8"))
             del snapshot["name"]
+            snapshot["api_key"] = "legacy-key"
             source.write_text(json.dumps(snapshot), encoding="utf-8")
         manager._migrate_copaw_config()
         assert not source.exists()
-        assert (manager.plugin_path / "qwenpaw-local.json").is_file()
+        target = manager.plugin_path / "qwenpaw-local.json"
+        assert is_encrypted(json.loads(target.read_text())["api_key"])
         assert manager.get_provider("qwenpaw-local") is None
         await manager.register_plugin_provider_async(
             "qwenpaw-local",
@@ -204,6 +215,7 @@ async def test_old_provider_snapshot_moves_to_plugin_storage(
         )
         provider = manager.get_provider("qwenpaw-local")
         assert provider.base_url == "http://localhost:1234/v1"
+        assert provider.api_key == "legacy-key"
         assert provider.generate_kwargs == {"temperature": 0.3}
         assert provider.extra_models[0].id == "A"
         assert provider.max_inline_media_bytes == media_limit
@@ -320,27 +332,26 @@ async def test_legacy_data_directory_survives_removal_of_plugin_settings(
 ):
     from qwenpaw import constant
     from qwenpaw.plugins.settings import drop_plugin_settings
-    from qwenpaw.providers.provider_manager import ProviderManager
 
-    async with PluginTestHost(tmp_path / "host"):
+    async with PluginTestHost(tmp_path / "host") as host:
         data = (
             tmp_path / "custom"
             if custom
             else constant.DEFAULT_LOCAL_PROVIDER_DIR
         )
         data.mkdir(parents=True, exist_ok=True)
-        (data / "sentinel").write_text("existing")
+        (data / "config.json").write_text("{}")
         persist_plugin_settings(
             PLUGIN_ID,
             config={"data_dir": str(data)} if custom else {},
         )
-        ProviderManager.get_instance()._preserve_local_model_directory()
+        assert await migrate_local_model_plugin(host._loader)
         drop_plugin_settings(PLUGIN_ID)
         locator = (
             constant.WORKING_DIR / "plugin-data/local-llamacpp/data-root.json"
         )
         assert json.loads(locator.read_text()) == {"data_dir": str(data)}
-        assert (data / "sentinel").read_text() == "existing"
+        assert (data / "config.json").read_text() == "{}"
 
 
 @pytest.mark.parametrize("used", [False, True])
@@ -359,7 +370,7 @@ async def test_default_enablement_follows_existing_local_data(
         data.mkdir()
         (data / "config.json").write_text("{}")
     async with PluginTestHost(tmp_path / "host") as host:
-        assert await migrate_local_model_plugin(host._loader) == {}
+        assert await migrate_local_model_plugin(host._loader) is used
         assert (
             load_config().plugins.get(PLUGIN_ID, {}).get("enabled", False)
             is used
@@ -378,7 +389,11 @@ async def test_failed_migration_retries_without_losing_intent(
     from qwenpaw.plugins import local_model_legacy
     from qwenpaw.config.utils import load_config
 
-    monkeypatch.setattr(local_model_legacy, "_used_local_models", lambda: True)
+    monkeypatch.setattr(
+        local_model_legacy,
+        "_used_local_models",
+        lambda _path: True,
+    )
     async with PluginTestHost(tmp_path / "host") as host:
         with monkeypatch.context() as patch:
             patch.setattr(
@@ -386,9 +401,10 @@ async def test_failed_migration_retries_without_losing_intent(
                 "_seed_bundled_source",
                 AsyncMock(side_effect=OSError("copy failed")),
             )
-            assert PLUGIN_ID in await migrate_local_model_plugin(host._loader)
+            with pytest.raises(OSError, match="copy failed"):
+                await migrate_local_model_plugin(host._loader)
             assert not load_config().local_model_plugin_migrated
-        assert await migrate_local_model_plugin(host._loader) == {}
+        assert await migrate_local_model_plugin(host._loader)
         assert load_config().local_model_plugin_migrated
         assert host._loader.find_installed_plugin_dir(PLUGIN_ID) is not None
 
@@ -445,44 +461,63 @@ def test_catalog_offers_local_source_without_importing_plugin(
     )
 
 
-@pytest.mark.parametrize("migrated", [False, True])
-async def test_upgrade_prepares_required_packages_without_loading_plugin(
+@pytest.mark.parametrize("docker", [False, True])
+async def test_upgrade_resumes_until_dependency_preparation_is_attempted(
     tmp_path,
     monkeypatch,
-    migrated,
+    docker,
 ):
     from unittest.mock import AsyncMock
     from qwenpaw.plugins import local_model_legacy
-    from qwenpaw.plugins.dependency_gate import combined_requirements
-    from qwenpaw.plugins.loader import PluginLoader
 
-    monkeypatch.setattr(local_model_legacy, "_used_local_models", lambda: True)
+    monkeypatch.setattr(
+        local_model_legacy,
+        "_used_local_models",
+        lambda _path: True,
+    )
     async with PluginTestHost(tmp_path / "host") as host:
-        if migrated:
-            assert await migrate_local_model_plugin(host._loader) == {}
-        prepared = []
-
-        async def preflight(binding, *, allow_install, probe):
-            assert allow_install and not probe
-            with combined_requirements(
-                binding.description.source_path,
-            ) as path:
-                prepared.extend(path.read_text().splitlines())
-
-        prepare = AsyncMock(side_effect=preflight)
-        monkeypatch.setattr(
-            host._loader.lifecycle,
-            "preflight_backend",
-            prepare,
+        if docker:
+            marker = tmp_path / "container-layer"
+            monkeypatch.setenv(
+                "QWENPAW_LOCAL_MODEL_UPGRADE_MARKER",
+                str(marker),
+            )
+        else:
+            monkeypatch.delenv(
+                "QWENPAW_LOCAL_MODEL_UPGRADE_MARKER",
+                raising=False,
+            )
+        loader = host._loader
+        prepare = AsyncMock(
+            side_effect=RuntimeError("Package index unavailable"),
         )
-        monkeypatch.setattr(
-            PluginLoader,
-            "create",
-            AsyncMock(return_value=host._loader),
-        )
-        assert await local_model_legacy.prepare_local_model_upgrade() == {}
-        assert prepared == ["modelscope>=1.35.0", "huggingface_hub>=0.20.0"]
-        assert host._loader.registry.get_provider("qwenpaw-local") is None
+        monkeypatch.setattr(loader.lifecycle, "preflight_backend", prepare)
+
+        # The first app exited before its deferred dependency work started.
+        from qwenpaw.providers.provider_manager import ProviderManager
+
+        manager = ProviderManager.get_instance()
+        assert await local_model_legacy.prepare_startup_local_model(
+            loader,
+            manager,
+        ) == (PLUGIN_ID,)
+        assert await local_model_legacy.prepare_startup_local_model(
+            loader,
+            manager,
+        ) == (PLUGIN_ID,)
+        prepare.assert_not_awaited()
+        with pytest.raises(RuntimeError, match="Package index unavailable"):
+            await local_model_legacy._prepare_dependencies(loader)
+        assert loader.find_installed_plugin_dir(PLUGIN_ID) is not None
+        assert not await migrate_local_model_plugin(loader)
+        prepare.assert_awaited_once()
+
+        if docker:
+            marker.unlink()
+            prepare.side_effect = None
+            assert await migrate_local_model_plugin(loader)
+            await local_model_legacy._prepare_dependencies(loader)
+            assert prepare.await_count == 2
 
 
 @pytest.mark.parametrize("state", ["new", "disabled", "uninstalled"])
@@ -500,7 +535,7 @@ async def test_upgrade_skips_users_without_enabled_local_plugin(
         monkeypatch.setattr(
             local_model_legacy,
             "_used_local_models",
-            lambda: state != "new",
+            lambda _path: state != "new",
         )
         if state == "disabled":
             persist_plugin_settings(PLUGIN_ID, enabled=False)
@@ -552,11 +587,11 @@ async def test_normal_install_prepares_dependencies_before_registering(
         assert host._loader.find_installed_plugin_dir(PLUGIN_ID) is None
 
 
-@pytest.mark.parametrize("install_ok", [False, True])
+@pytest.mark.parametrize("entry", ["cli", "cli-offline", "cloud-startup"])
 async def test_bundle_upgrade_repairs_missing_download_dependencies(
     tmp_path,
     monkeypatch,
-    install_ok,
+    entry,
 ):
     from unittest.mock import AsyncMock
     from qwenpaw.plugins import dependency_gate, local_model_legacy
@@ -582,7 +617,7 @@ async def test_bundle_upgrade_repairs_missing_download_dependencies(
         monkeypatch.setattr(
             local_model_legacy,
             "_used_local_models",
-            lambda: True,
+            lambda _path: True,
         )
         monkeypatch.setattr(
             dependency_gate,
@@ -596,7 +631,7 @@ async def test_bundle_upgrade_repairs_missing_download_dependencies(
                 "modelscope>=1.35.0",
                 "huggingface_hub>=0.20.0",
             }
-            if not install_ok:
+            if entry == "cli-offline":
                 raise RuntimeError("download dependencies unavailable")
             missing.clear()
 
@@ -606,33 +641,44 @@ async def test_bundle_upgrade_repairs_missing_download_dependencies(
             "_prepare_python_dependencies",
             installer,
         )
-        monkeypatch.setattr(
-            PluginLoader,
-            "create",
-            AsyncMock(return_value=host._loader),
-        )
-        errors = await local_model_legacy.prepare_local_model_upgrade()
-        if install_ok:
-            assert errors == {}
+        loader = host._loader
+        if entry == "cloud-startup":
+            from qwenpaw.providers.provider_manager import ProviderManager
+
+            deferred = await local_model_legacy.prepare_startup_local_model(
+                loader,
+                ProviderManager.get_instance(),
+            )
+            assert deferred == (PLUGIN_ID,)
+            await loader.load_all_plugins(exclude=deferred, activate=True)
+            assert loader.registry.get_provider("qwenpaw-local") is None
+            installer.assert_not_awaited()
+            await local_model_legacy.load_upgraded_local_model(loader)
+            assert loader.registry.get_provider("qwenpaw-local") is not None
         else:
-            assert "download dependencies unavailable" in errors[PLUGIN_ID]
+            monkeypatch.setattr(
+                PluginLoader,
+                "create",
+                AsyncMock(return_value=loader),
+            )
+            errors = await local_model_legacy.prepare_local_model_upgrade()
+            if entry == "cli-offline":
+                assert "download dependencies unavailable" in errors[PLUGIN_ID]
+            else:
+                assert errors == {}
+            assert loader.registry.get_provider("qwenpaw-local") is None
         installer.assert_awaited_once()
-        assert host._loader.find_installed_plugin_dir(PLUGIN_ID) is not None
-        assert host._loader.registry.get_provider("qwenpaw-local") is None
+        assert loader.find_installed_plugin_dir(PLUGIN_ID) is not None
 
 
-@pytest.mark.parametrize("missing", ["modelscope", "huggingface-hub", "both"])
 async def test_installed_plugin_reports_missing_dependencies_on_boot(
     tmp_path,
     monkeypatch,
-    missing,
 ):
     from unittest.mock import AsyncMock
     from qwenpaw.plugins import dependency_gate, local_model_legacy
 
-    names = (
-        {"modelscope", "huggingface-hub"} if missing == "both" else {missing}
-    )
+    names = {"modelscope", "huggingface-hub"}
     original = dependency_gate.is_requirement_satisfied
     version = dependency_gate._dist_version
 
@@ -647,9 +693,9 @@ async def test_installed_plugin_reports_missing_dependencies_on_boot(
         monkeypatch.setattr(
             local_model_legacy,
             "_used_local_models",
-            lambda: True,
+            lambda _path: True,
         )
-        assert await migrate_local_model_plugin(host._loader) == {}
+        assert await migrate_local_model_plugin(host._loader)
         source = host._loader.find_installed_plugin_dir(PLUGIN_ID)
         _, manifest = host._loader.read_source_manifest(source)
         monkeypatch.setattr(

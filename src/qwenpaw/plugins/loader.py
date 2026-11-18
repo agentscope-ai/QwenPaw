@@ -2592,6 +2592,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         *,
         activate: bool = False,
         capabilities: Optional[List[str]] = None,
+        exclude: tuple[str, ...] = (),
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
@@ -2602,6 +2603,7 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
                 Plugins already loaded are always skipped (see
                 :meth:`load_plugin`), so calling this twice — first
                 with ``types`` then without — is safe.
+            exclude: Plugin IDs reserved for a later startup phase.
             activate: Boot two-phase load keeps this False so register
                 happens before workspace projection. Other callers that
                 want a ready plugin should pass True or call
@@ -2616,7 +2618,10 @@ class PluginLoader:  # pylint: disable=too-many-public-methods
         discovered = await run_sync_io(self.discover_plugins)
 
         for manifest, plugin_dir in discovered:
-            if manifest.id in self.startup_blocked_plugins:
+            if (
+                manifest.id in self.startup_blocked_plugins
+                or manifest.id in exclude
+            ):
                 continue
             from .settings import (
                 is_plugin_enabled,

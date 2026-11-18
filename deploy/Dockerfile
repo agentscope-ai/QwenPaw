@@ -101,6 +101,9 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 # Indicate running in container (used e.g. for Chromium --no-sandbox).
 ENV QWENPAW_RUNNING_IN_CONTAINER=1
+# Python packages live in the container layer. A replacement image needs
+# its own dependency check when it takes over an existing plugin data volume.
+ENV QWENPAW_LOCAL_MODEL_UPGRADE_MARKER=/app/.local-model-upgrade-checked
 
 WORKDIR ${WORKSPACE_DIR}
 

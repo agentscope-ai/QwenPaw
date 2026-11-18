@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, List, get_args
+from typing import Any, Callable, Dict, List, get_args
 
 from agentscope.model import ChatModelBase
 
@@ -321,9 +321,9 @@ class ProviderManager(
     async def update_provider_async(
         self,
         provider_id: str,
-        config: Dict,
+        config: Dict | Callable[[Provider], Dict],
     ) -> bool:
-        """Update a provider and persist its snapshot off the event loop."""
+        """Persist changes, resolving state-dependent fields under the save lock."""
         provider_id = self._normalize_provider_id(provider_id)
         lock = self._provider_save_locks.setdefault(
             provider_id,
@@ -337,12 +337,16 @@ class ProviderManager(
     async def _update_provider_async_locked(
         self,
         provider_id: str,
-        config: Dict,
+        config: Dict | Callable[[Provider], Dict],
     ) -> bool:
         """Persist a detached update snapshot, then commit it in memory."""
         provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return False
+        if callable(config):
+            config = config(provider)
+            if not config:
+                return True
         revision = self._provider_revision(provider_id)
         candidate = provider.configuration_snapshot()
         before_update = candidate.model_dump()
@@ -638,6 +642,16 @@ class ProviderManager(
         if not provider.enabled:
             raise ProviderError(message=f"Provider is disabled")
         provider.validate_model_selection(model_id, model_type)
+        if model_type == "decision":
+            from .typesafe_provider import (
+                TypeSafeEvaluationError,
+                validate_decision_provider,
+            )
+
+            try:
+                validate_decision_provider(provider_id, provider)
+            except TypeSafeEvaluationError as exc:
+                raise ProviderError(message=str(exc)) from exc
         provider_id = provider.id
         active_model = ModelSlotConfig(
             provider_id=provider_id,

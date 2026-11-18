@@ -70,9 +70,12 @@ class ModelChunk:
 
 @dataclass(frozen=True)
 class ProviderContext(ToolContext):
+    """Invocation state. A native connection identifies the requested operation."""
+
     provider_id: str = ""
     base_url: str = ""
     headers: dict[str, str] = field(default_factory=dict)
+    connection_purpose: Literal["inference", "check", "probe"] | None = None
 
 
 @dataclass(frozen=True)
@@ -86,8 +89,8 @@ class ProviderSpec:
     """Provider identity, configuration, model catalog and inference hooks.
 
     Declare generate or a native protocol. Native providers may acquire
-    a per-use base URL through connect. Native model connection checks
-    use the same lease unless the provider supplies connect_for_check.
+    a per-use base URL through connect. The connection purpose distinguishes
+    inference, connectivity checks and multimodal capability probes.
     Discovery and provider-level checks may override host defaults.
     Installation and service management remain plugin responsibilities.
     """
@@ -124,10 +127,6 @@ class ProviderSpec:
         | None
     ) = None
     is_local: bool = False
-    connect_for_check: (
-        Callable[[ProviderContext, str], AbstractAsyncContextManager[str]]
-        | None
-    ) = None
 
 
 class ProviderHandle(Registration):

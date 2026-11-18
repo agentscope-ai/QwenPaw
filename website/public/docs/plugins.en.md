@@ -353,7 +353,8 @@ Declare `generate` for custom inference, or `protocol="openai-chat"` for the hos
 OpenAI-compatible transport. Optional `connect(ctx, model_id)` returns an async
 context manager yielding the base URL. The host enters it before each call and
 exits when that call ends or its stream closes. The plugin remains in use until
-the owning turn ends.
+the owning turn ends. In `connect`, `ctx.connection_purpose` identifies inference
+(`inference`), a connectivity check (`check`), or a multimodal capability probe (`probe`).
 
 Await the following handle methods:
 

@@ -14,6 +14,7 @@ from llamacpp.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
 )
+from llamacpp.llamacpp import LlamaCppBackend
 from llamacpp.model_manager import ModelManager, DownloadSource
 
 from llamacpp.workers import ModelDownloads
@@ -306,6 +307,8 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     repo_dir.mkdir(parents=True)
     (repo_dir / "model.gguf").write_bytes(b"123")
     (repo_dir / "README.md").write_text("demo", encoding="utf-8")
+    owner_readme = repo_dir.parent / "README.md"
+    owner_readme.touch()
 
     models = downloader.list_downloaded_models()
 
@@ -317,7 +320,7 @@ def test_list_and_remove_downloaded_models_with_repo_id_layout(
     downloader.remove_downloaded_model(repo_id)
 
     assert not repo_dir.exists()
-    assert not (tmp_path / "models" / repo_id.split("/")[0]).exists()
+    assert owner_readme.is_file()
 
 
 def test_list_downloaded_models_ignores_temporary_download_dirs(
@@ -339,6 +342,24 @@ def test_list_downloaded_models_ignores_temporary_download_dirs(
     models = downloader.list_downloaded_models()
 
     assert [model.id for model in models] == ["Qwen/Qwen3-0.6B-GGUF"]
+
+
+def test_list_and_remove_legacy_model_with_nested_weights(
+    tmp_path: Path,
+) -> None:
+    manager = ModelManager(data_dir=tmp_path)
+    weights = manager.get_model_dir("my-model/weights")
+    weights.mkdir(parents=True)
+    (weights / "a.gguf").touch()
+    readme = weights.parent / "README.md"
+    readme.touch()
+
+    assert [model.id for model in manager.list_downloaded_models()] == [
+        "my-model",
+    ]
+    manager.remove_downloaded_model("my-model")
+    assert manager.list_downloaded_models() == []
+    assert readme.is_file()
 
 
 def test_delete_rejects_non_model_directories(tmp_path: Path) -> None:
@@ -386,6 +407,9 @@ def test_delete_rejects_symlink_to_directory_outside_models(
     except (OSError, NotImplementedError):
         pytest.skip("Directory symlinks are unavailable")
 
+    assert [m.id for m in manager.list_downloaded_models()] == ["linked-model"]
+    backend = LlamaCppBackend(data_dir=tmp_path)
+    assert backend._resolve_model_file(alias) == (weights, None)
     with pytest.raises(ValueError, match="Downloaded local model not found"):
         manager.remove_downloaded_model("linked-model")
     assert weights.is_file()

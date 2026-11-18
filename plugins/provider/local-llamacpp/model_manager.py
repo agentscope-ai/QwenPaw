@@ -8,6 +8,7 @@ import importlib
 import logging
 import shutil
 import uuid
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from queue import Empty
@@ -227,8 +228,7 @@ class ModelManager(ModelDownloads):
             return []
 
         models: list[LocalModelInfo] = []
-        for entry in self._iter_downloaded_model_dirs():
-            repo_id = self._infer_repo_id_from_path(entry)
+        for repo_id, entry in self._downloaded_repositories().items():
             size_bytes = self._calculate_downloaded_size(entry)
             is_piccolo = repo_id in PICCOLO_REPO_IDS
             models.append(
@@ -267,15 +267,19 @@ class ModelManager(ModelDownloads):
         running_model_id: str | None = None,
     ) -> None:
         """Delete a downloaded local model by repo id or directory name."""
-        model_dirs = self._iter_downloaded_model_dirs()
-        model_dir = next(
-            (
-                path
-                for path in model_dirs
-                if self._infer_repo_id_from_path(path) == model_id
-            ),
-            None,
-        )
+        repositories = self._downloaded_repositories()
+        model_dirs = repositories.values()
+        model_dir = repositories.get(model_id)
+        if model_dir is None:
+            # A repository ID can also address its exact on-disk directory.
+            model_dir = next(
+                (
+                    path
+                    for path in model_dirs
+                    if self._infer_repo_id_from_path(path) == model_id
+                ),
+                None,
+            )
         if model_dir is None:
             raise ValueError(f"Downloaded local model not found: {model_id}")
 
@@ -620,47 +624,58 @@ class ModelManager(ModelDownloads):
             return final_dir
         return final_dir / local_path.relative_to(staging_dir)
 
-    def _iter_downloaded_model_dirs(self) -> list[Path]:
-        candidates: list[Path] = []
-        entries = sorted(
-            self._model_dir.rglob("*"),
-            key=lambda item: item.parts,
-        )
-        for entry in entries:
-            if not entry.is_dir():
+    def _downloaded_repositories(self) -> dict[str, Path]:
+        """Map standalone and owner/repository model IDs to their directories."""
+        roots = []
+        for entry in sorted(self._model_dir.rglob("*")):
+            if not entry.is_dir() or self._is_temporary_download_dir(entry):
                 continue
-            if self._is_temporary_download_dir(entry):
-                continue
-            # A standalone model has its own weights at the top level.
-            pattern = (
-                "*.gguf" if entry.parent == self._model_dir else "**/*.gguf"
-            )
-            if not any(
-                path.is_file() and not path.name.lower().startswith("mmproj")
-                for path in entry.glob(pattern)
-            ):
+            parts = entry.relative_to(self._model_dir).parts
+            if len(parts) > 2 and any(root in entry.parents for root in roots):
                 continue
             if not self._looks_like_model_root(entry):
                 continue
-            candidates.append(entry)
-
-        selected: list[Path] = []
-        for candidate in sorted(candidates, key=lambda item: len(item.parts)):
-            # An owner/model repo can share its owner directory with a
-            # standalone model. Deeper paths can belong to a model already found.
-            depth = len(candidate.relative_to(self._model_dir).parts)
-            if depth > 2 and any(
-                candidate.is_relative_to(parent) for parent in selected
+            # A standalone model may share its top-level folder with separate
+            # owner/repository entries. Each repository owns its nested weights.
+            pattern = (
+                "*.gguf"
+                if len(parts) == 1 and not entry.is_symlink()
+                else "**/*.gguf"
+            )
+            if any(
+                not weight.name.lower().startswith("mmproj")
+                and not self._is_temporary_download_dir(weight)
+                and weight.is_file()
+                for weight in entry.glob(pattern)
             ):
-                continue
-            selected.append(candidate)
-        return selected
+                roots.append(entry)
+
+        counts = Counter(
+            root.relative_to(self._model_dir).parts[0] for root in roots
+        )
+        repositories = {}
+        for root in roots:
+            parent = root.parent
+            if (
+                root.name == "weights"
+                and parent.parent == self._model_dir
+                and counts[parent.name] == 1
+                and not root.is_symlink()
+                and self._looks_like_model_root(parent)
+                and all(
+                    child.suffix.lower() == ".gguf" for child in root.iterdir()
+                )
+            ):
+                # A legacy standalone model keeps its metadata above weights/.
+                repositories[parent.name] = root
+            else:
+                repositories[self._infer_repo_id_from_path(root)] = root
+        return repositories
 
     def _is_temporary_download_dir(self, path: Path) -> bool:
-        relative_parts = path.relative_to(self._model_dir).parts
         return any(
             part.startswith(".") or part.endswith(".downloading")
-            for part in relative_parts
+            for part in path.relative_to(self._model_dir).parts
         )
 
     def _looks_like_model_root(self, path: Path) -> bool:

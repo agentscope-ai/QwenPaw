@@ -6,12 +6,12 @@
 
 import asyncio
 import inspect
-from contextlib import ExitStack, asynccontextmanager
-from contextvars import ContextVar
+from contextlib import asynccontextmanager
 from copy import copy, deepcopy
 from dataclasses import asdict, fields, replace
 from typing import ClassVar
 
+from ..runtime.turn_context import current_provider_turn
 from .errors import SDKError, StaleContextError
 from .providers import (
     ConnectionResult,
@@ -23,67 +23,11 @@ from .providers import (
 )
 from .storage import PluginConfig
 
-_turn_usage = ContextVar("provider_turn_usage", default=None)
-
 
 def model_values(model):
     return {
         key: value for key, value in asdict(model).items() if value is not None
     }
-
-
-class ProviderTurn:
-    """Retain plugin admission and suspended streams for one Agent turn."""
-
-    def __init__(self):
-        self.task = asyncio.current_task()
-        self._admissions = ExitStack()
-        self._contexts = set()
-        self.producers = set()
-        self.closed = False
-        self.token = _turn_usage.set(self)
-
-    def guard(self):
-        if self.closed:
-            raise StaleContextError("The owning Agent turn has ended")
-
-    def retain(self, context):
-        self.guard()
-        if context not in self._contexts:
-            self._admissions.enter_context(context._admission(owner=self.task))
-            self._contexts.add(context)
-
-    async def close(self):
-        if (
-            self.closed
-            and not self.producers
-            and not self._contexts
-            and self.token is None
-        ):
-            return
-        self.closed = True
-        try:
-            if self.producers or self._contexts:
-                from ..utils.io_utils import run_async_to_completion
-
-                await run_async_to_completion(self._close_resources())
-        finally:
-            if self.token is not None:
-                try:
-                    _turn_usage.reset(self.token)
-                except ValueError:
-                    # Stream finalizers can run outside the owning context.
-                    pass
-                else:
-                    self.token = None
-
-    async def _close_resources(self):
-        from .custody import stop_task
-
-        for producer in tuple(self.producers):
-            await stop_task(producer, "provider-inference")
-        self._admissions.close()
-        self._contexts.clear()
 
 
 class ProviderBinding:
@@ -147,32 +91,39 @@ class ProviderBinding:
         from ..providers.provider_manager import ProviderManager
         from ..providers.model_info import ModelInfo
 
-        with self.context._admission():
-            provider = self.provider()
+        def changes(provider):
             values = {}
             if base_url is not None:
                 values["base_url"] = base_url
             if models is not None:
-                existing = {model.id: model for model in provider.extra_models}
                 published = []
                 for model in models:
-                    previous = existing.get(model.id)
+                    previous = provider.get_model_info(model.id)
                     item = previous.model_dump() if previous else {}
-                    item.update(model_values(model))
+                    metadata = model_values(model)
+                    if previous is not None:
+                        for field in previous.config_overrides:
+                            metadata.pop(field, None)
+                        if previous.max_input_length_configured:
+                            metadata.pop("max_input_length", None)
+                    item.update(metadata)
                     published.append(ModelInfo.model_validate(item))
                 values["extra_models"] = published
             if generate_kwargs is not None:
                 values["generate_kwargs"] = deepcopy(generate_kwargs)
-            values = {
+            return {
                 key: value
                 for key, value in values.items()
                 if getattr(provider, key) != value
             }
-            if values:
-                await ProviderManager.get_instance().update_provider_async(
-                    self.spec.id,
-                    values,
-                )
+
+        with self.context._admission():
+            self.guard()
+            if not await ProviderManager.get_instance().update_provider_async(
+                self.spec.id,
+                changes,
+            ):
+                raise StaleContextError(f"Provider {self.spec.id!r} changed")
 
     async def restore_selected(self):
         """Prepare a published model selected by an enabled Agent."""
@@ -233,11 +184,13 @@ class ProviderBinding:
             )
 
     @asynccontextmanager
-    async def _lease(self, model_id, owner, connect):
+    async def _lease(self, model_id, owner, purpose):
         async with self.invocation(self.provider(), owner=owner) as public:
+            connect = self.spec.connect
             if connect is None:
                 yield public.base_url
                 return
+            public = replace(public, connection_purpose=purpose)
             async with connect(public, model_id) as endpoint:
                 if not isinstance(endpoint, str) or not endpoint:
                     raise SDKError(
@@ -246,18 +199,15 @@ class ProviderBinding:
                 yield endpoint
 
     @asynccontextmanager
-    async def connect(self, model_id, for_check=False):
+    async def connect(self, model_id, purpose="inference"):
         self.guard()
-        turn = _turn_usage.get()
+        turn = current_provider_turn.get()
         if turn is not None:
             turn.guard()
         owner = turn.task if turn is not None else asyncio.current_task()
-        connect = self.spec.connect
-        if for_check and self.spec.connect_for_check is not None:
-            connect = self.spec.connect_for_check
-        async with self._lease(model_id, owner, connect) as endpoint:
+        async with self._lease(model_id, owner, purpose) as endpoint:
             if turn is not None:
-                turn.retain(self.context)
+                turn.retain(self.context, self.context._admission(owner=owner))
             yield endpoint
 
     async def call(self, model, *args, **kwargs):
@@ -273,12 +223,12 @@ class ProviderBinding:
             async with self.connect(model.model) as endpoint:
                 return await invoke(endpoint)
 
-        turn = _turn_usage.get()
+        turn = current_provider_turn.get()
 
         async def produce():
             if turn is not None:
                 turn.guard()
-            token = _turn_usage.set(turn)
+            token = current_provider_turn.set(turn)
             producer = asyncio.current_task()
             if turn is not None:
                 turn.producers.add(producer)
@@ -297,7 +247,7 @@ class ProviderBinding:
             finally:
                 if turn is not None:
                     turn.producers.discard(producer)
-                _turn_usage.reset(token)
+                current_provider_turn.reset(token)
 
         return self.context._managed_stream(
             produce,
@@ -387,17 +337,31 @@ def register_native(context, spec):
 
         async def check_model_connection(self, model_id, timeout=5):
             try:
-                async with binding.connect(
-                    model_id,
-                    for_check=True,
-                ) as endpoint:
+                async with (
+                    asyncio.timeout(timeout) as budget,
+                    binding.connect(model_id, purpose="check") as endpoint,
+                ):
                     provider = self.configuration_snapshot()
                     provider.base_url = endpoint
+                    deadline = budget.when()
+                    remaining = None
+                    if deadline is not None:
+                        remaining = (
+                            deadline - asyncio.get_running_loop().time()
+                        )
+                        if remaining <= 0:
+                            raise TimeoutError
                     return await OpenAIProvider.check_model_connection(
                         provider,
                         model_id,
-                        timeout,
+                        remaining,
                     )
+            except TimeoutError:
+                return ModelConnectionResult(
+                    success=False,
+                    message="Model connection check timed out",
+                    verification="unverified",
+                )
             except Exception as exc:
                 return ModelConnectionResult(
                     success=False,
@@ -422,7 +386,7 @@ def register_native(context, spec):
         @asynccontextmanager
         async def _multimodal_probe(self, model_id):
             self.validate_chat_model(model_id)
-            async with binding.connect(model_id) as endpoint:
+            async with binding.connect(model_id, purpose="probe") as endpoint:
 
                 async def probe(
                     provider,
@@ -495,8 +459,6 @@ def register(context, spec):
         raise SDKError("Provider requires generate or a supported protocol")
     if spec.connect is not None:
         raise SDKError("Provider connect requires a native protocol")
-    if spec.connect_for_check is not None:
-        raise SDKError("Provider connect_for_check requires a native protocol")
     from agentscope.credential import CredentialBase
     from agentscope.formatter import OpenAIChatFormatter
     from agentscope.model import ChatModelBase

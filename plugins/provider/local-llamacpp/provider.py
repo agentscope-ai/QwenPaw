@@ -78,14 +78,15 @@ class LocalProvider:
         return self._manager
 
     @asynccontextmanager
-    async def _operation(self):
+    async def _operation(self, initialize=True):
         self._guard()
         async with self._lock:
             self._guard()
-            await self._start()
+            if initialize:
+                await self._start()
             yield self._manager
 
-    async def _publish(self, result, *, model_type=None):
+    async def _publish(self, result, model_type=None):
         model = result.model_info
         info = ModelInfo(
             id=model.id,
@@ -122,17 +123,18 @@ class LocalProvider:
                 model_id,
                 before_restart=self._check_restart,
             )
-            await self._publish(
-                result,
-                model_type=result.model_info.model_type,
-            )
+            await self._publish(result, result.model_info.model_type)
             self._manually_stopped = False
             return result
 
     async def stop_server(self):
         async with self._operation() as manager:
-            await manager.stop_server()
-            await self._stopped()
+
+            async def stop():
+                await manager.stop_server()
+                await self._stopped()
+
+            await finish(stop())
 
     async def start_runtime_download(self):
         async with self._operation() as manager:
@@ -182,36 +184,41 @@ class LocalProvider:
         )
         return await self._publish(result)
 
-    def connect(self, _context, model_id):
-        return self._connect(model_id, start=True)
-
-    def connect_for_check(self, _context, model_id):
-        return self._connect((model_id or "").strip(), start=False)
-
     @asynccontextmanager
-    async def _connect(self, model_id, start):
+    async def connect(self, context, model_id):
+        purpose = context.connection_purpose
         key = object()
         try:
-            async with self._operation() as manager:
-                if self._manually_stopped:
+            async with self._operation(
+                initialize=purpose == "inference",
+            ) as manager:
+                if self._manually_stopped or manager is None:
                     raise SDKError(
-                        "Start the local server in "
-                        "Local Model Management first",
+                        "Start the local server in Local Model Management first",
                     )
-                result = await self._ensure_server(model_id) if start else None
                 status = manager.get_server_status()
-                if result is None:
+                if purpose == "check":
                     if (
                         not status["running"]
-                        or status["model_name"] != model_id
+                        or status["model_name"] != model_id.strip()
                     ):
                         raise SDKError(
-                            "Start this local model in Local Model Management "
-                            "first",
+                            "Start this local model in Local Model Management first",
                         )
                     port = status["port"]
                 else:
+                    # A probe may recover its published endpoint after a crash.
+                    # Only inference may replace it with a different model.
+                    if purpose == "probe" and (
+                        self._server_info is None
+                        or self._server_info.model_info.id != model_id
+                    ):
+                        raise SDKError(
+                            "This local model is no longer published",
+                        )
+                    result = await self._ensure_server(model_id)
                     port = result.port
+                    status = manager.get_server_status()
                 self._users[key] = status["pid"]
             yield f"http://127.0.0.1:{port}/v1"
         finally:

@@ -447,8 +447,8 @@ class Services:  # pylint: disable=protected-access
         # independently of the HTTP call that requested it.
         worker = Services(self.plugin, self.legacy, self.admitted)
         ready = asyncio.Event()
-        from ..agents.context.overflow_recovery import _stream_observer
-        from .sdk import _RunStreams, _stream_tasks
+        from ..runtime.turn_context import current_run_streams
+        from .sdk import _RunStreams
 
         owned = _RunStreams()
 
@@ -547,14 +547,12 @@ class Services:  # pylint: disable=protected-access
 
         async def produce(payload):
             with self.plugin._admission():
-                token = _stream_tasks.set(owned)
-                observer_token = _stream_observer.set(owned.retain)
+                token = current_run_streams.set(owned)
                 try:
                     event = await run(payload)
                 finally:
                     owned.closing = True
-                    _stream_observer.reset(observer_token)
-                    _stream_tasks.reset(token)
+                    current_run_streams.reset(token)
             yield event
 
         from .custody import stop_task

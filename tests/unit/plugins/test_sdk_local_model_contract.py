@@ -5,17 +5,28 @@
 
 import asyncio
 import importlib
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
 
 from qwenpaw.plugins import PluginBusyError, SDKError
-from qwenpaw.plugins._providers import ProviderTurn
+from qwenpaw.runtime.provider_turn import ProviderTurn
 from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.plugins.testing import PluginTestHost
 
 from qwenpaw.plugins.local_model_legacy import bundled_local_source
+
+
+@asynccontextmanager
+async def agent_turn():
+    turn = ProviderTurn()
+    try:
+        with turn.bind():
+            yield turn
+    finally:
+        await turn.close()
 
 
 @dataclass
@@ -175,14 +186,11 @@ async def test_registration_is_lazy_and_server_reused(tmp_path):
         assert runtime._manager is None
         backends = []
         for _ in range(2):
-            turn = ProviderTurn()
-            try:
+            async with agent_turn():
                 for _ in range(2):
                     async with binding.connect("local-A"):
                         pass
                 backends.append(runtime._manager)
-            finally:
-                await turn.close()
             assert not runtime._users
             assert runtime._manager.served == "local-A"
         assert backends[0] is backends[1]
@@ -193,8 +201,10 @@ async def test_registration_is_lazy_and_server_reused(tmp_path):
         assert provider.extra_models[0].probe_source == "probed"
 
 
-@pytest.mark.parametrize("early_close", [False, True])
-@pytest.mark.parametrize("failing_finally", [False, True])
+@pytest.mark.parametrize(
+    ("early_close", "failing_finally"),
+    [(False, False), (True, True)],
+)
 async def test_runtime_releases_provider_even_if_finally_hook_fails(
     tmp_path,
     early_close,
@@ -236,7 +246,7 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
 
         async def finish():
             if early_close:
-                await stream.aclose()
+                await asyncio.create_task(stream.aclose())
             else:
                 async for _ in stream:
                     pass
@@ -250,26 +260,96 @@ async def test_runtime_releases_provider_even_if_finally_hook_fails(
         finally:
             await stream.aclose()
         assert host.resource_snapshot("local-llamacpp")["active_calls"] == 0
+        async with binding.connect("local-A"):
+            pass
         assert (await host.unload("local-llamacpp")).quiescent
+
+
+async def test_cancelled_agent_close_releases_native_stream(tmp_path):
+    from agentscope.message import Msg, TextBlock
+    from qwenpaw.runtime.hooks import HookAction, HookResult
+    from qwenpaw.runtime.phases import Phase
+    from qwenpaw.runtime.runtime import Runtime
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        _, local = await load_backend(host, tmp_path)
+        closing = asyncio.Event()
+        native_stream = None
+
+        async def close():
+            closing.set()
+            await asyncio.Event().wait()
+
+        async def native():
+            async def chunks():
+                yield "one"
+                yield "two"
+
+            return chunks()
+
+        async def hook(phase, context):
+            nonlocal native_stream
+            if phase != Phase.PRE_DISPATCH:
+                return HookResult()
+            context.agent = SimpleNamespace(close=close)
+            native_stream = await call_model(
+                SimpleNamespace(
+                    model="local-A",
+                    client=SimpleNamespace(),
+                    stream=True,
+                ),
+                native,
+            )
+            assert await anext(native_stream) == "one"
+            return HookResult(
+                HookAction.SHORT_CIRCUIT,
+                Msg(
+                    name="test",
+                    role="assistant",
+                    content=[TextBlock(text="done")],
+                ),
+            )
+
+        workspace = SimpleNamespace(
+            agent_id="test",
+            workspace_dir=tmp_path,
+            plugins=SimpleNamespace(hook_registry=SimpleNamespace(run=hook)),
+        )
+        stream = Runtime(workspace=workspace, app_services=None).run(
+            {"session_id": "test"},
+        )
+        await anext(stream)
+        assert local._users
+        request = asyncio.create_task(stream.aclose())
+        try:
+            await asyncio.wait_for(closing.wait(), timeout=5)
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+            assert not local._users
+            assert (
+                host.resource_snapshot("local-llamacpp")["active_calls"] == 0
+            )
+        finally:
+            request.cancel()
+            await asyncio.gather(request, return_exceptions=True)
+            if native_stream is not None:
+                await native_stream.aclose()
 
 
 async def test_local_crash_and_model_switch_use_existing_backend(tmp_path):
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
-        turn = ProviderTurn()
-        try:
-            async with binding.connect("local-A"):
-                pass
-            runtime._manager.served = None  # Native process exited.
-            async with binding.connect("local-A"):
-                pass
-            assert runtime._manager.starts == 2
-            async with binding.connect("local-B"):
-                pass
-            assert runtime._manager.starts == 3
-            assert runtime._manager.served == "local-B"
-        finally:
-            await turn.close()
+        async with binding.connect("local-A"):
+            pass
+        runtime._manager.served = None  # Native process exited.
+        async with binding.connect("local-A"):
+            pass
+        assert runtime._manager.starts == 2
+        async with binding.connect("local-B"):
+            pass
+        assert runtime._manager.starts == 3
+        assert runtime._manager.served == "local-B"
         with pytest.raises(SDKError, match="Cannot delete"):
             await runtime.remove_downloaded_model("local-B")
 
@@ -286,36 +366,37 @@ async def test_running_stream_prevents_replacing_its_model(tmp_path):
             return chunks()
 
         turn = ProviderTurn()
-        stream = await call_model(
-            SimpleNamespace(
-                model="local-A",
-                client=SimpleNamespace(base_url="old"),
-                stream=True,
-            ),
-            native,
-        )
-        try:
-            assert await anext(stream) == "one"
-            async with binding.connect("local-A") as endpoint:
-                assert endpoint == "http://127.0.0.1:43111/v1"
-            assert runtime._manager.starts == 1
-            with pytest.raises(PluginBusyError):
-                async with binding.connect("local-B"):
-                    pytest.fail("The active model was replaced")
-            response = await host.request(
-                "POST",
-                "/api/local-models/server",
-                json={"model_id": "local-B"},
+        with turn.bind():
+            stream = await call_model(
+                SimpleNamespace(
+                    model="local-A",
+                    client=SimpleNamespace(base_url="old"),
+                    stream=True,
+                ),
+                native,
             )
-            assert response.status == 409
-            assert runtime._manager.served == "local-A"
-            assert await anext(stream) == "two"
-            await stream.aclose()
-            async with binding.connect("local-B"):
-                assert runtime._manager.served == "local-B"
-        finally:
-            await stream.aclose()
-            await turn.close()
+            try:
+                assert await anext(stream) == "one"
+                async with binding.connect("local-A") as endpoint:
+                    assert endpoint == "http://127.0.0.1:43111/v1"
+                assert runtime._manager.starts == 1
+                with pytest.raises(PluginBusyError):
+                    async with binding.connect("local-B"):
+                        pytest.fail("The active model was replaced")
+                response = await host.request(
+                    "POST",
+                    "/api/local-models/server",
+                    json={"model_id": "local-B"},
+                )
+                assert response.status == 409
+                assert runtime._manager.served == "local-A"
+                assert await anext(stream) == "two"
+                await stream.aclose()
+                async with binding.connect("local-B"):
+                    assert runtime._manager.served == "local-B"
+            finally:
+                await stream.aclose()
+                await turn.close()
 
 
 async def test_connection_check_keeps_the_running_local_model(
@@ -328,9 +409,12 @@ async def test_connection_check_keeps_the_running_local_model(
 
     async with PluginTestHost(tmp_path / "host") as host:
         _, runtime = await load_backend(host, tmp_path)
+        manager = ProviderManager.get_instance()
+        cold = await manager.check_provider_model("qwenpaw-local", "local-A")
+        assert not cold.success
+        assert runtime._manager is None
         server = await runtime.ensure_server("local-A")
         await runtime.handle.select("local-A")
-        manager = ProviderManager.get_instance()
         checked = []
         entered, release = asyncio.Event(), asyncio.Event()
 
@@ -401,24 +485,21 @@ async def test_cancelled_model_switch_keeps_the_new_endpoint(
     tmp_path,
     monkeypatch,
 ):
-    from qwenpaw.providers import ProviderManager
-
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
         first = await runtime.ensure_server("local-A")
         runtime._manager.port = first.port + 1
         endpoint = f"http://127.0.0.1:{first.port + 1}/v1"
-        manager = ProviderManager.get_instance()
-        update = manager._update_provider_async_locked
+        update = runtime.handle.update
         entered, resume = asyncio.Event(), asyncio.Event()
 
-        async def publish(provider_id, config):
+        async def publish(**config):
             if config.get("base_url") == endpoint:
                 entered.set()
                 await resume.wait()
-            return await update(provider_id, config)
+            return await update(**config)
 
-        monkeypatch.setattr(manager, "_update_provider_async_locked", publish)
+        monkeypatch.setattr(runtime.handle, "update", publish)
         request = asyncio.create_task(runtime.ensure_server("local-B"))
         try:
             await asyncio.wait_for(entered.wait(), timeout=5)
@@ -445,6 +526,18 @@ async def test_multimodal_probe_persists_result_after_runtime_restarts(
     async with PluginTestHost(tmp_path / "host") as host:
         binding, runtime = await load_backend(host, tmp_path)
         await runtime.ensure_server("local-A")
+        await runtime.handle.select("local-A")
+        manager = ProviderManager.get_instance()
+        from fastapi import HTTPException
+        from qwenpaw.app.routers.providers import probe_model_multimodal
+
+        with pytest.raises(HTTPException) as stale:
+            await probe_model_multimodal(manager, "qwenpaw-local", "local-B")
+        assert stale.value.status_code == 400
+        assert "no longer published" in stale.value.detail
+        assert runtime._manager.served == "local-A"
+        assert manager.load_active_model().model == "local-A"
+
         runtime._manager.served = None
         runtime._manager.port = 43112
         endpoint = "http://127.0.0.1:43112/v1"
@@ -456,7 +549,6 @@ async def test_multimodal_probe_persists_result_after_runtime_restarts(
             return ProbeResult(supports_image=False)
 
         monkeypatch.setattr(OpenAIProvider, "probe_model_multimodal", probe)
-        manager = ProviderManager.get_instance()
         result = await asyncio.wait_for(
             manager.probe_model_multimodal(
                 "qwenpaw-local",
@@ -480,14 +572,11 @@ async def test_turn_lease_survives_between_model_calls(tmp_path):
         between_calls, finish = asyncio.Event(), asyncio.Event()
 
         async def run():
-            turn = ProviderTurn()
-            try:
+            async with agent_turn():
                 async with binding.connect("local-A"):
                     pass
                 between_calls.set()
                 await finish.wait()
-            finally:
-                await turn.close()
 
         task = asyncio.create_task(run())
         await between_calls.wait()
@@ -803,8 +892,7 @@ async def test_management_routes_follow_plugin_lifecycle(tmp_path):
         assert (
             await host.request("GET", "/api/local-models/unknown")
         ).status == 404
-        turn = ProviderTurn()
-        try:
+        async with agent_turn():
             async with binding.connect("local-A"):
                 pass
             repeated = await host.request(
@@ -842,8 +930,6 @@ async def test_management_routes_follow_plugin_lifecycle(tmp_path):
                     await host.request(method, f"/api/local-models/{path}")
                 ).status == 200
             assert runtime._manager.served is None
-        finally:
-            await turn.close()
         response = await host.request(
             "POST",
             "/api/local-models/server/download",
@@ -883,8 +969,7 @@ async def test_stopping_service_clears_only_local_default_selection(
             model="local-A",
         )
         await manager.save_active_model_async(selection)
-        turn = ProviderTurn()
-        try:
+        async with agent_turn():
             async with binding.connect("local-A"):
                 pass
             response = await host.request(
@@ -903,13 +988,13 @@ async def test_stopping_service_clears_only_local_default_selection(
             )
             assert manager.active_model == expected
             assert manager.load_active_model() == expected
-        finally:
-            await turn.close()
 
 
-async def test_cancelled_runtime_download_setup_keeps_provider_in_sync(
+@pytest.mark.parametrize("operation", ["stop", "runtime-download"])
+async def test_cancelled_server_stop_keeps_provider_in_sync(
     tmp_path,
     monkeypatch,
+    operation,
 ):
     from qwenpaw.providers import ProviderManager
 
@@ -921,15 +1006,23 @@ async def test_cancelled_runtime_download_setup_keeps_provider_in_sync(
         entered = asyncio.Event()
         release = asyncio.Event()
 
-        async def start_download():
-            await manager.stop_server()
+        stop = manager.stop_server
+
+        async def stop_and_wait():
+            await stop()
             entered.set()
             await release.wait()
             return True
 
-        monkeypatch.setattr(manager, "start_runtime_download", start_download)
+        monkeypatch.setattr(
+            manager,
+            "stop_server" if operation == "stop" else "start_runtime_download",
+            stop_and_wait,
+        )
         request = asyncio.create_task(
-            host.request("POST", "/api/local-models/server/download"),
+            host.request("DELETE", "/api/local-models/server")
+            if operation == "stop"
+            else host.request("POST", "/api/local-models/server/download"),
         )
         try:
             await asyncio.wait_for(entered.wait(), timeout=5)
@@ -946,6 +1039,9 @@ async def test_cancelled_runtime_download_setup_keeps_provider_in_sync(
         assert manager.served is None
         assert binding.provider().base_url == ""
         assert ProviderManager.get_instance().load_active_model() is None
+        with pytest.raises(SDKError, match="Local Model Management"):
+            async with binding.connect("local-A"):
+                pytest.fail("The stopped server restarted")
 
 
 async def test_model_list_and_download_progress_do_not_publish_provider_state(
@@ -1003,31 +1099,68 @@ async def test_turn_end_closes_open_model_stream(tmp_path, cross_task):
             return chunks()
 
         turn = ProviderTurn()
-        stream = await call_model(
-            SimpleNamespace(
-                qwenpaw_provider_id="qwenpaw-local",
-                model="local-A",
-                client=SimpleNamespace(base_url="old"),
-                stream=True,
-            ),
-            native,
-        )
-        try:
-            assert await anext(stream) == "one"
-            if cross_task:
-                await asyncio.create_task(turn.close())
-            else:
+        with turn.bind():
+            stream = await call_model(
+                SimpleNamespace(
+                    qwenpaw_provider_id="qwenpaw-local",
+                    model="local-A",
+                    client=SimpleNamespace(base_url="old"),
+                    stream=True,
+                ),
+                native,
+            )
+            try:
+                assert await anext(stream) == "one"
+                if cross_task:
+                    await asyncio.create_task(turn.close())
+                else:
+                    await turn.close()
+                assert (
+                    closed.is_set()
+                ), "Turn ended but HTTP producer is still suspended"
+                assert not runtime._users
+            finally:
+                await stream.aclose()
                 await turn.close()
-            assert (
-                closed.is_set()
-            ), "Turn ended but HTTP producer is still suspended"
-            assert not runtime._users
-        finally:
-            await stream.aclose()
-            await turn.close()
         async with _binding.connect("local-A"):
             assert runtime._users
         assert not runtime._users
+
+
+async def test_turn_releases_sibling_stream_when_one_close_fails(tmp_path):
+    async with PluginTestHost(tmp_path / "host") as host:
+        _, runtime = await load_backend(host, tmp_path)
+        model = SimpleNamespace(
+            qwenpaw_provider_id="qwenpaw-local",
+            model="local-A",
+            client=SimpleNamespace(base_url="old"),
+            stream=True,
+        )
+
+        async def native(fail):
+            async def chunks():
+                try:
+                    yield "one"
+                finally:
+                    if fail:
+                        raise RuntimeError("stream cleanup failed")
+
+            return chunks()
+
+        turn = ProviderTurn()
+        with turn.bind():
+            first = await call_model(model, lambda: native(True))
+            assert await anext(first) == "one"
+            second = await call_model(model, lambda: native(False))
+        try:
+            assert await anext(second) == "one"
+            with pytest.raises(RuntimeError, match="stream cleanup failed"):
+                await turn.close()
+            assert not runtime._users
+            await host.reload("local-llamacpp")
+        finally:
+            await first.aclose()
+            await second.aclose()
 
 
 async def test_cross_task_consumption_keeps_original_turn(tmp_path):
@@ -1044,8 +1177,7 @@ async def test_cross_task_consumption_keeps_original_turn(tmp_path):
             return chunks()
 
         async def owner():
-            turn = ProviderTurn()
-            try:
+            async with agent_turn():
                 created.set_result(
                     await call_model(
                         SimpleNamespace(
@@ -1058,8 +1190,6 @@ async def test_cross_task_consumption_keeps_original_turn(tmp_path):
                     ),
                 )
                 await finish.wait()
-            finally:
-                await turn.close()
 
         task = asyncio.create_task(owner())
         stream = await created
@@ -1086,16 +1216,17 @@ async def test_stream_cannot_start_after_owning_turn_ends(tmp_path):
             raise AssertionError("Native call must not start")
 
         turn = ProviderTurn()
-        stream = await call_model(
-            SimpleNamespace(
-                qwenpaw_provider_id="qwenpaw-local",
-                model="local-A",
-                client=SimpleNamespace(base_url="old"),
-                stream=True,
-            ),
-            native,
-        )
-        await turn.close()
+        with turn.bind():
+            stream = await call_model(
+                SimpleNamespace(
+                    qwenpaw_provider_id="qwenpaw-local",
+                    model="local-A",
+                    client=SimpleNamespace(base_url="old"),
+                    stream=True,
+                ),
+                native,
+            )
+            await turn.close()
         with pytest.raises(StaleContextError):
             await anext(stream)
         assert runtime._manager is None

@@ -16,6 +16,7 @@ from ..exceptions import ProviderError
 from ..security.secret_store import (
     PROVIDER_SECRET_FIELDS,
     decrypt_dict_fields,
+    encrypt_dict_fields,
     is_encrypted,
 )
 from ..utils.io_utils import (
@@ -1015,10 +1016,6 @@ class ProviderManagerPersistenceMixin(
             self._migrate_local_provider_snapshots()
         except (OSError, ValueError, TypeError):
             logger.exception("Could not migrate local provider settings")
-        try:
-            self._preserve_local_model_directory()
-        except (OSError, ValueError, TypeError):
-            logger.exception("Could not preserve the local model directory")
 
     def _migrate_local_provider_snapshots(self) -> None:
         sources = [
@@ -1057,24 +1054,12 @@ class ProviderManagerPersistenceMixin(
 
             if not migrated:
                 return
-            provider_persistence.write_snapshot_payload(payload, target)
+            provider_persistence.write_snapshot_payload(
+                encrypt_dict_fields(payload, PROVIDER_SECRET_FIELDS),
+                target,
+            )
             for source in migrated:
                 source.unlink()
-
-    @staticmethod
-    def _preserve_local_model_directory() -> None:
-        """Keep legacy model files discoverable across plugin reinstalls."""
-        from ..constant import DEFAULT_LOCAL_PROVIDER_DIR, WORKING_DIR
-        from ..config.utils import load_config
-        from ..utils.io_utils import write_json_atomic
-
-        settings = load_config().plugins.get("local-llamacpp") or {}
-        data_dir = Path(settings.get("data_dir", DEFAULT_LOCAL_PROVIDER_DIR))
-        locator = WORKING_DIR / "plugin-data/local-llamacpp/data-root.json"
-        with get_sync_path_lock(locator):
-            if data_dir.is_dir() and not locator.exists():
-                locator.parent.mkdir(parents=True, exist_ok=True)
-                write_json_atomic(locator, {"data_dir": str(data_dir)})
 
     def _migrate_legacy_providers(self):
         """Migrate from legacy providers.json format to the new structure."""

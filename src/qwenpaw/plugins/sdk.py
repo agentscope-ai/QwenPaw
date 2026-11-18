@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from typing import Protocol, Callable, Awaitable, TYPE_CHECKING
 
+from ..runtime.turn_context import current_run_streams
 from .errors import SDKError, StaleContextError, ToolInputError, ResourceError
 from .resources import Registration, ResourceOwner, ResourceScope
 from .storage import MediaStore, PluginConfig, PluginStorage
@@ -35,8 +36,6 @@ if TYPE_CHECKING:
 
 
 _activation_owners = ContextVar("sdk_activation_owners", default=frozenset())
-# An App run owns only the SDK stream producers spawned in its call chain.
-_stream_tasks = ContextVar("sdk_run_stream_tasks", default=None)
 
 
 class _RunStreams:
@@ -274,7 +273,7 @@ class PluginContext:  # pylint: disable=protected-access
             deadline = (
                 inherited if deadline is None else min(deadline, inherited)
             )
-        owned = None if cleanup else _stream_tasks.get()
+        owned = None if cleanup else current_run_streams.get()
         if owned is not None and owned.closing:
             raise SDKError("The owning app run is closing")
         if not (
@@ -367,7 +366,7 @@ class PluginContext:  # pylint: disable=protected-access
             finally:
                 await stream.aclose()
 
-        owned = _stream_tasks.get()
+        owned = current_run_streams.get()
         if owned is not None and owned.closing:
             raise SDKError("The owning app run is closing")
         producer = (resources or self.resources).task(produce(), label)

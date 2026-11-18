@@ -12,7 +12,7 @@ from agentscope.tool import ToolChoice
 from openai import AsyncOpenAI, InternalServerError
 
 from qwenpaw.plugins import PluginBusyError, SDKError, StaleContextError
-from qwenpaw.plugins._providers import ProviderTurn
+from qwenpaw.runtime.provider_turn import ProviderTurn
 from qwenpaw.plugins.registry import PluginRegistry
 from qwenpaw.plugins.testing import PluginTestHost
 from qwenpaw.providers.openai_provider import OpenAIProvider
@@ -504,16 +504,17 @@ async def test_connection_releases_per_call_and_plugin_releases_per_turn(
         plugin = binding.spec.connect.__self__
         for _ in range(2):
             turn = ProviderTurn()
-            try:
-                for _ in range(3):
-                    async with binding.connect("model-A") as endpoint:
-                        assert endpoint == "https://prepared.test/v1"
-                        assert plugin.active == 1
-                    assert plugin.active == 0
-                with pytest.raises(PluginBusyError):
-                    await host.unload("extension-contract")
-            finally:
-                await turn.close()
+            with turn.bind():
+                try:
+                    for _ in range(3):
+                        async with binding.connect("model-A") as endpoint:
+                            assert endpoint == "https://prepared.test/v1"
+                            assert plugin.active == 1
+                        assert plugin.active == 0
+                    with pytest.raises(PluginBusyError):
+                        await host.unload("extension-contract")
+                finally:
+                    await turn.close()
             assert plugin.active == 0
         assert plugin.calls == 6
 
@@ -624,7 +625,11 @@ async def test_native_probes_use_prepared_endpoint_and_release_it(
                 == "configured"
             )
             assert current.custom_headers["x-preserved"] == "configured"
-            assert model_id == "model-A" and timeout == 3
+            assert model_id == "model-A"
+            if operation == "check_model_connection":
+                assert 0 < timeout < 3
+            else:
+                assert timeout == 3
             assert plugin.active == 1
             assert kwargs == (
                 {"image_only": False}
@@ -722,6 +727,77 @@ async def test_endpoint_check_cancellation_propagates(tmp_path):
         assert (
             host.resource_snapshot("extension-contract")["active_calls"] == 0
         )
+
+
+async def test_endpoint_preparation_uses_connection_check_budget(tmp_path):
+    source = "import asyncio\n" + SOURCE.replace(
+        "self.calls += 1",
+        "await asyncio.Event().wait()",
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(make_plugin(tmp_path, source, ["providers"]))
+        manager = ProviderManager.get_instance()
+        result = await asyncio.wait_for(
+            manager.check_provider_model(
+                "native-test",
+                "model-A",
+                timeout=0.01,
+            ),
+            timeout=2,
+        )
+        assert not result.success
+        assert result.verification == "unverified"
+        assert "timed out" in result.message
+        assert (
+            host.resource_snapshot("extension-contract")["active_calls"] == 0
+        )
+
+
+async def test_plugin_model_publication_preserves_user_overrides(tmp_path):
+    from qwenpaw.plugins.providers import ModelInfo
+
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(make_plugin(tmp_path, SOURCE, ["providers"]))
+        handle = host._loader.get_loaded_plugin(
+            "extension-contract",
+        ).instance.provider
+        manager = ProviderManager.get_instance()
+        await manager.update_model_config(
+            "native-test",
+            "model-A",
+            {"max_input_length": 65536, "supports_image": True},
+        )
+        await handle.update(models=(ModelInfo("model-A", "Published"),))
+        model = manager.get_provider("native-test").get_model_info("model-A")
+        assert model.name == "Published"
+        assert model.max_input_length == 65536
+        assert model.max_input_length_configured
+        assert model.supports_image
+        assert "supports_image" in model.config_overrides
+
+
+async def test_unsupported_decision_selection_preserves_default(tmp_path):
+    from qwenpaw.config.config import ModelSlotConfig
+
+    source = SOURCE.replace(
+        "supports_multimodal=False",
+        'model_type="decision"',
+    )
+    async with PluginTestHost(tmp_path / "host") as host:
+        await host.load(make_plugin(tmp_path, source, ["providers"]))
+        handle = host._loader.get_loaded_plugin(
+            "extension-contract",
+        ).instance.provider
+        manager = ProviderManager.get_instance()
+        original = ModelSlotConfig(provider_id="typesafe", model="previous")
+        await manager.save_active_model_async(original, model_type="decision")
+        with pytest.raises(
+            SDKError,
+            match="Decision model provider is unsupported",
+        ):
+            await handle.select("model-A", model_type="decision")
+        assert manager.default_models["decision"] == original
+        assert manager.load_active_model(model_type="decision") == original
 
 
 @pytest.mark.parametrize("provider_id", ["openai", "dashscope"])
@@ -829,8 +905,15 @@ plugin = Plugin()
         assert host.resource_snapshot(ctx.plugin_id)["active_calls"] == 0
 
 
-@pytest.mark.parametrize("outcome", ["ok", "http_error", "cancel"])
-@pytest.mark.parametrize("endpoint", ["configured", "prepared"])
+@pytest.mark.parametrize(
+    ("outcome", "endpoint"),
+    [
+        ("ok", "configured"),
+        ("ok", "prepared"),
+        ("http_error", "prepared"),
+        ("cancel", "prepared"),
+    ],
+)
 async def test_native_decision_calls_retain_transport_and_turn_ownership(
     tmp_path,
     monkeypatch,
@@ -889,25 +972,29 @@ async def test_native_decision_calls_retain_transport_and_turn_ownership(
             max_retries=0,
         )
         turn = ProviderTurn()
-        try:
-            call = model("state", {"q": BinaryQuestion(instructions="Safe?")})
-            if outcome == "ok":
-                result = await call
-                assert result.content["q"].probability == 0.1
-                assert result.usage.input_tokens == 12
-            else:
-                expected = (
-                    asyncio.CancelledError
-                    if outcome == "cancel"
-                    else TypeSafeError
+        with turn.bind():
+            try:
+                call = model(
+                    "state",
+                    {"q": BinaryQuestion(instructions="Safe?")},
                 )
-                with pytest.raises(expected):
-                    await call
-            with pytest.raises(PluginBusyError):
-                await host.unload("extension-contract")
-        finally:
-            await model.client.aclose()
-            await turn.close()
+                if outcome == "ok":
+                    result = await call
+                    assert result.content["q"].probability == 0.1
+                    assert result.usage.input_tokens == 12
+                else:
+                    expected = (
+                        asyncio.CancelledError
+                        if outcome == "cancel"
+                        else TypeSafeError
+                    )
+                    with pytest.raises(expected):
+                        await call
+                with pytest.raises(PluginBusyError):
+                    await host.unload("extension-contract")
+            finally:
+                await model.client.aclose()
+                await turn.close()
         assert len(requests) == 1
         assert all(c._http_client.is_closed for c in clients)
         assert (await host.unload("extension-contract")).quiescent
