@@ -22,11 +22,13 @@ import pytest
 
 from qwenpaw.app.multi_agent_manager import MultiAgentManager
 from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.exceptions import ConfigurationException
 
 
-def _fake_workspace() -> MagicMock:
+def _fake_workspace(agent_id: str = "agent") -> MagicMock:
     ws = MagicMock()
-    ws.config = AgentProfileConfig(id="agent", name="Agent")
+    ws.config = AgentProfileConfig(id=agent_id, name="Agent")
+    ws.agent_id = agent_id
     ws.config.running.light_context_config.strategy = "native"
     ws.start_history_retention = AsyncMock()
     ws.start = AsyncMock()
@@ -227,7 +229,11 @@ async def test_late_driver_activation_cannot_resume_retired_crons(
             mgr._agent_stop_tasks[id(new_instance)] = MagicMock()
     finally:
         release.set()
-        await pending
+        with pytest.raises(
+            ConfigurationException,
+            match="Agent 'agent' stopped during startup",
+        ):
+            await pending
     resume.assert_not_called()
 
 
@@ -339,7 +345,13 @@ async def test_shutdown_retries_retired_workspace_preserving_reused_services(
     mgr = MultiAgentManager()
     old, new = _fake_workspace(), _fake_workspace()
     mgr.agents["agent"] = new
-    old.stop.side_effect = [RuntimeError("plugin still alive"), None]
+
+    async def stop(**_kwargs):
+        if old.stop.await_count == 1:
+            raise RuntimeError("plugin still alive")
+        old.cancel_active_requests.assert_awaited()
+
+    old.stop.side_effect = stop
     monkeypatch.setattr(
         "qwenpaw.app.multi_agent_manager._OLD_WORKSPACE_CLEANUP_RETRY_SECONDS",
         60,
@@ -354,7 +366,6 @@ async def test_shutdown_retries_retired_workspace_preserving_reused_services(
         call.kwargs == {"final": False} for call in old.stop.await_args_list
     )
     new.stop.assert_awaited_once_with()
-    old.cancel_active_requests.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -487,8 +498,7 @@ async def test_stop_agent_retries_failed_retired_cleanup(monkeypatch):
     """A failed old workspace remains owned without stopping another agent."""
     mgr = MultiAgentManager()
     old = _fake_workspace()
-    old.agent_id = "agent"
-    current, other = _fake_workspace(), _fake_workspace()
+    current, other = _fake_workspace(), _fake_workspace("other")
     mgr.agents.update(agent=current, other=other)
     old.stop.side_effect = [RuntimeError("busy"), RuntimeError("busy"), None]
     monkeypatch.setattr(
@@ -518,7 +528,6 @@ async def test_cancelled_stop_caller_keeps_retired_cleanup_owned(monkeypatch):
     """Cancelled callers leave cleanup owned and the manager lock available."""
     mgr = MultiAgentManager()
     old = _fake_workspace()
-    old.agent_id = "agent"
     current = _fake_workspace()
     mgr.agents["agent"] = current
     entered, release = asyncio.Event(), asyncio.Event()

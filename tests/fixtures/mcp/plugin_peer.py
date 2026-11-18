@@ -83,12 +83,7 @@ async def requests(_request):
 async def sessions(_request):
     return JSONResponse(
         [
-            {
-                "terminated": mcp.session_manager._server_instances[
-                    session_id.decode()
-                ].is_terminated,
-                "delete": row["delete"],
-            }
+            {"id": session_id.decode(), "delete": row["delete"]}
             for session_id, row in _sessions.items()
         ],
     )

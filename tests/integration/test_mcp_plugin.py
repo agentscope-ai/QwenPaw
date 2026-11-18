@@ -96,17 +96,23 @@ async def echo(host, key="echo", text="hello"):
 
 
 async def assert_sessions_terminated(endpoint):
+    url = endpoint["url"]
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            endpoint["url"].removesuffix("/mcp") + "/sessions",
-        )
-    sessions = response.json()
-    assert sessions, "The peer must have observed a successful handshake"
-    assert all(row["terminated"] for row in sessions)
-    assert all(
-        row["delete"] == {"status": 200, "auth_matches": True}
-        for row in sessions
-    )
+        response = await client.get(url.removesuffix("/mcp") + "/sessions")
+        response.raise_for_status()
+        sessions = response.json()
+        assert sessions, "The peer must have observed a successful handshake"
+        for row in sessions:
+            assert row["delete"] == {"status": 200, "auth_matches": True}
+            async with client.stream(
+                "GET",
+                url,
+                headers={
+                    "Accept": "text/event-stream",
+                    "Mcp-Session-Id": row["id"],
+                },
+            ) as closed:
+                assert closed.status_code == 404
 
 
 async def assert_endpoint_credentials_isolated(host, tmp_path, endpoint):
