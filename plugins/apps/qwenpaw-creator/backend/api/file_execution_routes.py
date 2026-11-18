@@ -24,6 +24,7 @@ from domain.enums import (
 )
 from domain.errors import ConflictError, NotFoundError, StorageIntegrityError
 from schemas.common import StrictModel
+from services.file_agent_runtime import manual_regeneration_hold
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
@@ -440,8 +441,38 @@ async def render_timeline(
     timeline_id: str,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     services: CreatorFileServices = Depends(project_file_services),
+    automatic: bool = False,
 ) -> dict[str, Any]:
-    """User-initiated final video export: deterministic local composition,
+    """Start a local timeline export, respecting a hold for automatic requests."""
+    if automatic:
+        with manual_regeneration_hold.automatic_node(
+            services.root,
+            project_id,
+            f"compose:{timeline_id}",
+        ):
+            await asyncio.to_thread(
+                manual_regeneration_hold.check_automatic,
+                services.root,
+                project_id,
+            )
+            return await _render_timeline(
+                project_id,
+                timeline_id,
+                idempotency_key,
+                services,
+            )
+    return await _render_timeline(
+        project_id, timeline_id, idempotency_key, services
+    )
+
+
+async def _render_timeline(
+    project_id: str,
+    timeline_id: str,
+    idempotency_key: str | None,
+    services: CreatorFileServices,
+) -> dict[str, Any]:
+    """Deterministic local composition,
     bypassing the Agent pipeline.
 
     Reads all ready R2V/Edit elements of the target Timeline and composes
@@ -520,6 +551,14 @@ async def render_timeline(
             project_id=project_id,
             command=CreatorCommandType.COMPOSE_FINAL_VIDEO,
             target_ref=target_ref,
+        )
+
+        # Validation can run concurrently with a manual regeneration request.
+        # The worker inherits the same hold context for its Run and Task writes.
+        await asyncio.to_thread(
+            manual_regeneration_hold.check_automatic,
+            services.root,
+            project_id,
         )
 
         async def drive() -> None:

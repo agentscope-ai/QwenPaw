@@ -771,6 +771,7 @@ def test_whisper_probe_grades_a_2xx_before_claiming_capability(
             True,
             True,
         ),
+        ('{"output":{"text":"cumulative"}}', True, True),
         ('{"text": "hi"}', True, True),
         # Readable but empty: the route answered and nothing was transcribed,
         # which is the credential-only verdict.

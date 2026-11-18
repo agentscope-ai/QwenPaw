@@ -59,7 +59,8 @@ Project
 - R2V Creation 用 `creation.narrative` 保存生成单元的完整叙述，包括动作、运镜、节奏、衔接、对白和旁白。`creation.storyboard_prompt` 和 `creation.video_prompt` 分别描述实际图像和视频生成要求；`creation.storyboard_reference_version_ids` 和 `creation.video_reference_version_ids` 是同级的有序图片版本引用字段。以上字段都在 `creation` 内，不能放到 Element 顶层；例如视频提示词的 patch 路径是 `/timelines/items/<timelineId>/elements_by_id/<elementId>/creation/video_prompt`。
 - 视频生成按 creation 类型区分，每个类型只包含其模型真正消费的字段：
   - `type=r2v`（参考生视频）：完整片段叙述、分镜图提示词、视频提示词及图片引用。
-  - `type=t2v`（纯文本生视频）：只有 intent/narrative/continuity/video_prompt/recipe，无分镜、无参考。
+  - `type=t2v`（纯文本生视频）：只有 intent/narrative/continuity/video_prompt/generate_audio/recipe，无分镜、无参考。
+  - r2v/t2v/i2v 的 `creation.generate_audio` 控制视频原生声音，默认 true。用户要求完全静音、无声画面时必须写 false；只在提示词中写“静音”不能关闭供应商的声音生成。该字段会进入制作授权和执行参数，修改后需明确重新生成并审阅视频。
   - `type=i2v`（首帧生视频）：在 t2v 字段基础上增加 `first_frame_version_id`（exact 图片 version id）。
   - `type=s2v`（数字人口播）：`character_ref`（角色实体）、`portrait_version_id`（人物图 exact version，s2v 的 reference）、`script`（台词，经 TTS 变成驱动音频）、`audio_version_id`（驱动音频 exact version）、recipe；无分镜 prompt。
   类型声明即生成模式：提交工具的 mode 必须与 creation 类型一致，不得在提交时替换。

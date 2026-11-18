@@ -371,6 +371,65 @@ def test_file_execution_routes_list_and_cancel(tmp_path, run_scenario) -> None:
     assert replay.json() == cancelled.json()
 
 
+def test_automatic_timeline_render_respects_manual_hold(
+    tmp_path,
+    monkeypatch,
+    run_scenario,
+):
+    from services.file_agent_runtime.manual_regeneration_hold import (
+        ManualRegenerationHoldStore,
+    )
+    from services.file_agent_runtime.work_graph import WorkNode, WorkNodeStatus
+
+    app, services, _, _ = _app(tmp_path)
+    source = WorkNode(
+        node_id="video:shot",
+        kind="video",
+        label="shot",
+        status=WorkNodeStatus.DONE,
+    )
+    compose = WorkNode(
+        node_id="compose:timeline:main",
+        kind="compose",
+        label="compose",
+        status=WorkNodeStatus.READY,
+        deps=(source.node_id,),
+    )
+    holds = ManualRegenerationHoldStore(services.root)
+    holds.admitted(holds.begin("project-1", source, (source, compose)))
+    assert holds.is_held("project-1", compose.node_id)
+    calls = []
+
+    async def fake_execute(*_args, **_kwargs):
+        calls.append("render")
+
+    monkeypatch.setattr(
+        "services.media_files.local_execution.execute_file_local_media_command",
+        fake_execute,
+    )
+    monkeypatch.setattr(
+        "services.media_files.local_execution.validate_local_media_execution",
+        lambda *_args, **_kwargs: None,
+    )
+
+    async def scenario(client):
+        url = "/projects/project-1/timelines/timeline%3Amain/render"
+        blocked = await client.post(
+            url,
+            params={"automatic": True},
+            headers={"Idempotency-Key": "auto"},
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["details"]["code"] == "MANUAL_REGENERATION_HOLD"
+        assert not calls
+        manual = await client.post(url, headers={"Idempotency-Key": "manual"})
+        assert manual.status_code == 202
+        await asyncio.sleep(0)
+        assert calls == ["render"]
+
+    run_scenario(app, scenario)
+
+
 def test_timeline_render_dispatches_once_and_returns_before_completion(
     tmp_path,
     monkeypatch,

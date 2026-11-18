@@ -82,6 +82,23 @@ afterEach(() => {
 });
 
 describe("FileProjectReviewPanel", () => {
+  it("shows the authored native-audio change in readable review text", () => {
+    setup(
+      makeReviewRecord({
+        operations: [
+          makeReviewOperation({
+            json_pointer:
+              "/timelines/items/timeline:main/elements_by_id/shot/creation/generate_audio",
+            before: true,
+            after: false,
+          }),
+        ],
+      }),
+    );
+    expect(screen.getByText("有声 → 无声")).toBeInTheDocument();
+    expect(screen.queryByText("内容已更新")).toBeNull();
+  });
+
   it("renders a text summary and navigates to the ui_locator on inspect", () => {
     setup();
     expect(screen.getByText("创作修改")).toBeInTheDocument();

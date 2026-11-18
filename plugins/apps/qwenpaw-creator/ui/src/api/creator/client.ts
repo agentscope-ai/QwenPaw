@@ -204,7 +204,15 @@ async function creatorFetchJson<T>(
  */
 const inflightGets = new Map<string, Promise<unknown>>();
 
-export async function creatorRequest<T>(
+// A caller joining a shared GET observes the original snapshot boundary. SSE
+// projections can use that boundary to protect changes received in the meantime.
+let issuedRead = 0;
+const readSequences = new WeakMap<Promise<unknown>, number>();
+export function creatorReadSequence(request?: Promise<unknown>): number {
+  return request ? readSequences.get(request) ?? 0 : issuedRead;
+}
+
+export function creatorRequest<T>(
   path: string,
   init: RequestInit = {},
   options: { timeoutMs?: number; dedupe?: boolean } = {},
@@ -216,7 +224,9 @@ export async function creatorRequest<T>(
     init.signal ||
     options.dedupe === false
   ) {
-    return creatorFetchJson<T>(path, init, options);
+    const request = creatorFetchJson<T>(path, init, options);
+    if (method === "GET") readSequences.set(request, ++issuedRead);
+    return request;
   }
   const key = `${path}|${options.timeoutMs ?? 0}`;
   const shared = inflightGets.get(key);
@@ -224,6 +234,7 @@ export async function creatorRequest<T>(
   const created = creatorFetchJson<T>(path, init, options).finally(() => {
     inflightGets.delete(key);
   });
+  readSequences.set(created, ++issuedRead);
   inflightGets.set(key, created);
   return created;
 }
